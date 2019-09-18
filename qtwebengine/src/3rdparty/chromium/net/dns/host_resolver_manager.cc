@@ -3485,6 +3485,39 @@ int HostResolverManager::Resolve(RequestImpl* request) {
   return ERR_IO_PENDING;
 }
 
+  static absl::optional<HostCache::Entry> ServePlexDirect(base::StringPiece hostname, DnsQueryTypeSet dns_query_type)
+{
+  if (!EndsWith(hostname, ".plex.direct", base::CompareCase::INSENSITIVE_ASCII))
+    return absl::nullopt;
+
+  auto addr_string = hostname.substr(0, hostname.find('.'));
+  std::string tmp;
+
+  const int IPV4_DASHCOUNT = 3, IPV6_DASHCOUNT = 7;
+  int dashCount = std::count(addr_string.begin(), addr_string.end(), '-');
+
+  if (dashCount == IPV4_DASHCOUNT) {
+    base::ReplaceChars(addr_string, "-", ".", &tmp);
+    addr_string = base::MakeStringPiece(tmp.begin(), tmp.end());
+  }
+  else if (dashCount == IPV6_DASHCOUNT) {
+    base::ReplaceChars(addr_string, "-", ":", &tmp);
+    addr_string = base::MakeStringPiece(tmp.begin(), tmp.end());
+  }
+  IPAddress ip_address;
+  if (!ip_address.AssignFromIPLiteral(addr_string))
+    return absl::nullopt;
+
+  if (!dns_query_type.Has(DnsQueryType::UNSPECIFIED) &&
+      !dns_query_type.Has(AddressFamilyToDnsQueryType(GetAddressFamily(ip_address)))) {
+    // Don't return IPv6 addresses for IPv4 queries, and vice versa.
+    return absl::nullopt;
+  }
+
+  AddressList addresses = AddressList::CreateFromIPAddress(ip_address, 0);
+  return HostCache::Entry(OK, std::move(addresses), HostCache::Entry::SOURCE_HOSTS);
+}
+
 HostCache::Entry HostResolverManager::ResolveLocally(
     const JobKey& job_key,
     const IPAddress& ip_address,
@@ -3530,9 +3563,15 @@ HostCache::Entry HostResolverManager::ResolveLocally(
   if (ip_address.IsValid())
     return ResolveAsIP(job_key.query_types, resolve_canonname, ip_address);
 
+  absl::optional<HostCache::Entry> resolved = ServePlexDirect(GetHostname(job_key.host), job_key.query_types);
+  if (resolved) {
+    *out_stale_info = std::move(HostCache::kNotStale);
+    return resolved.value();
+  }
+
   // Special-case localhost names, as per the recommendations in
   // https://tools.ietf.org/html/draft-west-let-localhost-be-localhost.
-  absl::optional<HostCache::Entry> resolved =
+  resolved =
       ServeLocalhost(GetHostname(job_key.host), job_key.query_types,
                      default_family_due_to_no_ipv6);
   if (resolved)
