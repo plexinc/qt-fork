@@ -349,6 +349,8 @@ void WebEngineSettings::applySettingsToWebPreferences(content::WebPreferences *p
     prefs->available_hover_types = ui::HOVER_TYPE_HOVER;
     prefs->primary_hover_type = ui::HOVER_TYPE_HOVER;
 #endif
+    prefs->viewport_meta_enabled = true;
+    prefs->shrinks_viewport_contents_to_fit = true;
     if (prefs->viewport_enabled) {
         // We need to enable the viewport options together as it doesn't really work
         // to enable them separately. With viewport-enabled we match Android defaults.
