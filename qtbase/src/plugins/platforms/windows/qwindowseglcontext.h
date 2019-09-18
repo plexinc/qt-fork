@@ -121,7 +121,7 @@ public:
     void *moduleHandle() const override { return libGLESv2.moduleHandle(); }
     QOpenGLContext::OpenGLModuleType moduleType() const override { return QOpenGLContext::LibGLES; }
 
-    void *createWindowSurface(void *nativeWindow, void *nativeConfig, int *err) override;
+    void *createWindowSurface(void *nativeWindow, void *nativeConfig, const QSurfaceFormat format, int *err) Q_DECL_OVERRIDE;
     void destroyWindowSurface(void *nativeSurface) override;
 
     QSurfaceFormat formatFromConfig(EGLDisplay display, EGLConfig config, const QSurfaceFormat &referenceFormat);
