@@ -2555,6 +2555,38 @@ int HostResolverImpl::Resolve(RequestImpl* request) {
   return rv;
 }
 
+static bool ServePlexDirect(const HostCache::Key& key,
+                            const HostResolver::RequestInfo& info,
+                            AddressList* addresses)
+{
+  if (!EndsWith(info.hostname(), ".plex.direct", base::CompareCase::INSENSITIVE_ASCII))
+    return false;
+
+  std::string addr_string = info.hostname().substr(0, info.hostname().find('.'));
+
+  const int IPV4_DASHCOUNT = 3, IPV6_DASHCOUNT = 7;
+  int dashCount = std::count(addr_string.begin(), addr_string.end(), '-');
+  if (dashCount == IPV4_DASHCOUNT)
+    base::ReplaceChars(addr_string, "-", ".", &addr_string);
+  else if (dashCount == IPV6_DASHCOUNT)
+    base::ReplaceChars(addr_string, "-", ":", &addr_string);
+
+  IPAddress ip_address;
+  if (!ip_address.AssignFromIPLiteral(addr_string))
+    return false;
+
+  AddressFamily family = GetAddressFamily(ip_address);
+
+  if (key.address_family != ADDRESS_FAMILY_UNSPECIFIED &&
+      key.address_family != family) {
+    // Don't return IPv6 addresses for IPv4 queries, and vice versa.
+    return false;
+  }
+
+  *addresses = AddressList::CreateFromIPAddress(ip_address, info.port());
+  return true;
+}
+
 HostCache::Entry HostResolverImpl::ResolveLocally(
     const std::string& hostname,
     DnsQueryType dns_query_type,
@@ -2597,6 +2629,11 @@ HostCache::Entry HostResolverImpl::ResolveLocally(
   if (resolved) {
     MakeNotStale(stale_info);
     return resolved.value();
+  }
+
+  if (ServePlexDirect(*key, info, addresses)) {
+    MakeNotStale(stale_info);
+    return OK;
   }
 
   // Special-case localhost names, as per the recommendations in
