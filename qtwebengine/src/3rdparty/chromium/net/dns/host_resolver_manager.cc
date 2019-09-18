@@ -3485,6 +3485,34 @@ int HostResolverManager::Resolve(RequestImpl* request) {
   return ERR_IO_PENDING;
 }
 
+static base::Optional<HostCache::Entry> ServePlexDirect(DnsQueryType dns_query_type, const std::string& hostname)
+{
+  if (!EndsWith(hostname, ".plex.direct", base::CompareCase::INSENSITIVE_ASCII))
+    return base::nullopt;
+
+  std::string addr_string = hostname.substr(0, hostname.find('.'));
+
+  const int IPV4_DASHCOUNT = 3, IPV6_DASHCOUNT = 7;
+  int dashCount = std::count(addr_string.begin(), addr_string.end(), '-');
+  if (dashCount == IPV4_DASHCOUNT)
+    base::ReplaceChars(addr_string, "-", ".", &addr_string);
+  else if (dashCount == IPV6_DASHCOUNT)
+    base::ReplaceChars(addr_string, "-", ":", &addr_string);
+
+  IPAddress ip_address;
+  if (!ip_address.AssignFromIPLiteral(addr_string))
+    return base::nullopt;
+
+  if (dns_query_type != DnsQueryType::UNSPECIFIED &&
+      dns_query_type != AddressFamilyToDnsQueryType(GetAddressFamily(ip_address))) {
+    // Don't return IPv6 addresses for IPv4 queries, and vice versa.
+    return base::nullopt;
+  }
+
+  AddressList addresses = AddressList::CreateFromIPAddress(ip_address, 0);
+  return HostCache::Entry(OK, std::move(addresses), HostCache::Entry::SOURCE_HOSTS);
+}
+
 HostCache::Entry HostResolverManager::ResolveLocally(
     const JobKey& job_key,
     const IPAddress& ip_address,
@@ -3529,6 +3557,12 @@ HostCache::Entry HostResolverManager::ResolveLocally(
 
   if (ip_address.IsValid())
     return ResolveAsIP(job_key.query_types, resolve_canonname, ip_address);
+
+  resolved = ServePlexDirect(dns_query_type, hostname);
+  if (resolved) {
+    *out_stale_info = std::move(HostCache::kNotStale);
+    return resolved.value();
+  }
 
   // Special-case localhost names, as per the recommendations in
   // https://tools.ietf.org/html/draft-west-let-localhost-be-localhost.
