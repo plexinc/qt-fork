@@ -1515,13 +1515,15 @@ bool QCocoaWindow::updatesWithDisplayLink() const
 
 void QCocoaWindow::deliverUpdateRequest()
 {
-    // Don't send update requests for views that need display, as the update
-    // request doesn't carry any information about dirty rects, so the app
-    // may end up painting a smaller region than required. (For some reason
-    // the layer and view's needsDisplay status isn't always in sync, even if
-    // the view is layer-backed, not layer-hosted, so we check both).
-    if (m_view.layer.needsDisplay || m_view.needsDisplay) {
-        qCDebug(lcQpaDrawing) << "View needs display, deferring update request for" << window();
+    static bool deliverDuringResize = qEnvironmentVariableIsSet("QT_MAC_DELIVER_UPDATE_REQUESTS_DURING_RESIZE");
+    if (!deliverDuringResize && m_view.inLiveResize) {
+        // Delivering update requests during live resizing may result in updates
+        // to the view's surface that are out of sync with the window frame, or
+        // with the view and layer's size. This will result in visual artifacts
+        // such as content jumping around, or areas missing content. We defer
+        // the update requests until we can ensure that the updates that happen
+        // outside of the display cycle are in sync with the resize.
+        qCDebug(lcQpaDrawing) << "Live resizing, deferring update request for" << window();
         requestUpdate();
         return;
     }
