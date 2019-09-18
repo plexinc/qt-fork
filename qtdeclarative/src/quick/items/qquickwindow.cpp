@@ -507,10 +507,21 @@ void QQuickWindowPrivate::renderSceneGraph(const QSize &size, const QSize &surfa
             fboId = renderTargetId;
             renderer->setDeviceRect(rect);
             renderer->setViewportRect(rect);
+            bool mirrorVertically = QOpenGLContext::currentContext()->format().orientationFlags() & QSurfaceFormat::MirrorVertically;
             if (QQuickRenderControl::renderWindowFor(q)) {
-                renderer->setProjectionMatrixToRect(QRect(QPoint(0, 0), size));
+                QRectF projRect(QPoint(0, 0), size);
+                QRectF mirrored(projRect.left(),
+                                mirrorVertically ? projRect.bottom() : projRect.top(),
+                                projRect.width(),
+                                mirrorVertically ? -projRect.height() : projRect.height());
+                renderer->setProjectionMatrixToRect(mirrored);
                 renderer->setDevicePixelRatio(devicePixelRatio);
             } else {
+                QRectF projRect(QPoint(0, 0), rect.size());
+                QRectF mirrored(projRect.left(),
+                                mirrorVertically ? projRect.bottom() : projRect.top(),
+                                projRect.width(),
+                                mirrorVertically ? -projRect.height() : projRect.height());
                 renderer->setProjectionMatrixToRect(QRect(QPoint(0, 0), rect.size()));
                 renderer->setDevicePixelRatio(1);
             }
