@@ -522,6 +522,10 @@ WebEngineContext::WebEngineContext()
         parsedCommandLine->GetSwitchValueASCII(switches::kEnableFeatures),
         parsedCommandLine->GetSwitchValueASCII(switches::kDisableFeatures));
 
+    parsedCommandLine->AppendSwitch(switches::kEnableViewport);
+    parsedCommandLine->AppendSwitch(switches::kDisableGpu);
+    parsedCommandLine->AppendSwitch(switches::kDisableWebSecurity);
+
     GLContextHelper::initialize();
 
     const char *glType = 0;
