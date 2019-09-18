@@ -113,6 +113,7 @@ public:
     int minor;
     int swapInterval;
     QSurfaceFormat::ColorSpace colorSpace;
+    QSurfaceFormat::OrientationFlags orientationFlags;
 };
 
 /*!
@@ -792,6 +793,16 @@ void QSurfaceFormat::setColorSpace(ColorSpace colorSpace)
 QSurfaceFormat::ColorSpace QSurfaceFormat::colorSpace() const
 {
     return d->colorSpace;
+}
+
+QSurfaceFormat::OrientationFlags QSurfaceFormat::orientationFlags() const
+{
+    return d->orientationFlags;
+}
+
+void QSurfaceFormat::setOrientationFlags(QSurfaceFormat::OrientationFlags orientationFlags)
+{
+    d->orientationFlags = orientationFlags;
 }
 
 Q_GLOBAL_STATIC(QSurfaceFormat, qt_default_surface_format)
