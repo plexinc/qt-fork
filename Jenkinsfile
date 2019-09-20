@@ -36,11 +36,9 @@ stage("Build Qt") {
             "qtpurchasing",
             "qtwebview",
             "qtscript",
-            "qtbluetooth",
             "qtlocation",
             "qtscxml",
             "qtspeech",
-            "qtwebgl",
             "qtlottie",
             "qtwebglplugin",
           ]
@@ -96,15 +94,19 @@ stage("Build Qt") {
           }
 
           dir("build") {
-            def python_path = "c:\\Python27;" ? profileName.startsWith("plex-windows") : "/Users/jenkins/.pyenv/versions/2.7.16:"
-            withEnv(["PATH=${python_path}${env.PATH}"]) {
+            def python_path = "c:\\Python27" ? profileName.startsWith("plex-windows") : "/Users/jenkins/.pyenv/versions/2.7.16"
+            withEnv(["PATH+PYTHON=${python_path}"]) {
               def flags = common_flags.join(" ")
               echo("Configure line: ${flags}")
               if (isMac) {
+                tools.run(command: "env")
                 tools.run(command: "../configure ${flags}")
               }
               else if (isWin) {
-                tools.run(command: "..\\configure.bat ${flags}")
+                tools.run(command: '''
+                  call "C:\\Program Files (x86)\\Microsoft Visual Studio\\2017\\Community\\VC\\Auxiliary\\Build\\vcvarsall.bat" amd64
+                  call ..\\configure.bat ${flags}
+                  ''')
               }
             }
           }
