@@ -62,7 +62,7 @@ stage("Build Qt") {
           ]
 
           skip_modules.each { module ->
-            common_flags.append("-skip ${module}")
+            common_flags.add("-skip ${module}")
           }
 
           if (isMac) {
@@ -76,7 +76,7 @@ stage("Build Qt") {
             ])
 
             if (isDebug) {
-              common_flags.append("-debug-and-release")
+              common_flags.add("-debug-and-release")
             }
           }
 
@@ -87,7 +87,7 @@ stage("Build Qt") {
             ])
 
             if (isDebug) {
-              common_flags.append("-debug")
+              common_flags.add("-debug")
             }
           }
 
@@ -99,11 +99,12 @@ stage("Build Qt") {
             def python_path = "c:\\Python27;" ? profileName.startsWith("plex-windows") : "/Users/jenkins/.pyenv/versions/2.7.16:"
             withEnv(["PATH=${python_path}${env.PATH}"]) {
               def flags = common_flags.join(" ")
+              echo("Configure line: ${flags}")
               if (isMac) {
-                tools.run("../configure ${flags}")
+                tools.run(command: "../configure ${flags}")
               }
               else if (isWin) {
-                tools.run("..\\configure.bat ${flags}")
+                tools.run(command: "..\\configure.bat ${flags}")
               }
             }
           }
