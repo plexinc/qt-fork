@@ -112,34 +112,11 @@ class Build:
         fp.write(script.getvalue())
       sp.run(["cmd", "/C", str(build_script.resolve())]).check_returncode()
 
-  def _get_package_name(self):
-    version, sha = None, None
-    with open("include/QtCore/qconfig.h") as qconfig:
-      for line in qconfig:
-        match = re.search(r'QT_VERSION_STR "(.+)"', line)
-        if match:
-          version = match.group(1)
-          break
-    if not version:
-      raise RuntimeError("Could not read QT_VERSION_STR from QtCore/qconfig.h")
-
-    if "GIT_COMMIT" in os.environ:
-      sha = os.environ["GIT_COMMIT"][:8]
-    else:
-      git = sp.run(["git", "rev-parse", "--short=8", "HEAD"], stdout=sp.PIPE)
-      git.check_returncode()
-      sha = git.stdout.decode().strip()
-
-    os_name = platform.system().lower()
-
-    return f"qt-{version}-{sha}-{os_name}-x86_64-{self.build_type}.tar.xz"
-
   def package(self):
     with chdir(self.build_root / self.prefix):
-      package_name = self._get_package_name()
-      print(f"Creating {package_name}")
+      print(f"Creating {self.package_name}")
       cmake = sp.run(["cmake", "-E", "tar", "cJf",
-                      f"../{self._get_package_name()}",
+                      f"../{self.package_name}",
                       "--format=gnutar", "."])
       cmake.check_returncode()
 
@@ -181,6 +158,29 @@ class Build:
   def jobs(self):
     return os.getenv("PLEX_JOBS", "6")
 
+  @property
+  def qt_version(self):
+    with open(self.build_root / "qtbase/.qmake.conf") as qconfig:
+      for line in qconfig:
+        match = re.search(r'MODULE_VERSION = (.+)', line)
+        if match:
+          return match.group(1)
+    raise RuntimeError("Could not read MODULE_VERSION from qtbase/.qmake.conf")
+
+  @property
+  def full_version(self):
+    return f"{self.qt_version}-{self.git_sha[:8]}"
+
+  @property
+  def git_sha(self):
+    if "GIT_COMMIT" in os.environ:
+      sha = os.environ["GIT_COMMIT"]
+    else:
+      git = sp.run(["git", "rev-parse", "HEAD"], stdout=sp.PIPE)
+      git.check_returncode()
+      sha = git.stdout.decode().strip()
+    return sha
+
   def compute_flags(self) -> str:
     flags = self.common_flags
     flags += [f"-skip {mod}" for mod in self.skip_modules]
@@ -215,6 +215,24 @@ class Build:
     }
     return environment
 
+  @property
+  def package_name(self):
+    os_name = platform.system().lower()
+    return f"qt-{self.full_version}-{os_name}-x86_64-{self.build_type}.tar.xz"
+
+  def write_spec(self):
+    template = open(self.script_path / "Artifactory.spec.in").read()
+    subst = {
+      "build_root": str(self.build_root).replace("\\", "/"),
+      "package_name": self.package_name,
+      "qt_version": self.qt_version,
+      "git_sha": self.git_sha,
+      "full_version": self.full_version,
+      "build_type": self.build_type,
+    }
+    with open("Artifactory.spec", "w") as spec:
+      spec.write(template.format(**subst))
+
 
 @contextmanager
 def chdir(dirname):
@@ -229,10 +247,12 @@ def chdir(dirname):
 if __name__ == "__main__":
   from argparse import ArgumentParser
   parser = ArgumentParser()
-  parser.add_argument("--no-package", action="store_true", help="Skip tarball creation")
+  parser.add_argument("--make-package", action="store_true", help="Create tarball")
   parser.add_argument("profile")
   args = parser.parse_args()
   build = Build(args.profile)
   build.run()
-  if not args.no_package:
+  if args.make_package:
     build.package()
+  build.write_spec()
+
