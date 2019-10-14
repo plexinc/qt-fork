@@ -2,11 +2,13 @@
 
 import platform
 import os
+import re
 import subprocess as sp
 import shutil
 
 from pathlib import Path
 from io import StringIO
+from contextlib import contextmanager
 
 
 SCRIPT_PATH = Path(__file__).parent.resolve()
@@ -51,19 +53,17 @@ class Build:
     "-no-openssl",
   ]
 
+  prefix = "qt-install"
+
   def __init__(self, profile: str):
     self.profile = profile
+    self.common_flags.append(f"-prefix {str(self.build_root / self.prefix)}")
 
   def run(self):
-    try:
-      cwd = os.getcwd()
-      os.chdir(self.script_path)
-      if self.is_windows:
-        return self.run_windows()
-      elif self.is_macos:
-        return self.run_macos()
-    finally:
-      os.chdir(cwd)
+    if self.is_windows:
+      return self.run_windows()
+    elif self.is_macos:
+      return self.run_macos()
 
   def _download_jom(self):
     # we have curl on the build nodes, but not requests (it's also quicker)
@@ -101,16 +101,47 @@ class Build:
         print(f"set {key}={value}", file=script)
       print()
 
-      print(f"cd {self.build_root}", file=script)
       print('call "C:\\Program Files (x86)\\Microsoft Visual Studio\\2017\\Community\\VC\\Auxiliary\\Build\\vcvarsall.bat" amd64', file=script)
       print(f"call {str(self.build_root / 'configure.bat')} {' '.join(flags)}", file=script)
-      print(f"jom", file=script)
+      print(f"jom /j{self.jobs}", file=script)
+      print(f"jom install", file=script)
+      print(f"if %ERRORLEVEL% GEQ 1 EXIT /B %ERRORLEVEL%", file=script)
       print(script.getvalue())
       build_script = Path("plex_build.cmd")
       with build_script.open("w") as fp:
         fp.write(script.getvalue())
-      input()
-      sp.run(["cmd", "/C", str(build_script.resolve())])
+      sp.run(["cmd", "/C", str(build_script.resolve())]).check_returncode()
+
+  def _get_package_name(self):
+    version, sha = None, None
+    with open("include/QtCore/qconfig.h") as qconfig:
+      for line in qconfig:
+        match = re.search(r'QT_VERSION_STR "(.+)"', line)
+        if match:
+          version = match.group(1)
+          break
+    if not version:
+      raise RuntimeError("Could not read QT_VERSION_STR from QtCore/qconfig.h")
+
+    if "GIT_COMMIT" in os.environ:
+      sha = os.environ["GIT_COMMIT"][:8]
+    else:
+      git = sp.run(["git", "rev-parse", "--short=8", "HEAD"], stdout=sp.PIPE)
+      git.check_returncode()
+      sha = git.stdout.decode().strip()
+
+    os_name = platform.system().lower()
+
+    return f"qt-{version}-{sha}-{os_name}-x86_64-{self.build_type}.tar.xz"
+
+  def package(self):
+    with chdir(self.build_root / self.prefix):
+      package_name = self._get_package_name()
+      print(f"Creating {package_name}")
+      cmake = sp.run(["cmake", "-E", "tar", "cJf",
+                      f"../{self._get_package_name()}",
+                      "--format=gnutar", "."])
+      cmake.check_returncode()
 
   def run_macos(self):
     pass
@@ -128,6 +159,10 @@ class Build:
     return self.profile.endswith("-debug")
 
   @property
+  def build_type(self):
+    return "debug" if self.is_debug else "release"
+
+  @property
   def build_root(self):
     return BUILD_ROOT
 
@@ -141,6 +176,10 @@ class Build:
   @property
   def script_path(self):
     return SCRIPT_PATH
+
+  @property
+  def jobs(self):
+    return os.getenv("PLEX_JOBS", "6")
 
   def compute_flags(self) -> str:
     flags = self.common_flags
@@ -168,7 +207,7 @@ class Build:
     return flags
 
   def compute_env(self):
-    jobs = os.getenv("PLEX_JOBS", "6")
+    jobs = self.jobs
     environment = {
       "CFLAGS": "", "CXXFLAGS": "", "LDFLAGS": "", "CL": "",
       "NINJAFLAGS": f"-j{jobs} -v",
@@ -177,10 +216,23 @@ class Build:
     return environment
 
 
+@contextmanager
+def chdir(dirname):
+  try:
+    cwd = os.getcwd()
+    os.chdir(dirname)
+    yield
+  finally:
+    os.chdir(cwd)
+
+
 if __name__ == "__main__":
   from argparse import ArgumentParser
   parser = ArgumentParser()
+  parser.add_argument("--no-package", action="store_true", help="Skip tarball creation")
   parser.add_argument("profile")
   args = parser.parse_args()
   build = Build(args.profile)
   build.run()
+  if not args.no_package:
+    build.package()

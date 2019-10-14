@@ -6,10 +6,26 @@ timestamps {
 def dockerImage = "plex/build-server:latest"
 def tools = new PlexTools(this)
 
-def targets = ['plex-macos-x86_64-clang-libcxx-release',
-               'plex-macos-x86_64-clang-libcxx-debug',
-               'plex-windows-x86_64-msvc15-debug',
-               'plex-windows-x86_64-msvc15-release']
+def targets = [
+  'plex-macos-x86_64-clang-libcxx-release',
+  'plex-macos-x86_64-clang-libcxx-debug',
+  'plex-windows-x86_64-msvc15-debug',
+  'plex-windows-x86_64-msvc15-release'
+]
+
+// ----------------------------------------------------------------------------
+
+def artifactoryServer = Artifactory.server 'ArtifactoryServer'
+def buildInfo = Artifactory.newBuildInfo()
+
+def uploadToArtifactory = {
+  def uploadSpec = readFile("Artifactory.spec")
+  echo uploadSpec
+  def localBI = artifactoryServer.upload(spec: uploadSpec)
+  buildInfo.append(localBI)
+}
+
+// ----------------------------------------------------------------------------
 
 stage("Build Qt") {
   builds = [:]
