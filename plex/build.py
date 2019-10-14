@@ -82,6 +82,15 @@ class Build:
     vs_data = json.loads(vswhere.stdout.decode())
     return vs_data[0]["installationPath"]
 
+  def _sanitize_path(self):
+    paths = os.environ["PATH"].split(os.pathsep)
+    result = []
+    for path in paths:
+      if "python" in path.lower():
+        continue
+      result.append(path)
+    return result
+
   def run_windows(self, is_dry):
     self._download_jom()
     # to make the path as short as possible we create a junction here.
@@ -100,8 +109,10 @@ class Build:
 
     flags = self.compute_flags()
     env = self.compute_env()
+    paths = [self.python_path, *self._sanitize_path()]
     for extra_path in ("gnuwin/bin", "qtbase/bin", str(self.script_path)):
-      env["PATH"] = f"{env['PATH']}{os.pathsep}{str(self.build_root / extra_path)}"
+      paths.append(str(self.build_root / extra_path))
+    env["PATH"] = os.pathsep.join(paths)
     env["PYTHONHOME"] = self.python_path
 
     with StringIO() as script:
@@ -110,7 +121,7 @@ class Build:
       print()
 
       vs_dir = self._get_vs_dir()
-
+      print(f"python -V", file=script)
       print(f'call "{vs_dir}\\VC\\Auxiliary\\Build\\vcvarsall.bat" amd64', file=script)
       print(f"call {str(self.build_root / 'configure.bat')} {' '.join(flags)}", file=script)
       print(f"jom /j{self.jobs}", file=script)
