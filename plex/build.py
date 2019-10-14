@@ -59,11 +59,11 @@ class Build:
     self.profile = profile
     self.common_flags.append(f"-prefix {str(self.build_root / self.prefix)}")
 
-  def run(self):
+  def run(self, is_dry=False):
     if self.is_windows:
-      return self.run_windows()
+      return self.run_windows(is_dry)
     elif self.is_macos:
-      return self.run_macos()
+      return self.run_macos(is_dry)
 
   def _download_jom(self):
     # we have curl on the build nodes, but not requests (it's also quicker)
@@ -74,7 +74,15 @@ class Build:
       zfp.extractall()
     os.remove("jom.zip")
 
-  def run_windows(self):
+  def _get_vs_dir(self):
+    import json
+    vswhere = sp.run([str(self.build_root / "vswhere.exe"), "-format", "json",
+                      "-version", "15.0"], stdout=sp.PIPE)
+    vswhere.check_returncode()
+    vs_data = json.loads(vswhere.stdout.decode())
+    return vs_data[0]["installationPath"]
+
+  def run_windows(self, is_dry):
     self._download_jom()
     # to make the path as short as possible we create a junction here.
     rootdrive = os.path.splitdrive(os.getenv("JENKINS_WORKSPACE_ROOT", "c:\\"))[0]
@@ -101,7 +109,9 @@ class Build:
         print(f"set {key}={value}", file=script)
       print()
 
-      print('call "C:\\Program Files (x86)\\Microsoft Visual Studio\\2017\\Community\\VC\\Auxiliary\\Build\\vcvarsall.bat" amd64', file=script)
+      vs_dir = self._get_vs_dir()
+
+      print(f'call "{vs_dir}\\VC\\Auxiliary\\Build\\vcvarsall.bat" amd64', file=script)
       print(f"call {str(self.build_root / 'configure.bat')} {' '.join(flags)}", file=script)
       print(f"jom /j{self.jobs}", file=script)
       print(f"jom install", file=script)
@@ -110,7 +120,10 @@ class Build:
       build_script = Path("plex_build.cmd")
       with build_script.open("w") as fp:
         fp.write(script.getvalue())
-      sp.run(["cmd", "/C", str(build_script.resolve())]).check_returncode()
+      if not is_dry:
+        sp.run(["cmd", "/C", str(build_script.resolve())]).check_returncode()
+      else:
+        print(script.getvalue())
 
   def package(self):
     with chdir(self.build_root / self.prefix):
@@ -247,11 +260,12 @@ def chdir(dirname):
 if __name__ == "__main__":
   from argparse import ArgumentParser
   parser = ArgumentParser()
+  parser.add_argument("--dry-run", action="store_true", help="Only display steps")
   parser.add_argument("--make-package", action="store_true", help="Create tarball")
   parser.add_argument("profile")
   args = parser.parse_args()
   build = Build(args.profile)
-  build.run()
+  build.run(args.dry_run)
   if args.make_package:
     build.package()
   build.write_spec()
