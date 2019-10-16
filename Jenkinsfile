@@ -8,8 +8,8 @@ def tools = new PlexTools(this)
 def targets = [
   'plex-macos-x86_64-clang-libcxx-release',
   'plex-macos-x86_64-clang-libcxx-debug',
-  'plex-windows-x86_64-msvc15-debug',
-  'plex-windows-x86_64-msvc15-release'
+  //'plex-windows-x86_64-msvc15-debug',
+  //'plex-windows-x86_64-msvc15-release'
 ]
 
 // ----------------------------------------------------------------------------
