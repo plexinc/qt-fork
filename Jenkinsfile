@@ -6,7 +6,8 @@ def dockerImage = 'plex/build-server:latest'
 def tools = new PlexTools(this)
 
 def targets = [
-  'plex-macos-x86_64-appleclang-toolchain',
+  'plex-macos-x86_64-appleclang-toolchain-release',
+  'plex-macos-x86_64-appleclang-toolchain-debug',
   //'plex-windows-x86_64-msvc15-debug',
   //'plex-windows-x86_64-msvc15-release'
 ]
