@@ -134,8 +134,6 @@ class Build:
       if not is_dry:
         sp.run(["bash", "-c", str(build_script.resolve())]).check_returncode()
 
-
-
   def package(self):
     with chdir(self.build_root / self.prefix):
       print(f"Creating {self.package_name}")
@@ -222,11 +220,7 @@ class Build:
     if self.is_windows:
       return "C:\\Python27"
     elif self.is_macos:
-      if Path("/usr/bin/python2").exists():
-        # catalina
-        return "/usr/bin/python2"
-      else:
-        return "/usr/bin/python"
+      return "/usr/bin"
 
   @property
   def script_path(self):
@@ -285,7 +279,7 @@ class Build:
     paths = os.environ["PATH"].split(os.pathsep)
     result = []
     for path in paths:
-      if "python" in path.lower():
+      if "python" in path.lower() or "pyenv" in path.lower():
         continue
       result.append(path)
     return result
