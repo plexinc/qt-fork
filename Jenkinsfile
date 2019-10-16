@@ -6,6 +6,9 @@ def dockerImage = 'plex/build-server:latest'
 def tools = new PlexTools(this)
 
 def targets = [
+  // Not the real profile names - this doesn't really matter for Qt because
+  // it doesn't use the profiles. We do rely on the -release and -debug ending
+  // in the build script.
   'plex-macos-x86_64-appleclang-toolchain-release',
   'plex-macos-x86_64-appleclang-toolchain-debug',
   //'plex-windows-x86_64-msvc15-debug',
@@ -29,8 +32,12 @@ def uploadToArtifactory = {
 stage("Build Qt") {
   builds = [:]
   targets.each { profileName ->
+    def realProfileName = profileName
+    if profileName.contains('macos') {
+      realProfileName = 'plex-macos-x86_64-appleclang-toolchain'
+    }
     builds[profileName] = {
-      tools.autoDocker(profileName, dockerImage) {
+      tools.autoDocker(realProfileName, dockerImage) {
         tools.uniqueWS(project: "qt-builds", profile: profileName) {
           checkout(tools.checkout_obj())
 
