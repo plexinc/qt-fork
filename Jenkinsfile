@@ -33,7 +33,7 @@ stage("Build Qt") {
   builds = [:]
   targets.each { profileName ->
     def realProfileName = profileName
-    if profileName.contains('macos') {
+    if (profileName.contains('macos')) {
       realProfileName = 'plex-macos-x86_64-appleclang-toolchain'
     }
     builds[profileName] = {
