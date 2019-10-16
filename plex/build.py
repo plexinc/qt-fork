@@ -121,9 +121,9 @@ class Build:
         print(f"export {key}='{value}'", file=script)
       print(file=script)
       print(f"python -V", file=script)
-      print("./configure", file=script)
-      print(f"./make -j {self.jobs}", file=script)
-      print(f"./make install", file=script)
+      print("../configure", file=script)
+      print(f"make -j {self.jobs}", file=script)
+      print(f"make install", file=script)
       build_script = Path("plex_build.sh")
       with build_script.open("w") as fp:
         fp.write(script.getvalue())
