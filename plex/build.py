@@ -60,12 +60,14 @@ class Build:
     self.common_flags.append(f"-prefix {str(self.build_root / self.prefix)}")
 
   def run(self, is_dry=False):
+    flags = self.compute_flags()
+    env = self.compute_env()
     if self.is_windows:
-      return self.run_windows(is_dry)
+      return self.run_windows(is_dry, flags, env)
     elif self.is_macos:
-      return self.run_macos(is_dry)
+      return self.run_macos(is_dry, flags, env)
 
-  def run_windows(self, is_dry):
+  def run_windows(self, is_dry, flags, env):
     self._download_jom()
     # to make the path as short as possible we create a junction here.
     rootdrive = os.path.splitdrive(os.getenv("JENKINS_WORKSPACE_ROOT", "c:\\"))[0]
@@ -81,8 +83,6 @@ class Build:
         pass
     mklink = sp.run(["mklink", "/J", str(junctiondir), str(self.build_root)], shell=True)
 
-    flags = self.compute_flags()
-    env = self.compute_env()
     paths = [self.python_path, *self._sanitize_path()]
     for extra_path in ("gnuwin/bin", "qtbase/bin", str(self.script_path)):
       paths.append(str(self.build_root / extra_path))
@@ -92,13 +92,14 @@ class Build:
     with StringIO() as script:
       for key, value in env.items():
         print(f"set {key}={value}", file=script)
-      print()
+      print(file=script)
 
       vs_dir = self._get_vs_dir()
       print(f"python -V", file=script)
       print(f'call "{vs_dir}\\VC\\Auxiliary\\Build\\vcvarsall.bat" amd64', file=script)
       print(f"call {str(self.build_root / 'configure.bat')} {' '.join(flags)}", file=script)
       print(f"jom /j{self.jobs}", file=script)
+      print(f"if %ERRORLEVEL% GEQ 1 EXIT /B %ERRORLEVEL%", file=script)
       print(f"jom install", file=script)
       print(f"if %ERRORLEVEL% GEQ 1 EXIT /B %ERRORLEVEL%", file=script)
       print(script.getvalue())
@@ -110,8 +111,30 @@ class Build:
       else:
         print(script.getvalue())
 
-  def run_macos(self):
-    pass
+  def run_macos(self, is_dry, flags, env):
+    with StringIO() as script:
+      print("#! /bin/bash", file=script)
+      print("set +x", file=script)
+      print("set +v", file=script)
+      print(file=script)
+      for key, value in env.items():
+        print(f"export {key}='{value}'", file=script)
+      print(file=script)
+      print(f"python -V", file=script)
+      print("./configure", file=script)
+      print(f"./make -j {self.jobs}", file=script)
+      print(f"./make install", file=script)
+      build_script = Path("plex_build.sh")
+      with build_script.open("w") as fp:
+        fp.write(script.getvalue())
+      import stat
+      st = os.stat(build_script).st_mode
+      os.chmod(build_script, st | stat.S_IEXEC)
+      print(script.getvalue())
+      if not is_dry:
+        sp.run(["bash", "-c", str(build_script.resolve())]).check_returncode()
+
+
 
   def package(self):
     with chdir(self.build_root / self.prefix):
@@ -199,7 +222,11 @@ class Build:
     if self.is_windows:
       return "C:\\Python27"
     elif self.is_macos:
-      raise RuntimeError("Not implemented")
+      if Path("/usr/bin/python2").exists():
+        # catalina
+        return "/usr/bin/python2"
+      else:
+        return "/usr/bin/python"
 
   @property
   def script_path(self):
@@ -262,7 +289,6 @@ class Build:
         continue
       result.append(path)
     return result
-
 
 
 @contextmanager
