@@ -65,32 +65,6 @@ class Build:
     elif self.is_macos:
       return self.run_macos(is_dry)
 
-  def _download_jom(self):
-    # we have curl on the build nodes, but not requests (it's also quicker)
-    sp.run(["curl", "-L", "-o", "jom.zip",
-            "http://download.qt.io/official_releases/jom/jom.zip"])
-    from zipfile import ZipFile
-    with ZipFile("jom.zip", "r") as zfp:
-      zfp.extractall()
-    os.remove("jom.zip")
-
-  def _get_vs_dir(self):
-    import json
-    vswhere = sp.run([str(self.build_root / "vswhere.exe"), "-format", "json",
-                      "-version", "15.0"], stdout=sp.PIPE)
-    vswhere.check_returncode()
-    vs_data = json.loads(vswhere.stdout.decode())
-    return vs_data[0]["installationPath"]
-
-  def _sanitize_path(self):
-    paths = os.environ["PATH"].split(os.pathsep)
-    result = []
-    for path in paths:
-      if "python" in path.lower():
-        continue
-      result.append(path)
-    return result
-
   def run_windows(self, is_dry):
     self._download_jom()
     # to make the path as short as possible we create a junction here.
@@ -136,6 +110,9 @@ class Build:
       else:
         print(script.getvalue())
 
+  def run_macos(self):
+    pass
+
   def package(self):
     with chdir(self.build_root / self.prefix):
       print(f"Creating {self.package_name}")
@@ -144,8 +121,58 @@ class Build:
                       "--format=gnutar", "."])
       cmake.check_returncode()
 
-  def run_macos(self):
-    pass
+  def compute_flags(self) -> str:
+    flags = self.common_flags
+    flags += [f"-skip {mod}" for mod in self.skip_modules]
+
+    if self.is_macos:
+      flags += [
+        "-securetransport",
+        "-opengl desktop",
+        "-sdk macosx10.14",
+        "-separate-debug-info",
+        "-device-option QMAKE_APPLE_DEVICE_ARCHS=x86_64",
+        "-xplatform macx-clang",
+      ]
+      if self.is_debug:
+        flags += ["-debug-and-release"]
+    elif self.is_windows:
+      flags += [ "-schannel", "-opengl dynamic" ]
+      if self.is_debug:
+        flags += ["-debug"]
+
+    if not self.is_debug:
+      flags += ["-release", "-ltcg"]
+
+    return flags
+
+  def compute_env(self):
+    jobs = self.jobs
+    environment = {
+      "CFLAGS": "", "CXXFLAGS": "", "LDFLAGS": "", "CL": "",
+      "NINJAFLAGS": f"-j{jobs} -v",
+      "PATH": f"{self.python_path}{os.pathsep}{os.environ['PATH']}"
+    }
+    return environment
+
+  def write_spec(self):
+    template = open(self.script_path / "Artifactory.spec.in").read()
+    os_name = {
+      "Darwin": "Macos",
+      "Windows": "Windows",
+      "Linux": "Linux"
+    }[platform.system()]
+    subst = {
+      "build_root": str(self.build_root).replace("\\", "/"),
+      "package_name": self.package_name,
+      "qt_version": self.qt_version,
+      "git_sha": self.git_sha,
+      "full_version": self.full_version,
+      "build_type": self.build_type,
+      "os_name": os_name,
+    }
+    with open("Artifactory.spec", "w") as spec:
+      spec.write(template.format(**subst))
 
   @property
   def is_macos(self):
@@ -205,63 +232,37 @@ class Build:
       sha = git.stdout.decode().strip()
     return sha
 
-  def compute_flags(self) -> str:
-    flags = self.common_flags
-    flags += [f"-skip {mod}" for mod in self.skip_modules]
-
-    if self.is_macos:
-      flags += [
-        "-securetransport",
-        "-opengl desktop",
-        "-sdk macosx10.14",
-        "-separate-debug-info",
-        "-device-option QMAKE_APPLE_DEVICE_ARCHS=x86_64",
-        "-xplatform macx-clang",
-      ]
-      if self.is_debug:
-        flags += ["-debug-and-release"]
-    elif self.is_windows:
-      flags += [ "-schannel", "-opengl dynamic" ]
-      if self.is_debug:
-        flags += ["-debug"]
-
-    if not self.is_debug:
-      flags += ["-release", "-ltcg"]
-
-    return flags
-
-  def compute_env(self):
-    jobs = self.jobs
-    environment = {
-      "CFLAGS": "", "CXXFLAGS": "", "LDFLAGS": "", "CL": "",
-      "NINJAFLAGS": f"-j{jobs} -v",
-      "PATH": f"{self.python_path}{os.pathsep}{os.environ['PATH']}"
-    }
-    return environment
-
   @property
   def package_name(self):
     os_name = platform.system().lower()
     return f"qt-{self.full_version}-{os_name}-x86_64-{self.build_type}.tar.xz"
 
-  def write_spec(self):
-    template = open(self.script_path / "Artifactory.spec.in").read()
-    os_name = {
-      "Darwin": "Macos",
-      "Windows": "Windows",
-      "Linux": "Linux"
-    }[platform.system()]
-    subst = {
-      "build_root": str(self.build_root).replace("\\", "/"),
-      "package_name": self.package_name,
-      "qt_version": self.qt_version,
-      "git_sha": self.git_sha,
-      "full_version": self.full_version,
-      "build_type": self.build_type,
-      "os_name": os_name,
-    }
-    with open("Artifactory.spec", "w") as spec:
-      spec.write(template.format(**subst))
+  def _download_jom(self):
+    # we have curl on the build nodes, but not requests (it's also quicker)
+    sp.run(["curl", "-L", "-o", "jom.zip",
+            "http://download.qt.io/official_releases/jom/jom.zip"])
+    from zipfile import ZipFile
+    with ZipFile("jom.zip", "r") as zfp:
+      zfp.extractall()
+    os.remove("jom.zip")
+
+  def _get_vs_dir(self):
+    import json
+    vswhere = sp.run([str(self.build_root / "vswhere.exe"), "-format", "json",
+                      "-version", "15.0"], stdout=sp.PIPE)
+    vswhere.check_returncode()
+    vs_data = json.loads(vswhere.stdout.decode())
+    return vs_data[0]["installationPath"]
+
+  def _sanitize_path(self):
+    paths = os.environ["PATH"].split(os.pathsep)
+    result = []
+    for path in paths:
+      if "python" in path.lower():
+        continue
+      result.append(path)
+    return result
+
 
 
 @contextmanager
