@@ -246,6 +246,11 @@ class Build:
 
   def write_spec(self):
     template = open(self.script_path / "Artifactory.spec.in").read()
+    os_name = {
+      "Darwin": "Macos",
+      "Windows": "Windows",
+      "Linux": "Linux"
+    }[platform.system()]
     subst = {
       "build_root": str(self.build_root).replace("\\", "/"),
       "package_name": self.package_name,
@@ -253,6 +258,7 @@ class Build:
       "git_sha": self.git_sha,
       "full_version": self.full_version,
       "build_type": self.build_type,
+      "os_name": os_name,
     }
     with open("Artifactory.spec", "w") as spec:
       spec.write(template.format(**subst))
