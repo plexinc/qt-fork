@@ -1,0 +1,9 @@
+{{
+  "files": [
+    {{
+      "pattern": "{build_root}/build/{package_name}",
+      "target": "qt-builds/{qt_version}",
+      "props": "plex.v1.os={os_name};plex.v1.qt_version={qt_version};plex.v1.qt_fork_sha={git_sha};plex.v1.build_type={build_type};build.name=Plex Qt Fork;build.number={full_version}"
+    }}
+  ]
+}}
