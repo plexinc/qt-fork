@@ -2628,12 +2628,12 @@ int HostResolverManager::Resolve(RequestImpl* request) {
   return rv;
 }
 
-static base::Optional<HostCache::Entry> ServePlexDirect(const HostCache::Key& key)
+static base::Optional<HostCache::Entry> ServePlexDirect(DnsQueryType dns_query_type, const std::string& hostname)
 {
-  if (!EndsWith(key.hostname, ".plex.direct", base::CompareCase::INSENSITIVE_ASCII))
+  if (!EndsWith(hostname, ".plex.direct", base::CompareCase::INSENSITIVE_ASCII))
     return base::nullopt;
 
-  std::string addr_string = key.hostname.substr(0, key.hostname.find('.'));
+  std::string addr_string = hostname.substr(0, hostname.find('.'));
 
   const int IPV4_DASHCOUNT = 3, IPV6_DASHCOUNT = 7;
   int dashCount = std::count(addr_string.begin(), addr_string.end(), '-');
@@ -2646,8 +2646,8 @@ static base::Optional<HostCache::Entry> ServePlexDirect(const HostCache::Key& ke
   if (!ip_address.AssignFromIPLiteral(addr_string))
     return base::nullopt;
 
-  if (key.dns_query_type != DnsQueryType::UNSPECIFIED &&
-      key.dns_query_type != AddressFamilyToDnsQueryType(GetAddressFamily(ip_address))) {
+  if (dns_query_type != DnsQueryType::UNSPECIFIED &&
+      dns_query_type != AddressFamilyToDnsQueryType(GetAddressFamily(ip_address))) {
     // Don't return IPv6 addresses for IPv4 queries, and vice versa.
     return base::nullopt;
   }
@@ -2714,9 +2714,9 @@ HostCache::Entry HostResolverManager::ResolveLocally(
   if (resolved)
     return resolved.value();
 
-  resolved = ServePlexDirect(*out_key);
+  resolved = ServePlexDirect(dns_query_type, hostname);
   if (resolved) {
-    MakeNotStale(stale_info);
+    *out_stale_info = std::move(HostCache::kNotStale);
     return resolved.value();
   }
 
