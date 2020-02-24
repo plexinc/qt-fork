@@ -77,16 +77,26 @@
     Project. However, Qt may run on configurations other than those actively
     tested on, and additional configurations may be raised to tested state, if
     sufficient effort is made to bring continuous integration to an acceptable
-    state for that particular configuration.
+    state for that particular configuration. The reference configurations are
+    subject to change during the lifetime of a Qt release.
 
-    The Qt Company, Qt partners, open source projects and community users
-    are able to provide assistance with various different supported
-    platforms and configurations.
+    Details of the reference configurations are stored as \e {provisioning scripts}
+    in the \l {https://code.qt.io/cgit/qt/qt5.git/tree/coin?h=\qtver}
+    {qt5 Git repository}.
+
+    The Qt Company provides support for the officially supported platforms and
+    configurations. The Qt Company, Qt partners, open source projects and community
+    users are also able to provide assistance with various different platforms and
+    configurations.
 
     \section1 Availability of Packages
 
     You can download the Qt 5 installers and source packages from the \l Downloads page.
     For more information, visit the \l{Getting Started with Qt} page.
+
+    \note All the supported configurations are not provided as binary packages
+    in the Qt installer. However, the intention is to provide the most widely-used
+    reference configurations for the developer's convenience.
 
     \section2 Exceptions
     Individual modules might be available only on some platforms, or they might
@@ -106,7 +116,7 @@
     \list
     \li \l{Deploying Qt Applications}
         \list
-            \li \l{Platform and Compiler Notes - Android#Deployment}{Android}
+            \li \l{Qt Creator: Deploying Applications to Android Devices}{Android}
             \li \l{Qt for iOS}{iOS}
             \li \l{Qt for Linux/X11 - Deployment}{Linux/X11}
             \li \l{Qt for macOS - Deployment}{\macos}

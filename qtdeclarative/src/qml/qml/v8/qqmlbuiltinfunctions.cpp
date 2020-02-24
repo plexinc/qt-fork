@@ -40,6 +40,7 @@
 #include "qqmlbuiltinfunctions_p.h"
 
 #include <QtQml/qqmlcomponent.h>
+#include <QtQml/qqmlfile.h>
 #include <private/qqmlengine_p.h>
 #include <private/qqmlcomponent_p.h>
 #include <private/qqmlloggingcategory_p.h>
@@ -47,7 +48,6 @@
 #if QT_CONFIG(qml_locale)
 #include <private/qqmllocale_p.h>
 #endif
-#include <private/qv8engine_p.h>
 #include <private/qqmldelayedcallqueue_p.h>
 #include <QFileInfo>
 
@@ -229,8 +229,10 @@ OwnPropertyKeyIterator *QtObject::virtualOwnPropertyKeys(const Object *m, Value 
 }
 
 /*!
-\qmlmethod bool Qt::isQtObject(object)
-Returns true if \c object is a valid reference to a Qt or QML object, otherwise false.
+    \qmlmethod bool Qt::isQtObject(object)
+
+    Returns \c true if \a object is a valid reference to a Qt or QML object,
+    \c false otherwise.
 */
 ReturnedValue QtObject::method_isQtObject(const FunctionObject *, const Value *, const Value *argv, int argc)
 {
@@ -241,10 +243,10 @@ ReturnedValue QtObject::method_isQtObject(const FunctionObject *, const Value *,
 }
 
 /*!
-\qmlmethod color Qt::rgba(real red, real green, real blue, real alpha)
+    \qmlmethod color Qt::rgba(real red, real green, real blue, real alpha)
 
-Returns a color with the specified \c red, \c green, \c blue and \c alpha components.
-All components should be in the range 0-1 inclusive.
+    Returns a color with the specified \a red, \a green, \a blue, and \a alpha
+    components. All components should be in the range 0-1 (inclusive).
 */
 ReturnedValue QtObject::method_rgba(const FunctionObject *f, const Value *, const Value *argv, int argc)
 {
@@ -270,10 +272,10 @@ ReturnedValue QtObject::method_rgba(const FunctionObject *f, const Value *, cons
 }
 
 /*!
-\qmlmethod color Qt::hsla(real hue, real saturation, real lightness, real alpha)
+    \qmlmethod color Qt::hsla(real hue, real saturation, real lightness, real alpha)
 
-Returns a color with the specified \c hue, \c saturation, \c lightness and \c alpha components.
-All components should be in the range 0-1 inclusive.
+    Returns a color with the specified \a hue, \a saturation, \a lightness, and \a alpha
+    components. All components should be in the range 0-1 (inclusive).
 */
 ReturnedValue QtObject::method_hsla(const FunctionObject *b, const Value *, const Value *argv, int argc)
 {
@@ -300,12 +302,12 @@ ReturnedValue QtObject::method_hsla(const FunctionObject *b, const Value *, cons
 }
 
 /*!
-\qmlmethod color Qt::hsva(real hue, real saturation, real value, real alpha)
+    \since 5.5
+    \qmlmethod color Qt::hsva(real hue, real saturation, real value, real alpha)
 
-Returns a color with the specified \c hue, \c saturation, \c value and \c alpha components.
-All components should be in the range 0-1 inclusive.
+    Returns a color with the specified \a hue, \a saturation, \a value and \a alpha
+    components. All components should be in the range 0-1 (inclusive).
 
-\since 5.5
 */
 ReturnedValue QtObject::method_hsva(const FunctionObject *b, const Value *, const Value *argv, int argc)
 {
@@ -328,12 +330,12 @@ ReturnedValue QtObject::method_hsva(const FunctionObject *b, const Value *, cons
 }
 
 /*!
-\qmlmethod color Qt::colorEqual(color lhs, string rhs)
+    \qmlmethod color Qt::colorEqual(color lhs, string rhs)
 
-Returns true if both \c lhs and \c rhs yield equal color values.  Both arguments
-may be either color values or string values.  If a string value is supplied it
-must be convertible to a color, as described for the \l{colorbasictypedocs}{color}
-basic type.
+    Returns \c true if both \a lhs and \a rhs yield equal color values. Both
+    arguments may be either color values or string values. If a string value
+    is supplied it must be convertible to a color, as described for the
+    \l{colorbasictypedocs}{color} basic type.
 */
 ReturnedValue QtObject::method_colorEqual(const FunctionObject *b, const Value *, const Value *argv, int argc)
 {
@@ -368,11 +370,9 @@ ReturnedValue QtObject::method_colorEqual(const FunctionObject *b, const Value *
 }
 
 /*!
-\qmlmethod rect Qt::rect(int x, int y, int width, int height)
+    \qmlmethod rect Qt::rect(int x, int y, int width, int height)
 
-Returns a \c rect with the top-left corner at \c x, \c y and the specified \c width and \c height.
-
-The returned object has \c x, \c y, \c width and \c height attributes with the given values.
+    Returns a rect with the top-left corner at \a x, \a y and the specified \a width and \a height.
 */
 ReturnedValue QtObject::method_rect(const FunctionObject *b, const Value *, const Value *argv, int argc)
 {
@@ -389,8 +389,9 @@ ReturnedValue QtObject::method_rect(const FunctionObject *b, const Value *, cons
 }
 
 /*!
-\qmlmethod point Qt::point(int x, int y)
-Returns a Point with the specified \c x and \c y coordinates.
+    \qmlmethod point Qt::point(int x, int y)
+
+    Returns a point with the specified \a x and \a y coordinates.
 */
 ReturnedValue QtObject::method_point(const FunctionObject *b, const Value *, const Value *argv, int argc)
 {
@@ -405,8 +406,9 @@ ReturnedValue QtObject::method_point(const FunctionObject *b, const Value *, con
 }
 
 /*!
-\qmlmethod Qt::size(int width, int height)
-Returns a Size with the specified \c width and \c height.
+    \qmlmethod size Qt::size(int width, int height)
+
+    Returns a size with the specified \a width and \a height.
 */
 ReturnedValue QtObject::method_size(const FunctionObject *b, const Value *, const Value *argv, int argc)
 {
@@ -421,12 +423,13 @@ ReturnedValue QtObject::method_size(const FunctionObject *b, const Value *, cons
 }
 
 /*!
-\qmlmethod Qt::font(object fontSpecifier)
-Returns a Font with the properties specified in the \c fontSpecifier object
-or the nearest matching font.  The \c fontSpecifier object should contain
-key-value pairs where valid keys are the \l{fontbasictypedocs}{font} type's
-subproperty names, and the values are valid values for each subproperty.
-Invalid keys will be ignored.
+    \qmlmethod font Qt::font(object fontSpecifier)
+
+    Returns a font with the properties specified in the \a fontSpecifier object
+    or the nearest matching font.  The \a fontSpecifier object should contain
+    key-value pairs where valid keys are the \l{fontbasictypedocs}{font} type's
+    subproperty names, and the values are valid values for each subproperty.
+    Invalid keys will be ignored.
 */
 ReturnedValue QtObject::method_font(const FunctionObject *b, const Value *, const Value *argv, int argc)
 {
@@ -436,7 +439,7 @@ ReturnedValue QtObject::method_font(const FunctionObject *b, const Value *, cons
 
     QV4::ExecutionEngine *v4 = scope.engine;
     bool ok = false;
-    QVariant v = QQml_valueTypeProvider()->createVariantFromJsObject(QMetaType::QFont, QQmlV4Handle(argv[0]), v4, &ok);
+    QVariant v = QQml_valueTypeProvider()->createVariantFromJsObject(QMetaType::QFont, argv[0], v4, &ok);
     if (!ok)
         THROW_GENERIC_ERROR("Qt.font(): Invalid argument: no valid font subproperties specified");
     return scope.engine->fromVariant(v);
@@ -445,8 +448,9 @@ ReturnedValue QtObject::method_font(const FunctionObject *b, const Value *, cons
 
 
 /*!
-\qmlmethod Qt::vector2d(real x, real y)
-Returns a Vector2D with the specified \c x and \c y.
+    \qmlmethod vector2d Qt::vector2d(real x, real y)
+
+    Returns a vector2d with the specified \a x and \a y values.
 */
 ReturnedValue QtObject::method_vector2d(const FunctionObject *b, const Value *, const Value *argv, int argc)
 {
@@ -463,8 +467,9 @@ ReturnedValue QtObject::method_vector2d(const FunctionObject *b, const Value *, 
 }
 
 /*!
-\qmlmethod Qt::vector3d(real x, real y, real z)
-Returns a Vector3D with the specified \c x, \c y and \c z.
+    \qmlmethod vector3d Qt::vector3d(real x, real y, real z)
+
+    Returns a vector3d with the specified \a x, \a y, and \a z values.
 */
 ReturnedValue QtObject::method_vector3d(const FunctionObject *b, const Value *, const Value *argv, int argc)
 {
@@ -482,8 +487,9 @@ ReturnedValue QtObject::method_vector3d(const FunctionObject *b, const Value *, 
 }
 
 /*!
-\qmlmethod Qt::vector4d(real x, real y, real z, real w)
-Returns a Vector4D with the specified \c x, \c y, \c z and \c w.
+    \qmlmethod vector4d Qt::vector4d(real x, real y, real z, real w)
+
+    Returns a vector4d with the specified \a x, \a y, \a z, and \a w values.
 */
 ReturnedValue QtObject::method_vector4d(const FunctionObject *b, const Value *, const Value *argv, int argc)
 {
@@ -502,8 +508,9 @@ ReturnedValue QtObject::method_vector4d(const FunctionObject *b, const Value *, 
 }
 
 /*!
-\qmlmethod Qt::quaternion(real scalar, real x, real y, real z)
-Returns a Quaternion with the specified \c scalar, \c x, \c y, and \c z.
+    \qmlmethod quaternion Qt::quaternion(real scalar, real x, real y, real z)
+
+    Returns a quaternion with the specified \a scalar, \a x, \a y, and \a z values.
 */
 ReturnedValue QtObject::method_quaternion(const FunctionObject *b, const Value *, const Value *argv, int argc)
 {
@@ -522,13 +529,25 @@ ReturnedValue QtObject::method_quaternion(const FunctionObject *b, const Value *
 }
 
 /*!
-\qmlmethod Qt::matrix4x4(real m11, real m12, real m13, real m14, real m21, real m22, real m23, real m24, real m31, real m32, real m33, real m34, real m41, real m42, real m43, real m44)
-Returns a Matrix4x4 with the specified values.
-Alternatively, the function may be called with a single argument
-where that argument is a JavaScript array which contains the sixteen
-matrix values.
-Finally, the function may be called with no arguments and the resulting
-matrix will be the identity matrix.
+    \qmlmethod matrix4x4 Qt::matrix4x4(real m11, real m12, real m13, real m14, real m21, real m22, real m23, real m24, real m31, real m32, real m33, real m34, real m41, real m42, real m43, real m44)
+
+    Returns a matrix4x4 with the specified values.
+
+    The arguments correspond to their positions in the matrix:
+
+    \table
+    \row \li \a m11 \li \a m12 \li \a m13 \li \a m14
+    \row \li \a m21 \li \a m22 \li \a m23 \li \a m24
+    \row \li \a m31 \li \a m32 \li \a m33 \li \a m34
+    \row \li \a m41 \li \a m42 \li \a m43 \li \a m44
+    \endtable
+
+    Alternatively, the function may be called with a single argument
+    where that argument is a JavaScript array which contains the sixteen
+    matrix values.
+
+    Finally, the function may be called with no arguments and the resulting
+    matrix will be the identity matrix.
 */
 ReturnedValue QtObject::method_matrix4x4(const FunctionObject *b, const Value *, const Value *argv, int argc)
 {
@@ -540,7 +559,7 @@ ReturnedValue QtObject::method_matrix4x4(const FunctionObject *b, const Value *,
 
     if (argc == 1 && argv[0].isObject()) {
         bool ok = false;
-        QVariant v = QQml_valueTypeProvider()->createVariantFromJsObject(QMetaType::QMatrix4x4, QQmlV4Handle(argv[0]), scope.engine, &ok);
+        QVariant v = QQml_valueTypeProvider()->createVariantFromJsObject(QMetaType::QMatrix4x4, argv[0], scope.engine, &ok);
         if (!ok)
             THROW_GENERIC_ERROR("Qt.matrix4x4(): Invalid argument: not a valid matrix4x4 values array");
         return scope.engine->fromVariant(v);
@@ -572,18 +591,19 @@ ReturnedValue QtObject::method_matrix4x4(const FunctionObject *b, const Value *,
 }
 
 /*!
-\qmlmethod color Qt::lighter(color baseColor, real factor)
-Returns a color lighter than \c baseColor by the \c factor provided.
+    \qmlmethod color Qt::lighter(color baseColor, real factor)
 
-If the factor is greater than 1.0, this functions returns a lighter color.
-Setting factor to 1.5 returns a color that is 50% brighter. If the factor is less than 1.0,
-the return color is darker, but we recommend using the Qt.darker() function for this purpose.
-If the factor is 0 or negative, the return value is unspecified.
+    Returns a color lighter than \a baseColor by the \a factor provided.
 
-The function converts the current RGB color to HSV, multiplies the value (V) component
-by factor and converts the color back to RGB.
+    If the factor is greater than 1.0, this functions returns a lighter color.
+    Setting factor to 1.5 returns a color that is 50% brighter. If the factor is less than 1.0,
+    the return color is darker, but we recommend using the Qt.darker() function for this purpose.
+    If the factor is 0 or negative, the return value is unspecified.
 
-If \c factor is not supplied, returns a color 50% lighter than \c baseColor (factor 1.5).
+    The function converts the current RGB color to HSV, multiplies the value (V) component
+    by factor and converts the color back to RGB.
+
+    If \a factor is not supplied, returns a color that is 50% lighter than \a baseColor (factor 1.5).
 */
 ReturnedValue QtObject::method_lighter(const FunctionObject *b, const Value *, const Value *argv, int argc)
 {
@@ -610,19 +630,20 @@ ReturnedValue QtObject::method_lighter(const FunctionObject *b, const Value *, c
 }
 
 /*!
-\qmlmethod color Qt::darker(color baseColor, real factor)
-Returns a color darker than \c baseColor by the \c factor provided.
+    \qmlmethod color Qt::darker(color baseColor, real factor)
 
-If the factor is greater than 1.0, this function returns a darker color.
-Setting factor to 3.0 returns a color that has one-third the brightness.
-If the factor is less than 1.0, the return color is lighter, but we recommend using
-the Qt.lighter() function for this purpose. If the factor is 0 or negative, the return
-value is unspecified.
+    Returns a color darker than \a baseColor by the \a factor provided.
 
-The function converts the current RGB color to HSV, divides the value (V) component
-by factor and converts the color back to RGB.
+    If the factor is greater than 1.0, this function returns a darker color.
+    Setting factor to 3.0 returns a color that has one-third the brightness.
+    If the factor is less than 1.0, the return color is lighter, but we recommend using
+    the Qt.lighter() function for this purpose. If the factor is 0 or negative, the return
+    value is unspecified.
 
-If \c factor is not supplied, returns a color 50% darker than \c baseColor (factor 2.0).
+    The function converts the current RGB color to HSV, divides the value (V) component
+    by factor and converts the color back to RGB.
+
+    If \a factor is not supplied, returns a color that is 50% darker than \a baseColor (factor 2.0).
 */
 ReturnedValue QtObject::method_darker(const FunctionObject *b, const Value *, const Value *argv, int argc)
 {
@@ -650,7 +671,8 @@ ReturnedValue QtObject::method_darker(const FunctionObject *b, const Value *, co
 
 /*!
     \qmlmethod color Qt::tint(color baseColor, color tintColor)
-    This function allows tinting one color with another.
+
+    This function allows tinting one color (\a baseColor) with another (\a tintColor).
 
     The tint color should usually be mostly transparent, or you will not be
     able to see the underlying color. The below example provides a slight red
@@ -670,7 +692,8 @@ ReturnedValue QtObject::method_darker(const FunctionObject *b, const Value *, co
     \endqml
     \image declarative-rect_tint.png
 
-    Tint is most useful when a subtle change is intended to be conveyed due to some event; you can then use tinting to more effectively tune the visible color.
+    Tint is most useful when a subtle change is intended to be conveyed due to some event;
+    you can then use tinting to more effectively tune the visible color.
 */
 ReturnedValue QtObject::method_tint(const FunctionObject *b, const Value *, const Value *argv, int argc)
 {
@@ -708,8 +731,8 @@ ReturnedValue QtObject::method_tint(const FunctionObject *b, const Value *, cons
 /*!
 \qmlmethod string Qt::formatDate(datetime date, variant format)
 
-Returns a string representation of \c date, optionally formatted according
-to \c format.
+Returns a string representation of \a date, optionally formatted according
+to \a format.
 
 The \a date parameter may be a JavaScript \c Date object, a \l{date}{date}
 property, a QDate, or QDateTime value. The \a format parameter may be any of
@@ -752,8 +775,8 @@ ReturnedValue QtObject::method_formatDate(const FunctionObject *b, const Value *
 /*!
 \qmlmethod string Qt::formatTime(datetime time, variant format)
 
-Returns a string representation of \c time, optionally formatted according to
-\c format.
+Returns a string representation of \a time, optionally formatted according to
+\a format.
 
 The \a time parameter may be a JavaScript \c Date object, a QTime, or QDateTime
 value. The \a format parameter may be any of the possible format values as
@@ -801,10 +824,10 @@ ReturnedValue QtObject::method_formatTime(const FunctionObject *b, const Value *
 /*!
 \qmlmethod string Qt::formatDateTime(datetime dateTime, variant format)
 
-Returns a string representation of \c datetime, optionally formatted according to
-\c format.
+Returns a string representation of \a dateTime, optionally formatted according to
+\a format.
 
-The \a date parameter may be a JavaScript \c Date object, a \l{date}{date}
+The \a dateTime parameter may be a JavaScript \c Date object, a \l{date}{date}
 property, a QDate, QTime, or QDateTime value.
 
 If \a format is not provided, \a dateTime is formatted using
@@ -921,8 +944,8 @@ ReturnedValue QtObject::method_formatDateTime(const FunctionObject *b, const Val
 /*!
     \qmlmethod bool Qt::openUrlExternally(url target)
 
-    Attempts to open the specified \c target url in an external application, based on the user's
-    desktop preferences. Returns true if it succeeds, and false otherwise.
+    Attempts to open the specified \a target url in an external application, based on the user's
+    desktop preferences. Returns \c true if it succeeds, \c false otherwise.
 
     \warning A return value of \c true indicates that the application has successfully requested
     the operating system to open the URL in an external application. The external application may
@@ -942,6 +965,7 @@ ReturnedValue QtObject::method_openUrlExternally(const FunctionObject *b, const 
 
 /*!
   \qmlmethod url Qt::resolvedUrl(url url)
+
   Returns \a url resolved relative to the URL of the caller.
 */
 ReturnedValue QtObject::method_resolvedUrl(const FunctionObject *b, const Value *, const Value *argv, int argc)
@@ -967,6 +991,7 @@ ReturnedValue QtObject::method_resolvedUrl(const FunctionObject *b, const Value 
 
 /*!
 \qmlmethod list<string> Qt::fontFamilies()
+
 Returns a list of the font families available to the application.
 */
 ReturnedValue QtObject::method_fontFamilies(const FunctionObject *b, const Value *, const Value *, int argc)
@@ -980,7 +1005,7 @@ ReturnedValue QtObject::method_fontFamilies(const FunctionObject *b, const Value
 
 /*!
 \qmlmethod string Qt::md5(data)
-Returns a hex string of the md5 hash of \c data.
+Returns a hex string of the md5 hash of \a data.
 */
 ReturnedValue QtObject::method_md5(const FunctionObject *b, const Value *, const Value *argv, int argc)
 {
@@ -995,7 +1020,7 @@ ReturnedValue QtObject::method_md5(const FunctionObject *b, const Value *, const
 
 /*!
 \qmlmethod string Qt::btoa(data)
-Binary to ASCII - this function returns a base64 encoding of \c data.
+Binary to ASCII - this function returns a base64 encoding of \a data.
 */
 ReturnedValue QtObject::method_btoa(const FunctionObject *b, const Value *, const Value *argv, int argc)
 {
@@ -1043,9 +1068,9 @@ ReturnedValue QtObject::method_quit(const FunctionObject *b, const Value *, cons
 
     This function causes the QQmlEngine::exit(int) signal to be emitted.
     Within the \l {Prototyping with qmlscene}, this causes the launcher application to exit
-    the specified return code. To exit from the event loop with a specified return code when this
-    method is called, a C++ application can connect the QQmlEngine::exit(int) signal
-    to the QCoreApplication::exit(int) slot.
+    the specified return code (\a retCode). To exit from the event loop with a specified
+    return code when this method is called, a C++ application can connect the
+    QQmlEngine::exit(int) signal to the QCoreApplication::exit(int) slot.
 
     \sa quit()
 */
@@ -1318,13 +1343,13 @@ ReturnedValue QtObject::method_createComponent(const FunctionObject *b, const Va
     \qmlmethod Qt::locale(name)
 
     Returns a JS object representing the locale with the specified
-    name, which has the format "language[_territory][.codeset][@modifier]"
+    \a name, which has the format "language[_territory][.codeset][@modifier]"
     or "C", where:
 
     \list
-    \li language is a lowercase, two-letter, ISO 639 language code,
-    \li territory is an uppercase, two-letter, ISO 3166 country code,
-    \li and codeset and modifier are ignored.
+    \li \c language is a lowercase, two-letter, ISO 639 language code,
+    \li \c territory is an uppercase, two-letter, ISO 3166 country code, and
+    \li \c codeset and \c modifier are ignored.
     \endlist
 
     If the string violates the locale format, or language is not a
@@ -1372,7 +1397,8 @@ DEFINE_OBJECT_VTABLE(QQmlBindingFunction);
 /*!
     \qmlmethod Qt::binding(function)
 
-    Returns a JavaScript object representing a \l{Property Binding}{property binding}.
+    Returns a JavaScript object representing a \l{Property Binding}{property binding},
+    with a \a function that evaluates the binding.
 
     There are two main use-cases for the function: firstly, to apply a
     property binding imperatively from JavaScript code:
@@ -1527,11 +1553,12 @@ static QString jsStack(QV4::ExecutionEngine *engine) {
     return stack;
 }
 
-static QString serializeArray(Object *array, ExecutionEngine *v4) {
+static QString serializeArray(Object *array, ExecutionEngine *v4, QSet<QV4::Heap::Object *> &alreadySeen) {
     Scope scope(v4);
     ScopedValue val(scope);
     QString result;
 
+    alreadySeen.insert(array->d());
     result += QLatin1Char('[');
     const uint length = array->getLength();
     for (uint i = 0; i < length; ++i) {
@@ -1539,12 +1566,15 @@ static QString serializeArray(Object *array, ExecutionEngine *v4) {
             result += QLatin1Char(',');
         val = array->get(i);
         if (val->isManaged() && val->managed()->isArrayLike())
-            result += serializeArray(val->objectValue(), v4);
+            if (!alreadySeen.contains(val->objectValue()->d()))
+                result += serializeArray(val->objectValue(), v4, alreadySeen);
+            else
+                result += QLatin1String("[Circular]");
         else
             result += val->toQStringNoThrow();
     }
     result += QLatin1Char(']');
-
+    alreadySeen.remove(array->d());
     return result;
 };
 
@@ -1574,8 +1604,9 @@ static ReturnedValue writeToConsole(const FunctionObject *b, const Value *, cons
         if (i != start)
             result.append(QLatin1Char(' '));
 
+        QSet<QV4::Heap::Object *> alreadySeenElements;
         if (argv[i].isManaged() && argv[i].managed()->isArrayLike())
-            result.append(serializeArray(argv[i].objectValue(), v4));
+            result.append(serializeArray(argv[i].objectValue(), v4, alreadySeenElements));
         else
             result.append(argv[i].toQStringNoThrow());
     }
@@ -1684,10 +1715,8 @@ ReturnedValue ConsoleObject::method_time(const FunctionObject *b, const Value *,
     if (argc != 1)
         THROW_GENERIC_ERROR("console.time(): Invalid arguments");
 
-    QV8Engine *v8engine = scope.engine->v8Engine;
-
     QString name = argv[0].toQStringNoThrow();
-    v8engine->startTimer(name);
+    scope.engine->startTimer(name);
     return QV4::Encode::undefined();
 }
 
@@ -1697,11 +1726,9 @@ ReturnedValue ConsoleObject::method_timeEnd(const FunctionObject *b, const Value
     if (argc != 1)
         THROW_GENERIC_ERROR("console.timeEnd(): Invalid arguments");
 
-    QV8Engine *v8engine = scope.engine->v8Engine;
-
     QString name = argv[0].toQStringNoThrow();
     bool wasRunning;
-    qint64 elapsed = v8engine->stopTimer(name, &wasRunning);
+    qint64 elapsed = scope.engine->stopTimer(name, &wasRunning);
     if (wasRunning) {
         qDebug("%s: %llims", qPrintable(name), elapsed);
     }
@@ -1717,13 +1744,12 @@ ReturnedValue ConsoleObject::method_count(const FunctionObject *b, const Value *
 
     Scope scope(b);
     QV4::ExecutionEngine *v4 = scope.engine;
-    QV8Engine *v8engine = scope.engine->v8Engine;
 
     QV4::CppStackFrame *frame = v4->currentStackFrame;
 
     QString scriptName = frame->source();
 
-    int value = v8engine->consoleCountHelper(scriptName, frame->lineNumber(), 0);
+    int value = v4->consoleCountHelper(scriptName, frame->lineNumber(), 0);
     QString message = name + QLatin1String(": ") + QString::number(value);
 
     QMessageLogger(qPrintable(scriptName), frame->lineNumber(),
@@ -1946,29 +1972,32 @@ ReturnedValue GlobalExtensions::method_qsTr(const FunctionObject *b, const Value
         THROW_GENERIC_ERROR("qsTr(): third argument (n) must be a number");
 
     QString context;
-    if (QQmlContextData *ctxt = scope.engine->callingQmlContext()) {
-        QString path = ctxt->urlString();
-        int lastSlash = path.lastIndexOf(QLatin1Char('/'));
-        int lastDot = path.lastIndexOf(QLatin1Char('.'));
-        int length = lastDot - (lastSlash + 1);
-        context = (lastSlash > -1) ? path.mid(lastSlash + 1, (length > -1) ? length : -1) : QString();
-    } else {
-        CppStackFrame *frame = scope.engine->currentStackFrame;
-        // The first non-empty source URL in the call stack determines the translation context.
-        while (frame && context.isEmpty()) {
-            if (CompiledData::CompilationUnit *unit = frame->v4Function->compilationUnit) {
-                QString fileName = unit->fileName();
-                QUrl url(unit->fileName());
-                if (url.isValid() && url.isRelative()) {
-                    context = url.fileName();
-                } else {
-                    context = QQmlFile::urlToLocalFileOrQrc(fileName);
-                    if (context.isEmpty() && fileName.startsWith(QLatin1String(":/")))
-                        context = fileName;
-                }
-                context = QFileInfo(context).baseName();
+    CppStackFrame *frame = scope.engine->currentStackFrame;
+    // The first non-empty source URL in the call stack determines the translation context.
+    while (frame && context.isEmpty()) {
+        if (CompiledData::CompilationUnitBase *baseUnit = frame->v4Function->compilationUnit) {
+            const auto *unit = static_cast<const CompiledData::CompilationUnit *>(baseUnit);
+            QString fileName = unit->fileName();
+            QUrl url(unit->fileName());
+            if (url.isValid() && url.isRelative()) {
+                context = url.fileName();
+            } else {
+                context = QQmlFile::urlToLocalFileOrQrc(fileName);
+                if (context.isEmpty() && fileName.startsWith(QLatin1String(":/")))
+                    context = fileName;
             }
-            frame = frame->parent;
+            context = QFileInfo(context).baseName();
+        }
+        frame = frame->parent;
+    }
+
+    if (context.isEmpty()) {
+        if (QQmlContextData *ctxt = scope.engine->callingQmlContext()) {
+            QString path = ctxt->urlString();
+            int lastSlash = path.lastIndexOf(QLatin1Char('/'));
+            int lastDot = path.lastIndexOf(QLatin1Char('.'));
+            int length = lastDot - (lastSlash + 1);
+            context = (lastSlash > -1) ? path.mid(lastSlash + 1, (length > -1) ? length : -1) : QString();
         }
     }
 
@@ -2147,8 +2176,7 @@ function.
 */
 ReturnedValue QtObject::method_callLater(const FunctionObject *b, const Value *thisObject, const Value *argv, int argc)
 {
-    QV8Engine *v8engine = b->engine()->v8Engine;
-    return v8engine->delayedCallQueue()->addUniquelyAndExecuteLater(b, thisObject, argv, argc);
+    return b->engine()->delayedCallQueue()->addUniquelyAndExecuteLater(b, thisObject, argv, argc);
 }
 
 QT_END_NAMESPACE

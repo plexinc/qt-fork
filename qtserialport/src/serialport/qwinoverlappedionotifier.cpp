@@ -129,7 +129,6 @@ public:
     HANDLE hSemaphore = nullptr;
     HANDLE hResultsMutex = nullptr;
     QAtomicInt waiting;
-    QAtomicInt pendingNotifications;
     QQueue<IOResult> results;
 };
 
@@ -351,6 +350,7 @@ private:
 };
 
 /*!
+ * \internal
  * Wait synchronously for any notified signal.
  *
  * The function returns a pointer to the OVERLAPPED object corresponding to the completed I/O
@@ -366,6 +366,7 @@ OVERLAPPED *QWinOverlappedIoNotifier::waitForAnyNotified(QDeadlineTimer deadline
 }
 
 /*!
+ * \internal
  * Wait synchronously for the notified signal.
  *
  * The function returns true if the notified signal was emitted for
@@ -396,17 +397,14 @@ void QWinOverlappedIoNotifierPrivate::notify(DWORD numberOfBytes, DWORD errorCod
     results.enqueue(IOResult(numberOfBytes, errorCode, overlapped));
     ReleaseMutex(hResultsMutex);
     ReleaseSemaphore(hSemaphore, 1, NULL);
-    if (!waiting && pendingNotifications-- == 0)
+    if (!waiting)
         emit q->_q_notify();
 }
 
 void QWinOverlappedIoNotifierPrivate::_q_notified()
 {
-    int n = pendingNotifications.fetchAndStoreAcquire(0);
-    while (--n >= 0) {
-        if (WaitForSingleObject(hSemaphore, 0) == WAIT_OBJECT_0)
-            dispatchNextIoResult();
-    }
+    if (WaitForSingleObject(hSemaphore, 0) == WAIT_OBJECT_0)
+        dispatchNextIoResult();
 }
 
 OVERLAPPED *QWinOverlappedIoNotifierPrivate::dispatchNextIoResult()

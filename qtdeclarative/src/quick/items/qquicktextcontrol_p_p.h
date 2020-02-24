@@ -54,6 +54,7 @@
 #include "QtGui/qtextdocumentfragment.h"
 #include "QtGui/qtextcursor.h"
 #include "QtGui/qtextformat.h"
+#include "QtGui/qtextobject.h"
 #include "QtGui/qabstracttextdocumentlayout.h"
 #include "QtCore/qbasictimer.h"
 #include "QtCore/qpointer.h"
@@ -139,9 +140,10 @@ public:
     QString anchorOnMousePress;
     QString linkToCopy;
     QString hoveredLink;
+    QTextBlock blockWithMarkerUnderMousePress;
 
     QBasicTimer cursorBlinkTimer;
-    QBasicTimer tripleClickTimer;
+    ulong timestampAtLastDoubleClick = 0;   // will only be set at a double click
 
 #if QT_CONFIG(im)
     int preeditCursor;
@@ -163,6 +165,7 @@ public:
     bool wordSelectionEnabled : 1;
     bool hasImState : 1;
     bool cursorRectangleChanged : 1;
+    bool hoveredMarker: 1;
 
     int lastSelectionStart;
     int lastSelectionEnd;

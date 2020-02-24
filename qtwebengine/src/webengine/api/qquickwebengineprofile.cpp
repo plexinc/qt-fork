@@ -48,6 +48,8 @@
 #include "qwebenginecookiestore.h"
 #include "qwebenginenotification.h"
 
+#include <QFileInfo>
+#include <QDir>
 #include <QQmlEngine>
 
 #include "profile_adapter.h"
@@ -155,7 +157,10 @@ ASSERT_ENUMS_MATCH(QQuickWebEngineDownloadItem::MimeHtmlSaveFormat, QtWebEngineC
     \fn QQuickWebEngineProfile::presentNotification(QWebEngineNotification *notification)
 
     This signal is emitted whenever there is a newly created user notification.
-    The \a notification argument holds the notification instance to query data and interact with.
+    The \a notification argument holds the \l {QWebEngineNotification} instance
+    to query data and interact with.
+
+    \sa WebEngineProfile::presentNotification
 */
 
 QQuickWebEngineProfilePrivate::QQuickWebEngineProfilePrivate(ProfileAdapter *profileAdapter)
@@ -237,12 +242,15 @@ void QQuickWebEngineProfilePrivate::downloadRequested(DownloadItemInfo &info)
     Q_Q(QQuickWebEngineProfile);
 
     Q_ASSERT(!m_ongoingDownloads.contains(info.id));
-    QQuickWebEngineDownloadItemPrivate *itemPrivate = new QQuickWebEngineDownloadItemPrivate(q);
+    QQuickWebEngineDownloadItemPrivate *itemPrivate = new QQuickWebEngineDownloadItemPrivate(q, info.url);
     itemPrivate->downloadId = info.id;
     itemPrivate->downloadState = QQuickWebEngineDownloadItem::DownloadRequested;
+    itemPrivate->startTime = info.startTime;
     itemPrivate->totalBytes = info.totalBytes;
     itemPrivate->mimeType = info.mimeType;
-    itemPrivate->downloadPath = info.path;
+    itemPrivate->downloadDirectory = QFileInfo(info.path).path();
+    itemPrivate->downloadFileName = QFileInfo(info.path).fileName();
+    itemPrivate->suggestedFileName = info.suggestedFileName;
     itemPrivate->savePageFormat = static_cast<QQuickWebEngineDownloadItem::SavePageFormat>(
                 info.savePageFormat);
     itemPrivate->type = static_cast<QQuickWebEngineDownloadItem::DownloadType>(info.downloadType);
@@ -260,7 +268,7 @@ void QQuickWebEngineProfilePrivate::downloadRequested(DownloadItemInfo &info)
     Q_EMIT q->downloadRequested(download);
 
     QQuickWebEngineDownloadItem::DownloadState state = download->state();
-    info.path = download->path();
+    info.path = QDir(download->downloadDirectory()).filePath(download->downloadFileName());
     info.savePageFormat = itemPrivate->savePageFormat;
     info.accepted = state != QQuickWebEngineDownloadItem::DownloadCancelled
                       && state != QQuickWebEngineDownloadItem::DownloadRequested;
@@ -391,7 +399,8 @@ void QQuickWebEngineProfilePrivate::userScripts_clear(QQmlListProperty<QQuickWeb
     \since QtWebEngine 1.9
 
     This signal is emitted whenever there is a newly created user notification.
-    The \a notification argument holds the notification instance to query data and interact with.
+    The \a notification argument holds the \l {WebEngineNotification} instance
+    to query data and interact with.
 */
 
 /*!

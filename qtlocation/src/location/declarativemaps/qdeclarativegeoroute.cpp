@@ -43,6 +43,8 @@
 #include <QtQml/QQmlEngine>
 #include <QtQml/qqmlinfo.h>
 #include <QtQml/private/qqmlengine_p.h>
+#include <QtQml/private/qv4scopedvalue_p.h>
+#include <QtQml/private/qv4arrayobject_p.h>
 #include <QtPositioning/QGeoRectangle>
 
 QT_BEGIN_NAMESPACE
@@ -383,9 +385,9 @@ QQmlPropertyMap *QDeclarativeGeoRoute::extendedAttributes() const
 /*!
     \qmlmethod bool QtLocation::Route::equals(Route other)
 
-    This method performs a deep comparison between this route and \a other.
-
-    Returns \c true if the routes are considered equal, \c false otherwise.
+    This method performs deep comparison if the present route
+    is identical to the \a other route.
+    Returns \c true if the routes are equal.
 
     \since 5.12
 */

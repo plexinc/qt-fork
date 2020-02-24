@@ -47,6 +47,7 @@
 #include "qwaylandinputdevice_p.h"
 #include "qwaylanddisplay_p.h"
 #include "qwaylandabstractdecoration_p.h"
+#include "qwaylandsurface_p.h"
 
 #include <QtCore/QMimeData>
 #include <QtGui/QGuiApplication>
@@ -80,7 +81,14 @@ QWaylandDataOffer *QWaylandDataDevice::selectionOffer() const
 
 void QWaylandDataDevice::invalidateSelectionOffer()
 {
+    if (m_selectionOffer.isNull())
+        return;
+
     m_selectionOffer.reset();
+
+#if QT_CONFIG(clipboard)
+    QGuiApplicationPrivate::platformIntegration()->clipboard()->emitChanged(QClipboard::Clipboard);
+#endif
 }
 
 QWaylandDataSource *QWaylandDataDevice::selectionSource() const
@@ -102,19 +110,23 @@ QWaylandDataOffer *QWaylandDataDevice::dragOffer() const
     return m_dragOffer.data();
 }
 
-void QWaylandDataDevice::startDrag(QMimeData *mimeData, QWaylandWindow *icon)
+bool QWaylandDataDevice::startDrag(QMimeData *mimeData, QWaylandWindow *icon)
 {
+    auto *seat = m_display->currentInputDevice();
+    auto *origin = seat->pointerFocus();
+    if (!origin)
+        origin = seat->touchFocus();
+
+    if (!origin) {
+        qCDebug(lcQpaWayland) << "Couldn't start a drag because the origin window could not be found.";
+        return false;
+    }
+
     m_dragSource.reset(new QWaylandDataSource(m_display->dndSelectionHandler(), mimeData));
     connect(m_dragSource.data(), &QWaylandDataSource::cancelled, this, &QWaylandDataDevice::dragSourceCancelled);
 
-    QWaylandWindow *origin = m_display->currentInputDevice()->pointerFocus();
-    if (!origin)
-        origin = m_display->currentInputDevice()->touchFocus();
-
-    if (origin)
-        start_drag(m_dragSource->object(), origin->object(), icon->object(), m_display->currentInputDevice()->serial());
-    else
-        qCDebug(lcQpaWayland) << "Couldn't start a drag because the origin window could not be found.";
+    start_drag(m_dragSource->object(), origin->wlSurface(), icon->wlSurface(), m_display->currentInputDevice()->serial());
+    return true;
 }
 
 void QWaylandDataDevice::cancelDrag()
@@ -154,9 +166,13 @@ void QWaylandDataDevice::data_device_drop()
 
 void QWaylandDataDevice::data_device_enter(uint32_t serial, wl_surface *surface, wl_fixed_t x, wl_fixed_t y, wl_data_offer *id)
 {
-    m_enterSerial = serial;
-    m_dragWindow = QWaylandWindow::fromWlSurface(surface)->window();
+    auto *dragWaylandWindow = QWaylandWindow::fromWlSurface(surface);
+    if (!dragWaylandWindow)
+        return; // Ignore foreign surfaces
+
+    m_dragWindow = dragWaylandWindow->window();
     m_dragPoint = calculateDragPosition(x, y, m_dragWindow);
+    m_enterSerial = serial;
 
     QMimeData *dragData = nullptr;
     Qt::DropActions supportedActions;

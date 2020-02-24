@@ -51,7 +51,7 @@ class QWindow;
 
 class QWindowsTheme : public QPlatformTheme
 {
-    Q_DISABLE_COPY(QWindowsTheme)
+    Q_DISABLE_COPY_MOVE(QWindowsTheme)
 public:
     QWindowsTheme();
     ~QWindowsTheme() override;
@@ -71,7 +71,7 @@ public:
 
     QPixmap standardPixmap(StandardPixmap sp, const QSizeF &size) const override;
 
-    QIcon fileIcon(const QFileInfo &fileInfo, QPlatformTheme::IconOptions iconOptions = 0) const override;
+    QIcon fileIcon(const QFileInfo &fileInfo, QPlatformTheme::IconOptions iconOptions = nullptr) const override;
 
     void windowsThemeChanged(QWindow *window);
     void displayChanged() { refreshIconPixmapSizes(); }
@@ -85,6 +85,8 @@ public:
 
     static bool useNativeMenus();
 
+    void refreshFonts();
+
     static const char *name;
 
 private:
@@ -92,7 +94,6 @@ private:
     void clearPalettes();
     void refreshPalettes();
     void clearFonts();
-    void refreshFonts();
     void refreshIconPixmapSizes();
 
     static QWindowsTheme *m_instance;

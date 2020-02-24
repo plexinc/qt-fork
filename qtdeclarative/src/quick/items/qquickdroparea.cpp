@@ -43,7 +43,7 @@
 
 #include <private/qv4arraybuffer_p.h>
 
-#if QT_CONFIG(draganddrop)
+#include <QtCore/qregularexpression.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -70,7 +70,7 @@ public:
     QStringList getKeys(const QMimeData *mimeData) const;
 
     QStringList keys;
-    QRegExp keyRegExp;
+    QRegularExpression keyRegExp;
     QPointF dragPosition;
     QQuickDropAreaDrag *drag;
     QPointer<QObject> source;
@@ -157,13 +157,15 @@ void QQuickDropArea::setKeys(const QStringList &keys)
         d->keys = keys;
 
         if (keys.isEmpty()) {
-            d->keyRegExp = QRegExp();
+            d->keyRegExp = QRegularExpression();
         } else {
-            QString pattern = QLatin1Char('(') + QRegExp::escape(keys.first());
+            QString pattern = QLatin1Char('(') + QRegularExpression::escape(keys.first());
             for (int i = 1; i < keys.count(); ++i)
-                pattern += QLatin1Char('|') + QRegExp::escape(keys.at(i));
+                pattern += QLatin1Char('|') + QRegularExpression::escape(keys.at(i));
             pattern += QLatin1Char(')');
-            d->keyRegExp = QRegExp(pattern.replace(QLatin1String("\\*"), QLatin1String(".+")));
+            d->keyRegExp = QRegularExpression(
+                    QRegularExpression::anchoredPattern(pattern.replace(QLatin1String("\\*"),
+                                                                        QLatin1String(".+"))));
         }
         emit keysChanged();
     }
@@ -209,7 +211,7 @@ qreal QQuickDropAreaDrag::y() const
 /*!
     \qmlsignal QtQuick::DropArea::positionChanged(DragEvent drag)
 
-    This signal is emitted when the position of a drag has changed.
+    This signal is emitted when the position of a \a drag has changed.
 
     The corresponding handler is \c onPositionChanged.
 */
@@ -231,12 +233,11 @@ void QQuickDropArea::dragMoveEvent(QDragMoveEvent *event)
 
 bool QQuickDropAreaPrivate::hasMatchingKey(const QStringList &keys) const
 {
-    if (keyRegExp.isEmpty())
+    if (keyRegExp.pattern().isEmpty())
         return true;
 
-    QRegExp copy = keyRegExp;
     for (const QString &key : keys) {
-        if (copy.exactMatch(key))
+        if (key.contains(keyRegExp))
             return true;
     }
     return false;
@@ -312,7 +313,7 @@ void QQuickDropArea::dragLeaveEvent(QDragLeaveEvent *)
 /*!
     \qmlsignal QtQuick::DropArea::dropped(DragEvent drop)
 
-    This signal is emitted when a drop event occurs within the bounds of
+    This signal is emitted when a \a drop event occurs within the bounds of
     a DropArea.
 
     The corresponding handler is \c onDropped.
@@ -619,5 +620,3 @@ void QQuickDropEvent::accept(QQmlV4Function *args)
 QT_END_NAMESPACE
 
 #include "moc_qquickdroparea_p.cpp"
-
-#endif // draganddrop

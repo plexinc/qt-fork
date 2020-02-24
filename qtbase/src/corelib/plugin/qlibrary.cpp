@@ -74,7 +74,7 @@ QT_BEGIN_NAMESPACE
 #  define QLIBRARY_AS_DEBUG true
 #endif
 
-#if defined(Q_OS_UNIX)
+#if defined(Q_OS_UNIX) || (defined(Q_CC_MINGW) && !QT_CONFIG(debug_and_release))
 // We don't use separate debug and release libs on UNIX, so we want
 // to allow loading plugins, regardless of how they were built.
 #  define QT_NO_DEBUG_PLUGIN_CHECK
@@ -241,8 +241,8 @@ static bool findPatternUnloaded(const QString &library, QLibraryPrivate *lib)
         if (lib)
             lib->errorString = file.errorString();
         if (qt_debug_component()) {
-            qWarning("%s: %s", QFile::encodeName(library).constData(),
-                qPrintable(QSystemError::stdString()));
+            qWarning("%s: %ls", QFile::encodeName(library).constData(),
+                     qUtf16Printable(QSystemError::stdString()));
         }
         return false;
     }
@@ -275,7 +275,7 @@ static bool findPatternUnloaded(const QString &library, QLibraryPrivate *lib)
     int r = QElfParser().parse(filedata, fdlen, library, lib, &pos, &fdlen);
     if (r == QElfParser::Corrupt || r == QElfParser::NotElf) {
             if (lib && qt_debug_component()) {
-                qWarning("QElfParser: %s",qPrintable(lib->errorString));
+                qWarning("QElfParser: %ls", qUtf16Printable(lib->errorString));
             }
             return false;
     } else if (r == QElfParser::QtMetaDataSection) {
@@ -292,7 +292,7 @@ static bool findPatternUnloaded(const QString &library, QLibraryPrivate *lib)
         int r = QMachOParser::parse(filedata, fdlen, library, &errorString, &pos, &fdlen);
         if (r == QMachOParser::NotSuitable) {
             if (qt_debug_component())
-                qWarning("QMachOParser: %s", qPrintable(errorString));
+                qWarning("QMachOParser: %ls", qUtf16Printable(errorString));
             if (lib)
                 lib->errorString = errorString;
             return false;
@@ -319,8 +319,8 @@ static bool findPatternUnloaded(const QString &library, QLibraryPrivate *lib)
         QString errMsg;
         QJsonDocument doc = qJsonFromRawLibraryMetaData(data, fdlen, &errMsg);
         if (doc.isNull()) {
-            qWarning("Found invalid metadata in lib %s: %s",
-                     qPrintable(library), qPrintable(errMsg));
+            qWarning("Found invalid metadata in lib %ls: %ls",
+                     qUtf16Printable(library), qUtf16Printable(errMsg));
         } else {
             lib->metaData = doc.object();
             if (qt_debug_component())
@@ -356,11 +356,11 @@ static void installCoverageTool(QLibraryPrivate *libPrivate)
 
     if (qt_debug_component()) {
         if (ret >= 0) {
-            qDebug("coverage data for %s registered",
-                     qPrintable(libPrivate->fileName));
+            qDebug("coverage data for %ls registered",
+                   qUtf16Printable(libPrivate->fileName));
         } else {
-            qWarning("could not register %s: error %d; coverage data may be incomplete",
-                     qPrintable(libPrivate->fileName),
+            qWarning("could not register %ls: error %d; coverage data may be incomplete",
+                     qUtf16Printable(libPrivate->fileName),
                      ret);
         }
     }
@@ -405,10 +405,10 @@ inline void QLibraryStore::cleanup()
     LibraryMap::Iterator it = data->libraryMap.begin();
     for (; it != data->libraryMap.end(); ++it) {
         QLibraryPrivate *lib = it.value();
-        if (lib->libraryRefCount.load() == 1) {
-            if (lib->libraryUnloadCount.load() > 0) {
+        if (lib->libraryRefCount.loadRelaxed() == 1) {
+            if (lib->libraryUnloadCount.loadRelaxed() > 0) {
                 Q_ASSERT(lib->pHnd);
-                lib->libraryUnloadCount.store(1);
+                lib->libraryUnloadCount.storeRelaxed(1);
 #ifdef __GLIBC__
                 // glibc has a bug in unloading from global destructors
                 // see https://bugzilla.novell.com/show_bug.cgi?id=622977
@@ -428,7 +428,7 @@ inline void QLibraryStore::cleanup()
         for (QLibraryPrivate *lib : qAsConst(data->libraryMap)) {
             if (lib)
                 qDebug() << "On QtCore unload," << lib->fileName << "was leaked, with"
-                         << lib->libraryRefCount.load() << "users";
+                         << lib->libraryRefCount.loadRelaxed() << "users";
         }
     }
 
@@ -487,7 +487,7 @@ inline void QLibraryStore::releaseLibrary(QLibraryPrivate *lib)
     }
 
     // no one else is using
-    Q_ASSERT(lib->libraryUnloadCount.load() == 0);
+    Q_ASSERT(lib->libraryUnloadCount.loadRelaxed() == 0);
 
     if (Q_LIKELY(data) && !lib->fileName.isEmpty()) {
         QLibraryPrivate *that = data->libraryMap.take(lib->fileName);
@@ -501,7 +501,7 @@ QLibraryPrivate::QLibraryPrivate(const QString &canonicalFileName, const QString
     : pHnd(0), fileName(canonicalFileName), fullVersion(version), instance(0),
       libraryRefCount(0), libraryUnloadCount(0), pluginState(MightBeAPlugin)
 {
-    loadHintsInt.store(loadHints);
+    loadHintsInt.storeRelaxed(loadHints);
     if (canonicalFileName.isEmpty())
         errorString = QLibrary::tr("The shared library was not found.");
 }
@@ -522,7 +522,7 @@ void QLibraryPrivate::mergeLoadHints(QLibrary::LoadHints lh)
     if (pHnd)
         return;
 
-    loadHintsInt.store(lh);
+    loadHintsInt.storeRelaxed(lh);
 }
 
 QFunctionPointer QLibraryPrivate::resolve(const char *symbol)
@@ -575,7 +575,7 @@ bool QLibraryPrivate::unload(UnloadFlag flag)
 {
     if (!pHnd)
         return false;
-    if (libraryUnloadCount.load() > 0 && !libraryUnloadCount.deref()) { // only unload if ALL QLibrary instance wanted to
+    if (libraryUnloadCount.loadRelaxed() > 0 && !libraryUnloadCount.deref()) { // only unload if ALL QLibrary instance wanted to
         delete inst.data();
         if (flag == NoUnloadSys || unload_sys()) {
             if (qt_debug_component())

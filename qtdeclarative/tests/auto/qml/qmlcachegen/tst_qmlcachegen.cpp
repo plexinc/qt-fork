@@ -36,6 +36,7 @@
 #include <QSysInfo>
 #include <QLoggingCategory>
 #include <private/qqmlcomponent_p.h>
+#include <private/qqmlscriptdata_p.h>
 #include <qtranslator.h>
 
 #include "../../shared/util.h"
@@ -64,6 +65,7 @@ private slots:
     void qrcScriptImport();
     void fsScriptImport();
     void moduleScriptImport();
+    void esModulesViaQJSEngine();
 
     void enums();
 
@@ -71,6 +73,8 @@ private slots:
 
     void reproducibleCache_data();
     void reproducibleCache();
+
+    void parameterAdjustment();
 };
 
 // A wrapper around QQmlComponent to ensure the temporary reference counts
@@ -604,6 +608,15 @@ void tst_qmlcachegen::moduleScriptImport()
     }
 }
 
+void tst_qmlcachegen::esModulesViaQJSEngine()
+{
+    QCOMPARE(QFileInfo(":/data/module.mjs").size(), 0);
+    QJSEngine engine;
+    QJSValue module = engine.importModule(":/data/module.mjs");
+    QJSValue result = module.property("entry").call();
+    QCOMPARE(result.toString(), "ok");
+}
+
 void tst_qmlcachegen::enums()
 {
     QQmlEngine engine;
@@ -657,6 +670,14 @@ void tst_qmlcachegen::reproducibleCache()
     const QByteArray contents1 = generate(file.fileName());
     const QByteArray contents2 = generate(file.fileName());
     QCOMPARE(contents1, contents2);
+}
+
+void tst_qmlcachegen::parameterAdjustment()
+{
+    QQmlEngine engine;
+    CleanlyLoadingComponent component(&engine, QUrl("qrc:///data/parameterAdjustment.qml"));
+    QScopedPointer<QObject> obj(component.create());
+    QVERIFY(!obj.isNull()); // Doesn't crash
 }
 
 QTEST_GUILESS_MAIN(tst_qmlcachegen)

@@ -246,7 +246,7 @@ bool QMediaPlaylistProvider::removeMedia(int position)
   */
 bool QMediaPlaylistProvider::removeMedia(int start, int end)
 {
-    for (int pos=start; pos<=end; pos++) {
+    for (int pos=end; pos>=start; pos--) {
         if (!removeMedia(pos))
             return false;
     }
@@ -316,6 +316,6 @@ void QMediaPlaylistProvider::shuffle()
     Signals that a load failed() due to an \a error.  The \a errorMessage provides more information.
 */
 
-#include "moc_qmediaplaylistprovider_p.cpp"
 QT_END_NAMESPACE
 
+#include "moc_qmediaplaylistprovider_p.cpp"

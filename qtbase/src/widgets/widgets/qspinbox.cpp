@@ -128,9 +128,10 @@ public:
     manually. The spin box supports integer values but can be extended to
     use different strings with validate(), textFromValue() and valueFromText().
 
-    Every time the value changes QSpinBox emits two valueChanged() signals,
-    one providing an int and the other a QString. The QString overload
-    provides the value with both prefix() and suffix().
+    Every time the value changes QSpinBox emits valueChanged() and
+    textChanged() signals, the former providing a int and the latter
+    a QString. The textChanged() signal provides the value with both
+    prefix() and suffix().
     The current value can be fetched with value() and set with setValue().
 
     Clicking the up/down buttons or using the keyboard accelerator's
@@ -183,12 +184,23 @@ public:
 */
 
 /*!
+    \fn void QSpinBox::textChanged(const QString &text)
+    \since 5.14
+
+    This signal is emitted whenever the spin box's text is changed.
+    The new text is passed in \a text with prefix() and suffix().
+*/
+
+#if QT_DEPRECATED_SINCE(5, 14)
+/*!
     \fn void QSpinBox::valueChanged(const QString &text)
 
     \overload
+    \obsolete Use textChanged(QString) instead
 
     The new value is passed in \a text with prefix() and suffix().
 */
+#endif
 
 /*!
     Constructs a spin box with 0 as minimum value and 99 as maximum value, a
@@ -372,7 +384,7 @@ void QSpinBox::setMinimum(int minimum)
 {
     Q_D(QSpinBox);
     const QVariant m(minimum);
-    d->setRange(m, (d->variantCompare(d->maximum, m) > 0 ? d->maximum : m));
+    d->setRange(m, (QSpinBoxPrivate::variantCompare(d->maximum, m) > 0 ? d->maximum : m));
 }
 
 /*!
@@ -400,7 +412,7 @@ void QSpinBox::setMaximum(int maximum)
 {
     Q_D(QSpinBox);
     const QVariant m(maximum);
-    d->setRange((d->variantCompare(d->minimum, m) < 0 ? d->minimum : m), m);
+    d->setRange((QSpinBoxPrivate::variantCompare(d->minimum, m) < 0 ? d->minimum : m), m);
 }
 
 /*!
@@ -594,9 +606,9 @@ void QSpinBox::fixup(QString &input) const
     values but can be extended to use different strings with
     validate(), textFromValue() and valueFromText().
 
-    Every time the value changes QDoubleSpinBox emits two
-    valueChanged() signals, one taking providing a double and the other
-    a QString. The QString overload provides the value with both
+    Every time the value changes QDoubleSpinBox emits valueChanged() and
+    textChanged() signals, the former providing a double and the latter
+    a QString. The textChanged() signal provides the value with both
     prefix() and suffix(). The current value can be fetched with
     value() and set with setValue().
 
@@ -644,12 +656,23 @@ void QSpinBox::fixup(QString &input) const
 */
 
 /*!
+    \fn void QDoubleSpinBox::textChanged(const QString &text)
+    \since 5.14
+
+    This signal is emitted whenever the spin box's text is changed.
+    The new text is passed in \a text with prefix() and suffix().
+*/
+
+#if QT_DEPRECATED_SINCE(5, 14)
+/*!
     \fn void QDoubleSpinBox::valueChanged(const QString &text);
 
     \overload
+    \obsolete Use textChanged(QString) instead
 
     The new value is passed in \a text with prefix() and suffix().
 */
+#endif
 
 /*!
     Constructs a spin box with 0.0 as minimum value and 99.99 as maximum value,
@@ -841,7 +864,7 @@ void QDoubleSpinBox::setMinimum(double minimum)
     Q_D(QDoubleSpinBox);
     d->actualMin = minimum;
     const QVariant m(d->round(minimum));
-    d->setRange(m, (d->variantCompare(d->maximum, m) > 0 ? d->maximum : m));
+    d->setRange(m, (QDoubleSpinBoxPrivate::variantCompare(d->maximum, m) > 0 ? d->maximum : m));
 }
 
 /*!
@@ -872,7 +895,7 @@ void QDoubleSpinBox::setMaximum(double maximum)
     Q_D(QDoubleSpinBox);
     d->actualMax = maximum;
     const QVariant m(d->round(maximum));
-    d->setRange((d->variantCompare(d->minimum, m) < 0 ? d->minimum : m), m);
+    d->setRange((QDoubleSpinBoxPrivate::variantCompare(d->minimum, m) < 0 ? d->minimum : m), m);
 }
 
 /*!
@@ -1072,7 +1095,13 @@ void QSpinBoxPrivate::emitSignals(EmitPolicy ep, const QVariant &old)
     if (ep != NeverEmit) {
         pendingEmit = false;
         if (ep == AlwaysEmit || value != old) {
+#if QT_DEPRECATED_SINCE(5, 14)
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
             emit q->valueChanged(edit->displayText());
+QT_WARNING_POP
+#endif
+            emit q->textChanged(edit->displayText());
             emit q->valueChanged(value.toInt());
         }
     }
@@ -1223,7 +1252,13 @@ void QDoubleSpinBoxPrivate::emitSignals(EmitPolicy ep, const QVariant &old)
     if (ep != NeverEmit) {
         pendingEmit = false;
         if (ep == AlwaysEmit || value != old) {
+#if QT_DEPRECATED_SINCE(5, 14)
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
             emit q->valueChanged(edit->displayText());
+QT_WARNING_POP
+#endif
+            emit q->textChanged(edit->displayText());
             emit q->valueChanged(value.toDouble());
         }
     }

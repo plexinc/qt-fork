@@ -119,7 +119,7 @@ public:
     static QByteArray interfaceName();
     static QWaylandXdgSurface *fromResource(::wl_resource *resource);
 
-#ifdef QT_WAYLAND_COMPOSITOR_QUICK
+#if QT_CONFIG(wayland_compositor_quick)
     QWaylandQuickShellIntegration *createIntegration(QWaylandQuickShellSurfaceItem *item) override;
 #endif
 
@@ -153,7 +153,12 @@ class Q_WAYLAND_COMPOSITOR_EXPORT QWaylandXdgToplevel : public QObject
     Q_PROPERTY(bool fullscreen READ fullscreen NOTIFY fullscreenChanged)
     Q_PROPERTY(bool resizing READ resizing NOTIFY resizingChanged)
     Q_PROPERTY(bool activated READ activated NOTIFY activatedChanged)
+// QDoc fails to parse the property type that includes the keyword 'enum'
+#ifndef Q_CLANG_QDOC
     Q_PROPERTY(enum DecorationMode decorationMode READ decorationMode NOTIFY decorationModeChanged)
+#else
+    Q_PROPERTY(DecorationMode decorationMode READ decorationMode NOTIFY decorationModeChanged)
+#endif
 public:
     enum State : uint {
         MaximizedState  = 1,
@@ -260,6 +265,7 @@ public:
     QPoint unconstrainedPosition() const;
 
     Q_INVOKABLE uint sendConfigure(const QRect &geometry);
+    Q_REVISION(14) Q_INVOKABLE void sendPopupDone();
 
     static QWaylandSurfaceRole *role();
 

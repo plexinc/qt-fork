@@ -55,7 +55,21 @@ namespace Qt3DRender
  * \since 5.9
  *
  * EnvironmentLight uses cubemaps to implement image-based lighting (IBL), a technique
- * often used in conjunction with physically-based rendering (PBR).
+ * often used in conjunction with physically-based rendering (PBR). The cubemaps are
+ * typically expected be based on high dynamic range (HDR) images, with a suitable
+ * OpenGL format (such as RGBA16F) that can handle the increased range of values.
+ *
+ * There are a variety of tools that can be used to produce the cubemaps needed by
+ * EnvironmentLight. Some examples include
+ *
+ * \list
+ * \li \l {https://github.com/dariomanesku/cmftStudio}{cmftStudio}
+ * \li \l {https://github.com/derkreature/IBLBaker}{IBLBaker}
+ * \li \l {https://www.knaldtech.com/lys/}{Lys}
+ * \endlist
+ *
+ * \l {https://hdrihaven.com/hdris/}{HDRI Haven} provides many CC0-licensed HDR images
+ * that can be used as source material for the above tools.
  */
 
 QEnvironmentLightPrivate::QEnvironmentLightPrivate()
@@ -101,8 +115,22 @@ Qt3DCore::QNodeCreatedChangeBasePtr QEnvironmentLight::createNodeCreationChange(
     \brief Encapsulate an environment light object in a Qt 3D scene.
     \since 5.9
 
-    EnvironmentLight uses cubemaps to implement image-based lighting (IBL), a technique
-    often used in conjunction with physically-based rendering (PBR).
+    QEnvironmentLight uses cubemaps to implement image-based lighting (IBL), a technique
+    often used in conjunction with physically-based rendering (PBR). The cubemaps are
+    typically expected be based on high dynamic range (HDR) images, with a suitable
+    OpenGL format (such as RGBA16F) that can handle the increased range of values.
+
+    There are a variety of tools that can be used to produce the cubemaps needed by
+    QEnvironmentLight. Some examples include
+
+    \list
+    \li \l {https://github.com/dariomanesku/cmftStudio}{cmftStudio}
+    \li \l {https://github.com/derkreature/IBLBaker}{IBLBaker}
+    \li \l {https://www.knaldtech.com/lys/}{Lys}
+    \endlist
+
+    \l {https://hdrihaven.com/hdris/}{HDRI Haven} provides many CC0-licensed HDR images
+    that can be used as source material for the above tools.
 */
 
 QEnvironmentLight::QEnvironmentLight(Qt3DCore::QNode *parent)
@@ -130,6 +158,9 @@ QEnvironmentLight::~QEnvironmentLight()
     Holds the current environment irradiance map texture.
 
     By default, the environment irradiance texture is null.
+
+    \note The exact meaning and use of this property is up to the
+          material implementation.
 */
 
 /*!
@@ -138,6 +169,9 @@ QEnvironmentLight::~QEnvironmentLight()
     Holds the current environment irradiance map texture.
 
     By default, the environment irradiance texture is null.
+
+    \note The exact meaning and use of this property is up to the
+          material implementation.
 */
 QAbstractTexture *QEnvironmentLight::irradiance() const
 {
@@ -151,6 +185,9 @@ QAbstractTexture *QEnvironmentLight::irradiance() const
     Holds the current environment specular map texture.
 
     By default, the environment specular texture is null.
+
+    \note The exact meaning and use of this property is up to the
+          material implementation.
 */
 
 /*!
@@ -159,6 +196,9 @@ QAbstractTexture *QEnvironmentLight::irradiance() const
     Holds the current environment specular map texture.
 
     By default, the environment specular texture is null.
+
+    \note The exact meaning and use of this property is up to the
+          material implementation.
 */
 QAbstractTexture *QEnvironmentLight::specular() const
 {

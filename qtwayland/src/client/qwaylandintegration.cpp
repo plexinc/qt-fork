@@ -272,7 +272,7 @@ QPlatformAccessibility *QWaylandIntegration::accessibility() const
 {
     if (!mAccessibility) {
 #ifndef QT_NO_ACCESSIBILITY_ATSPI_BRIDGE
-        Q_ASSERT_X(QCoreApplication::eventDispatcher(), "QXcbIntegration",
+        Q_ASSERT_X(QCoreApplication::eventDispatcher(), "QWaylandIntegration",
             "Initializing accessibility without event-dispatcher!");
         mAccessibility.reset(new QSpiAccessibleBridge());
 #else
@@ -310,11 +310,14 @@ QPlatformTheme *QWaylandIntegration::createPlatformTheme(const QString &name) co
     return GenericWaylandTheme::createUnixTheme(name);
 }
 
+// May be called from non-GUI threads
 QWaylandClientBufferIntegration *QWaylandIntegration::clientBufferIntegration() const
 {
-    if (!mClientBufferIntegrationInitialized)
+    // Do an inexpensive check first to avoid locking whenever possible
+    if (Q_UNLIKELY(!mClientBufferIntegrationInitialized))
         const_cast<QWaylandIntegration *>(this)->initializeClientBufferIntegration();
 
+    Q_ASSERT(mClientBufferIntegrationInitialized);
     return mClientBufferIntegration && mClientBufferIntegration->isValid() ? mClientBufferIntegration.data() : nullptr;
 }
 
@@ -334,9 +337,12 @@ QWaylandShellIntegration *QWaylandIntegration::shellIntegration() const
     return mShellIntegration.data();
 }
 
+// May be called from non-GUI threads
 void QWaylandIntegration::initializeClientBufferIntegration()
 {
-    mClientBufferIntegrationInitialized = true;
+    QMutexLocker lock(&mClientBufferInitLock);
+    if (mClientBufferIntegrationInitialized)
+        return;
 
     QString targetKey = QString::fromLocal8Bit(qgetenv("QT_WAYLAND_CLIENT_BUFFER_INTEGRATION"));
 
@@ -346,28 +352,31 @@ void QWaylandIntegration::initializeClientBufferIntegration()
                 && mDisplay->hardwareIntegration()->clientBufferIntegration() != QLatin1String("linux-dmabuf-unstable-v1")) {
             targetKey = mDisplay->hardwareIntegration()->clientBufferIntegration();
         } else {
-            targetKey = QLatin1Literal("wayland-egl");
+            targetKey = QLatin1String("wayland-egl");
         }
     }
 
     if (targetKey.isEmpty()) {
         qWarning("Failed to determine what client buffer integration to use");
-        return;
-    }
-
-    QStringList keys = QWaylandClientBufferIntegrationFactory::keys();
-    qCDebug(lcQpaWayland) << "Available client buffer integrations:" << keys;
-
-    if (keys.contains(targetKey))
-        mClientBufferIntegration.reset(QWaylandClientBufferIntegrationFactory::create(targetKey, QStringList()));
-
-    if (mClientBufferIntegration) {
-        qCDebug(lcQpaWayland) << "Initializing client buffer integration" << targetKey;
-        mClientBufferIntegration->initialize(mDisplay.data());
     } else {
-        qCWarning(lcQpaWayland) << "Failed to load client buffer integration:" << targetKey;
-        qCWarning(lcQpaWayland) << "Available client buffer integrations:" << keys;
+        QStringList keys = QWaylandClientBufferIntegrationFactory::keys();
+        qCDebug(lcQpaWayland) << "Available client buffer integrations:" << keys;
+
+        if (keys.contains(targetKey))
+            mClientBufferIntegration.reset(QWaylandClientBufferIntegrationFactory::create(targetKey, QStringList()));
+
+        if (mClientBufferIntegration) {
+            qCDebug(lcQpaWayland) << "Initializing client buffer integration" << targetKey;
+            mClientBufferIntegration->initialize(mDisplay.data());
+        } else {
+            qCWarning(lcQpaWayland) << "Failed to load client buffer integration:" << targetKey;
+            qCWarning(lcQpaWayland) << "Available client buffer integrations:" << keys;
+        }
     }
+
+    // This must be set last to make sure other threads don't use the
+    // integration before initialization is complete.
+    mClientBufferIntegrationInitialized = true;
 }
 
 void QWaylandIntegration::initializeServerBufferIntegration()
@@ -421,7 +430,7 @@ void QWaylandIntegration::initializeShellIntegration()
         preferredShells << QLatin1String("wl-shell") << QLatin1String("ivi-shell");
     }
 
-    Q_FOREACH (QString preferredShell, preferredShells) {
+    for (const QString &preferredShell : qAsConst(preferredShells)) {
         mShellIntegration.reset(createShellIntegration(preferredShell));
         if (mShellIntegration) {
             qCDebug(lcQpaWayland, "Using the '%s' shell integration", qPrintable(preferredShell));

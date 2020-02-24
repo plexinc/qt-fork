@@ -40,9 +40,9 @@
 #include <QtQuick/private/qquicklistview_p.h>
 #include <QtQuick/private/qquickmousearea_p.h>
 #include <QtQuick/private/qquicktext_p.h>
-#include <QtQml/private/qqmlobjectmodel_p.h>
-#include <QtQml/private/qqmllistmodel_p.h>
-#include <QtQml/private/qqmldelegatemodel_p.h>
+#include <QtQmlModels/private/qqmlobjectmodel_p.h>
+#include <QtQmlModels/private/qqmllistmodel_p.h>
+#include <QtQmlModels/private/qqmldelegatemodel_p.h>
 #include "../../shared/util.h"
 #include "../shared/viewtestutil.h"
 #include "../shared/visualtestutil.h"
@@ -267,6 +267,7 @@ private slots:
     void QTBUG_61269_appendDuringScrollDown_data();
     void QTBUG_50097_stickyHeader_positionViewAtIndex();
     void QTBUG_63974_stickyHeader_positionViewAtIndex_Contain();
+    void QTBUG_66163_setModelViewPortSizeChange();
     void itemFiltered();
     void releaseItems();
 
@@ -279,6 +280,8 @@ private slots:
     void setPositionOnLayout();
     void touchCancel();
     void resizeAfterComponentComplete();
+    void moveObjectModelItemToAnotherObjectModel();
+    void changeModelAndDestroyTheOldOne();
 
 private:
     template <class T> void items(const QUrl &source);
@@ -1943,6 +1946,31 @@ void tst_QQuickListView::enforceRange()
 
     QTRY_COMPARE(listview->currentIndex(), 6);
 
+    // Test for [QTBUG-77418] {
+        // explicit set current index
+        listview->setCurrentIndex(5);
+        QTRY_COMPARE(listview->contentY(), 0);
+
+        // then check if contentY changes if the highlight range is changed
+        listview->setPreferredHighlightBegin(80);
+        listview->setPreferredHighlightEnd(80);
+        QTRY_COMPARE(listview->contentY(), 20);
+
+        // verify that current index does not change with no highlight
+        listview->setHighlightRangeMode(QQuickListView::NoHighlightRange);
+        listview->setContentY(100);
+        QTRY_COMPARE(listview->currentIndex(), 5);
+
+        // explicit set current index, contentY should not change now
+        listview->setCurrentIndex(6);
+        QTRY_COMPARE(listview->contentY(), 100);
+        QTest::qWait(50);   // This was needed in order to reproduce a failure for the following test
+
+        // verify that contentY changes if we turn on highlight again
+        listview->setHighlightRangeMode(QQuickListView::StrictlyEnforceRange);
+        QTRY_COMPARE(listview->contentY(), 40);
+    // } Test for [QTBUG-77418]
+
     // change model
     QaimModel model2;
     for (int i = 0; i < 5; i++)
@@ -2864,7 +2892,11 @@ void tst_QQuickListView::currentIndex()
 
     // empty model should reset currentIndex to -1
     QaimModel emptyModel;
+    window->rootObject()->setProperty("currentItemChangedCount", QVariant(0));
+    QVERIFY(QQmlProperty(window->rootObject(), "s").read().toString() != QLatin1String("-1"));
     ctxt->setContextProperty("testModel", &emptyModel);
+    QCOMPARE(QQmlProperty(window->rootObject(), "s").read().toString(), "-1");
+    QCOMPARE(window->rootObject()->property("currentItemChangedCount").toInt(), 1);
     QCOMPARE(listview->currentIndex(), -1);
 
     delete window;
@@ -7282,11 +7314,13 @@ QList<int> tst_QQuickListView::toIntList(const QVariantList &list)
 
 void tst_QQuickListView::matchIndexLists(const QVariantList &indexLists, const QList<int> &expectedIndexes)
 {
+    const QSet<int> expectedIndexSet(expectedIndexes.cbegin(), expectedIndexes.cend());
     for (int i=0; i<indexLists.count(); i++) {
-        QSet<int> current = indexLists[i].value<QList<int> >().toSet();
-        if (current != expectedIndexes.toSet())
+        const auto &currentList = indexLists[i].value<QList<int> >();
+        const QSet<int> current(currentList.cbegin(), currentList.cend());
+        if (current != expectedIndexSet)
             qDebug() << "Cannot match actual targets" << current << "with expected" << expectedIndexes;
-        QCOMPARE(current, expectedIndexes.toSet());
+        QCOMPARE(current, expectedIndexSet);
     }
 }
 
@@ -8816,6 +8850,62 @@ void tst_QQuickListView::QTBUG_63974_stickyHeader_positionViewAtIndex_Contain()
     QTRY_COMPARE(listview->contentY(), -headerSize);
 }
 
+void tst_QQuickListView::QTBUG_66163_setModelViewPortSizeChange()
+{
+    QScopedPointer<QQuickView> window(createView());
+    QQmlComponent comp(window->engine());
+    comp.setData(R"(
+    import QtQuick 2.0
+
+    Item {
+        id: root
+        width: 400
+        height: 400
+
+        ListView {
+            id: view
+            objectName: "view"
+            anchors.fill: parent
+
+            model: 4
+            highlightRangeMode: ListView.StrictlyEnforceRange
+
+            delegate: Rectangle {
+                color: index % 2 ? "green" : "orange"
+                width: parent.width
+                height: 50
+            }
+
+            populate: Transition {
+                SequentialAnimation {
+                    NumberAnimation { property: "y"; from: 100; duration: 1000 }
+                }
+            }
+        }
+    }
+    )", QUrl("testData"));
+    auto root {qobject_cast<QQuickItem*>(comp.create())};
+    QVERIFY(root);
+    window->setContent(QUrl(), &comp, root);
+    window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(window.data()));
+    auto view = root->findChild<QQuickListView *>("view");
+    QVERIFY(view);
+    QVERIFY(QQuickTest::qWaitForItemPolished(view));
+    QSignalSpy spy(view, &QQuickListView::contentYChanged);
+    auto transition = view->property("populate").value<QQuickTransition*>();
+    QVERIFY(transition);
+    QQmlProperty model(view, "model");
+    QVERIFY(model.isValid());
+    model.write(5);
+    // Animations inside a Transition do not emit a finished signal
+    // so we cannot wait for them in that way
+    QTest::qWait(1100); // animation takes 1000ms, + 10% extra delay
+    /* the viewport should not have changed, thus there should not have
+       been any contentYChanged signal*/
+    QCOMPARE(spy.count(), 0);
+}
+
 void tst_QQuickListView::itemFiltered()
 {
     QStringListModel model(QStringList() << "one" << "two" << "three" << "four" << "five" << "six");
@@ -8956,6 +9046,7 @@ void tst_QQuickListView::addOnCompleted()
                 y = 9999999;
             } else {
                 const qreal newY = item->y();
+                QVERIFY(newY != 9999999); // once we could not find an item, we shouldn' find any further ones
                 QVERIFY2(newY > y, objName.toUtf8().constData());
                 y = newY;
             }
@@ -9032,6 +9123,55 @@ void tst_QQuickListView::resizeAfterComponentComplete()  // QTBUG-76487
 
     QObject *lastItem = qvariant_cast<QObject *>(listView->property("lastItem"));
     QTRY_COMPARE(lastItem->property("y").toInt(), 9 * lastItem->property("height").toInt());
+}
+
+void tst_QQuickListView::moveObjectModelItemToAnotherObjectModel()
+{
+    QScopedPointer<QQuickView> window(createView());
+    window->setSource(testFileUrl("moveObjectModelItemToAnotherObjectModel.qml"));
+    QCOMPARE(window->status(), QQuickView::Ready);
+    window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(window.data()));
+
+    QObject *root = window->rootObject();
+    QVERIFY(root);
+
+    const QQuickListView *listView1 = root->property("listView1").value<QQuickListView*>();
+    QVERIFY(listView1);
+
+    const QQuickListView *listView2 = root->property("listView2").value<QQuickListView*>();
+    QVERIFY(listView2);
+
+    const QQuickItem *redRect = listView1->itemAtIndex(0);
+    QVERIFY(redRect);
+    QCOMPARE(redRect->objectName(), QString::fromLatin1("redRect"));
+
+    QVERIFY(QMetaObject::invokeMethod(root, "moveRedRectToModel2"));
+    QVERIFY(QQuickTest::qIsPolishScheduled(listView2));
+    QVERIFY(QQuickTest::qWaitForItemPolished(listView2));
+    QVERIFY(redRect->isVisible());
+    QVERIFY(!QQuickItemPrivate::get(redRect)->culled);
+
+    QVERIFY(QMetaObject::invokeMethod(root, "moveRedRectToModel1"));
+    QVERIFY(QQuickTest::qIsPolishScheduled(listView1));
+    QVERIFY(QQuickTest::qWaitForItemPolished(listView1));
+    QVERIFY(redRect->isVisible());
+    QVERIFY(!QQuickItemPrivate::get(redRect)->culled);
+}
+
+void tst_QQuickListView::changeModelAndDestroyTheOldOne()  // QTBUG-80203
+{
+    QScopedPointer<QQuickView> window(createView());
+    window->setSource(testFileUrl("changeModelAndDestroyTheOldOne.qml"));
+    window->resize(640, 480);
+    window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(window.data()));
+
+    QQuickItem *root = window->rootObject();
+    QVERIFY(root);
+
+    QVERIFY(QQuickTest::qWaitForItemPolished(root));
+    // no crash
 }
 
 QTEST_MAIN(tst_QQuickListView)

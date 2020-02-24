@@ -296,6 +296,14 @@ bool BackgroundManifestHandler::Parse(Extension* extension,
     return false;
   }
 
+  if (!info->has_lazy_background_page() &&
+      PermissionsParser::HasAPIPermission(
+          extension, APIPermission::kTransientBackground)) {
+    *error = ASCIIToUTF16(
+        errors::kTransientBackgroundConflictsWithPersistentBackground);
+    return false;
+  }
+
   extension->SetManifestData(kBackground, std::move(info));
   return true;
 }
@@ -380,7 +388,12 @@ base::span<const char* const> BackgroundManifestHandler::Keys() const {
       keys::kBackgroundPersistent,          keys::kBackgroundScripts,
       keys::kBackgroundServiceWorkerScript, keys::kPlatformAppBackgroundPage,
       keys::kPlatformAppBackgroundScripts};
+#if !defined(__GNUC__) || __GNUC__ > 5
   return kKeys;
+#else
+  return base::make_span(kKeys, 7);
+#endif
+
 }
 
 }  // namespace extensions

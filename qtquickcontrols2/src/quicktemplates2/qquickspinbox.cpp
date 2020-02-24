@@ -55,7 +55,7 @@ static const int AUTO_REPEAT_INTERVAL = 100;
 /*!
     \qmltype SpinBox
     \inherits Control
-    \instantiates QQuickSpinBox
+//!     \instantiates QQuickSpinBox
     \inqmlmodule QtQuick.Controls
     \since 5.7
     \ingroup input
@@ -92,7 +92,7 @@ static const int AUTO_REPEAT_INTERVAL = 100;
 
     \snippet qtquickcontrols2-spinbox-double.qml 1
 
-    \sa Tumbler, {Customizing SpinBox}, {Focus Management in Qt Quick Controls 2}
+    \sa Tumbler, {Customizing SpinBox}, {Focus Management in Qt Quick Controls}
 */
 
 /*!

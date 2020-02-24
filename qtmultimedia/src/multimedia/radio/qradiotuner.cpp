@@ -64,6 +64,7 @@ Q_CONSTRUCTOR_FUNCTION(qRegisterRadioTunerMetaTypes)
 
 /*!
     \class QRadioTuner
+    \obsolete
     \brief The QRadioTuner class provides an interface to the systems analog radio device.
 
     \inmodule QtMultimedia
@@ -654,6 +655,6 @@ QRadioData *QRadioTuner::radioData() const
   This signal is emitted when the state changes to \a state.
  */
 
-#include "moc_qradiotuner.cpp"
 QT_END_NAMESPACE
 
+#include "moc_qradiotuner.cpp"

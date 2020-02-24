@@ -54,6 +54,7 @@
 #include <QtQuick/QQuickWindow>
 #include <QtQuick/QSGImageNode>
 #include <QtQuick/private/qsgtexture_p.h>
+#include <QtQuick/private/qsgcontext_p.h> // for debugging the context name
 
 #include <QMapboxGL>
 
@@ -101,6 +102,11 @@ QSGNode *QGeoMapMapboxGLPrivate::updateSceneGraph(QSGNode *node, QQuickWindow *w
         QOpenGLContext *currentCtx = QOpenGLContext::currentContext();
         if (!currentCtx) {
             qWarning("QOpenGLContext is NULL!");
+            qWarning() << "You are running on QSG backend " << QSGContext::backend();
+            qWarning("The MapboxGL plugin works with both Desktop and ES 2.0+ OpenGL versions.");
+            qWarning("Verify that your Qt is built with OpenGL, and what kind of OpenGL.");
+            qWarning("To force using a specific OpenGL version, check QSurfaceFormat::setRenderableType and QSurfaceFormat::setDefaultFormat");
+
             return node;
         }
         if (m_useFBO) {
@@ -228,7 +234,7 @@ void QGeoMapMapboxGLPrivate::addMapItem(QDeclarativeGeoMapItemBase *item)
         QObject::connect(mapItem, &QQuickItem::visibleChanged, q, &QGeoMapMapboxGL::onMapItemPropertyChanged);
         QObject::connect(mapItem, &QDeclarativeGeoMapItemBase::mapItemOpacityChanged, q, &QGeoMapMapboxGL::onMapItemPropertyChanged);
         QObject::connect(mapItem, &QDeclarativePolygonMapItem::pathChanged, q, &QGeoMapMapboxGL::onMapItemGeometryChanged);
-        QObject::connect(mapItem, &QDeclarativePolygonMapItem::colorChanged, q, &QGeoMapMapboxGL::onMapItemGeometryChanged);
+        QObject::connect(mapItem, &QDeclarativePolygonMapItem::colorChanged, q, &QGeoMapMapboxGL::onMapItemPropertyChanged);
         QObject::connect(mapItem->border(), &QDeclarativeMapLineProperties::colorChanged, q, &QGeoMapMapboxGL::onMapItemSubPropertyChanged);
         QObject::connect(mapItem->border(), &QDeclarativeMapLineProperties::widthChanged, q, &QGeoMapMapboxGL::onMapItemUnsupportedPropertyChanged);
     } break;

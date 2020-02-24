@@ -1,3 +1,5 @@
+[tryAcquireWithTimeout]
+osx
 [tryAcquireWithTimeout:0.2s]
 windows
 osx-10.12

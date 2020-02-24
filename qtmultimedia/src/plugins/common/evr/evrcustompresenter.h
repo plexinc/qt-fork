@@ -264,6 +264,9 @@ public:
 
     bool event(QEvent *) override;
 
+public Q_SLOTS:
+    void positionChanged(qint64 position);
+
 private:
     HRESULT checkShutdown() const
     {
@@ -339,7 +342,7 @@ private:
     RenderState m_renderState;
     FrameStep m_frameStep;
 
-    QMutex m_mutex;
+    QRecursiveMutex m_mutex;
 
     // Samples and scheduling
     Scheduler m_scheduler; // Manages scheduling of samples.
@@ -364,6 +367,7 @@ private:
 
     QAbstractVideoSurface *m_surface;
     bool m_canRenderToSurface;
+    qint64 m_positionOffset; // Seek position in microseconds.
 };
 
 bool qt_evr_setCustomPresenter(IUnknown *evr, EVRCustomPresenter *presenter);

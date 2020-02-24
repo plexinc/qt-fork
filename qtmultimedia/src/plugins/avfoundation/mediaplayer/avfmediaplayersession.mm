@@ -491,7 +491,7 @@ const QIODevice *AVFMediaPlayerSession::mediaStream() const
 void AVFMediaPlayerSession::setMedia(const QMediaContent &content, QIODevice *stream)
 {
 #ifdef QT_DEBUG_AVF
-    qDebug() << Q_FUNC_INFO << content.canonicalUrl();
+    qDebug() << Q_FUNC_INFO << content.request().url();
 #endif
 
     [static_cast<AVFMediaPlayerSessionObserver*>(m_observer) unloadMedia];
@@ -508,7 +508,7 @@ void AVFMediaPlayerSession::setMedia(const QMediaContent &content, QIODevice *st
     const QMediaPlayer::MediaStatus oldMediaStatus = m_mediaStatus;
     const QMediaPlayer::State oldState = m_state;
 
-    if (content.isNull() || content.canonicalUrl().isEmpty()) {
+    if (content.isNull() || content.request().url().isEmpty()) {
         m_mediaStatus = QMediaPlayer::NoMedia;
         if (m_mediaStatus != oldMediaStatus)
             Q_EMIT mediaStatusChanged(m_mediaStatus);
@@ -526,7 +526,7 @@ void AVFMediaPlayerSession::setMedia(const QMediaContent &content, QIODevice *st
 
     //Load AVURLAsset
     //initialize asset using content's URL
-    NSString *urlString = [NSString stringWithUTF8String:content.canonicalUrl().toEncoded().constData()];
+    NSString *urlString = [NSString stringWithUTF8String:content.request().url().toEncoded().constData()];
     NSURL *url = [NSURL URLWithString:urlString];
     [static_cast<AVFMediaPlayerSessionObserver*>(m_observer) setURL:url];
 
@@ -825,8 +825,6 @@ void AVFMediaPlayerSession::processEOS()
 #endif
     Q_EMIT positionChanged(position());
     m_mediaStatus = QMediaPlayer::EndOfMedia;
-    Q_EMIT mediaStatusChanged(m_mediaStatus);
-
     m_state = QMediaPlayer::StoppedState;
 
     // At this point, frames should not be rendered anymore.
@@ -834,6 +832,7 @@ void AVFMediaPlayerSession::processEOS()
     if (m_videoOutput)
         m_videoOutput->setLayer(nullptr);
 
+    Q_EMIT mediaStatusChanged(m_mediaStatus);
     Q_EMIT stateChanged(m_state);
 }
 
@@ -921,6 +920,19 @@ void AVFMediaPlayerSession::processBufferStateChange(int bufferStatus)
 {
     if (bufferStatus == m_bufferStatus)
         return;
+
+    auto status = m_mediaStatus;
+    // Buffered -> unbuffered.
+    if (!bufferStatus) {
+        status = QMediaPlayer::StalledMedia;
+    } else if (status == QMediaPlayer::StalledMedia) {
+        status = QMediaPlayer::BufferedMedia;
+        // Resume playback.
+        [[static_cast<AVFMediaPlayerSessionObserver*>(m_observer) player] setRate:m_rate];
+    }
+
+    if (m_mediaStatus != status)
+        Q_EMIT mediaStatusChanged(m_mediaStatus = status);
 
     m_bufferStatus = bufferStatus;
     Q_EMIT bufferStatusChanged(bufferStatus);

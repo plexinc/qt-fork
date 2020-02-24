@@ -805,6 +805,7 @@ void QQuickListViewPrivate::layoutVisibleItems(int fromModelIndex)
 
         FxViewItem *firstItem = *visibleItems.constBegin();
         bool fixedCurrent = currentItem && firstItem->item == currentItem->item;
+        firstVisibleItemPosition = firstItem->position();
         qreal sum = firstItem->size();
         qreal pos = firstItem->position() + firstItem->size() + spacing;
         firstItem->setVisible(firstItem->endPosition() >= from && firstItem->position() <= to);
@@ -2078,7 +2079,7 @@ QQuickListView::~QQuickListView()
     highlight item is \c 0.
 
     \sa highlightItem, highlightFollowsCurrentItem,
-    {Qt Quick Examples - Views#Highlight}{ListView highlight example},
+    {Qt Quick Examples - Views#Using Highlight}{ListView Highlight Example},
     {Stacking Order in ListView}
 */
 
@@ -2727,7 +2728,7 @@ void QQuickListView::setFooterPositioning(QQuickListView::FooterPositioning posi
 
     \list
     \li The view is first created
-    \li The view's \l model changes
+    \li The view's \l model changes in such a way that the visible delegates are completely replaced
     \li The view's \l model is \l {QAbstractItemModel::reset()}{reset}, if the model is a QAbstractItemModel subclass
     \endlist
 
@@ -2744,6 +2745,27 @@ void QQuickListView::setFooterPositioning(QQuickListView::FooterPositioning posi
 
     When the view is initialized, the view will create all the necessary items for the view,
     then animate them to their correct positions within the view over one second.
+
+    However when scrolling the view later, the populate transition does not
+    run, even though delegates are being instantiated as they become visible.
+    When the model changes in a way that new delegates become visible, the
+    \l add transition is the one that runs. So you should not depend on the
+    \c populate transition to initialize properties in the delegate, because it
+    does not apply to every delegate. If your animation sets the \c to value of
+    a property, the property should initially have the \c to value, and the
+    animation should set the \c from value in case it is animated:
+
+    \code
+    ListView {
+        ...
+        delegate: Rectangle {
+            opacity: 1 // not necessary because it's the default
+        }
+        populate: Transition {
+            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 1000 }
+        }
+    }
+    \endcode
 
     For more details and examples on how to use view transitions, see the ViewTransition
     documentation.

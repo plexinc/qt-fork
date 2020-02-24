@@ -3,12 +3,3 @@ osx
 
 [mouseMovementProperties]
 windows
-
-[getUserMediaRequestDesktopVideoManyPages]
-windows
-
-[getUserMediaRequestDesktopVideoManyRequests]
-windows
-
-[runJavaScriptFromSlot]
-osx

@@ -9,6 +9,7 @@
 #include "content/browser/renderer_host/render_widget_host_input_event_router.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/web_contents_delegate.h"
+#include "content/public/common/content_features.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
@@ -34,7 +35,7 @@ class MockPointerLockWebContentsDelegate : public WebContentsDelegate {
   void RequestToLockMouse(WebContents* web_contents,
                           bool user_gesture,
                           bool last_unlocked_by_target) override {
-    web_contents->GotResponseToLockMouseRequest(true);
+    web_contents->GotResponseToLockMouseRequest(user_gesture);
   }
 
   void LostMouseLock() override {}
@@ -45,9 +46,7 @@ class MockPointerLockRenderWidgetHostView : public RenderWidgetHostViewAura {
  public:
   MockPointerLockRenderWidgetHostView(RenderWidgetHost* host,
                                       bool is_guest_view_hack)
-      : RenderWidgetHostViewAura(host,
-                                 is_guest_view_hack,
-                                 false /* is_mus_browser_plugin_guest */),
+      : RenderWidgetHostViewAura(host, is_guest_view_hack),
         host_(RenderWidgetHostImpl::From(host)) {}
   ~MockPointerLockRenderWidgetHostView() override {
     if (IsMouseLocked())
@@ -66,7 +65,7 @@ class MockPointerLockRenderWidgetHostView : public RenderWidgetHostViewAura {
 
   bool IsMouseLocked() override { return event_handler()->mouse_locked(); }
 
-  bool HasFocus() const override { return true; }
+  bool HasFocus() override { return true; }
 
   void OnWindowFocused(aura::Window* gained_focus,
                        aura::Window* lost_focus) override {
@@ -116,7 +115,7 @@ class PointerLockBrowserTest : public ContentBrowserTest {
   MockPointerLockWebContentsDelegate web_contents_delegate_;
 };
 
-IN_PROC_BROWSER_TEST_F(PointerLockBrowserTest, PointerLock) {
+IN_PROC_BROWSER_TEST_F(PointerLockBrowserTest, PointerLockBasic) {
   GURL main_url(embedded_test_server()->GetURL(
       "a.com", "/cross_site_iframe_factory.html?a(b)"));
   EXPECT_TRUE(NavigateToURL(shell(), main_url));
@@ -148,6 +147,46 @@ IN_PROC_BROWSER_TEST_F(PointerLockBrowserTest, PointerLock) {
             EvalJs(child, "document.pointerLockElement == document.body"));
 }
 
+IN_PROC_BROWSER_TEST_F(PointerLockBrowserTest, PointerLockAndUserActivation) {
+  GURL main_url(embedded_test_server()->GetURL(
+      "a.com", "/cross_site_iframe_factory.html?a(b(b))"));
+  EXPECT_TRUE(NavigateToURL(shell(), main_url));
+
+  FrameTreeNode* root = web_contents()->GetFrameTree()->root();
+  FrameTreeNode* child = root->child_at(0);
+  FrameTreeNode* grand_child = child->child_at(0);
+
+  // Without user activation, pointer lock request from any (child or
+  // grand_child) frame fails.
+  EXPECT_TRUE(ExecJs(child, "document.body.requestPointerLock()",
+                     EXECUTE_SCRIPT_NO_USER_GESTURE));
+  EXPECT_EQ(false, EvalJs(child, "document.pointerLockElement == document.body",
+                          EXECUTE_SCRIPT_NO_USER_GESTURE));
+  EXPECT_TRUE(ExecJs(grand_child, "document.body.requestPointerLock()",
+                     EXECUTE_SCRIPT_NO_USER_GESTURE));
+  EXPECT_EQ(false,
+            EvalJs(grand_child, "document.pointerLockElement == document.body",
+                   EXECUTE_SCRIPT_NO_USER_GESTURE));
+
+  // Execute a empty (dummy) JS to activate the child frame.
+  EXPECT_TRUE(ExecJs(child, ""));
+
+  // With user activation in the child frame, pointer lock from the same frame
+  // succeeds.
+  EXPECT_TRUE(ExecJs(child, "document.body.requestPointerLock()",
+                     EXECUTE_SCRIPT_NO_USER_GESTURE));
+  EXPECT_EQ(true, EvalJs(child, "document.pointerLockElement == document.body",
+                         EXECUTE_SCRIPT_NO_USER_GESTURE));
+
+  // But with user activation in the child frame, pointer lock from the
+  // grand_child frame fails.
+  EXPECT_TRUE(ExecJs(grand_child, "document.body.requestPointerLock()",
+                     EXECUTE_SCRIPT_NO_USER_GESTURE));
+  EXPECT_EQ(false,
+            EvalJs(grand_child, "document.pointerLockElement == document.body",
+                   EXECUTE_SCRIPT_NO_USER_GESTURE));
+}
+
 IN_PROC_BROWSER_TEST_F(PointerLockBrowserTest, PointerLockEventRouting) {
   GURL main_url(embedded_test_server()->GetURL(
       "a.com", "/cross_site_iframe_factory.html?a(b)"));
@@ -164,31 +203,52 @@ IN_PROC_BROWSER_TEST_F(PointerLockBrowserTest, PointerLockEventRouting) {
 
   WaitForHitTestDataOrChildSurfaceReady(child->current_frame_host());
 
-  // Request a pointer lock on the root frame's body.
-  EXPECT_TRUE(ExecJs(root, "document.body.requestPointerLock()"));
-
-  // Root frame should have been granted pointer lock.
-  EXPECT_EQ(true, EvalJs(root, "document.pointerLockElement == document.body"));
-
   // Add a mouse move event listener to the root frame.
   EXPECT_TRUE(ExecJs(
       root,
       "var x; var y; var mX; var mY; document.addEventListener('mousemove', "
       "function(e) {x = e.x; y = e.y; mX = e.movementX; mY = e.movementY;});"));
 
+  // Send a mouse move to root frame before lock to set last mouse position.
   blink::WebMouseEvent mouse_event(
       blink::WebInputEvent::kMouseMove, blink::WebInputEvent::kNoModifiers,
       blink::WebInputEvent::GetStaticTimeStampForTests());
-  mouse_event.SetPositionInWidget(10, 11);
-  mouse_event.movement_x = 12;
-  mouse_event.movement_y = 13;
+  mouse_event.pointer_type = blink::WebPointerProperties::PointerType::kMouse;
+  mouse_event.SetPositionInWidget(6, 7);
+  mouse_event.SetPositionInScreen(6, 7);
+  mouse_event.movement_x = 8;
+  mouse_event.movement_y = 9;
   router->RouteMouseEvent(root_view, &mouse_event, ui::LatencyInfo());
 
   // Make sure that the renderer handled the input event.
   MainThreadFrameObserver root_observer(root_view->GetRenderWidgetHost());
   root_observer.Wait();
 
-  EXPECT_EQ("[10,11,12,13]", EvalJs(root, "JSON.stringify([x,y,mX,mY])"));
+  if (base::FeatureList::IsEnabled(features::kConsolidatedMovementXY))
+    EXPECT_EQ("[6,7,0,0]", EvalJs(root, "JSON.stringify([x,y,mX,mY])"));
+  else
+    EXPECT_EQ("[6,7,8,9]", EvalJs(root, "JSON.stringify([x,y,mX,mY])"));
+
+  // Request a pointer lock on the root frame's body.
+  EXPECT_TRUE(ExecJs(root, "document.body.requestPointerLock()"));
+
+  // Root frame should have been granted pointer lock.
+  EXPECT_EQ(true, EvalJs(root, "document.pointerLockElement == document.body"));
+
+  mouse_event.SetPositionInWidget(10, 12);
+  mouse_event.SetPositionInScreen(10, 12);
+  mouse_event.movement_x = 12;
+  mouse_event.movement_y = 13;
+  router->RouteMouseEvent(root_view, &mouse_event, ui::LatencyInfo());
+
+  // Make sure that the renderer handled the input event.
+  root_observer.Wait();
+
+  // Locked event has same coordinates as before locked.
+  if (base::FeatureList::IsEnabled(features::kConsolidatedMovementXY))
+    EXPECT_EQ("[6,7,4,5]", EvalJs(root, "JSON.stringify([x,y,mX,mY])"));
+  else
+    EXPECT_EQ("[6,7,12,13]", EvalJs(root, "JSON.stringify([x,y,mX,mY])"));
 
   // Release pointer lock on root frame.
   EXPECT_TRUE(ExecJs(root, "document.exitPointerLock()"));
@@ -208,10 +268,11 @@ IN_PROC_BROWSER_TEST_F(PointerLockBrowserTest, PointerLockEventRouting) {
 
   gfx::PointF transformed_point;
   root_view->TransformPointToCoordSpaceForView(gfx::PointF(0, 0), child_view,
-                                               &transformed_point,
-                                               viz::EventSource::MOUSE);
+                                               &transformed_point);
 
   mouse_event.SetPositionInWidget(-transformed_point.x() + 14,
+                                  -transformed_point.y() + 15);
+  mouse_event.SetPositionInScreen(-transformed_point.x() + 14,
                                   -transformed_point.y() + 15);
   mouse_event.movement_x = 16;
   mouse_event.movement_y = 17;
@@ -223,7 +284,11 @@ IN_PROC_BROWSER_TEST_F(PointerLockBrowserTest, PointerLockEventRouting) {
   MainThreadFrameObserver child_observer(child_view->GetRenderWidgetHost());
   child_observer.Wait();
 
-  EXPECT_EQ("[14,15,16,17]", EvalJs(child, "JSON.stringify([x,y,mX,mY])"));
+  // This is the first event to child render, so the coordinates is (0, 0)
+  if (base::FeatureList::IsEnabled(features::kConsolidatedMovementXY))
+    EXPECT_EQ("[0,0,0,0]", EvalJs(child, "JSON.stringify([x,y,mX,mY])"));
+  else
+    EXPECT_EQ("[0,0,16,17]", EvalJs(child, "JSON.stringify([x,y,mX,mY])"));
 }
 
 // Tests that the browser will not unlock the pointer if a RenderWidgetHostView
@@ -384,6 +449,32 @@ IN_PROC_BROWSER_TEST_F(PointerLockBrowserTest, PointerLockWheelEventRouting) {
 
   WaitForHitTestDataOrChildSurfaceReady(child->current_frame_host());
 
+  // Add a mouse move event listener to the root frame.
+  EXPECT_TRUE(ExecJs(
+      root,
+      "var x; var y; var dX; var dY; document.addEventListener('mousemove', "
+      "function(e) {x = e.x; y = e.y; mX = e.movementX; mY = e.movementY;});"));
+
+  // Send a mouse move to root frame before lock to set last mouse position.
+  blink::WebMouseEvent mouse_event(
+      blink::WebInputEvent::kMouseMove, blink::WebInputEvent::kNoModifiers,
+      blink::WebInputEvent::GetStaticTimeStampForTests());
+  mouse_event.pointer_type = blink::WebPointerProperties::PointerType::kMouse;
+  mouse_event.SetPositionInWidget(6, 7);
+  mouse_event.SetPositionInScreen(6, 7);
+  mouse_event.movement_x = 8;
+  mouse_event.movement_y = 9;
+  router->RouteMouseEvent(root_view, &mouse_event, ui::LatencyInfo());
+
+  // Make sure that the renderer handled the input event.
+  MainThreadFrameObserver root_observer(root_view->GetRenderWidgetHost());
+  root_observer.Wait();
+
+  if (base::FeatureList::IsEnabled(features::kConsolidatedMovementXY))
+    EXPECT_EQ("[6,7,0,0]", EvalJs(root, "JSON.stringify([x,y,mX,mY])"));
+  else
+    EXPECT_EQ("[6,7,8,9]", EvalJs(root, "JSON.stringify([x,y,mX,mY])"));
+
   // Request a pointer lock on the root frame's body.
   EXPECT_TRUE(ExecJs(root, "document.body.requestPointerLock()"));
 
@@ -395,13 +486,12 @@ IN_PROC_BROWSER_TEST_F(PointerLockBrowserTest, PointerLockWheelEventRouting) {
       root,
       "var x; var y; var dX; var dY; document.addEventListener('mousewheel', "
       "function(e) {x = e.x; y = e.y; dX = e.deltaX; dY = e.deltaY;});"));
-  MainThreadFrameObserver root_observer(root_view->GetRenderWidgetHost());
   root_observer.Wait();
 
   blink::WebMouseWheelEvent wheel_event(
       blink::WebInputEvent::kMouseWheel, blink::WebInputEvent::kNoModifiers,
       blink::WebInputEvent::GetStaticTimeStampForTests());
-  wheel_event.SetPositionInWidget(10, 11);
+  wheel_event.SetPositionInScreen(10, 11);
   wheel_event.delta_x = -12;
   wheel_event.delta_y = -13;
   wheel_event.phase = blink::WebMouseWheelEvent::kPhaseBegan;
@@ -421,7 +511,8 @@ IN_PROC_BROWSER_TEST_F(PointerLockBrowserTest, PointerLockWheelEventRouting) {
   // Make sure that the renderer handled the input event.
   root_observer.Wait();
 
-  EXPECT_EQ("[10,11,12,13]", EvalJs(root, "JSON.stringify([x, y, dX, dY])"));
+  // Locked event has same coordinates as before locked.
+  EXPECT_EQ("[6,7,12,13]", EvalJs(root, "JSON.stringify([x, y, dX, dY])"));
 
   // Release pointer lock on root frame.
   EXPECT_TRUE(ExecJs(root, "document.exitPointerLock()"));
@@ -443,10 +534,11 @@ IN_PROC_BROWSER_TEST_F(PointerLockBrowserTest, PointerLockWheelEventRouting) {
 
   gfx::PointF transformed_point;
   root_view->TransformPointToCoordSpaceForView(gfx::PointF(0, 0), child_view,
-                                               &transformed_point,
-                                               viz::EventSource::MOUSE);
+                                               &transformed_point);
 
   wheel_event.SetPositionInWidget(-transformed_point.x() + 14,
+                                  -transformed_point.y() + 15);
+  wheel_event.SetPositionInScreen(-transformed_point.x() + 14,
                                   -transformed_point.y() + 15);
   wheel_event.delta_x = -16;
   wheel_event.delta_y = -17;
@@ -458,7 +550,8 @@ IN_PROC_BROWSER_TEST_F(PointerLockBrowserTest, PointerLockWheelEventRouting) {
   // Make sure that the renderer handled the input event.
   child_observer.Wait();
 
-  EXPECT_EQ("[14,15,16,17]", EvalJs(child, "JSON.stringify([x, y, dX, dY])"));
+  // This is the first event to child render, so the coordinates is (0, 0)
+  EXPECT_EQ("[0,0,16,17]", EvalJs(child, "JSON.stringify([x, y, dX, dY])"));
 }
 
 IN_PROC_BROWSER_TEST_F(PointerLockBrowserTest, PointerLockWidgetHidden) {

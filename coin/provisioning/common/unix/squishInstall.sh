@@ -38,14 +38,14 @@ set -ex
 # This script will install squish package for Linux and Mac.
 # Squish is need by Release Test Automation (RTA)
 
-version="6.4.3"
+version="6.5"
 # Branch version without dot
-qtBranch="512x"
+qtBranch="513x"
 squishFolder="/opt/squish"
 squishUrl="ci-files01-hki.intra.qt.io:/hdd/www/input/squish/coin/$qtBranch/"
-squishFile="squish-$version-qt$qtBranch-linux64.run"
+squishFile="squish-nosignalhandler-$version-qt$qtBranch-linux64.run"
 if uname -a |grep -q Darwin; then
-     squishFile="squish-$version-qt$qtBranch-macx86_64.dmg"
+     squishFile="squish-nosignalhandler-$version-qt$qtBranch-macx86_64.dmg"
 fi
 
 squishLicenseUrl="ci-files01-hki.intra.qt.io:/hdd/www/input/squish/coin/"
@@ -122,7 +122,7 @@ function MountAndInstall {
         sudo cp $targetFileMount /tmp
         UnMount
         sudo hdiutil attach "/tmp/$targetFile"
-        sudo /Volumes/froglogic\ Squish/Install\ Squish.app/Contents/MacOS/Squish unattended=1 targetdir="$targetDirectory/package" qtpath="$targetDirectory" > /dev/null 2>&1
+        sudo /Volumes/froglogic\ Squish/Install\ Squish.app/Contents/MacOS/Squish unattended=1 targetdir="$targetDirectory/package" qtpath="$targetDirectory" > /dev/null
         mountFolder="/Volumes/froglogic Squish"
         UnMount
     elif [[ $targetFile == *.run ]]; then
@@ -130,7 +130,7 @@ function MountAndInstall {
         sudo cp $targetFileMount $targetDirectory
         UnMount
         sudo chmod +x $targetDirectory/$targetFile
-        sudo $targetDirectory/$targetFile unattended=1 targetdir="$targetDirectory/package" qtpath="$targetDirectory" > /dev/null 2>&1
+        sudo $targetDirectory/$targetFile unattended=1 targetdir="$targetDirectory/package" qtpath="$targetDirectory" > /dev/null
         sudo rm -fr "$targetDirectory/$targetFile"
         if uname -a |grep -q "Ubuntu"; then
             sudo mkdir /usr/lib/tcl8.6

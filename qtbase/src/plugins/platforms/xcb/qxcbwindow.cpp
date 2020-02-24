@@ -1398,6 +1398,8 @@ void QXcbWindow::propagateSizeHints()
     }
 
     xcb_icccm_set_wm_normal_hints(xcb_connection(), m_window, &hints);
+
+    m_sizeHintsScaleFactor = QHighDpiScaling::scaleAndOrigin(screen()).factor;
 }
 
 void QXcbWindow::requestActivateWindow()
@@ -1657,7 +1659,11 @@ bool QXcbWindow::requestSystemTrayWindowDock()
 bool QXcbWindow::handleNativeEvent(xcb_generic_event_t *event)
 {
     auto eventType = connection()->nativeInterface()->nativeEventType();
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    qintptr result = 0; // Used only by MS Windows
+#else
     long result = 0; // Used only by MS Windows
+#endif
     return QWindowSystemInterface::handleNativeEvent(window(), eventType, event, &result);
 }
 
@@ -1785,6 +1791,9 @@ void QXcbWindow::handleConfigureNotifyEvent(const xcb_configure_notify_event_t *
     // will make the comparison later.
     QWindowSystemInterface::handleWindowScreenChanged(window(), newScreen->screen());
 
+    if (!qFuzzyCompare(QHighDpiScaling::scaleAndOrigin(newScreen).factor, m_sizeHintsScaleFactor))
+        propagateSizeHints();
+
     // Send the synthetic expose event on resize only when the window is shrinked,
     // because the "XCB_GRAVITY_NORTH_WEST" flag doesn't send it automatically.
     if (!m_oldWindowSize.isEmpty()
@@ -1904,7 +1913,7 @@ void QXcbWindow::handleButtonPressEvent(int event_x, int event_y, int root_x, in
             else if (detail == 7)
                 angleDelta.setX(-120);
             if (modifiers & Qt::AltModifier)
-                std::swap(angleDelta.rx(), angleDelta.ry());
+                angleDelta = angleDelta.transposed();
             QWindowSystemInterface::handleWheelEvent(window(), timestamp, local, global, QPoint(), angleDelta, modifiers);
 #if QT_CONFIG(xcb_xinput)
         }

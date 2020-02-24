@@ -66,6 +66,7 @@ bool QClipAnimatorPrivate::canPlay() const
     \qmltype ClipAnimator
     \instantiates Qt3DAnimation::QClipAnimator
     \inqmlmodule Qt3D.Animation
+    \inherits AbstractClipAnimator
     \since 5.9
 
     \brief ClipAnimator is a component providing simple animation playback capabilities.
@@ -106,7 +107,8 @@ bool QClipAnimatorPrivate::canPlay() const
     The properties for controlling the animator are provided by the QAbstractClipAnimator base
     class.
 
-    \sa QAbstractClipAnimator, QAbstractAnimationClip, QChannelMapper, QBlendedClipAnimator
+    \sa Qt3DAnimation::QAbstractClipAnimator, Qt3DAnimation::QAbstractAnimationClip,
+        Qt3DAnimation::QChannelMapper, Qt3DAnimation::QBlendedClipAnimator
 */
 
 QClipAnimator::QClipAnimator(Qt3DCore::QNode *parent)

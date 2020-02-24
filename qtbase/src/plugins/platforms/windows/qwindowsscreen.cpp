@@ -42,6 +42,7 @@
 #include "qwindowswindow.h"
 #include "qwindowsintegration.h"
 #include "qwindowscursor.h"
+#include "qwindowstheme.h"
 
 #include <QtCore/qt_windows.h>
 
@@ -72,7 +73,7 @@ static inline QDpi monitorDPI(HMONITOR hMonitor)
     return {0, 0};
 }
 
-typedef QList<QWindowsScreenData> WindowsScreenDataList;
+using WindowsScreenDataList = QList<QWindowsScreenData>;
 
 static bool monitorData(HMONITOR hMonitor, QWindowsScreenData *data)
 {
@@ -120,7 +121,7 @@ BOOL QT_WIN_CALLBACK monitorEnumCallback(HMONITOR hMonitor, HDC, LPRECT, LPARAM 
 {
     QWindowsScreenData data;
     if (monitorData(hMonitor, &data)) {
-        WindowsScreenDataList *result = reinterpret_cast<WindowsScreenDataList *>(p);
+        auto *result = reinterpret_cast<WindowsScreenDataList *>(p);
         // QWindowSystemInterface::handleScreenAdded() documentation specifies that first
         // added screen will be the primary screen, so order accordingly.
         // Note that the side effect of this policy is that there is no way to change primary
@@ -256,15 +257,6 @@ QWindow *QWindowsScreen::windowAt(const QPoint &screenPoint, unsigned flags)
     return result;
 }
 
-qreal QWindowsScreen::pixelDensity() const
-{
-    // QTBUG-49195: Use logical DPI instead of physical DPI to calculate
-    // the pixel density since it is reflects the Windows UI scaling.
-    // High DPI auto scaling should be disabled when the user chooses
-    // small fonts on a High DPI monitor, resulting in lower logical DPI.
-    return qMax(1, qRound(logicalDpi().first / 96));
-}
-
 /*!
     \brief Determine siblings in a virtual desktop system.
 
@@ -326,6 +318,11 @@ void QWindowsScreen::handleChanges(const QWindowsScreenData &newData)
         QWindowSystemInterface::handleScreenGeometryChange(screen(),
                                                            newData.geometry, newData.availableGeometry);
     }
+}
+
+HMONITOR QWindowsScreen::handle() const
+{
+    return m_data.hMonitor;
 }
 
 QRect QWindowsScreen::virtualGeometry(const QPlatformScreen *screen) // cf QScreen::virtualGeometry()
@@ -547,12 +544,15 @@ bool QWindowsScreenManager::handleScreenChanges()
     // Look for changed monitors, add new ones
     const WindowsScreenDataList newDataList = monitorData();
     const bool lockScreen = newDataList.size() == 1 && (newDataList.front().flags & QWindowsScreenData::LockScreen);
+    bool primaryScreenChanged = false;
     for (const QWindowsScreenData &newData : newDataList) {
         const int existingIndex = indexOfMonitor(m_screens, newData.name);
         if (existingIndex != -1) {
             m_screens.at(existingIndex)->handleChanges(newData);
+            if (existingIndex == 0)
+                primaryScreenChanged = true;
         } else {
-            QWindowsScreen *newScreen = new QWindowsScreen(newData);
+            auto *newScreen = new QWindowsScreen(newData);
             m_screens.push_back(newScreen);
             QWindowSystemInterface::handleScreenAdded(newScreen,
                                                              newData.flags & QWindowsScreenData::PrimaryScreen);
@@ -567,6 +567,8 @@ bool QWindowsScreenManager::handleScreenChanges()
                 removeScreen(i);
         }     // for existing screens
     }     // not lock screen
+    if (primaryScreenChanged)
+        QWindowsTheme::instance()->refreshFonts();
     return true;
 }
 

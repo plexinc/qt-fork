@@ -300,13 +300,26 @@ bool DirectShowUtils::connectFilters(IGraphBuilder *graph,
     }
 
     IBaseFilter *nextFilter = nullptr;
-    while (S_OK == filters->Next(1, &nextFilter, 0)) {
+    while (S_OK == filters->Next(1, &nextFilter, nullptr)) {
         const ScopedSafeRelease<IBaseFilter> releaseNextFilter { &nextFilter };
         if (nextFilter && findAndConnect(nextFilter))
             return true;
     }
 
     return false;
+}
+
+thread_local static int g_refCount = 0;
+void DirectShowUtils::CoInitializeIfNeeded()
+{
+    if (++g_refCount == 1)
+        ::CoInitialize(nullptr);
+}
+
+void DirectShowUtils::CoUninitializeIfNeeded()
+{
+    if (--g_refCount == 0)
+        ::CoUninitialize();
 }
 
 QT_END_NAMESPACE

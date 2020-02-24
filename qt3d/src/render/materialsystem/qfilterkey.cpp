@@ -40,7 +40,6 @@
 #include "qfilterkey.h"
 #include "qfilterkey_p.h"
 #include <private/qnode_p.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -61,6 +60,8 @@ QFilterKeyPrivate::QFilterKeyPrivate()
 
     Filter keys are used by QTechnique and QRenderPass to specify at which stage of rendering the
     technique or the render pass is used.
+
+    \note QFilterKey node can not be disabled.
 */
 
 /*!
@@ -74,6 +75,8 @@ QFilterKeyPrivate::QFilterKeyPrivate()
     A FilterKey is a storage type for filter key and value pair.
     Filter keys are used by Technique and RenderPass to specify at which stage of rendering the
     technique or the render pass is used.
+
+    \note FilterKey node can not be disabled.
 */
 
 QFilterKey::QFilterKey(QNode *parent)

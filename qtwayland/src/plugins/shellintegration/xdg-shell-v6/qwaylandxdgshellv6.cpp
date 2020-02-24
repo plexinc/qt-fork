@@ -342,7 +342,7 @@ void QWaylandXdgSurfaceV6::requestWindowStates(Qt::WindowStates states)
     if (m_toplevel)
         m_toplevel->requestWindowStates(states);
     else
-        qCWarning(lcQpaWayland) << "Non-toplevel surfaces can't request window states";
+        qCDebug(lcQpaWayland) << "Ignoring window states requested by non-toplevel.";
 }
 
 void QWaylandXdgSurfaceV6::setToplevel()
@@ -425,7 +425,7 @@ QWaylandXdgShellV6::~QWaylandXdgShellV6()
 
 QWaylandXdgSurfaceV6 *QWaylandXdgShellV6::getXdgSurface(QWaylandWindow *window)
 {
-    return new QWaylandXdgSurfaceV6(this, get_xdg_surface(window->object()), window);
+    return new QWaylandXdgSurfaceV6(this, get_xdg_surface(window->wlSurface()), window);
 }
 
 void QWaylandXdgShellV6::zxdg_shell_v6_ping(uint32_t serial)

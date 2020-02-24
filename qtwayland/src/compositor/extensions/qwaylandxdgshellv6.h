@@ -119,7 +119,7 @@ public:
     static QByteArray interfaceName();
     static QWaylandXdgSurfaceV6 *fromResource(::wl_resource *resource);
 
-#ifdef QT_WAYLAND_COMPOSITOR_QUICK
+#if QT_CONFIG(wayland_compositor_quick)
     QWaylandQuickShellIntegration *createIntegration(QWaylandQuickShellSurfaceItem *item) override;
 #endif
 
@@ -246,6 +246,7 @@ public:
     QPoint unconstrainedPosition() const;
 
     Q_INVOKABLE uint sendConfigure(const QRect &geometry);
+    Q_REVISION(14) Q_INVOKABLE void sendPopupDone();
 
     static QWaylandSurfaceRole *role();
 

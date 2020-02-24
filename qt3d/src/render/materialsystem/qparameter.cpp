@@ -40,7 +40,6 @@
 #include "qparameter.h"
 #include "qparameter_p.h"
 #include <Qt3DRender/private/renderlogging_p.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
 #include <Qt3DRender/qtexture.h>
 
 
@@ -76,6 +75,8 @@
 
     \note when the targeted uniform is an array, the name should be the name
     of the uniform with [0] appended to it.
+
+    \note Parameter node can not be disabled.
 
     \code
     Parameter {
@@ -138,6 +139,8 @@
 
     \note when the targeted uniform is an array, the name should be the name
     of the uniform with [0] appended to it.
+
+    \note QParameter node can not be disabled.
 
     \code
     QParameter *param = new QParameter();

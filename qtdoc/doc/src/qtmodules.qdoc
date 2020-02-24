@@ -157,7 +157,7 @@
         \li All
         \li \l{Qt for Android}{Android},
             \l{Qt for iOS}{iOS}, \l{Qt for Linux/X11}{Linux}, \l{Qt for macOS}{\macos}, and
-            \l{Qt for WinRT}{WinRT} (*)
+            \l{Qt for UWP}{UWP} (*)
         \li Provides access to Bluetooth hardware.
     \row
         \li \l[QtConcurrent]{Qt Concurrent}
@@ -225,7 +225,7 @@
         \li \l[QtPositioning]{Qt Positioning}
         \li All
         \li \l{Qt for Android}{Android}, \l{Qt for iOS}{iOS}, \l{Qt for macOS}{\macos},
-        \l{Qt for Linux/X11}{Linux}, \l{Qt for WinRT}{WinRT} (*).
+        \l{Qt for Linux/X11}{Linux}, \l{Qt for UWP}{UWP} (*).
         \li Provides access to position, satellite and area monitoring classes.
     \row
         \li \l[QtPrintSupport]{Qt Print Support}
@@ -251,6 +251,11 @@
         \li All (*)
         \li Provides a specialized set of controls that can be used to build
             interfaces in Qt Quick.
+    \row
+        \li \l[Qt Quick Timeline]{Qt Quick Timeline}
+        \li All
+        \li All (*)
+        \li Enables keyframe-based animations and parameterization.
     \row
         \li \l{Qt Quick Widgets C++ Classes}{Qt Quick Widgets}
         \li All
@@ -281,7 +286,7 @@
     \row
         \li \l[QtSensors]{Qt Sensors}
         \li All
-        \li \l{Qt for Android}{Android}, \l{Qt for iOS}, \l{Qt for WinRT}{WinRT}, Mer,
+        \li \l{Qt for Android}{Android}, \l{Qt for iOS}, \l{Qt for UWP}{UWP}, Mer,
             and \l{Qt for QNX}{QNX}.
         \li Provides access to sensor hardware and motion gesture recognition.
     \row
@@ -392,6 +397,11 @@
             well as a QML virtual keyboard. Supports localized keyboard
             layouts and custom visual themes.
     \row
+        \li \l{Qt for WebAssembly}
+        \li All
+        \li Web browsers with WebAssembly support
+        \li A platform target to compile Qt applications for the web browsers using WebAssembly.
+    \row
         \li \l {Qt Quick WebGL}
         \li All
         \li WebGL-enabled web browsers
@@ -431,18 +441,20 @@
     \section1 Technology Preview Features
 
     The following features are still in development but are available as technology previews.
+    They are licensed under Commercial Licenses, or GNU General Public License v3.
 
     \table 80%
     \header
         \li Feature
         \li Description
     \row
-        \li \l{Qt for WebAssembly} (Technology Preview)
-        \li A platform target to compile Qt applications for the web browsers using WebAssembly.
-    \row
         \li \l{Qt Lottie Animation} (Technology Preview)
-        \li  A QML API for rendering graphics and animations in JSON format,
+        \li A QML API for rendering graphics and animations in JSON format,
             exported by the \l Bodymovin plugin for Adobe® After Effects.
+    \row
+        \li \l[QtQuick3D]{Qt Quick 3D} (Technology Preview)
+        \li Qt Quick 3D provides a high-level API for creating 3D content or UIs based on
+            Qt Quick.
     \endtable
 
     \section1 Qt Tools

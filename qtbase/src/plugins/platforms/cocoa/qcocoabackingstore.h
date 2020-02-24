@@ -115,6 +115,9 @@ private:
     bool recreateBackBufferIfNeeded();
     bool prepareForFlush();
 
+    void backingPropertiesChanged();
+    QMacNotificationObserver m_backingPropertiesObserver;
+
     std::list<std::unique_ptr<GraphicsBuffer>> m_buffers;
 };
 

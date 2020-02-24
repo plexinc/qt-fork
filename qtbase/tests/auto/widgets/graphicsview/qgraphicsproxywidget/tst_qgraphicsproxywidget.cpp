@@ -330,7 +330,7 @@ public:
     {
         // Make sure QGraphicsProxyWidget::paint does not modify the render hints set on the painter.
         painter->setRenderHints(QPainter::Antialiasing | QPainter::SmoothPixmapTransform
-                                | QPainter::NonCosmeticDefaultPen | QPainter::TextAntialiasing);
+                                | QPainter::TextAntialiasing);
         const QPainter::RenderHints oldRenderHints = painter->renderHints();
         QGraphicsProxyWidget::paint(painter, option, widget);
         QCOMPARE(painter->renderHints(), oldRenderHints);
@@ -463,14 +463,13 @@ void tst_QGraphicsProxyWidget::setWidget()
         QCOMPARE(proxy->focusPolicy(), Qt::WheelFocus);
         QVERIFY(proxy->acceptDrops());
         QCOMPARE(proxy->acceptHoverEvents(), true); // to get widget enter events
-        int left, top, right, bottom;
-        widget->getContentsMargins(&left, &top, &right, &bottom);
+        const QMarginsF margins = QMarginsF{widget->contentsMargins()};
         qreal rleft, rtop, rright, rbottom;
         proxy->getContentsMargins(&rleft, &rtop, &rright, &rbottom);
-        QCOMPARE((qreal)left, rleft);
-        QCOMPARE((qreal)top, rtop);
-        QCOMPARE((qreal)right, rright);
-        QCOMPARE((qreal)bottom, rbottom);
+        QCOMPARE(margins.left(), rleft);
+        QCOMPARE(margins.top(), rtop);
+        QCOMPARE(margins.right(), rright);
+        QCOMPARE(margins.bottom(), rbottom);
     } else {
         // proxy shouldn't mess with the widget if it can't insert it.
         QCOMPARE(proxy->widget(), nullptr);
@@ -2769,9 +2768,6 @@ void tst_QGraphicsProxyWidget::windowOpacity()
     // disabled on platforms without alpha channel support in QPixmap (e.g.,
     // X11 without XRender).
     int paints = 0;
-#if 0 // Used to be included in Qt4 for Q_WS_X11
-    paints = !X11->use_xrender;
-#endif
     QTRY_COMPARE(eventSpy.counts[QEvent::UpdateRequest], 0);
     QTRY_COMPARE(eventSpy.counts[QEvent::Paint], paints);
 

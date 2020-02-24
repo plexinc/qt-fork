@@ -92,11 +92,11 @@ public:
     QFunctionPointer resolve(const char *);
 
     QLibrary::LoadHints loadHints() const
-    { return QLibrary::LoadHints(loadHintsInt.load()); }
+    { return QLibrary::LoadHints(loadHintsInt.loadRelaxed()); }
     void setLoadHints(QLibrary::LoadHints lh);
 
     static QLibraryPrivate *findOrCreate(const QString &fileName, const QString &version = QString(),
-                                         QLibrary::LoadHints loadHints = 0);
+                                         QLibrary::LoadHints loadHints = nullptr);
     static QStringList suffixes_sys(const QString &fullVersion);
     static QStringList prefixes_sys();
 

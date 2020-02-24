@@ -158,7 +158,8 @@ win32 {
             io/qwindowspipereader.cpp \
             io/qwindowspipewriter.cpp
 
-        LIBS += -lmpr -lnetapi32 -luserenv
+        LIBS += -lmpr -luserenv
+        QMAKE_USE_PRIVATE += netapi32
     } else {
         SOURCES += \
                 io/qstandardpaths_winrt.cpp \
@@ -171,7 +172,7 @@ win32 {
                 io/qlockfile_unix.cpp \
                 io/qfilesystemiterator_unix.cpp
 
-        !integrity:!uikit {
+        !integrity:!uikit:!rtems {
             SOURCES += io/forkfd_qt.cpp
             HEADERS += \
                      ../3rdparty/forkfd/forkfd.h

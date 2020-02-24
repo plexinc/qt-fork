@@ -47,7 +47,7 @@ QT_BEGIN_NAMESPACE
 /*!
     \qmltype MenuItem
     \inherits AbstractButton
-    \instantiates QQuickMenuItem
+//!     \instantiates QQuickMenuItem
     \inqmlmodule QtQuick.Controls
     \since 5.7
     \ingroup qtquickcontrols2-menus
@@ -58,7 +58,7 @@ QT_BEGIN_NAMESPACE
     example.
 
     MenuItem inherits its API from AbstractButton. For instance, you can set
-    \l {AbstractButton::text}{text} and \l {Icons in Qt Quick Controls 2}{icon}
+    \l {AbstractButton::text}{text} and \l {Icons in Qt Quick Controls}{icon}
     using the AbstractButton API.
 
     \code

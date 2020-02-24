@@ -42,8 +42,6 @@
 #include "scene2devent_p.h"
 
 #include <Qt3DCore/qentity.h>
-#include <Qt3DCore/qpropertynodeaddedchange.h>
-#include <Qt3DCore/qpropertynoderemovedchange.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -52,6 +50,12 @@ using namespace Qt3DCore;
 namespace Qt3DRender {
 
 namespace Quick {
+
+/*!
+    \namespace Qt3DRender::Quick
+    \inmodule Qt3DScene2D
+    \brief Internal namespace to import QML types.
+*/
 
 /*!
     \class Qt3DRender::Quick::QScene2D
@@ -69,6 +73,8 @@ namespace Quick {
     The entities using the QScene2D can be associated with the class to enable interaction
     with the item; if an entity has a QObjectPicker component, the pick events from that picker
     are sent to the QScene2D and converted to mouse events and finally sent to the item.
+
+    \note Only mouse events are supported. The item does not support keyboard input.
 
     \since 5.9
 */
@@ -90,6 +96,8 @@ namespace Quick {
     The entities using the Scene2D can be associated with the type to enable interaction
     with the item; if an entity has an ObjectPicker component, the pick events from that picker
     are sent to the Scene2D and converted to mouse events and finally sent to the item.
+
+    \note Only mouse events are supported. The item does not support keyboard input.
 
     Usage:
     \qml
@@ -188,15 +196,6 @@ QScene2DPrivate::~QScene2DPrivate()
 {
     m_renderManager->cleanup();
     delete m_renderManager;
-}
-
-void QScene2DPrivate::setScene(Qt3DCore::QScene *scene)
-{
-    Q_Q(QScene2D);
-    QNodePrivate::setScene(scene);
-    const auto change = Qt3DCore::QPropertyUpdatedChangePtr::create(q->id());
-    change->setPropertyName("sceneInitialized");
-    notifyObservers(change);
 }
 
 
@@ -321,12 +320,7 @@ void QScene2D::addEntity(Qt3DCore::QEntity *entity)
         d->m_entities.append(entity);
 
         d->registerDestructionHelper(entity, &QScene2D::removeEntity, d->m_entities);
-
-        if (d->m_changeArbiter != nullptr) {
-            const auto change = Qt3DCore::QPropertyNodeAddedChangePtr::create(id(), entity);
-            change->setPropertyName("entities");
-            d->notifyObservers(change);
-        }
+        d->updateNode(entity, "entities", PropertyValueAdded);
     }
 }
 
@@ -340,12 +334,7 @@ void QScene2D::removeEntity(Qt3DCore::QEntity *entity)
         d->m_entities.removeAll(entity);
 
         d->unregisterDestructionHelper(entity);
-
-        if (d->m_changeArbiter != nullptr) {
-            const auto change = Qt3DCore::QPropertyNodeRemovedChangePtr::create(id(), entity);
-            change->setPropertyName("entities");
-            d->notifyObservers(change);
-        }
+        d->updateNode(entity, "entities", PropertyValueRemoved);
     }
 }
 

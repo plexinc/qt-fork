@@ -88,60 +88,6 @@ QT_BEGIN_NAMESPACE
     Example of using complex regions:
     \snippet code/src_gui_painting_qregion.cpp 0
 
-    \section1 Additional License Information
-
-    On Embedded Linux and X11 platforms, parts of this class rely on
-    code obtained under the following licenses:
-
-    \legalese
-    Copyright (c) 1987  X Consortium
-
-    Permission is hereby granted, free of charge, to any person obtaining a copy
-    of this software and associated documentation files (the "Software"), to deal
-    in the Software without restriction, including without limitation the rights
-    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-    copies of the Software, and to permit persons to whom the Software is
-    furnished to do so, subject to the following conditions:
-
-    The above copyright notice and this permission notice shall be included in
-    all copies or substantial portions of the Software.
-
-    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
-    X CONSORTIUM BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN
-    AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-    CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-    Except as contained in this notice, the name of the X Consortium shall not be
-    used in advertising or otherwise to promote the sale, use or other dealings
-    in this Software without prior written authorization from the X Consortium.
-    \endlegalese
-
-    \br
-
-    \legalese
-    Copyright 1987 by Digital Equipment Corporation, Maynard, Massachusetts.
-
-                            All Rights Reserved
-
-    Permission to use, copy, modify, and distribute this software and its
-    documentation for any purpose and without fee is hereby granted,
-    provided that the above copyright notice appear in all copies and that
-    both that copyright notice and this permission notice appear in
-    supporting documentation, and that the name of Digital not be
-    used in advertising or publicity pertaining to distribution of the
-    software without specific, written prior permission.
-
-    DIGITAL DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
-    ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
-    DIGITAL BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
-    ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
-    WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
-    ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
-    SOFTWARE.
-    \endlegalese
-
     \sa QPainter::setClipRegion(), QPainter::setClipRect(), QPainterPath
 */
 
@@ -1287,10 +1233,10 @@ struct QRegionPrivate {
         }
     }
 
-    const QRect *begin() const Q_DECL_NOTHROW
+    const QRect *begin() const noexcept
     { return numRects == 1 ? &extents : rects.data(); } // avoid vectorize()
 
-    const QRect *end() const Q_DECL_NOTHROW
+    const QRect *end() const noexcept
     { return begin() + numRects; }
 
     inline void append(const QRect *r);
@@ -4321,7 +4267,7 @@ QRegion QRegion::xored(const QRegion &r) const
     }
 }
 
-QRect QRegion::boundingRect() const Q_DECL_NOTHROW
+QRect QRegion::boundingRect() const noexcept
 {
     if (isEmpty())
         return QRect();
@@ -4379,12 +4325,12 @@ QVector<QRect> QRegion::rects() const
 }
 #endif
 
-QRegion::const_iterator QRegion::begin() const Q_DECL_NOTHROW
+QRegion::const_iterator QRegion::begin() const noexcept
 {
     return d->qt_rgn ? d->qt_rgn->begin() : nullptr;
 }
 
-QRegion::const_iterator QRegion::end() const Q_DECL_NOTHROW
+QRegion::const_iterator QRegion::end() const noexcept
 {
     return d->qt_rgn ? d->qt_rgn->end() : nullptr;
 }
@@ -4421,7 +4367,7 @@ void QRegion::setRects(const QRect *rects, int num)
     }
 }
 
-int QRegion::rectCount() const Q_DECL_NOTHROW
+int QRegion::rectCount() const noexcept
 {
     return (d->qt_rgn ? d->qt_rgn->numRects : 0);
 }

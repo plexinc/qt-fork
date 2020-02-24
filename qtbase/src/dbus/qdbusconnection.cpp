@@ -47,6 +47,7 @@
 #include <qvector.h>
 #include <qtimer.h>
 #include <qthread.h>
+#include <QtCore/private/qlocking_p.h>
 
 #include "qdbusconnectioninterface.h"
 #include "qdbuserror.h"
@@ -106,7 +107,7 @@ QDBusConnectionPrivate *QDBusConnectionManager::busConnection(QDBusConnection::B
     // (the event loop will resume delivery)
     bool suspendedDelivery = qApp && qApp->thread() == QThread::currentThread();
 
-    QMutexLocker lock(&defaultBusMutex);
+    const auto locker = qt_scoped_lock(defaultBusMutex);
     if (defaultBuses[type])
         return defaultBuses[type];
 
@@ -178,7 +179,7 @@ void QDBusConnectionManager::run()
     exec();
 
     // cleanup:
-    QMutexLocker locker(&mutex);
+    const auto locker = qt_scoped_lock(mutex);
     for (QHash<QString, QDBusConnectionPrivate *>::const_iterator it = connectionHash.constBegin();
          it != connectionHash.constEnd(); ++it) {
         QDBusConnectionPrivate *d = it.value();
@@ -240,7 +241,7 @@ QDBusConnectionPrivate *QDBusConnectionManager::connectToPeer(const QString &add
 
 void QDBusConnectionManager::executeConnectionRequest(QDBusConnectionManager::ConnectionRequestData *data)
 {
-    QMutexLocker locker(&mutex);
+    const auto locker = qt_scoped_lock(mutex);
     const QString &name = *data->name;
     QDBusConnectionPrivate *&d = data->result;
 
@@ -428,7 +429,7 @@ QDBusConnection::QDBusConnection(const QString &name)
     if (name.isEmpty() || _q_manager.isDestroyed()) {
         d = 0;
     } else {
-        QMutexLocker locker(&_q_manager()->mutex);
+        const auto locker = qt_scoped_lock(_q_manager()->mutex);
         d = _q_manager()->connection(name);
         if (d)
             d->ref.ref();
@@ -537,7 +538,7 @@ QDBusConnection QDBusConnection::connectToPeer(const QString &address,
 void QDBusConnection::disconnectFromBus(const QString &name)
 {
     if (_q_manager()) {
-        QMutexLocker locker(&_q_manager()->mutex);
+        const auto locker = qt_scoped_lock(_q_manager()->mutex);
         QDBusConnectionPrivate *d = _q_manager()->connection(name);
         if (d && d->mode != QDBusConnectionPrivate::ClientMode)
             return;
@@ -558,7 +559,7 @@ void QDBusConnection::disconnectFromBus(const QString &name)
 void QDBusConnection::disconnectFromPeer(const QString &name)
 {
     if (_q_manager()) {
-        QMutexLocker locker(&_q_manager()->mutex);
+        const auto locker = qt_scoped_lock(_q_manager()->mutex);
         QDBusConnectionPrivate *d = _q_manager()->connection(name);
         if (d && d->mode != QDBusConnectionPrivate::PeerMode)
             return;
@@ -870,8 +871,12 @@ bool QDBusConnection::disconnect(const QString &service, const QString &path, co
     This function does not replace existing objects: if there is already an object registered at
     path \a path, this function will return false. Use unregisterObject() to unregister it first.
 
+    The ExportChildObjects flag exports child objects on D-Bus based on the
+    path of the registered objects and the QObject::objectName of the child.
+    Therefore, it is important for the child object to have an object name.
+
     You cannot register an object as a child object of an object that
-    was registered with QDBusConnection::ExportChildObjects.
+    was registered with ExportChildObjects.
 */
 bool QDBusConnection::registerObject(const QString &path, QObject *object, RegisterOptions options)
 {
@@ -890,8 +895,12 @@ bool QDBusConnection::registerObject(const QString &path, QObject *object, Regis
     This function does not replace existing objects: if there is already an object registered at
     path \a path, this function will return false. Use unregisterObject() to unregister it first.
 
+    The ExportChildObjects flag exports child objects on D-Bus based on the
+    path of the registered objects and the QObject::objectName of the child.
+    Therefore, it is important for the child object to have an object name.
+
     You cannot register an object as a child object of an object that
-    was registered with QDBusConnection::ExportChildObjects.
+    was registered with ExportChildObjects.
 */
 bool QDBusConnection::registerObject(const QString &path, const QString &interface, QObject *object, RegisterOptions options)
 {

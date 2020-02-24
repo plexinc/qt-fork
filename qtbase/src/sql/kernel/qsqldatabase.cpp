@@ -184,7 +184,7 @@ QSqlDatabasePrivate *QSqlDatabasePrivate::shared_null()
 
 void QSqlDatabasePrivate::invalidateDb(const QSqlDatabase &db, const QString &name, bool doWarn)
 {
-    if (db.d->ref.load() != 1 && doWarn) {
+    if (db.d->ref.loadRelaxed() != 1 && doWarn) {
         qWarning("QSqlDatabasePrivate::removeDatabase: connection '%s' is still in use, "
                  "all queries will cease to work.", name.toLocal8Bit().constData());
         db.d->disable();
@@ -880,6 +880,14 @@ bool QSqlDatabase::rollback()
     The \e{database name} is not the \e{connection name}. The
     connection name must be passed to addDatabase() at connection
     object create time.
+
+    For the QSQLITE driver, if the database name specified does not
+    exist, then it will create the file for you unless the
+    QSQLITE_OPEN_READONLY option is set.
+
+    Additionally, \a name can be set to \c ":memory:" which will
+    create a temporary database which is only available for the
+    lifetime of the application.
 
     For the QOCI (Oracle) driver, the database name is the TNS
     Service Name.

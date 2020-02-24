@@ -194,6 +194,11 @@ QString QQuickTextEdit::text() const
             d->text = d->control->toHtml();
         else
 #endif
+#if QT_CONFIG(textmarkdownwriter)
+        if (d->markdownText)
+            d->text = d->control->toMarkdown();
+        else
+#endif
             d->text = d->control->toPlainText();
         d->textCached = true;
     }
@@ -407,6 +412,7 @@ void QQuickTextEdit::setText(const QString &text)
 
     d->document->clearResources();
     d->richText = d->format == RichText || (d->format == AutoText && Qt::mightBeRichText(text));
+    d->markdownText = d->format == MarkdownText;
     if (!isComponentComplete()) {
         d->text = text;
     } else if (d->richText) {
@@ -415,6 +421,8 @@ void QQuickTextEdit::setText(const QString &text)
 #else
         d->control->setPlainText(text);
 #endif
+    } else if (d->markdownText) {
+        d->control->setMarkdownText(text);
     } else {
         d->control->setPlainText(text);
     }
@@ -486,6 +494,7 @@ void QQuickTextEdit::setTextFormat(TextFormat format)
 
     bool wasRich = d->richText;
     d->richText = format == RichText || (format == AutoText && (wasRich || Qt::mightBeRichText(text())));
+    d->markdownText = format == MarkdownText;
 
 #if QT_CONFIG(texthtmlparser)
     if (isComponentComplete()) {
@@ -1065,7 +1074,7 @@ int QQuickTextEdit::positionAt(qreal x, qreal y) const
 }
 
 /*!
-    \qmlmethod QtQuick::TextEdit::moveCursorSelection(int position, SelectionMode mode = TextEdit.SelectCharacters)
+    \qmlmethod QtQuick::TextEdit::moveCursorSelection(int position, SelectionMode mode)
 
     Moves the cursor to \a position and updates the selection according to the optional \a mode
     parameter. (To only move the cursor, set the \l cursorPosition property.)
@@ -1076,7 +1085,7 @@ int QQuickTextEdit::positionAt(qreal x, qreal y) const
     text range.
 
     The selection mode specifies whether the selection is updated on a per character or a per word
-    basis.  If not specified the selection mode will default to TextEdit.SelectCharacters.
+    basis. If not specified the selection mode will default to \c {TextEdit.SelectCharacters}.
 
     \list
     \li TextEdit.SelectCharacters - Sets either the selectionStart or selectionEnd (whichever was at
@@ -1463,8 +1472,12 @@ void QQuickTextEdit::componentComplete()
         d->control->setHtml(d->text);
     else
 #endif
-    if (!d->text.isEmpty())
-        d->control->setPlainText(d->text);
+    if (!d->text.isEmpty()) {
+        if (d->markdownText)
+            d->control->setMarkdownText(d->text);
+        else
+            d->control->setPlainText(d->text);
+    }
 
     if (d->dirty) {
         d->determineHorizontalAlignment();
@@ -2047,20 +2060,19 @@ QSGNode *QQuickTextEdit::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *
             firstDirtyPos = nodeIterator->startPos();
             // ### this could be optimized if the first and last dirty nodes are not connected
             // as the intermediate text nodes would usually only need to be transformed differently.
-            int lastDirtyPos = firstDirtyPos;
+            QQuickTextNode *firstCleanNode = nullptr;
             auto it = d->textNodeMap.constEnd();
             while (it != nodeIterator) {
                 --it;
-                if (it->dirty()) {
-                    lastDirtyPos = it->startPos();
+                if (it->dirty())
                     break;
-                }
+                firstCleanNode = it->textNode();
             }
             do {
                 rootNode->removeChildNode(nodeIterator->textNode());
                 delete nodeIterator->textNode();
                 nodeIterator = d->textNodeMap.erase(nodeIterator);
-            } while (nodeIterator != d->textNodeMap.constEnd() && nodeIterator->startPos() <= lastDirtyPos);
+            } while (nodeIterator != d->textNodeMap.constEnd() && nodeIterator->textNode() != firstCleanNode);
         }
 
         // FIXME: the text decorations could probably be handled separately (only updated for affected textFrames)
@@ -2310,6 +2322,7 @@ void QQuickTextEditPrivate::init()
     QObject::connect(document, &QQuickTextDocumentWithImageResources::contentsChange, q, &QQuickTextEdit::q_contentsChange);
     QObject::connect(document->documentLayout(), &QAbstractTextDocumentLayout::updateBlock, q, &QQuickTextEdit::invalidateBlock);
     QObject::connect(control, &QQuickTextControl::linkHovered, q, &QQuickTextEdit::q_linkHovered);
+    QObject::connect(control, &QQuickTextControl::markerHovered, q, &QQuickTextEdit::q_markerHovered);
 
     document->setDefaultFont(font);
     document->setDocumentMargin(textMargin);
@@ -2601,6 +2614,19 @@ void QQuickTextEdit::q_linkHovered(const QString &link)
 #endif
 }
 
+void QQuickTextEdit::q_markerHovered(bool hovered)
+{
+    Q_D(QQuickTextEdit);
+#if QT_CONFIG(cursor)
+    if (!hovered) {
+        setCursor(d->cursorToRestoreAfterHover);
+    } else if (cursor().shape() != Qt::PointingHandCursor) {
+        d->cursorToRestoreAfterHover = cursor().shape();
+        setCursor(Qt::PointingHandCursor);
+    }
+#endif
+}
+
 void QQuickTextEdit::q_updateAlignment()
 {
     Q_D(QQuickTextEdit);
@@ -2801,7 +2827,7 @@ QString QQuickTextEdit::getFormattedText(int start, int end) const
 /*!
     \qmlmethod QtQuick::TextEdit::insert(int position, string text)
 
-    Inserts \a text into the TextEdit at position.
+    Inserts \a text into the TextEdit at \a position.
 */
 void QQuickTextEdit::insert(int position, const QString &text)
 {

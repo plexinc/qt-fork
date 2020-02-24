@@ -41,9 +41,6 @@
 #include "qtechniquefilter_p.h"
 #include <Qt3DRender/qfilterkey.h>
 #include <Qt3DRender/qparameter.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
-#include <Qt3DCore/qpropertynodeaddedchange.h>
-#include <Qt3DCore/qpropertynoderemovedchange.h>
 #include <Qt3DRender/qframegraphnodecreatedchange.h>
 
 QT_BEGIN_NAMESPACE
@@ -147,11 +144,7 @@ void QTechniqueFilter::addMatch(QFilterKey *filterKey)
         if (!filterKey->parent())
             filterKey->setParent(this);
 
-        if (d->m_changeArbiter != nullptr) {
-            const auto change = QPropertyNodeAddedChangePtr::create(id(), filterKey);
-            change->setPropertyName("matchAll");
-            d->notifyObservers(change);
-        }
+        d->updateNode(filterKey, "matchAll", Qt3DCore::PropertyValueAdded);
     }
 }
 
@@ -162,11 +155,7 @@ void QTechniqueFilter::removeMatch(QFilterKey *filterKey)
 {
     Q_ASSERT(filterKey);
     Q_D(QTechniqueFilter);
-    if (d->m_changeArbiter != nullptr) {
-        const auto change = QPropertyNodeRemovedChangePtr::create(id(), filterKey);
-        change->setPropertyName("matchAll");
-        d->notifyObservers(change);
-    }
+    d->updateNode(filterKey, "matchAll", Qt3DCore::PropertyValueRemoved);
     d->m_matchList.removeOne(filterKey);
     // Remove bookkeeping connection
     d->unregisterDestructionHelper(filterKey);
@@ -192,11 +181,7 @@ void QTechniqueFilter::addParameter(QParameter *parameter)
         if (!parameter->parent())
             parameter->setParent(this);
 
-        if (d->m_changeArbiter != nullptr) {
-            const auto change = QPropertyNodeAddedChangePtr::create(id(), parameter);
-            change->setPropertyName("parameter");
-            d->notifyObservers(change);
-        }
+        d->updateNode(parameter, "parameter", Qt3DCore::PropertyValueAdded);
     }
 }
 
@@ -207,11 +192,7 @@ void QTechniqueFilter::removeParameter(QParameter *parameter)
 {
     Q_ASSERT(parameter);
     Q_D(QTechniqueFilter);
-    if (d->m_changeArbiter != nullptr) {
-        const auto change = QPropertyNodeRemovedChangePtr::create(id(), parameter);
-        change->setPropertyName("parameter");
-        d->notifyObservers(change);
-    }
+    d->updateNode(parameter, "parameter", Qt3DCore::PropertyValueRemoved);
     d->m_parameters.removeOne(parameter);
     // Remove bookkeeping connection
     d->unregisterDestructionHelper(parameter);

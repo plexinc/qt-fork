@@ -59,6 +59,7 @@ Q_CONSTRUCTOR_FUNCTION(qRegisterRadioDataMetaTypes)
 
 /*!
     \class QRadioData
+    \obsolete
     \brief The QRadioData class provides interfaces to the RDS functionality of the system radio.
 
     \inmodule QtMultimedia
@@ -473,6 +474,6 @@ QString QRadioData::errorString() const
     \value College
 */
 
-#include "moc_qradiodata.cpp"
 QT_END_NAMESPACE
 
+#include "moc_qradiodata.cpp"

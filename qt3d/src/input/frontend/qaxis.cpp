@@ -40,9 +40,6 @@
 #include "qaxis_p.h"
 
 #include <Qt3DInput/qabstractaxisinput.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
-#include <Qt3DCore/qpropertynodeaddedchange.h>
-#include <Qt3DCore/qpropertynoderemovedchange.h>
 #include <Qt3DCore/qnodecreatedchange.h>
 
 QT_BEGIN_NAMESPACE
@@ -83,6 +80,10 @@ namespace Qt3DInput {
 QAxis::QAxis(Qt3DCore::QNode *parent)
     : Qt3DCore::QNode(*new QAxisPrivate(), parent)
 {
+    Q_D(QAxis);
+    connect(this, &QAxis::enabledChanged, [d]() {
+        d->setValue(0.);
+    });
 }
 
 /*! \internal */
@@ -113,12 +114,7 @@ void QAxis::addInput(QAbstractAxisInput *input)
 
         // Ensures proper bookkeeping
         d->registerDestructionHelper(input, &QAxis::removeInput, d->m_inputs);
-
-        if (d->m_changeArbiter != nullptr) {
-            const auto change = Qt3DCore::QPropertyNodeAddedChangePtr::create(id(), input);
-            change->setPropertyName("input");
-            d->notifyObservers(change);
-        }
+        d->updateNode(input, "input", Qt3DCore::PropertyValueAdded);
     }
 }
 
@@ -140,11 +136,7 @@ void QAxis::removeInput(QAbstractAxisInput *input)
     Q_D(QAxis);
     if (d->m_inputs.contains(input)) {
 
-        if (d->m_changeArbiter != nullptr) {
-            const auto change = Qt3DCore::QPropertyNodeRemovedChangePtr::create(id(), input);
-            change->setPropertyName("input");
-            d->notifyObservers(change);
-        }
+        d->updateNode(input, "input", Qt3DCore::PropertyValueRemoved);
 
         d->m_inputs.removeOne(input);
 
@@ -175,14 +167,9 @@ float QAxis::value() const
     return d->m_value;
 }
 
-/*! \internal */
-void QAxis::sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change)
+// TODO Unused remove in Qt6
+void QAxis::sceneChangeEvent(const Qt3DCore::QSceneChangePtr &)
 {
-    Q_D(QAxis);
-    Qt3DCore::QPropertyUpdatedChangePtr e = qSharedPointerCast<Qt3DCore::QPropertyUpdatedChange>(change);
-    if (e->type() == Qt3DCore::PropertyUpdated && e->propertyName() == QByteArrayLiteral("value")) {
-        d->setValue(e->value().toFloat());
-    }
 }
 
 Qt3DCore::QNodeCreatedChangeBasePtr QAxis::createNodeCreationChange() const

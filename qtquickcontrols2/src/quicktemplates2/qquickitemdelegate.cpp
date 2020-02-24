@@ -45,7 +45,7 @@ QT_BEGIN_NAMESPACE
 /*!
     \qmltype ItemDelegate
     \inherits AbstractButton
-    \instantiates QQuickItemDelegate
+//!     \instantiates QQuickItemDelegate
     \inqmlmodule QtQuick.Controls
     \since 5.7
     \brief Basic item delegate that can be used in various views and controls.
@@ -56,7 +56,7 @@ QT_BEGIN_NAMESPACE
     in various views and controls, such as \l ListView and \l ComboBox.
 
     ItemDelegate inherits its API from AbstractButton. For instance, you can set
-    \l {AbstractButton::text}{text}, display an \l {Icons in Qt Quick Controls 2}{icon},
+    \l {AbstractButton::text}{text}, display an \l {Icons in Qt Quick Controls}{icon},
     and react to \l {AbstractButton::clicked}{clicks} using the AbstractButton API.
 
     \snippet qtquickcontrols2-itemdelegate.qml 1

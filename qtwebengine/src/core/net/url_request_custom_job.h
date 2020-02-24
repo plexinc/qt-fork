@@ -53,7 +53,8 @@ class URLRequestCustomJobDelegate;
 class URLRequestCustomJobProxy;
 
 // A request job that handles reading custom URL schemes
-class URLRequestCustomJob : public net::URLRequestJob {
+class URLRequestCustomJob : public net::URLRequestJob
+{
 public:
     URLRequestCustomJob(net::URLRequest *request,
                         net::NetworkDelegate *networkDelegate,
@@ -61,10 +62,11 @@ public:
                         QPointer<ProfileAdapter> profileAdapter);
     void Start() override;
     void Kill() override;
-    int ReadRawData(net::IOBuffer *buf, int buf_size)  override;
+    int ReadRawData(net::IOBuffer *buf, int buf_size) override;
     bool GetMimeType(std::string *mimeType) const override;
     bool GetCharset(std::string *charset) override;
-    bool IsRedirectResponse(GURL* location, int* http_status_code, bool* insecure_scheme_was_upgraded) override;
+    void GetResponseInfo(net::HttpResponseInfo *info) override;
+    bool IsRedirectResponse(GURL *location, int *http_status_code, bool *insecure_scheme_was_upgraded) override;
 
 protected:
     virtual ~URLRequestCustomJob();
@@ -80,6 +82,7 @@ private:
     int m_pendingReadSize;
     int m_pendingReadPos;
     net::IOBuffer *m_pendingReadBuffer;
+    const bool m_corsEnabled;
 
     friend class URLRequestCustomJobProxy;
 

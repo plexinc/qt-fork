@@ -49,7 +49,7 @@ QT_BEGIN_NAMESPACE
 /*!
     \qmltype MenuBar
     \inherits Container
-    \instantiates QQuickMenuBar
+//!     \instantiates QQuickMenuBar
     \inqmlmodule QtQuick.Controls
     \since 5.10
     \ingroup qtquickcontrols2-menus
@@ -73,10 +73,10 @@ QT_BEGIN_NAMESPACE
     menus in a menu bar can be accessed using \l menuAt().
 
     \sa {Customizing MenuBar}, Menu, MenuBarItem, {Menu Controls},
-        {Focus Management in Qt Quick Controls 2}
+        {Focus Management in Qt Quick Controls}
 */
 
-QQuickItem *QQuickMenuBarPrivate::beginCreateItem()
+QQuickItem *QQuickMenuBarPrivate::beginCreateItem(QQuickMenu *menu)
 {
     Q_Q(QQuickMenuBar);
     if (!delegate)
@@ -96,6 +96,8 @@ QQuickItem *QQuickMenuBarPrivate::beginCreateItem()
         return nullptr;
     }
 
+    if (QQuickMenuBarItem *menuBarItem = qobject_cast<QQuickMenuBarItem *>(item))
+        menuBarItem->setMenu(menu);
     item->setParentItem(q);
     QQml_setParent_noEvent(item, q);
 
@@ -112,9 +114,7 @@ void QQuickMenuBarPrivate::completeCreateItem()
 
 QQuickItem *QQuickMenuBarPrivate::createItem(QQuickMenu *menu)
 {
-    QQuickItem *item = beginCreateItem();
-    if (QQuickMenuBarItem *menuBarItem = qobject_cast<QQuickMenuBarItem *>(item))
-        menuBarItem->setMenu(menu);
+    QQuickItem *item = beginCreateItem(menu);
     completeCreateItem();
     return item;
 }

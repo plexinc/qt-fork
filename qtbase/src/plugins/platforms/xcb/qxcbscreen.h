@@ -161,7 +161,7 @@ public:
     QImage::Format format() const override;
     QSizeF physicalSize() const override { return m_sizeMillimeters; }
     QDpi logicalDpi() const override;
-    qreal pixelDensity() const override;
+    QDpi logicalBaseDpi() const override { return QDpi(96, 96); };
     QPlatformCursor *cursor() const override;
     qreal refreshRate() const override { return m_refreshRate; }
     Qt::ScreenOrientation orientation() const override { return m_orientation; }
@@ -226,8 +226,7 @@ private:
     QRect m_availableGeometry;
     Qt::ScreenOrientation m_orientation = Qt::PrimaryOrientation;
     QXcbCursor *m_cursor;
-    int m_refreshRate = 60;
-    int m_pixelDensity = 1;
+    qreal m_refreshRate = 60.0;
     QEdidParser m_edid;
 };
 

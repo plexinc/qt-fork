@@ -297,6 +297,17 @@ static QList<QList<QDoubleVector2D> > clipLine(
     \image api-mappolyline.png
 */
 
+/*!
+    \qmlproperty bool QtLocation::MapPolyline::autoFadeIn
+
+    This property holds whether the item automatically fades in when zooming into the map
+    starting from very low zoom levels. By default this is \c true.
+    Setting this property to \c false causes the map item to always have the opacity specified
+    with the \l QtQuick::Item::opacity property, which is 1.0 by default.
+
+    \since 5.14
+*/
+
 QDeclarativeMapLineProperties::QDeclarativeMapLineProperties(QObject *parent) :
     QObject(parent),
     width_(1.0),
@@ -849,7 +860,7 @@ int QDeclarativePolylineMapItem::pathLength() const
 /*!
     \qmlmethod void MapPolyline::addCoordinate(coordinate)
 
-    Adds a \a coordinate to the end of the path.
+    Adds the specified \a coordinate to the end of the path.
 
     \sa insertCoordinate, removeCoordinate, path
 */

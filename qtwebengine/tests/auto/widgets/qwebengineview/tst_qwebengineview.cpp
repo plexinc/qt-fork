@@ -60,6 +60,8 @@ do { \
     QCOMPARE((__expr), __expected); \
 } while (0)
 
+static QTouchDevice* s_touchDevice = nullptr;
+
 static QPoint elementCenter(QWebEnginePage *page, const QString &id)
 {
     const QString jsCode(
@@ -165,6 +167,9 @@ private Q_SLOTS:
     void keyboardEvents();
     void keyboardFocusAfterPopup();
     void mouseClick();
+    void touchTap();
+    void touchTapAndHold();
+    void touchTapAndHoldCancelled();
     void postData();
     void inputFieldOverridesShortcuts();
 
@@ -192,6 +197,8 @@ private Q_SLOTS:
     void webUIURLs_data();
     void webUIURLs();
     void visibilityState();
+    void visibilityState2();
+    void visibilityState3();
     void jsKeyboardEvent();
     void deletePage();
     void closeOpenerTab();
@@ -201,12 +208,14 @@ private Q_SLOTS:
     void setViewDeletesImplicitPage();
     void setPagePreservesExplicitPage();
     void setViewPreservesExplicitPage();
+    void closeDiscardsPage();
 };
 
 // This will be called before the first test function is executed.
 // It is only called once.
 void tst_QWebEngineView::initTestCase()
 {
+    s_touchDevice = QTest::createTouchDevice();
 }
 
 // This will be called after the last test function is executed.
@@ -236,30 +245,45 @@ void tst_QWebEngineView::renderHints()
     QVERIFY(!(webView.renderHints() & QPainter::Antialiasing));
     QVERIFY(webView.renderHints() & QPainter::TextAntialiasing);
     QVERIFY(webView.renderHints() & QPainter::SmoothPixmapTransform);
+#if QT_DEPRECATED_SINCE(5, 14)
     QVERIFY(!(webView.renderHints() & QPainter::HighQualityAntialiasing));
+#endif
+    QVERIFY(!(webView.renderHints() & QPainter::Antialiasing));
 
     webView.setRenderHint(QPainter::Antialiasing, true);
     QVERIFY(webView.renderHints() & QPainter::Antialiasing);
     QVERIFY(webView.renderHints() & QPainter::TextAntialiasing);
     QVERIFY(webView.renderHints() & QPainter::SmoothPixmapTransform);
+#if QT_DEPRECATED_SINCE(5, 14)
     QVERIFY(!(webView.renderHints() & QPainter::HighQualityAntialiasing));
+#endif
+    QVERIFY(!(webView.renderHints() & QPainter::Antialiasing));
 
     webView.setRenderHint(QPainter::Antialiasing, false);
     QVERIFY(!(webView.renderHints() & QPainter::Antialiasing));
     QVERIFY(webView.renderHints() & QPainter::TextAntialiasing);
     QVERIFY(webView.renderHints() & QPainter::SmoothPixmapTransform);
+#if QT_DEPRECATED_SINCE(5, 14)
     QVERIFY(!(webView.renderHints() & QPainter::HighQualityAntialiasing));
+#endif
+    QVERIFY(!(webView.renderHints() & QPainter::Antialiasing));
 
     webView.setRenderHint(QPainter::SmoothPixmapTransform, true);
     QVERIFY(!(webView.renderHints() & QPainter::Antialiasing));
     QVERIFY(webView.renderHints() & QPainter::TextAntialiasing);
     QVERIFY(webView.renderHints() & QPainter::SmoothPixmapTransform);
+#if QT_DEPRECATED_SINCE(5, 14)
     QVERIFY(!(webView.renderHints() & QPainter::HighQualityAntialiasing));
+#endif
+    QVERIFY(!(webView.renderHints() & QPainter::Antialiasing));
 
     webView.setRenderHint(QPainter::SmoothPixmapTransform, false);
     QVERIFY(webView.renderHints() & QPainter::TextAntialiasing);
     QVERIFY(!(webView.renderHints() & QPainter::SmoothPixmapTransform));
+#if QT_DEPRECATED_SINCE(5, 14)
     QVERIFY(!(webView.renderHints() & QPainter::HighQualityAntialiasing));
+#endif
+    QVERIFY(!(webView.renderHints() & QPainter::Antialiasing));
 #endif
 }
 
@@ -479,14 +503,14 @@ void tst_QWebEngineView::microFocusCoordinates()
     evaluateJavaScriptSync(webView.page(), "document.getElementById('input1').focus()");
     QTRY_COMPARE(evaluateJavaScriptSync(webView.page(), "document.activeElement.id").toString(), QStringLiteral("input1"));
 
-    QTRY_VERIFY(webView.focusProxy()->inputMethodQuery(Qt::ImMicroFocus).isValid());
-    QVariant initialMicroFocus = webView.focusProxy()->inputMethodQuery(Qt::ImMicroFocus);
+    QTRY_VERIFY(webView.focusProxy()->inputMethodQuery(Qt::ImCursorRectangle).isValid());
+    QVariant initialMicroFocus = webView.focusProxy()->inputMethodQuery(Qt::ImCursorRectangle);
 
     evaluateJavaScriptSync(webView.page(), "window.scrollBy(0, 50)");
     QTRY_VERIFY(scrollSpy.count() > 0);
 
-    QTRY_VERIFY(webView.focusProxy()->inputMethodQuery(Qt::ImMicroFocus).isValid());
-    QVariant currentMicroFocus = webView.focusProxy()->inputMethodQuery(Qt::ImMicroFocus);
+    QTRY_VERIFY(webView.focusProxy()->inputMethodQuery(Qt::ImCursorRectangle).isValid());
+    QVariant currentMicroFocus = webView.focusProxy()->inputMethodQuery(Qt::ImCursorRectangle);
 
     QCOMPARE(initialMicroFocus.toRect().translated(QPoint(0,-50)), currentMicroFocus.toRect());
 }
@@ -1495,6 +1519,172 @@ void tst_QWebEngineView::mouseClick()
     QVERIFY(view.focusProxy()->inputMethodQuery(Qt::ImCurrentSelection).toString().isEmpty());
 }
 
+void tst_QWebEngineView::touchTap()
+{
+#if defined(Q_OS_MACOS)
+    QSKIP("Synthetic touch events are not supported on macOS");
+#endif
+
+    QWebEngineView view;
+    view.show();
+    view.resize(200, 200);
+    QVERIFY(QTest::qWaitForWindowExposed(&view));
+
+    QSignalSpy loadFinishedSpy(&view, &QWebEngineView::loadFinished);
+
+    view.settings()->setAttribute(QWebEngineSettings::FocusOnNavigationEnabled, false);
+    view.setHtml("<html><body>"
+                 "<p id='text' style='width: 150px;'>The Qt Company</p>"
+                 "<div id='notext' style='width: 150px; height: 100px; background-color: #f00;'></div>"
+                 "<form><input id='input' width='150px' type='text' value='The Qt Company2' /></form>"
+                 "</body></html>");
+    QVERIFY(loadFinishedSpy.wait());
+    QVERIFY(evaluateJavaScriptSync(view.page(), "document.activeElement.id").toString().isEmpty());
+
+    auto singleTap = [](QWidget* target, const QPoint& tapCoords) -> void {
+        QTest::touchEvent(target, s_touchDevice).press(1, tapCoords, target);
+        QTest::touchEvent(target, s_touchDevice).stationary(1);
+        QTest::touchEvent(target, s_touchDevice).release(1, tapCoords, target);
+    };
+
+    // Single tap on text doesn't trigger a selection
+    singleTap(view.focusProxy(), elementCenter(view.page(), "text"));
+    QTRY_VERIFY(evaluateJavaScriptSync(view.page(), "document.activeElement.id").toString().isEmpty());
+    QTRY_VERIFY(!view.hasSelection());
+
+    // Single tap inside the input field focuses it without selecting the text
+    singleTap(view.focusProxy(), elementCenter(view.page(), "input"));
+    QTRY_COMPARE(evaluateJavaScriptSync(view.page(), "document.activeElement.id").toString(), QStringLiteral("input"));
+    QTRY_VERIFY(!view.hasSelection());
+
+    // Single tap on the div clears the input field focus
+    singleTap(view.focusProxy(), elementCenter(view.page(), "notext"));
+    QTRY_VERIFY(evaluateJavaScriptSync(view.page(), "document.activeElement.id").toString().isEmpty());
+
+    // Double tap on text still doesn't trigger a selection
+    singleTap(view.focusProxy(), elementCenter(view.page(), "text"));
+    singleTap(view.focusProxy(), elementCenter(view.page(), "text"));
+    QTRY_VERIFY(evaluateJavaScriptSync(view.page(), "document.activeElement.id").toString().isEmpty());
+    QTRY_VERIFY(!view.hasSelection());
+
+    // Double tap inside the input field focuses it and selects the word under it
+    singleTap(view.focusProxy(), elementCenter(view.page(), "input"));
+    singleTap(view.focusProxy(), elementCenter(view.page(), "input"));
+    QTRY_COMPARE(evaluateJavaScriptSync(view.page(), "document.activeElement.id").toString(), QStringLiteral("input"));
+    QTRY_COMPARE(view.selectedText(), QStringLiteral("Company2"));
+
+    // Double tap outside the input field behaves like a single tap: clears its focus and selection
+    singleTap(view.focusProxy(), elementCenter(view.page(), "notext"));
+    singleTap(view.focusProxy(), elementCenter(view.page(), "notext"));
+    QTRY_VERIFY(evaluateJavaScriptSync(view.page(), "document.activeElement.id").toString().isEmpty());
+    QTRY_VERIFY(!view.hasSelection());
+}
+
+void tst_QWebEngineView::touchTapAndHold()
+{
+#if defined(Q_OS_MACOS)
+    QSKIP("Synthetic touch events are not supported on macOS");
+#endif
+
+    QWebEngineView view;
+    view.show();
+    view.resize(200, 200);
+    QVERIFY(QTest::qWaitForWindowExposed(&view));
+
+    QSignalSpy loadFinishedSpy(&view, &QWebEngineView::loadFinished);
+
+    view.settings()->setAttribute(QWebEngineSettings::FocusOnNavigationEnabled, false);
+    view.setHtml("<html><body>"
+                 "<p id='text' style='width: 150px;'>The Qt Company</p>"
+                 "<div id='notext' style='width: 150px; height: 100px; background-color: #f00;'></div>"
+                 "<form><input id='input' width='150px' type='text' value='The Qt Company2' /></form>"
+                 "</body></html>");
+    QVERIFY(loadFinishedSpy.wait());
+    QVERIFY(evaluateJavaScriptSync(view.page(), "document.activeElement.id").toString().isEmpty());
+
+    auto tapAndHold = [](QWidget* target, const QPoint& tapCoords) -> void {
+        QTest::touchEvent(target, s_touchDevice).press(1, tapCoords, target);
+        QTest::touchEvent(target, s_touchDevice).stationary(1);
+        QTest::qWait(1000);
+        QTest::touchEvent(target, s_touchDevice).release(1, tapCoords, target);
+    };
+
+    // Tap-and-hold on text selects the word under it
+    tapAndHold(view.focusProxy(), elementCenter(view.page(), "text"));
+    QTRY_VERIFY(evaluateJavaScriptSync(view.page(), "document.activeElement.id").toString().isEmpty());
+    QTRY_COMPARE(view.selectedText(), QStringLiteral("Company"));
+
+    // Tap-and-hold inside the input field focuses it and selects the word under it
+    tapAndHold(view.focusProxy(), elementCenter(view.page(), "input"));
+    QTRY_COMPARE(evaluateJavaScriptSync(view.page(), "document.activeElement.id").toString(), QStringLiteral("input"));
+    QTRY_COMPARE(view.selectedText(), QStringLiteral("Company2"));
+
+    // Only test the page context menu on Windows, as Linux doesn't handle context menus consistently
+    // and other non-desktop platforms like Android may not even support context menus at all
+#if defined(Q_OS_WIN)
+    // Tap-and-hold clears the text selection and shows the page's context menu
+    QVERIFY(QApplication::activePopupWidget() == nullptr);
+    tapAndHold(view.focusProxy(), elementCenter(view.page(), "notext"));
+    QTRY_VERIFY(evaluateJavaScriptSync(view.page(), "document.activeElement.id").toString().isEmpty());
+    QTRY_VERIFY(!view.hasSelection());
+    QTRY_VERIFY(QApplication::activePopupWidget() != nullptr);
+
+    QApplication::activePopupWidget()->close();
+    QVERIFY(QApplication::activePopupWidget() == nullptr);
+#endif
+}
+
+void tst_QWebEngineView::touchTapAndHoldCancelled()
+{
+#if defined(Q_OS_MACOS)
+    QSKIP("Synthetic touch events are not supported on macOS");
+#endif
+
+    QWebEngineView view;
+    view.show();
+    view.resize(200, 200);
+    QVERIFY(QTest::qWaitForWindowExposed(&view));
+
+    QSignalSpy loadFinishedSpy(&view, &QWebEngineView::loadFinished);
+
+    view.settings()->setAttribute(QWebEngineSettings::FocusOnNavigationEnabled, false);
+    view.setHtml("<html><body>"
+                 "<p id='text' style='width: 150px;'>The Qt Company</p>"
+                 "<div id='notext' style='width: 150px; height: 100px; background-color: #f00;'></div>"
+                 "<form><input id='input' width='150px' type='text' value='The Qt Company2' /></form>"
+                 "</body></html>");
+    QVERIFY(loadFinishedSpy.wait());
+    QVERIFY(evaluateJavaScriptSync(view.page(), "document.activeElement.id").toString().isEmpty());
+
+    auto cancelledTapAndHold = [](QWidget* target, const QPoint& tapCoords) -> void {
+        QTest::touchEvent(target, s_touchDevice).press(1, tapCoords, target);
+        QTest::touchEvent(target, s_touchDevice).stationary(1);
+        QTest::qWait(1000);
+        QWindowSystemInterface::handleTouchCancelEvent(target->windowHandle(), s_touchDevice);
+    };
+
+    // A cancelled tap-and-hold should cancel text selection, but currently doesn't
+    cancelledTapAndHold(view.focusProxy(), elementCenter(view.page(), "text"));
+    QEXPECT_FAIL("", "Incorrect Chromium selection behavior when cancelling tap-and-hold on text", Continue);
+    QTRY_VERIFY_WITH_TIMEOUT(!view.hasSelection(), 100);
+
+    // A cancelled tap-and-hold should cancel input field focusing and selection, but currently doesn't
+    cancelledTapAndHold(view.focusProxy(), elementCenter(view.page(), "input"));
+    QEXPECT_FAIL("", "Incorrect Chromium selection behavior when cancelling tap-and-hold on input field", Continue);
+    QTRY_VERIFY_WITH_TIMEOUT(evaluateJavaScriptSync(view.page(), "document.activeElement.id").toString().isEmpty(), 100);
+    QEXPECT_FAIL("", "Incorrect Chromium focus behavior when cancelling tap-and-hold on input field", Continue);
+    QTRY_VERIFY_WITH_TIMEOUT(!view.hasSelection(), 100);
+
+    // Only test the page context menu on Windows, as Linux doesn't handle context menus consistently
+    // and other non-desktop platforms like Android may not even support context menus at all
+#if defined(Q_OS_WIN)
+    // A cancelled tap-and-hold cancels the context menu
+    QVERIFY(QApplication::activePopupWidget() == nullptr);
+    cancelledTapAndHold(view.focusProxy(), elementCenter(view.page(), "notext"));
+    QVERIFY(QApplication::activePopupWidget() == nullptr);
+#endif
+}
+
 void tst_QWebEngineView::postData()
 {
     QMap<QString, QString> postData;
@@ -1513,7 +1703,7 @@ void tst_QWebEngineView::postData()
             eventloop.quit();
         });
 
-        connect(socket, &QIODevice::readyRead, this, [this, socket, &server, &postData](){
+        connect(socket, &QIODevice::readyRead, this, [socket, &server, &postData](){
             QByteArray rawData = socket->readAll();
             QStringList lines = QString::fromLocal8Bit(rawData).split("\r\n");
 
@@ -1828,10 +2018,13 @@ void tst_QWebEngineView::softwareInputPanel()
 
 void tst_QWebEngineView::inputContextQueryInput()
 {
-    TestInputContext testContext;
     QWebEngineView view;
     view.resize(640, 480);
     view.show();
+
+    // testContext will be destroyed before the view, so no events are sent accidentally
+    // when the view is destroyed.
+    TestInputContext testContext;
 
     QSignalSpy selectionChangedSpy(&view, SIGNAL(selectionChanged()));
     QSignalSpy loadFinishedSpy(&view, SIGNAL(loadFinished(bool)));
@@ -2191,6 +2384,22 @@ void tst_QWebEngineView::textSelectionOutOfInputField()
     QTest::mouseClick(view.focusProxy(), Qt::LeftButton, 0, view.geometry().center());
     QVERIFY(selectionChangedSpy.wait());
     QCOMPARE(selectionChangedSpy.count(), 2);
+    QVERIFY(!view.hasSelection());
+    QVERIFY(view.page()->selectedText().isEmpty());
+
+    // Select text by ctrl+a
+    QTest::keyClick(view.windowHandle(), Qt::Key_A, Qt::ControlModifier);
+    QVERIFY(selectionChangedSpy.wait());
+    QCOMPARE(selectionChangedSpy.count(), 3);
+    QVERIFY(view.hasSelection());
+    QCOMPARE(view.page()->selectedText(), QString("This is a text"));
+
+    // Deselect text via discard+undiscard
+    view.hide();
+    view.page()->setLifecycleState(QWebEnginePage::LifecycleState::Discarded);
+    view.show();
+    QVERIFY(loadFinishedSpy.wait());
+    QCOMPARE(selectionChangedSpy.count(), 4);
     QVERIFY(!view.hasSelection());
     QVERIFY(view.page()->selectedText().isEmpty());
 
@@ -2969,7 +3178,7 @@ void tst_QWebEngineView::mouseLeave()
     QVBoxLayout *layout = new QVBoxLayout;
     layout->setAlignment(Qt::AlignTop);
     layout->setSpacing(0);
-    layout->setMargin(0);
+    layout->setContentsMargins(0, 0, 0, 0);
     layout->addWidget(label);
     layout->addWidget(view);
     containerWidget->setLayout(layout);
@@ -3068,7 +3277,6 @@ void tst_QWebEngineView::webUIURLs_data()
     QTest::newRow("supervised-user-internals") << QUrl("chrome://supervised-user-internals") << false;
     QTest::newRow("sync-internals") << QUrl("chrome://sync-internals") << false;
     QTest::newRow("system") << QUrl("chrome://system") << false;
-    QTest::newRow("taskscheduler-internals") << QUrl("chrome://taskscheduler-internals") << true;
     QTest::newRow("terms") << QUrl("chrome://terms") << false;
     QTest::newRow("thumbnails") << QUrl("chrome://thumbnails") << false;
     QTest::newRow("tracing") << QUrl("chrome://tracing") << false;
@@ -3089,7 +3297,7 @@ void tst_QWebEngineView::webUIURLs()
     view.settings()->setAttribute(QWebEngineSettings::ErrorPageEnabled, false);
     QSignalSpy loadFinishedSpy(&view, SIGNAL(loadFinished(bool)));
     view.load(url);
-    QVERIFY(loadFinishedSpy.wait());
+    QTRY_COMPARE_WITH_TIMEOUT(loadFinishedSpy.count(), 1, 30000);
     QCOMPARE(loadFinishedSpy.takeFirst().at(0).toBool(), supported);
 }
 
@@ -3104,6 +3312,38 @@ void tst_QWebEngineView::visibilityState()
     view.show();
     QVERIFY(QTest::qWaitForWindowExposed(&view));
     QCOMPARE(evaluateJavaScriptSync(view.page(), "document.visibilityState").toString(), QStringLiteral("visible"));
+}
+
+void tst_QWebEngineView::visibilityState2()
+{
+    QWebEngineView view;
+    QSignalSpy spy(&view, &QWebEngineView::loadFinished);
+    view.show();
+    view.load(QStringLiteral("about:blank"));
+    view.hide();
+    QVERIFY(spy.count() || spy.wait());
+    QVERIFY(spy.takeFirst().takeFirst().toBool());
+    QCOMPARE(evaluateJavaScriptSync(view.page(), "document.visibilityState").toString(), QStringLiteral("hidden"));
+}
+
+void tst_QWebEngineView::visibilityState3()
+{
+    QWebEnginePage page1;
+    QWebEnginePage page2;
+    QSignalSpy spy1(&page1, &QWebEnginePage::loadFinished);
+    QSignalSpy spy2(&page2, &QWebEnginePage::loadFinished);
+    page1.load(QStringLiteral("about:blank"));
+    page2.load(QStringLiteral("about:blank"));
+    QVERIFY(spy1.count() || spy1.wait());
+    QVERIFY(spy2.count() || spy2.wait());
+    QWebEngineView view;
+    view.setPage(&page1);
+    view.show();
+    QCOMPARE(evaluateJavaScriptSync(&page1, "document.visibilityState").toString(), QStringLiteral("visible"));
+    QCOMPARE(evaluateJavaScriptSync(&page2, "document.visibilityState").toString(), QStringLiteral("hidden"));
+    view.setPage(&page2);
+    QCOMPARE(evaluateJavaScriptSync(&page1, "document.visibilityState").toString(), QStringLiteral("hidden"));
+    QCOMPARE(evaluateJavaScriptSync(&page2, "document.visibilityState").toString(), QStringLiteral("visible"));
 }
 
 void tst_QWebEngineView::jsKeyboardEvent()
@@ -3256,6 +3496,22 @@ void tst_QWebEngineView::setViewPreservesExplicitPage()
     explicitPage2->setView(&view);
     QCOMPARE(view.page(), explicitPage2.data());
     QVERIFY(explicitPage1); // should not be deleted
+}
+
+void tst_QWebEngineView::closeDiscardsPage()
+{
+    QWebEngineProfile profile;
+    QWebEnginePage page(&profile);
+    QWebEngineView view;
+    view.setPage(&page);
+    view.resize(300, 300);
+    view.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&view));
+    QCOMPARE(page.isVisible(), true);
+    QCOMPARE(page.lifecycleState(), QWebEnginePage::LifecycleState::Active);
+    view.close();
+    QCOMPARE(page.isVisible(), false);
+    QCOMPARE(page.lifecycleState(), QWebEnginePage::LifecycleState::Discarded);
 }
 
 QTEST_MAIN(tst_QWebEngineView)

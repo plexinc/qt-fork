@@ -51,11 +51,6 @@
 DirectShowVideoRendererControl::DirectShowVideoRendererControl(DirectShowEventLoop *loop, QObject *parent)
     : QVideoRendererControl(parent)
     , m_loop(loop)
-    , m_surface(0)
-    , m_filter(0)
-#if QT_CONFIG(evr)
-    , m_evrPresenter(0)
-#endif
 {
 }
 
@@ -85,13 +80,13 @@ void DirectShowVideoRendererControl::setSurface(QAbstractVideoSurface *surface)
     if (m_evrPresenter) {
         m_evrPresenter->setSurface(nullptr);
         m_evrPresenter->Release();
-        m_evrPresenter = 0;
+        m_evrPresenter = nullptr;
     }
 #endif
 
     if (m_filter) {
         m_filter->Release();
-        m_filter = 0;
+        m_filter = nullptr;
     }
 
     m_surface = surface;
@@ -101,11 +96,12 @@ void DirectShowVideoRendererControl::setSurface(QAbstractVideoSurface *surface)
         if (!qgetenv("QT_DIRECTSHOW_NO_EVR").toInt()) {
             m_filter = com_new<IBaseFilter>(clsid_EnhancedVideoRenderer);
             m_evrPresenter = new EVRCustomPresenter(m_surface);
+            connect(this, &DirectShowVideoRendererControl::positionChanged, m_evrPresenter, &EVRCustomPresenter::positionChanged);
             if (!m_evrPresenter->isValid() || !qt_evr_setCustomPresenter(m_filter, m_evrPresenter)) {
                 m_filter->Release();
-                m_filter = 0;
+                m_filter = nullptr;
                 m_evrPresenter->Release();
-                m_evrPresenter = 0;
+                m_evrPresenter = nullptr;
             }
         }
 

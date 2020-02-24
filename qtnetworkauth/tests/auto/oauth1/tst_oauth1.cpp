@@ -637,28 +637,6 @@ void tst_OAuth1::grant_data()
                                     << QUrl("http://term.ie/oauth/example/echo_api.php")
                                     << QNetworkAccessManager::PostOperation;
     }
-    if (hostReachable(QLatin1String("oauthbin.com"))) {
-        QTest::newRow("oauthbin.com_get") << "key"
-                                        << "secret"
-                                        << "requestkey"
-                                        << "requestsecret"
-                                        << "accesskey"
-                                        << "accesssecret"
-                                        << QUrl("http://oauthbin.com/v1/request-token")
-                                        << QUrl("http://oauthbin.com/v1/access-token")
-                                        << QUrl("http://oauthbin.com/v1/echo")
-                                        << QNetworkAccessManager::GetOperation;
-        QTest::newRow("oauthbin.com_post") << "key"
-                                        << "secret"
-                                        << "requestkey"
-                                        << "requestsecret"
-                                        << "accesskey"
-                                        << "accesssecret"
-                                        << QUrl("http://oauthbin.com/v1/request-token")
-                                        << QUrl("http://oauthbin.com/v1/access-token")
-                                        << QUrl("http://oauthbin.com/v1/echo")
-                                        << QNetworkAccessManager::PostOperation;
-    }
 }
 
 void tst_OAuth1::grant()
@@ -761,30 +739,8 @@ void tst_OAuth1::authenticatedCalls_data()
             << QUrl("http://term.ie/oauth/example/echo_api.php?key=%40value+1%2B2=3")
             << parameters
             << QNetworkAccessManager::GetOperation;
-    }
-    if (hostReachable(QLatin1String("oauthbin.com"))) {
-        QTest::newRow("oauthbin.com_get") << "key"
-                                        << "secret"
-                                        << "accesskey"
-                                        << "accesssecret"
-                                        << QUrl("http://oauthbin.com/v1/echo")
-                                        << parameters
-                                        << QNetworkAccessManager::GetOperation;
-        QTest::newRow("oauthbin.com_post") << "key"
-                                        << "secret"
-                                        << "accesskey"
-                                        << "accesssecret"
-                                        << QUrl("http://oauthbin.com/v1/echo")
-                                        << parameters
-                                        << QNetworkAccessManager::PostOperation;
-        QTest::newRow("oauthbin.com_percent_encoded_query")
-            << "key"
-            << "secret"
-            << "accesskey"
-            << "accesssecret"
-            << QUrl("http://oauthbin.com/v1/echo?key=%40value+1%2B2=3")
-            << parameters
-            << QNetworkAccessManager::GetOperation;
+    } else {
+        QSKIP("Skipping test due to unreacahble term.ie host");
     }
 }
 
@@ -878,37 +834,8 @@ void tst_OAuth1::prepareRequestCalls_data()
             << QUrl("http://term.ie/oauth/example/echo_api.php?key=%40value+1%2B2=3")
             << parameters
             << QByteArray("GET");
-    }
-    if (hostReachable(QLatin1String("oauthbin.com"))) {
-        QTest::newRow("oauthbin.com_get") << "key"
-                                          << "secret"
-                                          << "accesskey"
-                                          << "accesssecret"
-                                          << QUrl("http://oauthbin.com/v1/echo")
-                                          << parameters
-                                          << QByteArray("GET");
-        QTest::newRow("oauthbin.com_post") << "key"
-                                           << "secret"
-                                           << "accesskey"
-                                           << "accesssecret"
-                                           << QUrl("http://oauthbin.com/v1/echo")
-                                           << parameters
-                                           << QByteArray("POST");
-        QTest::newRow("oauthbin.com_percent_encoded_query")
-            << "key"
-            << "secret"
-            << "accesskey"
-            << "accesssecret"
-            << QUrl("http://oauthbin.com/v1/echo?key=%40value+1%2B2=3")
-            << parameters
-            << QByteArray("GET");
-        QTest::newRow("oauthbin.com_patch") << "key"
-                                            << "secret"
-                                            << "accesskey"
-                                            << "accesssecret"
-                                            << QUrl("http://oauthbin.com/v1/echo")
-                                            << parameters
-                                            << QByteArray("PATCH");
+    } else {
+        QSKIP("Skipping test due to unreacahble term.ie host");
     }
 }
 

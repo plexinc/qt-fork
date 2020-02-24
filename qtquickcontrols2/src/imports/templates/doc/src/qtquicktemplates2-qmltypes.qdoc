@@ -26,7 +26,7 @@
 ****************************************************************************/
 
 /*!
-    \qmlmodule QtQuick.Templates 2.5
+    \qmlmodule QtQuick.Templates 2.\QtMinorVersion
     \title Qt Quick Templates 2 QML Types
     \ingroup qmlmodules
     \brief Provides QML types for templates (Qt Quick Templates).
@@ -56,7 +56,7 @@
     \section1 Related Information
 
     \list
-        \li \l {Qt Quick Controls 2 QML Types}
+        \li \l {Qt Quick Controls QML Types}
     \endlist
 
     \noautolist

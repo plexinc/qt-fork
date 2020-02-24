@@ -47,8 +47,9 @@
 
 #include <iostream>
 
-QT_BEGIN_NAMESPACE
 using namespace emscripten;
+
+QT_BEGIN_NAMESPACE
 
 typedef struct emkb2qt {
     const char *em;
@@ -353,10 +354,11 @@ void QWasmEventTranslator::initEventHandlers()
         g_useNaturalScrolling = false; // make this !default on macOS
 
         if (emscripten::val::global("window")["safari"].isUndefined()) {
-
-            emscripten::val::global(canvasId).call<void>("addEventListener",
-                                                         std::string("wheel"),
-                                                         val::module_property("qtMouseWheelEvent"));
+            val document = val::global("document");
+            val canvas = document.call<val>("getElementById", val(canvasId));
+            canvas.call<void>("addEventListener",
+                              std::string("wheel"),
+                              val::module_property("qtMouseWheelEvent"));
         }
     }
 
@@ -780,6 +782,60 @@ quint64 QWasmEventTranslator::getTimestamp()
     return QDeadlineTimer::current().deadlineNSecs() / 1000;
 }
 
+struct KeyMapping { Qt::Key from, to; };
+
+constexpr KeyMapping tildeKeyTable[] = { // ~
+    { Qt::Key_A, Qt::Key_Atilde },
+    { Qt::Key_N, Qt::Key_Ntilde },
+    { Qt::Key_O, Qt::Key_Otilde },
+};
+constexpr KeyMapping graveKeyTable[] = { // `
+    { Qt::Key_A, Qt::Key_Agrave },
+    { Qt::Key_E, Qt::Key_Egrave },
+    { Qt::Key_I, Qt::Key_Igrave },
+    { Qt::Key_O, Qt::Key_Ograve },
+    { Qt::Key_U, Qt::Key_Ugrave },
+};
+constexpr KeyMapping acuteKeyTable[] = { // '
+    { Qt::Key_A, Qt::Key_Aacute },
+    { Qt::Key_E, Qt::Key_Eacute },
+    { Qt::Key_I, Qt::Key_Iacute },
+    { Qt::Key_O, Qt::Key_Oacute },
+    { Qt::Key_U, Qt::Key_Uacute },
+    { Qt::Key_Y, Qt::Key_Yacute },
+};
+constexpr KeyMapping diaeresisKeyTable[] = { // umlaut ¨
+    { Qt::Key_A, Qt::Key_Adiaeresis },
+    { Qt::Key_E, Qt::Key_Ediaeresis },
+    { Qt::Key_I, Qt::Key_Idiaeresis },
+    { Qt::Key_O, Qt::Key_Odiaeresis },
+    { Qt::Key_U, Qt::Key_Udiaeresis },
+    { Qt::Key_Y, Qt::Key_ydiaeresis },
+};
+constexpr KeyMapping circumflexKeyTable[] = { // ^
+    { Qt::Key_A, Qt::Key_Acircumflex },
+    { Qt::Key_E, Qt::Key_Ecircumflex },
+    { Qt::Key_I, Qt::Key_Icircumflex },
+    { Qt::Key_O, Qt::Key_Ocircumflex },
+    { Qt::Key_U, Qt::Key_Ucircumflex },
+};
+
+static Qt::Key find_impl(const KeyMapping *first, const KeyMapping *last, Qt::Key key) noexcept
+{
+    while (first != last) {
+        if (first->from == key)
+            return first->to;
+        ++first;
+    }
+    return Qt::Key_unknown;
+}
+
+template <size_t N>
+static Qt::Key find(const KeyMapping (&map)[N], Qt::Key key) noexcept
+{
+    return find_impl(map, map + N, key);
+}
+
 Qt::Key QWasmEventTranslator::translateDeadKey(Qt::Key deadKey, Qt::Key accentBaseKey)
 {
     Qt::Key wasmKey = Qt::Key_unknown;
@@ -789,25 +845,25 @@ Qt::Key QWasmEventTranslator::translateDeadKey(Qt::Key deadKey, Qt::Key accentBa
 #else
     case Qt::Key_O: // ´ Key_Dead_Grave
 #endif
-        wasmKey = graveKeyTable.value(accentBaseKey);
+        wasmKey = find(graveKeyTable, accentBaseKey);
         break;
     case Qt::Key_E: // ´ Key_Dead_Acute
-        wasmKey = acuteKeyTable.value(accentBaseKey);
+        wasmKey = find(acuteKeyTable, accentBaseKey);
         break;
     case Qt::Key_AsciiTilde:
     case Qt::Key_N:// Key_Dead_Tilde
-        wasmKey = tildeKeyTable.value(accentBaseKey);
+        wasmKey = find(tildeKeyTable, accentBaseKey);
         break;
 #ifndef Q_OS_MACOS
     case Qt::Key_QuoteLeft:
 #endif
     case Qt::Key_U:// ¨ Key_Dead_Diaeresis
-        wasmKey = diaeresisKeyTable.value(accentBaseKey);
+        wasmKey = find(diaeresisKeyTable, accentBaseKey);
         break;
     case Qt::Key_I:// macOS Key_Dead_Circumflex
     case Qt::Key_6:// linux
     case Qt::Key_Apostrophe:// linux
-        wasmKey = circumflexKeyTable.value(accentBaseKey);
+        wasmKey = find(circumflexKeyTable, accentBaseKey);
         break;
     default:
         break;

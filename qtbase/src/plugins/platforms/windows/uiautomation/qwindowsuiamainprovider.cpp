@@ -82,7 +82,7 @@ QWindowsUiaMainProvider *QWindowsUiaMainProvider::providerForAccessible(QAccessi
 
     QAccessible::Id id = QAccessible::uniqueId(accessible);
     QWindowsUiaProviderCache *providerCache = QWindowsUiaProviderCache::instance();
-    QWindowsUiaMainProvider *provider = qobject_cast<QWindowsUiaMainProvider *>(providerCache->providerForId(id));
+    auto *provider = qobject_cast<QWindowsUiaMainProvider *>(providerCache->providerForId(id));
 
     if (provider) {
         provider->AddRef();
@@ -153,7 +153,7 @@ void QWindowsUiaMainProvider::notifyValueChange(QAccessibleValueChangeEvent *eve
                 int count = listacc->childCount();
                 for (int i = 0; i < count; ++i) {
                     QAccessibleInterface *item = listacc->child(i);
-                    if (item && item->text(QAccessible::Name) == event->value()) {
+                    if (item && item->isValid() && item->text(QAccessible::Name) == event->value()) {
                         if (!item->state().selected) {
                             if (QAccessibleActionInterface *actionInterface = item->actionInterface())
                                 actionInterface->doAction(QAccessibleActionInterface::toggleAction());
@@ -277,8 +277,9 @@ HRESULT QWindowsUiaMainProvider::GetPatternProvider(PATTERNID idPattern, IUnknow
         }
         break;
     case UIA_ValuePatternId:
-        // All accessible controls return text(QAccessible::Value) (which may be empty).
-        *pRetVal = new QWindowsUiaValueProvider(id());
+        // All non-static controls support the Value pattern.
+        if (accessible->role() != QAccessible::StaticText)
+            *pRetVal = new QWindowsUiaValueProvider(id());
         break;
     case UIA_RangeValuePatternId:
         // Controls providing a numeric value within a range (e.g., sliders, scroll bars, dials).
@@ -288,7 +289,8 @@ HRESULT QWindowsUiaMainProvider::GetPatternProvider(PATTERNID idPattern, IUnknow
         break;
     case UIA_TogglePatternId:
         // Checkbox controls.
-        if (accessible->role() == QAccessible::CheckBox) {
+        if (accessible->role() == QAccessible::CheckBox
+                || (accessible->role() == QAccessible::MenuItem && accessible->state().checkable)) {
             *pRetVal = new QWindowsUiaToggleProvider(id());
         }
         break;
@@ -389,7 +391,17 @@ HRESULT QWindowsUiaMainProvider::GetPropertyValue(PROPERTYID idProp, VARIANT *pR
             setVariantI4(UIA_WindowControlTypeId, pRetVal);
         } else {
             // Control type converted from role.
-            setVariantI4(roleToControlTypeId(accessible->role()), pRetVal);
+            auto controlType = roleToControlTypeId(accessible->role());
+
+            // The native OSK should be disbled if the Qt OSK is in use.
+            static bool imModuleEmpty = qEnvironmentVariableIsEmpty("QT_IM_MODULE");
+
+            // If we want to disable the native OSK auto-showing
+            // we have to report text fields as non-editable.
+            if (controlType == UIA_EditControlTypeId && !imModuleEmpty)
+                controlType = UIA_TextControlTypeId;
+
+            setVariantI4(controlType, pRetVal);
         }
         break;
     case UIA_HelpTextPropertyId:
@@ -670,18 +682,26 @@ HRESULT QWindowsUiaMainProvider::ElementProviderFromPoint(double x, double y, IR
     QPoint point;
     nativeUiaPointToPoint(uiaPoint, window, &point);
 
-    QAccessibleInterface *targetacc = accessible->childAt(point.x(), point.y());
-
-    if (targetacc) {
-        QAccessibleInterface *acc = targetacc;
-        // Controls can be embedded within grouping elements. By default returns the innermost control.
-        while (acc) {
-            targetacc = acc;
-            // For accessibility tools it may be better to return the text element instead of its subcomponents.
-            if (targetacc->textInterface()) break;
-            acc = acc->childAt(point.x(), point.y());
+    if (auto targetacc = accessible->childAt(point.x(), point.y())) {
+        auto acc = accessible->childAt(point.x(), point.y());
+        // Reject the cases where childAt() returns a different instance in each call for the same
+        // element (e.g., QAccessibleTree), as it causes an endless loop with Youdao Dictionary installed.
+        if (targetacc == acc) {
+            // Controls can be embedded within grouping elements. By default returns the innermost control.
+            while (acc) {
+                targetacc = acc;
+                // For accessibility tools it may be better to return the text element instead of its subcomponents.
+                if (targetacc->textInterface()) break;
+                acc = targetacc->childAt(point.x(), point.y());
+                if (acc != targetacc->childAt(point.x(), point.y())) {
+                    qCDebug(lcQpaUiAutomation) << "Non-unique childAt() for" << targetacc;
+                    break;
+                }
+            }
+            *pRetVal = providerForAccessible(targetacc);
+        } else {
+            qCDebug(lcQpaUiAutomation) << "Non-unique childAt() for" << accessible;
         }
-        *pRetVal = providerForAccessible(targetacc);
     }
     return S_OK;
 }

@@ -37,7 +37,7 @@
 #include "qwaylandxdgshellv6.h"
 #include "qwaylandxdgshellv6_p.h"
 
-#ifdef QT_WAYLAND_COMPOSITOR_QUICK
+#if QT_CONFIG(wayland_compositor_quick)
 #include "qwaylandxdgshellv6integration_p.h"
 #endif
 #include <QtWaylandCompositor/private/qwaylandutils_p.h>
@@ -698,7 +698,7 @@ QWaylandXdgSurfaceV6 *QWaylandXdgSurfaceV6::fromResource(wl_resource *resource)
     return nullptr;
 }
 
-#ifdef QT_WAYLAND_COMPOSITOR_QUICK
+#if QT_CONFIG(wayland_compositor_quick)
 QWaylandQuickShellIntegration *QWaylandXdgSurfaceV6::createIntegration(QWaylandQuickShellSurfaceItem *item)
 {
     Q_D(const QWaylandXdgSurfaceV6);
@@ -1214,7 +1214,9 @@ QWaylandSurfaceRole *QWaylandXdgToplevelV6::role()
 QList<int> QWaylandXdgToplevelV6::statesAsInts() const
 {
    QList<int> list;
-   Q_FOREACH (uint state, states()) {
+   const auto s = states();
+   list.reserve(s.size());
+   for (auto state : s) {
        list << static_cast<int>(state);
    }
    return list;
@@ -1799,6 +1801,26 @@ uint QWaylandXdgPopupV6::sendConfigure(const QRect &geometry)
 {
     Q_D(QWaylandXdgPopupV6);
     return d->sendConfigure(geometry);
+}
+
+/*!
+ * \qmlmethod void QtWaylandCompositor::XdgPopupV6::sendPopupDone()
+ * \since 5.14
+ *
+ * Dismiss the popup. According to the \c xdg-shell-unstable-v6 protocol this should make the
+ * client destroy the popup.
+ */
+
+/*!
+ * \since 5.14
+ *
+ * Dismiss the popup. According to the \c xdg-shell-unstable-v6 protocol this should make the
+ * client destroy the popup.
+ */
+void QWaylandXdgPopupV6::sendPopupDone()
+{
+    Q_D(QWaylandXdgPopupV6);
+    d->send_popup_done();
 }
 
 /*!

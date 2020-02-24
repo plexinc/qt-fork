@@ -1344,7 +1344,7 @@ Qt::WindowStates QWindow::windowStates() const
     This is a hint to the window manager that this window is a dialog or pop-up
     on behalf of the transient parent.
 
-    In order to cause the window to be centered above its transient parent by
+    In order to cause the window to be centered above its transient \a parent by
     default, depending on the window manager, it may also be necessary to call
     setFlags() with a suitable \l Qt::WindowType (such as \c Qt::Dialog).
 
@@ -2535,7 +2535,12 @@ void QWindow::tabletEvent(QTabletEvent *ev)
 
     Should return true only if the event was handled.
 */
+
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+bool QWindow::nativeEvent(const QByteArray &eventType, void *message, qintptr *result)
+#else
 bool QWindow::nativeEvent(const QByteArray &eventType, void *message, long *result)
+#endif
 {
     Q_UNUSED(eventType);
     Q_UNUSED(message);
@@ -2844,13 +2849,13 @@ QDebug operator<<(QDebug debug, const QWindow *window)
             if (window->isTopLevel())
                 debug << ", toplevel";
             debug << ", " << geometry.width() << 'x' << geometry.height()
-                << forcesign << geometry.x() << geometry.y() << noforcesign;
+                << Qt::forcesign << geometry.x() << geometry.y() << Qt::noforcesign;
             const QMargins margins = window->frameMargins();
             if (!margins.isNull())
                 debug << ", margins=" << margins;
             debug << ", devicePixelRatio=" << window->devicePixelRatio();
             if (const QPlatformWindow *platformWindow = window->handle())
-                debug << ", winId=0x" << hex << platformWindow->winId() << dec;
+                debug << ", winId=0x" << Qt::hex << platformWindow->winId() << Qt::dec;
             if (const QScreen *screen = window->screen())
                 debug << ", on " << screen->name();
         }

@@ -223,33 +223,39 @@ TestCase {
         var minimumExpectedValueCount = data.live ? 2 : 1;
 
         // drag to the left
-        mouseDrag(dial, dial.width / 2, dial.height / 2, -dial.width / 2, 0, Qt.LeftButton);
+        // we always add or subtract 1 to ensure we start the drag from the opposite side
+        // of where we're dragging to, for more reliable tests
+        mouseDrag(dial, dial.width / 2 + 1, dial.height / 2, -dial.width / 2, 0, Qt.LeftButton);
         fuzzyCompare(dial.value, data.leftValue, 0.1);
-        verify(valueSpy.count >= minimumExpectedValueCount);
+        verify(valueSpy.count >= minimumExpectedValueCount, "expected valueChanged to be emitted at least "
+            + minimumExpectedValueCount + " time(s), but it was only emitted " + valueSpy.count + " time(s)");
         valueSpy.clear();
         verify(moveSpy.count > 0);
         moveSpy.clear();
 
         // drag to the top
-        mouseDrag(dial, dial.width / 2, dial.height / 2, 0, -dial.height / 2, Qt.LeftButton);
+        mouseDrag(dial, dial.width / 2, dial.height / 2 + 1, 0, -dial.height / 2, Qt.LeftButton);
         fuzzyCompare(dial.value, data.topValue, 0.1);
-        verify(valueSpy.count >= minimumExpectedValueCount);
+        verify(valueSpy.count >= minimumExpectedValueCount, "expected valueChanged to be emitted at least "
+            + minimumExpectedValueCount + " time(s), but it was only emitted " + valueSpy.count + " time(s)");
         valueSpy.clear();
         verify(moveSpy.count > 0);
         moveSpy.clear();
 
         // drag to the right
-        mouseDrag(dial, dial.width / 2, dial.height / 2, dial.width / 2, 0, Qt.LeftButton);
+        mouseDrag(dial, dial.width / 2 - 1, dial.height / 2, dial.width / 2, 0, Qt.LeftButton);
         fuzzyCompare(dial.value, data.rightValue, 0.1);
-        verify(valueSpy.count >= minimumExpectedValueCount);
+        verify(valueSpy.count >= minimumExpectedValueCount, "expected valueChanged to be emitted at least "
+            + minimumExpectedValueCount + " time(s), but it was only emitted " + valueSpy.count + " time(s)");
         valueSpy.clear();
         verify(moveSpy.count > 0);
         moveSpy.clear();
 
         // drag to the bottom (* 0.6 to ensure we don't go over to the minimum position)
-        mouseDrag(dial, dial.width / 2, dial.height / 2, 10, dial.height / 2, Qt.LeftButton);
+        mouseDrag(dial, dial.width / 2, dial.height / 2 - 1, 10, dial.height / 2, Qt.LeftButton);
         fuzzyCompare(dial.value, data.bottomValue, 0.1);
-        verify(valueSpy.count >= minimumExpectedValueCount);
+        verify(valueSpy.count >= minimumExpectedValueCount, "expected valueChanged to be emitted at least "
+            + minimumExpectedValueCount + " time(s), but it was only emitted " + valueSpy.count + " time(s)");
         valueSpy.clear();
         verify(moveSpy.count > 0);
         moveSpy.clear();
@@ -470,15 +476,15 @@ TestCase {
 
     function test_snapMode_data(immediate) {
         return [
-            { tag: "NoSnap", snapMode: Slider.NoSnap, from: 0, to: 2, values: [0, 0, 1], positions: [0, 0.5, 0.5] },
-            { tag: "SnapAlways (0..2)", snapMode: Slider.SnapAlways, from: 0, to: 2, values: [0.0, 0.0, 1.0], positions: [0.0, 0.5, 0.5] },
-            { tag: "SnapAlways (1..3)", snapMode: Slider.SnapAlways, from: 1, to: 3, values: [1.0, 1.0, 2.0], positions: [0.0, 0.5, 0.5] },
-            { tag: "SnapAlways (-1..1)", snapMode: Slider.SnapAlways, from: -1, to: 1, values: [0.0, 0.0, 0.0], positions: [0.5, 0.5, 0.5] },
-            { tag: "SnapAlways (1..-1)", snapMode: Slider.SnapAlways, from: 1, to: -1, values: [1.0, 1.0, 0.0], positions: [0.0, 0.5, 0.5] },
-            { tag: "SnapOnRelease (0..2)", snapMode: Slider.SnapOnRelease, from: 0, to: 2, values: [0.0, 0.0, 1.0], positions: [0.0, 0.5, 0.5] },
-            { tag: "SnapOnRelease (1..3)", snapMode: Slider.SnapOnRelease, from: 1, to: 3, values: [1.0, 1.0, 2.0], positions: [0.0, 0.5, 0.5] },
-            { tag: "SnapOnRelease (-1..1)", snapMode: Slider.SnapOnRelease, from: -1, to: 1, values: [0.0, 0.0, 0.0], positions: [immediate ? 0.0 : 0.5, 0.5, 0.5] },
-            { tag: "SnapOnRelease (1..-1)", snapMode: Slider.SnapOnRelease, from: 1, to: -1, values: [1.0, 1.0, 0.0], positions: [0.0, 0.5, 0.5] }
+            { tag: "NoSnap", snapMode: Dial.NoSnap, from: 0, to: 2, values: [0, 0, 1], positions: [0, 0.5, 0.5] },
+            { tag: "SnapAlways (0..2)", snapMode: Dial.SnapAlways, from: 0, to: 2, values: [0.0, 0.0, 1.0], positions: [0.0, 0.5, 0.5] },
+            { tag: "SnapAlways (1..3)", snapMode: Dial.SnapAlways, from: 1, to: 3, values: [1.0, 1.0, 2.0], positions: [0.0, 0.5, 0.5] },
+            { tag: "SnapAlways (-1..1)", snapMode: Dial.SnapAlways, from: -1, to: 1, values: [0.0, 0.0, 0.0], positions: [0.5, 0.5, 0.5] },
+            { tag: "SnapAlways (1..-1)", snapMode: Dial.SnapAlways, from: 1, to: -1, values: [1.0, 1.0, 0.0], positions: [0.0, 0.5, 0.5] },
+            { tag: "SnapOnRelease (0..2)", snapMode: Dial.SnapOnRelease, from: 0, to: 2, values: [0.0, 0.0, 1.0], positions: [0.0, 0.5, 0.5] },
+            { tag: "SnapOnRelease (1..3)", snapMode: Dial.SnapOnRelease, from: 1, to: 3, values: [1.0, 1.0, 2.0], positions: [0.0, 0.5, 0.5] },
+            { tag: "SnapOnRelease (-1..1)", snapMode: Dial.SnapOnRelease, from: -1, to: 1, values: [0.0, 0.0, 0.0], positions: [immediate ? 0.0 : 0.5, 0.5, 0.5] },
+            { tag: "SnapOnRelease (1..-1)", snapMode: Dial.SnapOnRelease, from: 1, to: -1, values: [1.0, 1.0, 0.0], positions: [0.0, 0.5, 0.5] }
         ]
     }
 

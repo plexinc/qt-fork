@@ -163,8 +163,7 @@ void QDeclarativeVideoRendererBackend::scheduleDeleteFilterResources()
 void QDeclarativeVideoRendererBackend::releaseResources()
 {
     // Called on the gui thread when the window is closed or changed.
-    QMutexLocker lock(&m_frameMutex);
-    scheduleDeleteFilterResources();
+    invalidateSceneGraph();
 }
 
 void QDeclarativeVideoRendererBackend::invalidateSceneGraph()
@@ -390,8 +389,8 @@ QAbstractVideoSurface *QDeclarativeVideoRendererBackend::videoSurface() const
 
 QRectF QDeclarativeVideoRendererBackend::adjustedViewport() const
 {
-    const QRectF viewport = m_surface->surfaceFormat().viewport();
-    const QSizeF pixelAspectRatio = m_surface->surfaceFormat().pixelAspectRatio();
+    const QRectF viewport = m_surfaceFormat.viewport();
+    const QSizeF pixelAspectRatio = m_surfaceFormat.pixelAspectRatio();
 
     if (pixelAspectRatio.isValid()) {
         const qreal ratio = pixelAspectRatio.width() / pixelAspectRatio.height();

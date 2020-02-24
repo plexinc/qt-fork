@@ -348,9 +348,7 @@ void QPlatformWindow::setWindowIcon(const QIcon &icon) { Q_UNUSED(icon); }
 */
 bool QPlatformWindow::close()
 {
-    bool accepted = false;
-    QWindowSystemInterface::handleCloseEvent<QWindowSystemInterface::SynchronousDelivery>(window(), &accepted);
-    return accepted;
+    return QWindowSystemInterface::handleCloseEvent<QWindowSystemInterface::SynchronousDelivery>(window());
 }
 
 /*!
@@ -696,9 +694,12 @@ static QSize fixInitialSize(QSize size, const QWindow *w,
     However if the given window already has geometry which the application has
     initialized, it takes priority.
 */
-QRect QPlatformWindow::initialGeometry(const QWindow *w,
-    const QRect &initialGeometry, int defaultWidth, int defaultHeight)
+QRect QPlatformWindow::initialGeometry(const QWindow *w, const QRect &initialGeometry,
+                                       int defaultWidth, int defaultHeight,
+                                       const QScreen **resultingScreenReturn)
 {
+    if (resultingScreenReturn)
+        *resultingScreenReturn = w->screen();
     if (!w->isTopLevel()) {
         const qreal factor = QHighDpiScaling::factor(w);
         const QSize size = fixInitialSize(QHighDpi::fromNative(initialGeometry.size(), factor),
@@ -714,6 +715,8 @@ QRect QPlatformWindow::initialGeometry(const QWindow *w,
         : QGuiApplication::screenAt(initialGeometry.center());
     if (!screen)
         return initialGeometry;
+    if (resultingScreenReturn)
+        *resultingScreenReturn = screen;
     // initialGeometry refers to window's screen
     QRect rect(QHighDpi::fromNativePixels(initialGeometry, w));
     if (wp->resizeAutomatic)

@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the tools applications of the Qt Toolkit.
@@ -26,17 +26,19 @@
 **
 ****************************************************************************/
 
-#include <qdebug.h>
-#include "config.h"
 #include "location.h"
-#include "generator.h"
-#include <qdir.h>
-#include <qregexp.h>
-#include <QTime>
-#include <stdlib.h>
-#include <limits.h>
 
+#include "config.h"
+#include "generator.h"
+
+#include <QtCore/qdebug.h>
+#include <QtCore/qdir.h>
+#include <QtCore/qregexp.h>
+#include <QtCore/QTime>
+
+#include <limits.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -64,8 +66,7 @@ bool Location::logProgress_ = false;
 /*!
   Constructs an empty location.
  */
-Location::Location()
-    : stk(nullptr), stkTop(&stkBottom), stkDepth(0), etcetera(false)
+Location::Location() : stk(nullptr), stkTop(&stkBottom), stkDepth(0), etcetera(false)
 {
     // nothing.
 }
@@ -74,7 +75,7 @@ Location::Location()
   Constructs a location with (fileName, 1, 1) on its file
   position stack.
  */
-Location::Location(const QString& fileName)
+Location::Location(const QString &fileName)
     : stk(nullptr), stkTop(&stkBottom), stkDepth(0), etcetera(false)
 {
     push(fileName);
@@ -84,7 +85,7 @@ Location::Location(const QString& fileName)
   The copy constructor copies the contents of \a other into
   this Location using the assignment operator.
  */
-Location::Location(const Location& other)
+Location::Location(const Location &other)
     : stk(nullptr), stkTop(&stkBottom), stkDepth(0), etcetera(false)
 {
     *this = other;
@@ -94,7 +95,7 @@ Location::Location(const Location& other)
   The assignment operator does a deep copy of the entire
   state of \a other into this Location.
  */
-Location& Location::operator=(const Location& other)
+Location &Location::operator=(const Location &other)
 {
     QStack<StackEntry> *oldStk = stk;
 
@@ -102,8 +103,7 @@ Location& Location::operator=(const Location& other)
     if (other.stk == nullptr) {
         stk = nullptr;
         stkTop = &stkBottom;
-    }
-    else {
+    } else {
         stk = new QStack<StackEntry>(*other.stk);
         stkTop = &stk->top();
     }
@@ -139,12 +139,9 @@ void Location::advance(QChar ch)
     if (ch == QLatin1Char('\n')) {
         stkTop->lineNo++;
         stkTop->columnNo = 1;
-    }
-    else if (ch == QLatin1Char('\t')) {
-        stkTop->columnNo =
-                1 + tabSize * (stkTop->columnNo + tabSize-1) / tabSize;
-    }
-    else {
+    } else if (ch == QLatin1Char('\t')) {
+        stkTop->columnNo = 1 + tabSize * (stkTop->columnNo + tabSize - 1) / tabSize;
+    } else {
         stkTop->columnNo++;
     }
 }
@@ -155,7 +152,7 @@ void Location::advance(QChar ch)
 
   \sa pop()
 */
-void Location::push(const QString& filePath)
+void Location::push(const QString &filePath)
 {
     if (stkDepth++ >= 1) {
         if (stk == nullptr)
@@ -179,15 +176,13 @@ void Location::pop()
 {
     if (--stkDepth == 0) {
         stkBottom = StackEntry();
-    }
-    else {
+    } else {
         stk->pop();
         if (stk->isEmpty()) {
             delete stk;
             stk = nullptr;
             stkTop = &stkBottom;
-        }
-        else {
+        } else {
             stkTop = &stk->top();
         }
     }
@@ -200,7 +195,7 @@ void Location::pop()
   must not be called on an empty Location object.
  */
 
-/*! \fn const QString& Location::filePath() const
+/*! \fn const QString &Location::filePath() const
   Returns the current path and file name. If the Location is
   empty, the returned string is null.
 
@@ -213,10 +208,9 @@ void Location::pop()
  */
 QString Location::fileName() const
 {
-    QString fp = filePath();
-    return (fp.isEmpty() ? fp : fp.mid(fp.lastIndexOf('/') + 1));
+    QFileInfo fi(filePath());
+    return fi.fileName();
 }
-
 
 /*!
   Returns the suffix of the file name. Returns an empty string
@@ -262,7 +256,7 @@ QString Location::canonicalRelativePath(const QString &path)
   warning message. Does not write the message if qdoc is in
   the Prepare phase.
  */
-void Location::warning(const QString& message, const QString& details) const
+void Location::warning(const QString &message, const QString &details) const
 {
     if (!Generator::preparing() || Generator::singleExec())
         emitMessage(Warning, message, details);
@@ -273,7 +267,7 @@ void Location::warning(const QString& message, const QString& details) const
   error message. Does not write the message if qdoc is in
   the Prepare phase.
  */
-void Location::error(const QString& message, const QString& details) const
+void Location::error(const QString &message, const QString &details) const
 {
     if (!Generator::preparing() || Generator::singleExec())
         emitMessage(Error, message, details);
@@ -289,11 +283,11 @@ int Location::exitCode()
     if (warningLimit < 0 || warningCount <= warningLimit)
         return EXIT_SUCCESS;
 
-    Location::null.emitMessage(Error,
-        tr("Documentation warnings (%1) exceeded the limit (%2) for '%3'.")
-            .arg(QString::number(warningCount),
-                 QString::number(warningLimit),
-                 project), QString());
+    Location::null.emitMessage(
+            Error,
+            tr("Documentation warnings (%1) exceeded the limit (%2) for '%3'.")
+                    .arg(QString::number(warningCount), QString::number(warningLimit), project),
+            QString());
     return warningCount;
 }
 
@@ -302,7 +296,7 @@ int Location::exitCode()
   error message and then exits the program. qdoc prints fatal
   errors in either phase (Prepare or Generate).
  */
-void Location::fatal(const QString& message, const QString& details) const
+void Location::fatal(const QString &message, const QString &details) const
 {
     emitMessage(Error, message, details);
     information(message);
@@ -315,7 +309,7 @@ void Location::fatal(const QString& message, const QString& details) const
   Writes \a message and \a detals to stderr as a formatted
   report message.
  */
-void Location::report(const QString& message, const QString& details) const
+void Location::report(const QString &message, const QString &details) const
 {
     emitMessage(Report, message, details);
 }
@@ -326,7 +320,7 @@ void Location::report(const QString& message, const QString& details) const
   appears to be used for matching certain error messages
   so that emitMessage() can avoid printing them.
  */
-void Location::initialize(const Config& config)
+void Location::initialize(const Config &config)
 {
     tabSize = config.getInt(CONFIG_TABSIZE);
     programName = config.programName();
@@ -339,10 +333,8 @@ void Location::initialize(const Config& config)
     QRegExp regExp = config.getRegExp(CONFIG_SPURIOUS);
     if (regExp.isValid()) {
         spuriousRegExp = new QRegExp(regExp);
-    }
-    else {
-        config.lastLocation().warning(tr("Invalid regular expression '%1'")
-                                      .arg(regExp.pattern()));
+    } else {
+        config.lastLocation().warning(tr("Invalid regular expression '%1'").arg(regExp.pattern()));
     }
 }
 
@@ -360,7 +352,7 @@ void Location::terminate()
 /*!
   Prints \a message to \c stdout followed by a \c{'\n'}.
  */
-void Location::information(const QString& message)
+void Location::information(const QString &message)
 {
     printf("%s\n", message.toLatin1().data());
     fflush(stdout);
@@ -370,7 +362,7 @@ void Location::information(const QString& message)
   Prints \a message to \c stderr followed by a \c{'\n'},
   but only if the -log-progress option is set.
  */
-void Location::logToStdErr(const QString& message)
+void Location::logToStdErr(const QString &message)
 {
     if (logProgress_) {
         fprintf(stderr, "LOG: %s\n", message.toLatin1().data());
@@ -382,11 +374,12 @@ void Location::logToStdErr(const QString& message)
   Always prints the current time and \a message to \c stderr
   followed by a \c{'\n'}.
  */
-void Location::logToStdErrAlways(const QString& message)
+void Location::logToStdErrAlways(const QString &message)
 {
     if (Generator::useTimestamps()) {
         QTime t = QTime::currentTime();
-        fprintf(stderr, "%s LOG: %s\n", t.toString().toLatin1().constData(), message.toLatin1().data());
+        fprintf(stderr, "%s LOG: %s\n", t.toString().toLatin1().constData(),
+                message.toLatin1().data());
     } else {
         fprintf(stderr, "LOG: %s\n", message.toLatin1().constData());
     }
@@ -396,12 +389,13 @@ void Location::logToStdErrAlways(const QString& message)
 /*!
   Report a program bug, including the \a hint.
  */
-void Location::internalError(const QString& hint)
+void Location::internalError(const QString &hint)
 {
     Location::null.fatal(tr("Internal error (%1)").arg(hint),
                          tr("There is a bug in %1. Seek advice from your local"
                             " %2 guru.")
-                         .arg(programName).arg(programName));
+                                 .arg(programName)
+                                 .arg(programName));
 }
 
 /*!
@@ -409,13 +403,9 @@ void Location::internalError(const QString& hint)
   and outputs that string to \c stderr. \a type specifies
   whether the \a message is an error or a warning.
  */
-void Location::emitMessage(MessageType type,
-                           const QString& message,
-                           const QString& details) const
+void Location::emitMessage(MessageType type, const QString &message, const QString &details) const
 {
-    if (type == Warning &&
-            spuriousRegExp != nullptr &&
-            spuriousRegExp->exactMatch(message))
+    if (type == Warning && spuriousRegExp != nullptr && spuriousRegExp->exactMatch(message))
         return;
 
     QString result = message;

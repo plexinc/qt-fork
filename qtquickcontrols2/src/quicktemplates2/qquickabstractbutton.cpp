@@ -54,7 +54,7 @@ QT_BEGIN_NAMESPACE
 /*!
     \qmltype AbstractButton
     \inherits Control
-    \instantiates QQuickAbstractButton
+//!     \instantiates QQuickAbstractButton
     \inqmlmodule QtQuick.Controls
     \since 5.7
     \ingroup qtquickcontrols2-buttons
@@ -105,6 +105,7 @@ QT_BEGIN_NAMESPACE
     \qmlsignal QtQuick.Controls::AbstractButton::pressAndHold()
 
     This signal is emitted when the button is interactively pressed and held down by the user via touch or mouse.
+    It is not emitted when \l autoRepeat is enabled.
 */
 
 /*!
@@ -658,6 +659,9 @@ void QQuickAbstractButton::setAutoExclusive(bool exclusive)
     This property holds whether the button repeats \l pressed(), \l released()
     and \l clicked() signals while the button is pressed and held down.
 
+    If this property is set to \c true, the \l pressAndHold() signal will not
+    be emitted.
+
     The default value is \c false.
 
     The initial delay and the repetition interval are defined in milliseconds
@@ -736,7 +740,7 @@ void QQuickAbstractButton::setIndicator(QQuickItem *indicator)
 
     \include qquickicon.qdocinc grouped-properties
 
-    \sa text, display, {Icons in Qt Quick Controls 2}
+    \sa text, display, {Icons in Qt Quick Controls}
 */
 
 QQuickIcon QQuickAbstractButton::icon() const
@@ -1122,7 +1126,7 @@ void QQuickAbstractButton::buttonChange(ButtonChange change)
         break;
     case ButtonTextChange: {
         const QString txt = text();
-        setAccessibleName(txt);
+        maybeSetAccessibleName(txt);
 #if QT_CONFIG(shortcut)
         setShortcut(QKeySequence::mnemonic(txt));
 #endif
@@ -1148,7 +1152,7 @@ void QQuickAbstractButton::accessibilityActiveChanged(bool active)
 
     Q_D(QQuickAbstractButton);
     if (active) {
-        setAccessibleName(text());
+        maybeSetAccessibleName(text());
         setAccessibleProperty("pressed", d->pressed);
         setAccessibleProperty("checked", d->checked);
         setAccessibleProperty("checkable", d->checkable);

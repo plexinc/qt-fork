@@ -34,8 +34,8 @@
 #include <QtTest/QTest>
 #include <Qt3DCore/qentity.h>
 #include <Qt3DCore/qtransform.h>
-#include <Qt3DCore/private/qnodecreatedchangegenerator_p.h>
 #include <Qt3DCore/private/qaspectjobmanager_p.h>
+#include <Qt3DCore/private/qnodevisitor_p.h>
 #include <QtQuick/qquickwindow.h>
 
 #include <Qt3DRender/QCamera>
@@ -55,7 +55,6 @@
 #include <Qt3DRender/private/calcboundingvolumejob_p.h>
 #include <Qt3DRender/private/calcgeometrytrianglevolumes_p.h>
 #include <Qt3DRender/private/loadbufferjob_p.h>
-#include <Qt3DRender/private/updateentityhierarchyjob_p.h>
 #include <Qt3DRender/private/buffermanager_p.h>
 #include <Qt3DRender/private/geometryrenderermanager_p.h>
 #include <Qt3DRender/private/sphere_p.h>
@@ -72,6 +71,47 @@ QT_BEGIN_NAMESPACE
 
 namespace Qt3DRender {
 
+QVector<Qt3DCore::QNode *> getNodesForCreation(Qt3DCore::QNode *root)
+{
+    using namespace Qt3DCore;
+
+    QVector<QNode *> nodes;
+    Qt3DCore::QNodeVisitor visitor;
+    visitor.traverse(root, [&nodes](QNode *node) {
+        nodes.append(node);
+
+        // Store the metaobject of the node in the QNode so that we have it available
+        // to us during destruction in the QNode destructor. This allows us to send
+        // the QNodeId and the metaobject as typeinfo to the backend aspects so they
+        // in turn can find the correct QBackendNodeMapper object to handle the destruction
+        // of the corresponding backend nodes.
+        QNodePrivate *d = QNodePrivate::get(node);
+        d->m_typeInfo = const_cast<QMetaObject*>(QNodePrivate::findStaticMetaObject(node->metaObject()));
+
+        // Mark this node as having been handled for creation so that it is picked up
+        d->m_hasBackendNode = true;
+    });
+
+    return nodes;
+}
+
+QVector<Qt3DCore::NodeTreeChange> nodeTreeChangesForNodes(const QVector<Qt3DCore::QNode *> nodes)
+{
+    QVector<Qt3DCore::NodeTreeChange> nodeTreeChanges;
+    nodeTreeChanges.reserve(nodes.size());
+
+    for (Qt3DCore::QNode *n : nodes) {
+        nodeTreeChanges.push_back({
+                                      n->id(),
+                                      Qt3DCore::QNodePrivate::get(n)->m_typeInfo,
+                                      Qt3DCore::NodeTreeChange::Added,
+                                      n
+                                  });
+    }
+
+    return nodeTreeChanges;
+}
+
 class TestAspect : public Qt3DRender::QRenderAspect
 {
 public:
@@ -81,10 +121,9 @@ public:
     {
         QRenderAspect::onRegistered();
 
-        const Qt3DCore::QNodeCreatedChangeGenerator generator(root);
-        const QVector<Qt3DCore::QNodeCreatedChangeBasePtr> creationChanges = generator.creationChanges();
-
-        d_func()->setRootAndCreateNodes(qobject_cast<Qt3DCore::QEntity *>(root), creationChanges);
+        const QVector<Qt3DCore::QNode *> nodes = getNodesForCreation(root);
+        const QVector<Qt3DCore::NodeTreeChange> nodeTreeChanges = nodeTreeChangesForNodes(nodes);
+        d_func()->setRootAndCreateNodes(qobject_cast<Qt3DCore::QEntity *>(root), nodeTreeChanges);
 
         Render::Entity *rootEntity = nodeManagers()->lookupResource<Render::Entity, Render::EntityManager>(rootEntityId());
         Q_ASSERT(rootEntity);
@@ -117,10 +156,6 @@ namespace {
 
 void runRequiredJobs(Qt3DRender::TestAspect *test)
 {
-    Qt3DRender::Render::UpdateEntityHierarchyJob updateEntitiesJob;
-    updateEntitiesJob.setManager(test->nodeManagers());
-    updateEntitiesJob.run();
-
     Qt3DRender::Render::UpdateWorldTransformJob updateWorldTransform;
     updateWorldTransform.setRoot(test->sceneRoot());
     updateWorldTransform.setManagers(test->nodeManagers());
@@ -169,13 +204,150 @@ class tst_BoundingSphere : public Qt3DCore::QBackendNodeTester
 private:
 
 private Q_SLOTS:
+    void checkIsNull() {
+        auto defaultSphere = Qt3DRender::Render::Sphere();
+        QVERIFY(defaultSphere.isNull());
+    }
+
+    void remainsNotNullAfterTransform() {
+        QMatrix4x4 mat;
+        mat.translate(-5,-5,-5);
+        auto mMat = Matrix4x4(mat);
+        auto pointSphere = Qt3DRender::Render::Sphere(Vector3D(5.f,5.f,5.f),0.f);
+        pointSphere.transform(mMat);
+        QVERIFY(!pointSphere.isNull());
+        QVERIFY(pointSphere.center() == Vector3D(0.,0.,0));
+        QVERIFY(pointSphere.radius() == 0.f);
+    }
+
+    void remainsNullAfterTransform() {
+        QMatrix4x4 mat;
+        mat.translate(-5,-5,-5);
+        auto mMat = Matrix4x4(mat);
+        auto defaultSphere = Qt3DRender::Render::Sphere();
+        defaultSphere.transform(mMat);
+        QVERIFY(defaultSphere.isNull());
+    }
+
+    void expandToContainSphere() {
+        auto firstValidSphere = Qt3DRender::Render::Sphere(Vector3D(-10.f,-10.f,-10.f),1.f);
+        auto secondValidSphere = Qt3DRender::Render::Sphere(Vector3D(10.f,10.f,10.f),1.f);
+        firstValidSphere.expandToContain(secondValidSphere);
+        QVERIFY(firstValidSphere.center()==Vector3D(0.f,0.f,0.f));
+        float dist = static_cast<float>((2 + sqrt(3.*(20)*(20)))/2.);
+        QVERIFY(qFuzzyCompare(firstValidSphere.radius(), dist));
+    }
+
+    void expandToContainSphereOneInvalid() {
+        auto firstValidSphere = Qt3DRender::Render::Sphere(Vector3D(-10.f,-10.f,-10.f),1.f);
+        auto defaultSphere = Qt3DRender::Render::Sphere();
+        auto copiedSphere = firstValidSphere;
+        firstValidSphere.expandToContain(defaultSphere);
+        QVERIFY(firstValidSphere.center() == copiedSphere.center());
+        QVERIFY(firstValidSphere.radius() == copiedSphere.radius());
+        QVERIFY(!firstValidSphere.isNull());
+    }
+
+    void expandToContainOtherSphereInvalid() {
+        auto firstValidSphere = Qt3DRender::Render::Sphere(Vector3D(-10.f,-10.f,-10.f),1.f);
+        auto defaultSphere = Qt3DRender::Render::Sphere();
+        defaultSphere.expandToContain(firstValidSphere);
+        QVERIFY(defaultSphere.center() == firstValidSphere.center());
+        QVERIFY(defaultSphere.radius() == firstValidSphere.radius());
+        QVERIFY(!defaultSphere.isNull());
+    }
+
+    void expandNullSphereWithNullSphere() {
+        auto defaultSphere = Qt3DRender::Render::Sphere();
+        auto otherDefaultSphere = Qt3DRender::Render::Sphere();
+        defaultSphere.expandToContain(otherDefaultSphere);
+        QVERIFY(defaultSphere.isNull());
+    }
+
+    void expandToContainPoint() {
+        auto firstValidSphere = Qt3DRender::Render::Sphere(Vector3D(-10.f,-10.f,-10.f),1.f);
+        firstValidSphere.expandToContain(Vector3D(0,0,0));
+        QVERIFY(!firstValidSphere.isNull());
+        float expectedRadius = static_cast<float>((1 + qSqrt(3.*(10)*(10)))/2.);
+        QVERIFY(qFuzzyCompare(firstValidSphere.radius(), expectedRadius));
+    }
+
+    void nullSphereExpandToContainPoint() {
+        auto defaultSphere = Qt3DRender::Render::Sphere();
+        defaultSphere.expandToContain(Vector3D(5,5,5));
+        QVERIFY(!defaultSphere.isNull());
+        QVERIFY(defaultSphere.center() == Vector3D(5,5,5));
+        QVERIFY(qFuzzyIsNull(defaultSphere.radius()));
+    }
+
+    void nullSphereExpandToOrigin() {
+        auto defaultSphere = Qt3DRender::Render::Sphere();
+        defaultSphere.expandToContain(Vector3D(0,0,0));
+        QVERIFY(!defaultSphere.isNull());
+        QVERIFY(defaultSphere.center() == Vector3D(0,0,0));
+        QVERIFY(qFuzzyIsNull(defaultSphere.radius()));
+    }
+
+    void ritterSphereCubePoints() {
+        QVector<Vector3D> cubePts={
+            Vector3D(-0.5, -0.5,  0.5),
+            Vector3D( 0.5, -0.5, -0.5),
+            Vector3D(-0.5,  0.5, -0.5),
+            Vector3D( 0.5,  0.5, -0.5),
+            Vector3D(-0.5, -0.5, -0.5),
+            Vector3D( 0.5, -0.5,  0.5),
+            Vector3D(-0.5,  0.5,  0.5),
+            Vector3D( 0.5,  0.5,  0.5)
+        };
+        auto ritterSphere=Qt3DRender::Render::Sphere::fromPoints(cubePts);
+        QVERIFY(!ritterSphere.isNull());
+        QVERIFY(qFuzzyIsNull(ritterSphere.center().x()));
+        QVERIFY(qFuzzyIsNull(ritterSphere.center().y()));
+        QVERIFY(qFuzzyIsNull(ritterSphere.center().z()));
+        QVERIFY(qFuzzyCompare(ritterSphere.radius(), static_cast<float>(qSqrt(3)/2)));
+    }
+
+    void ritterSphereRandomPoints() {
+        QVector<Vector3D> randomPts={
+            Vector3D(-81, 55, 46),
+            Vector3D(-91, -73, -42),
+            Vector3D(-50, -76, -77),
+            Vector3D(-40, 63, 58),
+            Vector3D(-28, -2, -57),
+            Vector3D(84, 17, 33),
+            Vector3D(53, 11, -49),
+            Vector3D(-7, -24, -86),
+            Vector3D(-89, 6, 76),
+            Vector3D(46, -18, -27)
+        };
+
+        auto ritterSphere = Qt3DRender::Render::Sphere::fromPoints(randomPts);
+        QVERIFY(!ritterSphere.isNull());
+        QVERIFY(qFuzzyCompare(ritterSphere.center().x(), 17.f));
+        QVERIFY(qFuzzyCompare(ritterSphere.center().y(), -29.5f));
+        QVERIFY(qFuzzyCompare(ritterSphere.center().z(), -22.0f));
+        QVERIFY(qFuzzyCompare(ritterSphere.radius(), 148.66152831179963f));
+    }
+
+    void ritterSphereOnePoint() {
+        QVector<Vector3D> singlePt={
+            Vector3D(-0.5, -0.5, -0.5),
+        };
+        auto ritterSphere = Qt3DRender::Render::Sphere::fromPoints(singlePt);
+        QVERIFY(!ritterSphere.isNull());
+        QVERIFY(qFuzzyCompare(ritterSphere.center().x(), -0.5f));
+        QVERIFY(qFuzzyCompare(ritterSphere.center().y(), -0.5f));
+        QVERIFY(qFuzzyCompare(ritterSphere.center().z(), -0.5f));
+        QVERIFY(qFuzzyIsNull(ritterSphere.radius()));
+    }
+
     void checkExtraGeometries_data()
     {
         QTest::addColumn<QString>("qmlFile");
         QTest::addColumn<QVector3D>("sphereCenter");
         QTest::addColumn<float>("sphereRadius");
         QTest::newRow("SphereMesh") << "qrc:/sphere.qml" << QVector3D(0.f, 0.f, 0.f) << 1.f;
-        QTest::newRow("CubeMesh") << "qrc:/cube.qml" << QVector3D(0.0928356f, -0.212021f, -0.0467958f) << 1.07583f; // weird!
+        QTest::newRow("CubeMesh") << "qrc:/cube.qml" << QVector3D(0.f, 0.f, 0.f) << static_cast<float>(qSqrt(3.)/2.); // not weird at all
     }
 
     void checkExtraGeometries()
@@ -200,9 +372,10 @@ private Q_SLOTS:
         const auto boundingSphere = test->sceneRoot()->worldBoundingVolumeWithChildren();
         qDebug() << qmlFile << boundingSphere->radius() << boundingSphere->center();
         QCOMPARE(boundingSphere->radius(), sphereRadius);
-        QVERIFY(qAbs(boundingSphere->center().x() - sphereCenter.x()) < 0.000001f);     // qFuzzyCompare hates 0s
-        QVERIFY(qAbs(boundingSphere->center().y() - sphereCenter.y()) < 0.000001f);
-        QVERIFY(qAbs(boundingSphere->center().z() - sphereCenter.z()) < 0.000001f);
+
+        QVERIFY(qFuzzyIsNull(boundingSphere->center().x() - sphereCenter.x()));
+        QVERIFY(qFuzzyIsNull(boundingSphere->center().y() - sphereCenter.y()));
+        QVERIFY(qFuzzyIsNull(boundingSphere->center().z() - sphereCenter.z()));
     }
 
     void checkCustomGeometry_data()
@@ -212,10 +385,10 @@ private Q_SLOTS:
         QTest::addColumn<QVector3D>("expectedCenter");
         QTest::addColumn<float>("expectedRadius");
         QTest::addColumn<bool>("withPrimitiveRestart");
-        QTest::newRow("all") << 0 << 0 << QVector3D(-0.488892f, 0.0192147f, -75.4804f) << 25.5442f << false;
+        QTest::newRow("all") << 0 << 0 << QVector3D(0.0f, 0.0f, -75.0f) << 25.03997f << false;
         QTest::newRow("first only") << 3 << 0 << QVector3D(0, 1, -100) << 1.0f << false;
         QTest::newRow("second only") << 3 << int(3 * sizeof(ushort)) << QVector3D(0, -1, -50) << 1.0f << false;
-        QTest::newRow("all with primitive restart") << 0 << 0 << QVector3D(-0.488892f, 0.0192147f, -75.4804f) << 25.5442f << true;
+        QTest::newRow("all with primitive restart") << 0 << 0 << QVector3D(0.0f, 0.0f, -75.0f) << 25.03997f << true;
         QTest::newRow("first only with primitive restart") << 4 << 0 << QVector3D(0, 1, -100) << 1.0f << true;
         QTest::newRow("second only with primitive restart") << 4 << int(3 * sizeof(ushort)) << QVector3D(0, -1, -50) << 1.0f << true;
     }
@@ -274,13 +447,13 @@ private Q_SLOTS:
         Qt3DRender::Render::Buffer *vbufferBackend = test->nodeManagers()->bufferManager()->getOrCreateResource(vbuffer->id());
         vbufferBackend->setRenderer(test->renderer());
         vbufferBackend->setManager(test->nodeManagers()->bufferManager());
-        simulateInitialization(vbuffer, vbufferBackend);
+        simulateInitializationSync(vbuffer, vbufferBackend);
 
         ibuffer->setData(idata);
         Qt3DRender::Render::Buffer *ibufferBackend = test->nodeManagers()->bufferManager()->getOrCreateResource(ibuffer->id());
         ibufferBackend->setRenderer(test->renderer());
         ibufferBackend->setManager(test->nodeManagers()->bufferManager());
-        simulateInitialization(ibuffer, ibufferBackend);
+        simulateInitializationSync(ibuffer, ibufferBackend);
 
         Qt3DRender::QGeometry *g = new Qt3DRender::QGeometry;
         for (int i = 0; i < 2; ++i)
@@ -314,23 +487,23 @@ private Q_SLOTS:
 
         Qt3DRender::Render::Attribute *attr0Backend = test->nodeManagers()->attributeManager()->getOrCreateResource(attrs[0]->id());
         attr0Backend->setRenderer(test->renderer());
-        simulateInitialization(attrs[0], attr0Backend);
+        simulateInitializationSync(attrs[0], attr0Backend);
         Qt3DRender::Render::Attribute *attr1Backend = test->nodeManagers()->attributeManager()->getOrCreateResource(attrs[1]->id());
         attr1Backend->setRenderer(test->renderer());
-        simulateInitialization(attrs[1], attr1Backend);
+        simulateInitializationSync(attrs[1], attr1Backend);
 
         Qt3DRender::Render::Geometry *gBackend = test->nodeManagers()->geometryManager()->getOrCreateResource(g->id());
         gBackend->setRenderer(test->renderer());
-        simulateInitialization(g, gBackend);
+        simulateInitializationSync(g, gBackend);
 
         Qt3DRender::Render::GeometryRenderer *grBackend = test->nodeManagers()->geometryRendererManager()->getOrCreateResource(gr->id());
         grBackend->setRenderer(test->renderer());
         grBackend->setManager(test->nodeManagers()->geometryRendererManager());
-        simulateInitialization(gr, grBackend);
+        simulateInitializationSync(gr, grBackend);
 
         Qt3DRender::Render::Entity *entityBackend = test->nodeManagers()->renderNodesManager()->getOrCreateResource(entity->id());
         entityBackend->setRenderer(test->renderer());
-        simulateInitialization(entity.data(), entityBackend);
+        simulateInitializationSync(entity.data(), entityBackend);
 
         Qt3DRender::Render::CalculateBoundingVolumeJob calcBVolume;
         calcBVolume.setManagers(test->nodeManagers());
@@ -341,18 +514,17 @@ private Q_SLOTS:
         float radius = entityBackend->localBoundingVolume()->radius();
         qDebug() << radius << center;
 
-        // truncate and compare integers only
-        QVERIFY(int(radius) == int(expectedRadius));
-        QVERIFY(int(center.x()) == int(expectedCenter.x()));
-        QVERIFY(int(center.y()) == int(expectedCenter.y()));
-        QVERIFY(int(center.z()) == int(expectedCenter.z()));
+        QCOMPARE(radius, expectedRadius);
+        QCOMPARE(center.x(), expectedCenter.x());
+        QCOMPARE(center.y(), expectedCenter.y());
+        QCOMPARE(center.z(), expectedCenter.z());
     }
 
     void checkCustomPackedGeometry()
     {
         int drawVertexCount = 6;
-        QVector3D expectedCenter(-0.488892f, 0.0192147f, -75.4804f);
-        float expectedRadius = 25.5442f;
+        QVector3D expectedCenter(0.0f, 0.0f, -75.0f);
+        float expectedRadius = 25.03997f;
 
         // two triangles with different Z
         QByteArray vdata;
@@ -386,7 +558,7 @@ private Q_SLOTS:
         Qt3DRender::Render::Buffer *vbufferBackend = test->nodeManagers()->bufferManager()->getOrCreateResource(vbuffer->id());
         vbufferBackend->setRenderer(test->renderer());
         vbufferBackend->setManager(test->nodeManagers()->bufferManager());
-        simulateInitialization(vbuffer, vbufferBackend);
+        simulateInitializationSync(vbuffer, vbufferBackend);
 
         Qt3DRender::QGeometry *g = new Qt3DRender::QGeometry;
         g->addAttribute(new Qt3DRender::QAttribute);
@@ -408,20 +580,20 @@ private Q_SLOTS:
 
         Qt3DRender::Render::Attribute *attr0Backend = test->nodeManagers()->attributeManager()->getOrCreateResource(attrs[0]->id());
         attr0Backend->setRenderer(test->renderer());
-        simulateInitialization(attrs[0], attr0Backend);
+        simulateInitializationSync(attrs[0], attr0Backend);
 
         Qt3DRender::Render::Geometry *gBackend = test->nodeManagers()->geometryManager()->getOrCreateResource(g->id());
         gBackend->setRenderer(test->renderer());
-        simulateInitialization(g, gBackend);
+        simulateInitializationSync(g, gBackend);
 
         Qt3DRender::Render::GeometryRenderer *grBackend = test->nodeManagers()->geometryRendererManager()->getOrCreateResource(gr->id());
         grBackend->setRenderer(test->renderer());
         grBackend->setManager(test->nodeManagers()->geometryRendererManager());
-        simulateInitialization(gr, grBackend);
+        simulateInitializationSync(gr, grBackend);
 
         Qt3DRender::Render::Entity *entityBackend = test->nodeManagers()->renderNodesManager()->getOrCreateResource(entity->id());
         entityBackend->setRenderer(test->renderer());
-        simulateInitialization(entity.data(), entityBackend);
+        simulateInitializationSync(entity.data(), entityBackend);
 
         Qt3DRender::Render::CalculateBoundingVolumeJob calcBVolume;
         calcBVolume.setManagers(test->nodeManagers());
@@ -432,11 +604,10 @@ private Q_SLOTS:
         float radius = entityBackend->localBoundingVolume()->radius();
         qDebug() << radius << center;
 
-        // truncate and compare integers only
-        QVERIFY(int(radius) == int(expectedRadius));
-        QVERIFY(int(center.x()) == int(expectedCenter.x()));
-        QVERIFY(int(center.y()) == int(expectedCenter.y()));
-        QVERIFY(int(center.z()) == int(expectedCenter.z()));
+        QCOMPARE(radius, expectedRadius);
+        QCOMPARE(center.x(), expectedCenter.x());
+        QCOMPARE(center.y(), expectedCenter.y());
+        QCOMPARE(center.z(), expectedCenter.z());
     }
 };
 

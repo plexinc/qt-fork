@@ -39,7 +39,7 @@
 #include <QtQuick/private/qquicktext_p.h>
 #include <QtQuick/private/qquickrectangle_p.h>
 #include <QtQuickTest/QtQuickTest>
-#include <QtQml/private/qqmllistmodel_p.h>
+#include <QtQmlModels/private/qqmllistmodel_p.h>
 #include <QtQml/private/qqmlvaluetype_p.h>
 #include <QtGui/qstandarditemmodel.h>
 #include <QStringListModel>
@@ -120,6 +120,7 @@ private slots:
     void undefinedPath();
     void mouseDrag();
     void nestedMouseAreaDrag();
+    void flickNClick();
     void treeModel();
     void changePreferredHighlight();
     void missingPercent();
@@ -139,6 +140,7 @@ private slots:
     void cacheItemCount();
     void changePathDuringRefill();
     void nestedinFlickable();
+    void ungrabNestedinFlickable();
     void flickableDelegate();
     void jsArrayChange();
     void qtbug37815();
@@ -241,7 +243,7 @@ void tst_QQuickPathView::items()
     QVERIFY(path);
 
     QVERIFY(pathview->highlightItem());
-    QPointF start = path->pointAt(0.0);
+    QPointF start = path->pointAtPercent(0.0);
     QPointF offset;
     offset.setX(pathview->highlightItem()->width()/2);
     offset.setY(pathview->highlightItem()->height()/2);
@@ -919,7 +921,7 @@ void tst_QQuickPathView::pathMoved()
     QVERIFY(firstItem);
     QQuickPath *path = qobject_cast<QQuickPath*>(pathview->path());
     QVERIFY(path);
-    QPointF start = path->pointAt(0.0);
+    QPointF start = path->pointAtPercent(0.0);
     QPointF offset;//Center of item is at point, but pos is from corner
     offset.setX(firstItem->width()/2);
     offset.setY(firstItem->height()/2);
@@ -928,7 +930,7 @@ void tst_QQuickPathView::pathMoved()
 
     for (int i=0; i<model.count(); i++) {
         QQuickRectangle *curItem = findItem<QQuickRectangle>(pathview, "wrapper", i);
-        QPointF itemPos(path->pointAt(0.25 + i*0.25));
+        QPointF itemPos(path->pointAtPercent(0.25 + i*0.25));
         QCOMPARE(curItem->position() + offset, QPointF(itemPos.x(), itemPos.y()));
     }
 
@@ -1007,7 +1009,7 @@ void tst_QQuickPathView::setCurrentIndex()
     QVERIFY(firstItem);
     QQuickPath *path = qobject_cast<QQuickPath*>(pathview->path());
     QVERIFY(path);
-    QPointF start = path->pointAt(0.0);
+    QPointF start = path->pointAtPercent(0.0);
     QPointF offset;//Center of item is at point, but pos is from corner
     offset.setX(firstItem->width()/2);
     offset.setY(firstItem->height()/2);
@@ -1601,6 +1603,71 @@ void tst_QQuickPathView::nestedMouseAreaDrag()
     QVERIFY(pathview->isMoving());
 }
 
+void tst_QQuickPathView::flickNClick() // QTBUG-77173
+{
+    QScopedPointer<QQuickView> window(createView());
+    QQuickViewTestUtil::moveMouseAway(window.data());
+    window->setSource(testFileUrl("nestedmousearea2.qml"));
+    window->show();
+    window->requestActivate();
+    QVERIFY(QTest::qWaitForWindowActive(window.data()));
+    QCOMPARE(window.data(), qGuiApp->focusWindow());
+
+    QQuickPathView *pathview = qobject_cast<QQuickPathView*>(window->rootObject());
+    QVERIFY(pathview != nullptr);
+    QSignalSpy movingChangedSpy(pathview, SIGNAL(movingChanged()));
+    QSignalSpy draggingSpy(pathview, SIGNAL(draggingChanged()));
+    QSignalSpy dragStartedSpy(pathview, SIGNAL(dragStarted()));
+    QSignalSpy dragEndedSpy(pathview, SIGNAL(dragEnded()));
+    QSignalSpy currentIndexSpy(pathview, SIGNAL(currentIndexChanged()));
+    QSignalSpy moveStartedSpy(pathview, SIGNAL(movementStarted()));
+    QSignalSpy moveEndedSpy(pathview, SIGNAL(movementEnded()));
+    QSignalSpy flickingSpy(pathview, SIGNAL(flickingChanged()));
+    QSignalSpy flickStartedSpy(pathview, SIGNAL(flickStarted()));
+    QSignalSpy flickEndedSpy(pathview, SIGNAL(flickEnded()));
+
+    for (int duration = 100; duration > 0; duration -= 20) {
+        movingChangedSpy.clear();
+        draggingSpy.clear();
+        dragStartedSpy.clear();
+        dragEndedSpy.clear();
+        currentIndexSpy.clear();
+        moveStartedSpy.clear();
+        moveEndedSpy.clear();
+        flickingSpy.clear();
+        flickStartedSpy.clear();
+        flickEndedSpy.clear();
+        // Dragging the child mouse area should animate the PathView (MA has no drag target)
+        flick(window.data(), QPoint(200,200), QPoint(400,200), duration);
+        QVERIFY(pathview->isMoving());
+        QCOMPARE(movingChangedSpy.count(), 1);
+        QCOMPARE(draggingSpy.count(), 2);
+        QCOMPARE(dragStartedSpy.count(), 1);
+        QCOMPARE(dragEndedSpy.count(), 1);
+        QVERIFY(currentIndexSpy.count() > 0);
+        QCOMPARE(moveStartedSpy.count(), 1);
+        QCOMPARE(moveEndedSpy.count(), 0);
+        QCOMPARE(flickingSpy.count(), 1);
+        QCOMPARE(flickStartedSpy.count(), 1);
+        QCOMPARE(flickEndedSpy.count(), 0);
+
+        // Now while it's still moving, click it.
+        // The PathView should stop at a position such that offset is a whole number.
+        QTest::mouseClick(window.data(), Qt::LeftButton, Qt::NoModifier, QPoint(200, 200));
+        QTRY_VERIFY(!pathview->isMoving());
+        QCOMPARE(movingChangedSpy.count(), 2); // QTBUG-78926
+        QCOMPARE(draggingSpy.count(), 2);
+        QCOMPARE(dragStartedSpy.count(), 1);
+        QCOMPARE(dragEndedSpy.count(), 1);
+        QCOMPARE(moveStartedSpy.count(), 1);
+        QCOMPARE(moveEndedSpy.count(), 1);
+        QCOMPARE(flickingSpy.count(), 2);
+        QCOMPARE(flickStartedSpy.count(), 1);
+        QCOMPARE(flickEndedSpy.count(), 1);
+        QVERIFY(qFuzzyIsNull(pathview->offset() - int(pathview->offset())));
+    }
+}
+
 void tst_QQuickPathView::treeModel()
 {
     QScopedPointer<QQuickView> window(createView());
@@ -1648,7 +1715,7 @@ void tst_QQuickPathView::changePreferredHighlight()
     QVERIFY(firstItem);
     QQuickPath *path = qobject_cast<QQuickPath*>(pathview->path());
     QVERIFY(path);
-    QPointF start = path->pointAt(0.5);
+    QPointF start = path->pointAtPercent(0.5);
     QPointF offset;//Center of item is at point, but pos is from corner
     offset.setX(firstItem->width()/2);
     offset.setY(firstItem->height()/2);
@@ -1656,7 +1723,7 @@ void tst_QQuickPathView::changePreferredHighlight()
 
     pathview->setPreferredHighlightBegin(0.8);
     pathview->setPreferredHighlightEnd(0.8);
-    start = path->pointAt(0.8);
+    start = path->pointAtPercent(0.8);
     QTRY_COMPARE(firstItem->position() + offset, start);
     QCOMPARE(pathview->currentIndex(), 0);
 
@@ -1709,7 +1776,7 @@ void tst_QQuickPathView::currentOffsetOnInsertion()
     QQuickPath *path = qobject_cast<QQuickPath*>(pathview->path());
     QVERIFY(path);
 
-    QPointF start = path->pointAt(0.5);
+    QPointF start = path->pointAtPercent(0.5);
     QPointF offset;//Center of item is at point, but pos is from corner
     offset.setX(item->width()/2);
     offset.setY(item->height()/2);
@@ -1798,7 +1865,7 @@ void tst_QQuickPathView::asynchronous()
     QVERIFY(firstItem);
     QQuickPath *path = qobject_cast<QQuickPath*>(pathview->path());
     QVERIFY(path);
-    QPointF start = path->pointAt(0.0);
+    QPointF start = path->pointAtPercent(0.0);
     QPointF offset;//Center of item is at point, but pos is from corner
     offset.setX(firstItem->width()/2);
     offset.setY(firstItem->height()/2);
@@ -1807,7 +1874,7 @@ void tst_QQuickPathView::asynchronous()
 
     for (int i=0; i<5; i++) {
         QQuickItem *curItem = findItem<QQuickItem>(pathview, "wrapper", i);
-        QPointF itemPos(path->pointAt(0.2 + i*0.2));
+        QPointF itemPos(path->pointAtPercent(0.2 + i*0.2));
         QCOMPARE(curItem->position() + offset, itemPos);
     }
 
@@ -2343,6 +2410,40 @@ void tst_QQuickPathView::nestedinFlickable()
     QCOMPARE(fflickStartedSpy.count(), 0);
     QCOMPARE(fflickEndedSpy.count(), 0);
 
+}
+
+void tst_QQuickPathView::ungrabNestedinFlickable()
+{
+    QScopedPointer<QQuickView> window(createView());
+    QQuickViewTestUtil::moveMouseAway(window.data());
+    window->setSource(testFileUrl("ungrabNestedinFlickable.qml"));
+    window->show();
+    window->requestActivate();
+    QVERIFY(QTest::qWaitForWindowActive(window.data()));
+    QCOMPARE(window.data(), qGuiApp->focusWindow());
+
+    QQuickPathView *pathview = findItem<QQuickPathView>(window->rootObject(), "pathView");
+    QVERIFY(pathview != nullptr);
+
+    double pathviewOffsetBefore = pathview->offset();
+
+    // Drag slowly upwards so that it does not flick, release, and let it start snapping back
+    QTest::mousePress(window.data(), Qt::LeftButton, 0, QPoint(200, 350));
+    for (int i = 0; i < 4; ++i)
+        QTest::mouseMove(window.data(), QPoint(200, 325 - i * 25), 500);
+    QTest::mouseRelease(window.data(), Qt::LeftButton, 0,  QPoint(200, 250));
+    QCOMPARE(pathview->isMoving(), true);
+
+    // Press again to stop moving
+    QTest::mousePress(window.data(), Qt::LeftButton, 0, QPoint(200, 350));
+    QTRY_COMPARE(pathview->isMoving(), false);
+
+    // Cancel the grab, wait for movement to stop, and expect it to snap to
+    // the nearest delegate, which should be at the same offset as where we started
+    pathview->ungrabMouse();
+    QTRY_COMPARE(pathview->offset(), pathviewOffsetBefore);
+    QCOMPARE(pathview->isMoving(), false);
+    QTest::mouseRelease(window.data(), Qt::LeftButton, 0, QPoint(200, 350));
 }
 
 void tst_QQuickPathView::flickableDelegate()

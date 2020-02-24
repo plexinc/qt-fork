@@ -48,7 +48,7 @@ RenderWidgetHostViewQtDelegateQuickWindow::RenderWidgetHostViewQtDelegateQuickWi
     : m_realDelegate(realDelegate)
     , m_virtualParent(nullptr)
 {
-    setFlags(Qt::ToolTip | Qt::FramelessWindowHint | Qt::WindowDoesNotAcceptFocus);
+    setFlags(Qt::Tool | Qt::FramelessWindowHint | Qt::WindowDoesNotAcceptFocus);
 }
 
 RenderWidgetHostViewQtDelegateQuickWindow::~RenderWidgetHostViewQtDelegateQuickWindow()
@@ -129,11 +129,6 @@ QSGTexture *RenderWidgetHostViewQtDelegateQuickWindow::createTextureFromImage(co
 QSGLayer *RenderWidgetHostViewQtDelegateQuickWindow::createLayer()
 {
     return m_realDelegate->createLayer();
-}
-
-QSGInternalImageNode *RenderWidgetHostViewQtDelegateQuickWindow::createInternalImageNode()
-{
-    return m_realDelegate->createInternalImageNode();
 }
 
 QSGImageNode *RenderWidgetHostViewQtDelegateQuickWindow::createImageNode()

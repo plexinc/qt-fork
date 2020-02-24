@@ -163,6 +163,7 @@ void ReactionHandler::executeReaction(ReactionEvent *event)
         ScopedFunctionObject reaction(scope);
         if (scope.hasException()) {
             reaction = capability->d()->reject.as<QV4::FunctionObject>();
+            result = scope.engine->catchException();
         } else {
             reaction = capability->d()->resolve.as<QV4::FunctionObject>();
         }
@@ -557,7 +558,7 @@ ReturnedValue PromiseCtor::method_all(const FunctionObject *f, const Value *this
     ScopedFunctionObject reject(scope, capability->d()->reject);
 
     ScopedObject itemsObject(scope, argv);
-    ScopedObject iteratorObject(scope, Runtime::method_getIterator(e, itemsObject, true));
+    ScopedObject iteratorObject(scope, Runtime::GetIterator::call(e, itemsObject, true));
     if (!iteratorObject || scope.hasException()) {
         ScopedObject error(scope);
         if (scope.hasException()) {
@@ -582,7 +583,7 @@ ReturnedValue PromiseCtor::method_all(const FunctionObject *f, const Value *this
     for (;;) {
         Scope scope(e);
         ScopedValue nextValue(scope);
-        doneValue = Value::fromReturnedValue(Runtime::method_iteratorNext(e, iteratorObject, nextValue));
+        doneValue = Value::fromReturnedValue(Runtime::IteratorNext::call(e, iteratorObject, nextValue));
 
         if (doneValue->toBoolean())
             break;
@@ -610,7 +611,7 @@ ReturnedValue PromiseCtor::method_all(const FunctionObject *f, const Value *this
             }
 
             if (!doneValue->toBoolean())
-                completion = Runtime::method_iteratorClose(e, iteratorObject, doneValue);
+                completion = Runtime::IteratorClose::call(e, iteratorObject, doneValue);
 
             reject->call(newPromise, completion, 1);
             return newPromise.asReturnedValue();
@@ -618,7 +619,7 @@ ReturnedValue PromiseCtor::method_all(const FunctionObject *f, const Value *this
 
         ScopedObject nextPromise(scope, Value::fromReturnedValue(resolve->call(thisObject, nextValue, 1)));
         if (!nextPromise || scope.hasException()) {
-            ScopedValue completion(scope, Runtime::method_iteratorClose(e, iteratorObject, doneValue));
+            ScopedValue completion(scope, Runtime::IteratorClose::call(e, iteratorObject, doneValue));
             if (scope.hasException()) {
                 completion = e->exceptionValue->asReturnedValue();
                 dropException(e);
@@ -640,7 +641,7 @@ ReturnedValue PromiseCtor::method_all(const FunctionObject *f, const Value *this
             }
 
             if (!doneValue->toBoolean())
-                completion = Runtime::method_iteratorClose(scope.engine, iteratorObject, doneValue);
+                completion = Runtime::IteratorClose::call(scope.engine, iteratorObject, doneValue);
 
             reject->call(newPromise, completion, 1);
             return newPromise.asReturnedValue();
@@ -659,7 +660,7 @@ ReturnedValue PromiseCtor::method_all(const FunctionObject *f, const Value *this
             dropException(e);
 
             if (!doneValue->toBoolean())
-                completion = Runtime::method_iteratorClose(scope.engine, iteratorObject, doneValue);
+                completion = Runtime::IteratorClose::call(scope.engine, iteratorObject, doneValue);
 
             reject->call(newPromise, completion, 1);
             return newPromise.asReturnedValue();
@@ -707,7 +708,7 @@ ReturnedValue PromiseCtor::method_race(const FunctionObject *f, const Value *thi
     ScopedFunctionObject reject(scope, capability->d()->reject);
 
     ScopedObject itemsObject(scope, argv);
-    ScopedObject iteratorObject(scope, Runtime::method_getIterator(e, itemsObject, true));
+    ScopedObject iteratorObject(scope, Runtime::GetIterator::call(e, itemsObject, true));
     if (!iteratorObject) {
         ScopedObject error(scope, e->newTypeErrorObject(QStringLiteral("Type error")));
         reject->call(newPromise, error, 1);
@@ -718,10 +719,10 @@ ReturnedValue PromiseCtor::method_race(const FunctionObject *f, const Value *thi
     for (;;) {
         Scope scope(e);
         ScopedValue nextValue(scope);
-        doneValue = Value::fromReturnedValue(Runtime::method_iteratorNext(e, iteratorObject, nextValue));
+        doneValue = Value::fromReturnedValue(Runtime::IteratorNext::call(e, iteratorObject, nextValue));
 
         if (scope.hasException()) {
-            ScopedValue completion(scope, Runtime::method_iteratorClose(e, iteratorObject, doneValue));
+            ScopedValue completion(scope, Runtime::IteratorClose::call(e, iteratorObject, doneValue));
             if (scope.hasException()) {
                 completion = e->exceptionValue->asReturnedValue();
                 dropException(e);
@@ -756,7 +757,7 @@ ReturnedValue PromiseCtor::method_race(const FunctionObject *f, const Value *thi
             }
 
             if (!doneValue->toBoolean())
-                completion = Runtime::method_iteratorClose(e, iteratorObject, doneValue);
+                completion = Runtime::IteratorClose::call(e, iteratorObject, doneValue);
 
             reject->call(newPromise, completion, 1);
             return newPromise.asReturnedValue();
@@ -764,7 +765,7 @@ ReturnedValue PromiseCtor::method_race(const FunctionObject *f, const Value *thi
 
         ScopedObject nextPromise(scope, Value::fromReturnedValue(resolve->call(thisObject, nextValue, 1)));
         if (!nextPromise || scope.hasException()) {
-            ScopedValue completion(scope, Runtime::method_iteratorClose(e, iteratorObject, doneValue));
+            ScopedValue completion(scope, Runtime::IteratorClose::call(e, iteratorObject, doneValue));
             if (scope.hasException()) {
                 completion = e->exceptionValue->asReturnedValue();
                 dropException(e);
@@ -784,7 +785,7 @@ ReturnedValue PromiseCtor::method_race(const FunctionObject *f, const Value *thi
             }
 
             if (!doneValue->toBoolean())
-                completion = Runtime::method_iteratorClose(e, iteratorObject, doneValue);
+                completion = Runtime::IteratorClose::call(e, iteratorObject, doneValue);
 
             reject->call(newPromise, completion, 1);
             return newPromise.asReturnedValue();
@@ -803,7 +804,7 @@ ReturnedValue PromiseCtor::method_race(const FunctionObject *f, const Value *thi
             dropException(e);
 
             if (!doneValue->toBoolean())
-                completion = Runtime::method_iteratorClose(e, iteratorObject, doneValue);
+                completion = Runtime::IteratorClose::call(e, iteratorObject, doneValue);
 
             reject->call(newPromise, completion, 1);
             return newPromise.asReturnedValue();

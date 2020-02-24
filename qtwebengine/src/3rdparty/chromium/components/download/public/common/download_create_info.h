@@ -27,12 +27,23 @@
 #include "services/metrics/public/cpp/ukm_source_id.h"
 #include "ui/base/page_transition_types.h"
 #include "url/gurl.h"
+#include "url/origin.h"
 
 namespace net {
 class HttpResponseHeaders;
 }
 
 namespace download {
+
+// Server support for range request inferred from the response headers.
+// |kSupport| value means the server supports range requests. |kNoSupport|
+// means no range request is accepted by server. and |kUnknown| is used if
+// range request support cannot be inferred from response headers.
+enum class RangeRequestSupportType {
+  kSupport = 0,
+  kUnknown,
+  kNoSupport,
+};
 
 // Used for informing the download manager of a new download, since we don't
 // want to pass |DownloadItem|s between threads.
@@ -66,6 +77,9 @@ struct COMPONENTS_DOWNLOAD_EXPORT DownloadCreateInfo {
 
   // The referrer URL of the tab that started us.
   GURL tab_referrer_url;
+
+  // The origin of the requester that originally initiated the download.
+  base::Optional<url::Origin> request_initiator;
 
   // The time when the download started.
   base::Time start_time;
@@ -138,10 +152,8 @@ struct COMPONENTS_DOWNLOAD_EXPORT DownloadCreateInfo {
   // For continuing a download, the ETag of the file.
   std::string etag;
 
-  // If the download response can be partial content.
-  // Either "Accept-Ranges" or "Content-Range" header presents in the
-  // response header.
-  bool accept_range;
+  // Whether the server supports range requests.
+  RangeRequestSupportType accept_range;
 
   // The HTTP connection type.
   net::HttpResponseInfo::ConnectionInfo connection_info;
@@ -165,6 +177,9 @@ struct COMPONENTS_DOWNLOAD_EXPORT DownloadCreateInfo {
 
   // Source of the download, used in metrics.
   DownloadSource download_source = DownloadSource::UNKNOWN;
+
+  // Whether download is initated by the content on the page.
+  bool is_content_initiated;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(DownloadCreateInfo);

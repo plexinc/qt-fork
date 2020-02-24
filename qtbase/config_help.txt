@@ -122,6 +122,7 @@ Build options:
 
   -qtnamespace <name> .. Wrap all Qt library code in 'namespace <name> {...}'.
   -qtlibinfix <infix> .. Rename all libQt5*.so to libQt5*<infix>.so.
+  -qtlibinfix-plugins .. Rename Qt plugins according to -qtlibinfix [no]
 
   -testcocoon .......... Instrument with the TestCocoon code coverage tool [no]
   -gcov ................ Instrument with the GCov code coverage tool [no]
@@ -161,6 +162,8 @@ Build options:
 
   -reduce-exports ...... Reduce amount of exported symbols [auto]
   -reduce-relocations .. Reduce amount of relocations [auto] (Unix only)
+
+  -relocatable ......... Enable the Qt installation to be relocated [auto]
 
   -plugin-manifests .... Embed manifests into plugins [no] (Windows only)
   -static-runtime ...... With -static, use static runtime [no] (Windows only)
@@ -202,9 +205,8 @@ Build environment:
   -android-ndk-platform  Set Android platform
   -android-ndk-host .... Set Android NDK host (linux-x86, linux-x86_64, etc.)
                          [$ANDROID_NDK_HOST]
-  -android-arch ........ Set Android architecture (armeabi, armeabi-v7a,
-                         arm64-v8a, x86, x86_64)
-  -android-toolchain-version ... Set Android toolchain version
+  -android-abis .......  Comma separated Android abis, default is:
+                         armeabi-v7a,arm64-v8a,x86,x86_64
   -android-style-assets  Automatically extract style assets from the device at
                          run time. This option makes the Android style behave
                          correctly, but also makes the Android platform plugin
@@ -241,7 +243,7 @@ Core options:
   -inotify ............. Enable inotify support
   -iconv ............... Enable iconv(3) support [posix/sun/gnu/no] (Unix only)
   -icu ................. Enable ICU support [auto]
-  -pcre ................ Select used libpcre2 [system/qt]
+  -pcre ................ Select used libpcre2 [system/qt/no]
   -pps ................. Enable PPS support [auto] (QNX only)
   -zlib ................ Select used zlib [system/qt]
 
@@ -256,6 +258,7 @@ Network options:
   -no-openssl .......... Do not use OpenSSL [default on Apple and WinRT]
   -openssl-linked ...... Use OpenSSL and link to libssl [no]
   -openssl-runtime ..... Use OpenSSL and dynamically load libssl [auto]
+  -schannel ............ Use Secure Channel [no] (Windows only)
   -securetransport ..... Use SecureTransport [auto] (Apple only)
 
   -sctp ................ Enable SCTP support [no]
@@ -281,6 +284,7 @@ Gui, printing, widget options:
                          es2 (default on Windows), desktop (default on Unix),
                          dynamic (Windows only)
   -opengles3 ........... Enable OpenGL ES 3.x support instead of ES 2.x [auto]
+  -egl ................. Enable EGL support [auto]
   -angle ............... Use bundled ANGLE to support OpenGL ES 2.0 [auto]
                          (Windows only)
   -combined-angle-lib .. Merge LibEGL and LibGLESv2 into LibANGLE (Windows only)
@@ -296,7 +300,6 @@ Gui, printing, widget options:
     -gbm ............... Enable backends for GBM [auto] (Linux only)
     -kms ............... Enable backends for KMS [auto] (Linux only)
     -linuxfb ........... Enable Linux Framebuffer support [auto] (Linux only)
-    -mirclient ......... Enable Mir client support [no] (Linux only)
     -xcb ............... Enable X11 support. Select used xcb-* libraries [system/qt/no]
                          (-qt-xcb still uses system version of libxcb itself)
 

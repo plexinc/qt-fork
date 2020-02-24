@@ -57,6 +57,8 @@
 #include "web_engine_context.h"
 #include "web_contents_adapter_client.h"
 
+#include "base/files/file_util.h"
+#include "base/time/time_to_iso8601.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
@@ -126,6 +128,7 @@ void ProfileAdapter::setStorageName(const QString &storageName)
         return;
     m_name = storageName;
     if (!m_offTheRecord) {
+        m_profile->setupPrefService();
         if (m_profile->m_urlRequestContextGetter.get())
             m_profile->m_profileIOData->updateStorageSettings();
         if (m_visitedLinksManager)
@@ -138,6 +141,7 @@ void ProfileAdapter::setOffTheRecord(bool offTheRecord)
     if (offTheRecord == m_offTheRecord)
         return;
     m_offTheRecord = offTheRecord;
+    m_profile->setupPrefService();
     if (m_profile->m_urlRequestContextGetter.get())
         m_profile->m_profileIOData->updateStorageSettings();
     if (m_visitedLinksManager)
@@ -179,7 +183,16 @@ void ProfileAdapter::setRequestInterceptor(QWebEngineUrlRequestInterceptor *inte
 {
     if (m_requestInterceptor == interceptor)
         return;
+
+    if (m_requestInterceptor)
+        disconnect(m_requestInterceptor, &QObject::destroyed, this, nullptr);
     m_requestInterceptor = interceptor;
+    if (m_requestInterceptor)
+        connect(m_requestInterceptor, &QObject::destroyed, this, [this] () {
+            m_profile->m_profileIOData->updateRequestInterceptor();
+            Q_ASSERT(!m_profile->m_profileIOData->requestInterceptor());
+        });
+
     if (m_profile->m_urlRequestContextGetter.get())
         m_profile->m_profileIOData->updateRequestInterceptor();
 }
@@ -263,6 +276,7 @@ void ProfileAdapter::setDataPath(const QString &path)
         return;
     m_dataPath = path;
     if (!m_offTheRecord) {
+        m_profile->setupPrefService();
         if (m_profile->m_urlRequestContextGetter.get())
             m_profile->m_profileIOData->updateStorageSettings();
         if (m_visitedLinksManager)
@@ -307,16 +321,6 @@ QString ProfileAdapter::cookiesPath() const
             return coookiesFolder.path();
         return basePath % QLatin1String("/Cookies");
     }
-    return QString();
-}
-
-QString ProfileAdapter::channelIdPath() const
-{
-    if (m_offTheRecord)
-        return QString();
-    QString basePath = dataPath();
-    if (!basePath.isEmpty())
-        return basePath % QLatin1String("/Origin Bound Certs");
     return QString();
 }
 
@@ -595,7 +599,7 @@ void ProfileAdapter::setHttpAcceptLanguage(const QString &httpAcceptLanguage)
     std::vector<content::WebContentsImpl *> list = content::WebContentsImpl::GetAllWebContents();
     for (content::WebContentsImpl *web_contents : list) {
         if (web_contents->GetBrowserContext() == m_profile.data()) {
-            content::RendererPreferences* rendererPrefs = web_contents->GetMutableRendererPrefs();
+            blink::mojom::RendererPreferences *rendererPrefs = web_contents->GetMutableRendererPrefs();
             rendererPrefs->accept_languages = httpAcceptLanguageWithoutQualities().toStdString();
             web_contents->GetRenderViewHost()->SyncRendererPrefs();
         }
@@ -616,14 +620,14 @@ void ProfileAdapter::clearHttpCache()
 void ProfileAdapter::setSpellCheckLanguages(const QStringList &languages)
 {
 #if QT_CONFIG(webengine_spellchecker)
-    m_profile->setSpellCheckLanguages(languages);
+    m_profile->prefServiceAdapter().setSpellCheckLanguages(languages);
 #endif
 }
 
 QStringList ProfileAdapter::spellCheckLanguages() const
 {
 #if QT_CONFIG(webengine_spellchecker)
-    return m_profile->spellCheckLanguages();
+    return m_profile->prefServiceAdapter().spellCheckLanguages();
 #else
     return QStringList();
 #endif
@@ -632,14 +636,14 @@ QStringList ProfileAdapter::spellCheckLanguages() const
 void ProfileAdapter::setSpellCheckEnabled(bool enabled)
 {
 #if QT_CONFIG(webengine_spellchecker)
-    m_profile->setSpellCheckEnabled(enabled);
+    m_profile->prefServiceAdapter().setSpellCheckEnabled(enabled);
 #endif
 }
 
 bool ProfileAdapter::isSpellCheckEnabled() const
 {
 #if QT_CONFIG(webengine_spellchecker)
-    return m_profile->isSpellCheckEnabled();
+    return m_profile->prefServiceAdapter().isSpellCheckEnabled();
 #else
     return false;
 #endif
@@ -688,6 +692,27 @@ void ProfileAdapter::setUseForGlobalCertificateVerification(bool enable)
 bool ProfileAdapter::isUsedForGlobalCertificateVerification() const
 {
     return m_usedForGlobalCertificateVerification;
+}
+
+QString ProfileAdapter::determineDownloadPath(const QString &downloadDirectory, const QString &suggestedFilename, const time_t &startTime)
+{
+    QFileInfo suggestedFile(QDir(downloadDirectory).absoluteFilePath(suggestedFilename));
+    QString suggestedFilePath = suggestedFile.absoluteFilePath();
+    base::FilePath tmpFilePath(toFilePath(suggestedFilePath).NormalizePathSeparatorsTo('/'));
+
+    int uniquifier = base::GetUniquePathNumber(tmpFilePath, base::FilePath::StringType());
+    if (uniquifier > 0)
+        suggestedFilePath = toQt(tmpFilePath.InsertBeforeExtensionASCII(base::StringPrintf(" (%d)", uniquifier)).AsUTF8Unsafe());
+    else if (uniquifier == -1) {
+        base::Time::Exploded exploded;
+        base::Time::FromTimeT(startTime).LocalExplode(&exploded);
+        std::string suffix = base::StringPrintf(
+                    " - %04d-%02d-%02dT%02d%02d%02d.%03d", exploded.year, exploded.month,
+                    exploded.day_of_month, exploded.hour, exploded.minute,
+                    exploded.second, exploded.millisecond);
+        suggestedFilePath = toQt(tmpFilePath.InsertBeforeExtensionASCII(suffix).AsUTF8Unsafe());
+    }
+    return suggestedFilePath;
 }
 
 #if QT_CONFIG(ssl)

@@ -1,3 +1,12 @@
 TEMPLATE = subdirs
 
-qtHaveModule(quick): SUBDIRS += compositor
+qtHaveModule(quick):qtHaveModule(waylandcompositor) {
+    SUBDIRS += \
+        compositor
+
+    qtConfig(opengl):qtHaveModule(waylandclient) {
+        SUBDIRS += \
+            texture-sharing \
+            texture-sharing-extension
+    }
+}

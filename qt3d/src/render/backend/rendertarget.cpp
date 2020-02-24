@@ -41,9 +41,6 @@
 #include <Qt3DRender/qrendertarget.h>
 #include <Qt3DRender/private/qrendertarget_p.h>
 #include <Qt3DRender/qrendertargetoutput.h>
-#include <Qt3DCore/qpropertyupdatedchange.h>
-#include <Qt3DCore/qpropertynodeaddedchange.h>
-#include <Qt3DCore/qpropertynoderemovedchange.h>
 #include <QVariant>
 
 QT_BEGIN_NAMESPACE
@@ -58,11 +55,21 @@ RenderTarget::RenderTarget()
 {
 }
 
-void RenderTarget::initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change)
+void RenderTarget::syncFromFrontEnd(const Qt3DCore::QNode *frontEnd, bool firstTime)
 {
-    const auto typedChange = qSharedPointerCast<Qt3DCore::QNodeCreatedChange<QRenderTargetData>>(change);
-    const auto &data = typedChange->data;
-    m_renderOutputs = data.outputIds;
+    const QRenderTarget *node = qobject_cast<const QRenderTarget *>(frontEnd);
+    if (!node)
+        return;
+
+    BackendNode::syncFromFrontEnd(frontEnd, firstTime);
+
+    auto outputIds = qIdsForNodes(node->outputs());
+    std::sort(std::begin(outputIds), std::end(outputIds));
+
+    if (m_renderOutputs != outputIds) {
+        m_renderOutputs = outputIds;
+        markDirty(AbstractRenderer::AllDirty);
+    }
 }
 
 void RenderTarget::cleanup()
@@ -85,33 +92,6 @@ void RenderTarget::removeRenderOutput(QNodeId outputId)
 QVector<Qt3DCore::QNodeId> RenderTarget::renderOutputs() const
 {
     return m_renderOutputs;
-}
-
-void RenderTarget::sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e)
-{
-    switch (e->type()) {
-    case Qt3DCore::PropertyValueAdded: {
-        const auto change = qSharedPointerCast<QPropertyNodeAddedChange>(e);
-        if (change->propertyName() == QByteArrayLiteral("output")) {
-            appendRenderOutput(change->addedNodeId());
-            markDirty(AbstractRenderer::AllDirty);
-        }
-        break;
-    }
-
-    case Qt3DCore::PropertyValueRemoved: {
-        const auto change = qSharedPointerCast<QPropertyNodeRemovedChange>(e);
-        if (change->propertyName() == QByteArrayLiteral("output")) {
-            removeRenderOutput(change->removedNodeId());
-            markDirty(AbstractRenderer::AllDirty);
-        }
-        break;
-    }
-
-    default:
-        break;
-    }
-    BackendNode::sceneChangeEvent(e);
 }
 
 } // namespace Render

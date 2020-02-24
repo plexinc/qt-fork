@@ -40,10 +40,14 @@
 #include "url_request_custom_job.h"
 #include "url_request_custom_job_proxy.h"
 
+#include "api/qwebengineurlscheme.h"
+
+#include "base/strings/stringprintf.h"
 #include "base/task/post_task.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "net/base/io_buffer.h"
+#include "net/http/http_util.h"
 
 #include <QIODevice>
 
@@ -62,6 +66,8 @@ URLRequestCustomJob::URLRequestCustomJob(URLRequest *request,
     , m_pendingReadSize(0)
     , m_pendingReadPos(0)
     , m_pendingReadBuffer(nullptr)
+    , m_corsEnabled(QWebEngineUrlScheme::schemeByName(QByteArray::fromStdString(scheme))
+                    .flags().testFlag(QWebEngineUrlScheme::CorsEnabled))
 {
 }
 
@@ -126,7 +132,7 @@ bool URLRequestCustomJob::GetMimeType(std::string *mimeType) const
     return false;
 }
 
-bool URLRequestCustomJob::GetCharset(std::string* charset)
+bool URLRequestCustomJob::GetCharset(std::string *charset)
 {
     DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
     if (m_charset.size() > 0) {
@@ -136,7 +142,38 @@ bool URLRequestCustomJob::GetCharset(std::string* charset)
     return false;
 }
 
-bool URLRequestCustomJob::IsRedirectResponse(GURL* location, int* http_status_code, bool* /*insecure_scheme_was_upgraded*/)
+void URLRequestCustomJob::GetResponseInfo(HttpResponseInfo *info)
+{
+    // Based on net::URLRequestRedirectJob::StartAsync()
+
+    if (m_error)
+        return;
+
+    std::string headers;
+    if (m_redirect.is_valid()) {
+        headers += "HTTP/1.1 303 See Other\n";
+        headers += base::StringPrintf("Location: %s\n", m_redirect.spec().c_str());
+    } else {
+        headers += base::StringPrintf("HTTP/1.1 %i OK\n", 200);
+        if (m_mimeType.size() > 0) {
+            headers += base::StringPrintf("Content-Type: %s", m_mimeType.c_str());
+            if (m_charset.size() > 0)
+                headers += base::StringPrintf("; charset=%s", m_charset.c_str());
+            headers += "\n";
+        }
+    }
+    if (m_corsEnabled) {
+        std::string origin;
+        if (request_->extra_request_headers().GetHeader("Origin", &origin)) {
+            headers += base::StringPrintf("Access-Control-Allow-Origin: %s\n", origin.c_str());
+            headers += "Access-Control-Allow-Credentials: true\n";
+        }
+    }
+
+    info->headers = new HttpResponseHeaders(HttpUtil::AssembleRawHeaders(headers));
+}
+
+bool URLRequestCustomJob::IsRedirectResponse(GURL *location, int *http_status_code, bool * /*insecure_scheme_was_upgraded*/)
 {
     DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
     if (m_redirect.is_valid()) {

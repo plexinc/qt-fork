@@ -45,7 +45,7 @@ QT_BEGIN_NAMESPACE
 /*!
     \qmltype ScrollView
     \inherits Pane
-    \instantiates QQuickScrollView
+//!     \instantiates QQuickScrollView
     \inqmlmodule QtQuick.Controls
     \since 5.9
     \ingroup qtquickcontrols2-containers
@@ -113,7 +113,7 @@ QT_BEGIN_NAMESPACE
     \snippet qtquickcontrols2-scrollview-interactive.qml file
 
     \sa ScrollBar, ScrollIndicator, {Customizing ScrollView}, {Container Controls},
-        {Focus Management in Qt Quick Controls 2}
+        {Focus Management in Qt Quick Controls}
 */
 
 class QQuickScrollViewPrivate : public QQuickPanePrivate

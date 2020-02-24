@@ -55,7 +55,7 @@ QT_BEGIN_NAMESPACE
 /*!
     \qmltype TextArea
     \inherits TextEdit
-    \instantiates QQuickTextArea
+//!     \instantiates QQuickTextArea
     \inqmlmodule QtQuick.Controls
     \since 5.7
     \ingroup qtquickcontrols2-input
@@ -121,8 +121,8 @@ QT_BEGIN_NAMESPACE
     \qmlsignal QtQuick.Controls::TextArea::pressAndHold(MouseEvent event)
 
     This signal is emitted when there is a long press (the delay depends on the platform plugin).
-    The \l {MouseEvent}{event} parameter provides information about the press, including the x and y
-    position of the press, and which button is pressed.
+    The \a event parameter provides information about the press, including the x and y
+    coordinates of the press, and which button is pressed.
 
     \sa pressed, released
 */
@@ -132,8 +132,8 @@ QT_BEGIN_NAMESPACE
     \since QtQuick.Controls 2.1 (Qt 5.8)
 
     This signal is emitted when the text area is pressed by the user.
-    The \l {MouseEvent}{event} parameter provides information about the press,
-    including the x and y position of the press, and which button is pressed.
+    The \a event parameter provides information about the press,
+    including the x and y coordinates of the press, and which button is pressed.
 
     \sa released, pressAndHold
 */
@@ -143,8 +143,9 @@ QT_BEGIN_NAMESPACE
     \since QtQuick.Controls 2.1 (Qt 5.8)
 
     This signal is emitted when the text area is released by the user.
-    The \l {MouseEvent}{event} parameter provides information about the release,
-    including the x and y position of the press, and which button is pressed.
+    The \a event parameter provides information about the release,
+    including the x and y coordinates of the press, and which button
+    is pressed.
 
     \sa pressed, pressAndHold
 */
@@ -253,7 +254,10 @@ void QQuickTextAreaPrivate::inheritFont(const QFont &font)
     parentFont.resolve(extra.isAllocated() ? extra->requestedFont.resolve() | font.resolve() : font.resolve());
 
     const QFont defaultFont = QQuickTheme::font(QQuickTheme::TextArea);
-    const QFont resolvedFont = parentFont.resolve(defaultFont);
+    QFont resolvedFont = parentFont.resolve(defaultFont);
+    // See comment in QQuickControlPrivate::inheritFont
+    if (defaultFont.families().isEmpty())
+        resolvedFont.setFamilies(QStringList());
 
     setFont_helper(resolvedFont);
 }
@@ -369,6 +373,8 @@ void QQuickTextAreaPrivate::detachFlickable()
     QObjectPrivate::disconnect(flickable, &QQuickFlickable::contentHeightChanged, this, &QQuickTextAreaPrivate::resizeFlickableControl);
 
     flickable = nullptr;
+
+    resizeBackground();
 }
 
 void QQuickTextAreaPrivate::ensureCursorVisible()
@@ -433,11 +439,21 @@ void QQuickTextAreaPrivate::resizeFlickableContent()
 
 void QQuickTextAreaPrivate::itemGeometryChanged(QQuickItem *item, QQuickGeometryChange change, const QRectF &diff)
 {
-    Q_UNUSED(item);
-    Q_UNUSED(change);
     Q_UNUSED(diff);
+    if (!resizingBackground && item == background) {
+        QQuickItemPrivate *p = QQuickItemPrivate::get(item);
+        // Only set hasBackgroundWidth/Height if it was a width/height change,
+        // otherwise we're prevented from setting a width/height in the future.
+        if (change.widthChange())
+            extra.value().hasBackgroundWidth = p->widthValid;
+        if (change.heightChange())
+            extra.value().hasBackgroundHeight = p->heightValid;
+    }
 
-    resizeFlickableControl();
+    if (flickable)
+        resizeFlickableControl();
+    else
+        resizeBackground();
 }
 
 qreal QQuickTextAreaPrivate::getImplicitWidth() const
@@ -512,11 +528,8 @@ void QQuickTextAreaPrivate::executeBackground(bool complete)
 
     if (!background || complete)
         quickBeginDeferred(q, backgroundName(), background);
-    if (complete) {
+    if (complete)
         quickCompleteDeferred(q, backgroundName(), background);
-        if (background)
-            QQuickControlPrivate::addImplicitSizeListener(background, this, QQuickControlPrivate::ImplicitSizeChanges | QQuickItemPrivate::Geometry);
-    }
 }
 
 void QQuickTextAreaPrivate::itemImplicitWidthChanged(QQuickItem *item)
@@ -625,21 +638,20 @@ void QQuickTextArea::setBackground(QQuickItem *background)
     d->background = background;
 
     if (background) {
+        QQuickItemPrivate *p = QQuickItemPrivate::get(background);
+        if (p->widthValid || p->heightValid) {
+            d->extra.value().hasBackgroundWidth = p->widthValid;
+            d->extra.value().hasBackgroundHeight = p->heightValid;
+        }
         if (d->flickable)
             background->setParentItem(d->flickable);
         else
             background->setParentItem(this);
         if (qFuzzyIsNull(background->z()))
             background->setZ(-1);
-        QQuickItemPrivate *p = QQuickItemPrivate::get(background);
-        if (p->widthValid || p->heightValid) {
-            d->extra.value().hasBackgroundWidth = p->widthValid;
-            d->extra.value().hasBackgroundHeight = p->heightValid;
-        }
-        if (isComponentComplete()) {
+        if (isComponentComplete())
             d->resizeBackground();
-            QQuickControlPrivate::addImplicitSizeListener(background, d, QQuickControlPrivate::ImplicitSizeChanges | QQuickItemPrivate::Geometry);
-        }
+        QQuickControlPrivate::addImplicitSizeListener(background, d, QQuickControlPrivate::ImplicitSizeChanges | QQuickItemPrivate::Geometry);
     }
 
     if (!qFuzzyCompare(oldImplicitBackgroundWidth, implicitBackgroundWidth()))

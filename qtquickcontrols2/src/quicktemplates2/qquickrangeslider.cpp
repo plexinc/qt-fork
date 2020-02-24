@@ -46,7 +46,7 @@ QT_BEGIN_NAMESPACE
 /*!
     \qmltype RangeSlider
     \inherits Control
-    \instantiates QQuickRangeSlider
+//!     \instantiates QQuickRangeSlider
     \inqmlmodule QtQuick.Controls
     \since 5.7
     \ingroup qtquickcontrols2-input
@@ -89,7 +89,7 @@ QT_BEGIN_NAMESPACE
     For a slider that allows the user to select a single value, see \l Slider.
 
     \sa {Customizing RangeSlider}, {Input Controls},
-        {Focus Management in Qt Quick Controls 2}
+        {Focus Management in Qt Quick Controls}
 */
 
 class QQuickRangeSliderNodePrivate : public QObjectPrivate
@@ -978,11 +978,11 @@ void QQuickRangeSlider::setOrientation(Qt::Orientation orientation)
 
     Sets \l first.value and \l second.value with the given arguments.
 
-    If \a to is larger than \a from and \a firstValue is larger than
-    \a secondValue, \a firstValue will be clamped to \a secondValue.
+    If \l to is larger than \l from and \a firstValue is larger than
+    \a secondValue, firstValue will be clamped to secondValue.
 
-    If \a from is larger than \a to and \a secondValue is larger than
-    \a firstValue, \a secondValue will be clamped to \a firstValue.
+    If \l from is larger than \l to and secondValue is larger than
+    firstValue, secondValue will be clamped to firstValue.
 
     This function may be necessary to set the first and second values
     after the control has been completed, as there is a circular

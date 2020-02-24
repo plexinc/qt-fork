@@ -1,6 +1,6 @@
 ﻿/****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the documentation of the Qt Toolkit.
@@ -54,6 +54,27 @@
     The following sections summarize some of the key features that Qt 5 brings
     to the table.
 
+    \section1 New Features by Qt Version
+
+    \list
+        \li \l{What's New in Qt 5.14}
+        \li \l{What's New in Qt 5.13}
+        \li \l{What's New in Qt 5.12}
+        \li \l{What's New in Qt 5.11}
+        \li \l{What's New in Qt 5.10}
+        \li \l{What's New in Qt 5.9}
+        \li \l{What's New in Qt 5.8}
+        \li \l{What's New in Qt 5.7}
+        \li \l{What's New in Qt 5.6}
+        \li \l{What's New in Qt 5.5}
+        \li \l{What's New in Qt 5.4}
+        \li \l{What's New in Qt 5.3}
+        \li \l{What's New in Qt 5.2}
+        \li \l{What's New in Qt 5.1}
+        \li \l{What's New in Qt 5.0}
+        \li \l{Porting Guide}
+    \endlist
+
     \section1 Qt Everywhere on Mobile
 
     \raw HTML
@@ -61,14 +82,14 @@
      <table style="background:transparent; border: none">
       <tr><td style="width:50%; border: none; vertical-align: top">
     \endraw
-    Qt now comes with production-ready ports for Android, iOS, and WinRT.
+    Qt now comes with production-ready ports for Android and iOS.
     Extensive work has gone into these platform
     ports, which now extend Qt’s multi-platform promise to cover desktop,
     embedded, and mobile platforms.
     \raw HTML
      <br>
     \endraw
-    With full support for Android, iOS, and WinRT, Qt is a
+    With full support for Android and iOS, Qt is a
     great solution for targeting the mobile markets with a single codebase.
     It is fast and easy to bring existing desktop or embedded application
     to mobile, by simply recompiling it.
@@ -100,10 +121,9 @@
     \list
     \li \l{Qt for Android}
     \li \l{Qt for iOS}
-    \li \l{Qt for WinRT}
     \endlist
     \raw HTML
-      </td><td style="width:50%; vertical-align:top;border: none;">
+      </td><td style="width:50%; vertical-align:top; border: none">
     \endraw
     \image qt5_everywhere_demo.jpg
     \caption Qt Everywhere demo on Nexus 7
@@ -118,7 +138,7 @@
     \raw HTML
     <div class="table">
      <table style="background:transparent; border: none">
-      <tr><td style="width:50%; vertical-align:top;border: none;">
+      <tr><td style="width:50%; vertical-align:top; border: none">
     \endraw
     \image qt5_shadereffect.jpg
     \caption ShaderEffect on an \l Image
@@ -154,8 +174,8 @@
 
     \raw HTML
     <div class="table">
-     <table style="background:transparent; border: none;">
-      <tr><td style="width:50%; vertical-align:top;">
+     <table style="background:transparent; border: none">
+      <tr><td style="width:50%; vertical-align:top; border: none">
     \endraw
     \l{Qt Quick} provides the necessary infrastructure to develop QML
     applications. The latest version (v2.0) of this technology also
@@ -188,18 +208,18 @@
     optimal performance.
     \endlist
     \raw HTML
-      </td><td style="width:50%; vertical-align:top;border: none;">
+      </td><td style="width:50%; vertical-align:top; border: none">
     \endraw
     \image qt5_particles.jpg
     \caption Qt Quick's \l{Qt Quick Particles QML Types}{Particle System}
     \raw HTML
-      </td></tr><tr><td style="width:50%; vertical-align:top;border: none;">
+      </td></tr><tr><td style="width:50%; vertical-align:top; border: none">
     \endraw
     The \l {qtgraphicaleffects-index.html}{Qt Graphical Effects} module
     provides a number of ready-made effects for use in Qt Quick
     applications, including soft drop shadow, blur, glow and colorize.
     \raw HTML
-      </td><td style="width:50%; vertical-align:top;border: none;">
+      </td><td style="width:50%; vertical-align:top; border: none">
     \endraw
     \image qt5_graphicaleffects.jpg
     \caption Excerpts from the Qt Graphical Effects module
@@ -217,17 +237,16 @@
       <tr><td style="width:50%; border: none; vertical-align: top">
     \endraw
     \image qtquickcontrols2-material.png
-    \caption Qt Quick Controls 2 Material style
+    \caption Qt Quick Controls Material style
     \raw HTML
       </td><td style="width:50%; border: none; vertical-align: top">
     \endraw
     UI designing can be time consuming if there are not enough tools to help.
     Qt Quick reduces the effort considerably compared to the traditional
-    native (C or C++) approach, especially if the \l{Qt Quick Controls} or
-    \l{Qt Quick Controls 2} and \l{Qt Quick Layouts} modules are used. These
-    modules provide ready-to-use UI controls and layouts to enable faster
-    application development with less code. For a comparison of the two sets of
-    controls, see \l {Differences with Qt Quick Controls 1}.
+    native (C or C++) approach, especially if the \l{Qt Quick Controls} and
+    \l{Qt Quick Layouts} modules are used. These modules provide ready-to-use
+    UI controls and layouts to enable faster application development with less
+    code.
     \raw HTML
       <br>
     \endraw
@@ -251,12 +270,12 @@
     \raw HTML
     <div class="table">
      <table style="background:transparent; border: none">
-      <tr><td style="width:50%; vertical-align:top;border: none;">
+      <tr><td style="width:50%; vertical-align:top; border: none">
     \endraw
     \image qtsensors_accelbubble_ex.jpg
     \caption Accelerating SVG image
     \raw HTML
-      </td><td style="width:50%; vertical-align:top;border: none;">
+      </td><td style="width:50%; vertical-align:top; border: none">
     \endraw
     \image qtpositioning_weatherinfo_ex.jpg
     \caption Location-based weather information
@@ -378,7 +397,7 @@
     \raw HTML
     <div class="table">
      <table style="background:transparent; border: none">
-      <tr><td style="width:50%; vertical-align:top;border: none;">
+      <tr><td style="width:50%; vertical-align:top; border: none">
     \endraw
     In today's world, location and maps information is more widely used, be it
     to look up nearby restaurants or plan commute to the office. With Qt,
@@ -506,22 +525,4 @@
     platforms where this is supported. This comes in handy for gaming
     applications developed using Qt.
 
-    \section1 Related Topics
-    \list
-    \li \l{What's New in Qt 5.13}
-    \li \l{What's New in Qt 5.12}
-    \li \l{What's New in Qt 5.11}
-    \li \l{What's New in Qt 5.10}
-    \li \l{What's New in Qt 5.9}
-    \li \l{What's New in Qt 5.8}
-    \li \l{What's New in Qt 5.7}
-    \li \l{What's New in Qt 5.6}
-    \li \l{What's New in Qt 5.5}
-    \li \l{What's New in Qt 5.4}
-    \li \l{What's New in Qt 5.3}
-    \li \l{What's New in Qt 5.2}
-    \li \l{What's New in Qt 5.1}
-    \li \l{What's New in Qt 5.0}
-    \li \l{Porting Guide}
-    \endlist
 */

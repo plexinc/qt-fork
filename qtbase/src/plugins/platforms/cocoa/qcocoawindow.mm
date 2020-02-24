@@ -567,7 +567,10 @@ void QCocoaWindow::setWindowFlags(Qt::WindowFlags flags)
     Qt::WindowType type = static_cast<Qt::WindowType>(int(flags & Qt::WindowType_Mask));
     if ((type & Qt::Popup) != Qt::Popup && (type & Qt::Dialog) != Qt::Dialog) {
         NSWindowCollectionBehavior behavior = m_view.window.collectionBehavior;
-        if ((flags & Qt::WindowFullscreenButtonHint) || m_view.window.qt_fullScreen) {
+        const bool enableFullScreen = m_view.window.qt_fullScreen
+                                    || !(flags & Qt::CustomizeWindowHint)
+                                    || (flags & Qt::WindowFullscreenButtonHint);
+        if (enableFullScreen) {
             behavior |= NSWindowCollectionBehaviorFullScreenPrimary;
             behavior &= ~NSWindowCollectionBehaviorFullScreenAuxiliary;
         } else {
@@ -1275,14 +1278,11 @@ void QCocoaWindow::windowWillClose()
 bool QCocoaWindow::windowShouldClose()
 {
     qCDebug(lcQpaWindow) << "QCocoaWindow::windowShouldClose" << window();
-   // This callback should technically only determine if the window
-   // should (be allowed to) close, but since our QPA API to determine
-   // that also involves actually closing the window we do both at the
-   // same time, instead of doing the latter in windowWillClose.
-    bool accepted = false;
-    QWindowSystemInterface::handleCloseEvent(window(), &accepted);
-    QWindowSystemInterface::flushWindowSystemEvents();
-    return accepted;
+    // This callback should technically only determine if the window
+    // should (be allowed to) close, but since our QPA API to determine
+    // that also involves actually closing the window we do both at the
+    // same time, instead of doing the latter in windowWillClose.
+    return QWindowSystemInterface::handleCloseEvent<QWindowSystemInterface::SynchronousDelivery>(window());
 }
 
 // ----------------------------- QPA forwarding -----------------------------
@@ -1515,17 +1515,6 @@ bool QCocoaWindow::updatesWithDisplayLink() const
 
 void QCocoaWindow::deliverUpdateRequest()
 {
-    // Don't send update requests for views that need display, as the update
-    // request doesn't carry any information about dirty rects, so the app
-    // may end up painting a smaller region than required. (For some reason
-    // the layer and view's needsDisplay status isn't always in sync, even if
-    // the view is layer-backed, not layer-hosted, so we check both).
-    if (m_view.layer.needsDisplay || m_view.needsDisplay) {
-        qCDebug(lcQpaDrawing) << "View needs display, deferring update request for" << window();
-        requestUpdate();
-        return;
-    }
-
     qCDebug(lcQpaDrawing) << "Delivering update request to" << window();
     QPlatformWindow::deliverUpdateRequest();
 }
@@ -1649,21 +1638,6 @@ QCocoaNSWindow *QCocoaWindow::createNSWindow(bool shouldBePanel)
 
     applyContentBorderThickness(nsWindow);
 
-    // Prevent CoreGraphics RGB32 -> RGB64 backing store conversions on deep color
-    // displays by forcing 8-bit components, unless a deep color format has been
-    // requested. This conversion uses significant CPU time.
-    QSurface::SurfaceType surfaceType = QPlatformWindow::window()->surfaceType();
-    bool usesCoreGraphics = surfaceType == QSurface::RasterSurface || surfaceType == QSurface::RasterGLSurface;
-    QSurfaceFormat surfaceFormat = QPlatformWindow::window()->format();
-    bool usesDeepColor = surfaceFormat.redBufferSize() > 8 ||
-                         surfaceFormat.greenBufferSize() > 8 ||
-                         surfaceFormat.blueBufferSize() > 8;
-    bool usesLayer = view().layer;
-    if (usesCoreGraphics && !usesDeepColor && !usesLayer) {
-        [nsWindow setDynamicDepthLimit:NO];
-        [nsWindow setDepthLimit:NSWindowDepthTwentyfourBitRGB];
-    }
-
     if (format().colorSpace() == QSurfaceFormat::sRGBColorSpace)
         nsWindow.colorSpace = NSColorSpace.sRGBColorSpace;
 
@@ -1721,9 +1695,9 @@ void QCocoaWindow::registerTouch(bool enable)
 {
     m_registerTouchCount += enable ? 1 : -1;
     if (enable && m_registerTouchCount == 1)
-        [m_view setAcceptsTouchEvents:YES];
+        m_view.allowedTouchTypes |= NSTouchTypeMaskIndirect;
     else if (m_registerTouchCount == 0)
-        [m_view setAcceptsTouchEvents:NO];
+        m_view.allowedTouchTypes &= ~NSTouchTypeMaskIndirect;
 }
 
 void QCocoaWindow::setContentBorderThickness(int topThickness, int bottomThickness)

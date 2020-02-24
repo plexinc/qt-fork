@@ -58,6 +58,11 @@
 #include <sys/file.h>  // flock
 #endif
 
+#if defined(Q_OS_RTEMS)
+#  undef LOCK_EX
+#  undef LOCK_NB
+#endif
+
 #include <sys/types.h> // kill
 #include <signal.h>    // kill
 #include <unistd.h>    // gethostname
@@ -169,7 +174,7 @@ QLockFile::LockError QLockFilePrivate::tryLock_sys()
     if (qt_write_loop(fd, fileData.constData(), fileData.size()) < fileData.size()) {
         qt_safe_close(fd);
         if (!QFile::remove(fileName))
-            qWarning("QLockFile: Could not remove our own lock file %s.", qPrintable(fileName));
+            qWarning("QLockFile: Could not remove our own lock file %ls.", qUtf16Printable(fileName));
         return QLockFile::UnknownError; // partition full
     }
 

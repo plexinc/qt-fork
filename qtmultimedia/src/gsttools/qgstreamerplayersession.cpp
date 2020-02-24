@@ -111,39 +111,12 @@ static GstStaticCaps static_RawCaps = GST_STATIC_CAPS(DEFAULT_RAW_CAPS);
 #endif
 
 QGstreamerPlayerSession::QGstreamerPlayerSession(QObject *parent)
-    :QObject(parent),
-     m_state(QMediaPlayer::StoppedState),
-     m_pendingState(QMediaPlayer::StoppedState),
-     m_busHelper(0),
-     m_videoSink(0),
-#if !GST_CHECK_VERSION(1,0,0)
-     m_usingColorspaceElement(false),
-#endif
-     m_pendingVideoSink(0),
-     m_nullVideoSink(0),
-     m_audioSink(0),
-     m_volumeElement(0),
-     m_bus(0),
-     m_videoOutput(0),
-     m_renderer(0),
-#if QT_CONFIG(gstreamer_app)
-     m_appSrc(0),
-#endif
-     m_videoProbe(0),
-     m_audioProbe(0),
-     m_volume(100),
-     m_playbackRate(1.0),
-     m_muted(false),
-     m_audioAvailable(false),
-     m_videoAvailable(false),
-     m_seekable(false),
-     m_lastPosition(0),
-     m_duration(0),
-     m_durationQueries(0),
-     m_displayPrerolledFrame(true),
-     m_sourceType(UnknownSrc),
-     m_everPlayed(false),
-     m_isLiveSource(false)
+    : QObject(parent)
+{
+    initPlaybin();
+}
+
+void QGstreamerPlayerSession::initPlaybin()
 {
     m_playbin = gst_element_factory_make(QT_GSTREAMER_PLAYBIN_ELEMENT_NAME, NULL);
     if (m_playbin) {
@@ -206,21 +179,32 @@ QGstreamerPlayerSession::QGstreamerPlayerSession(QObject *parent)
     m_videoOutputBin = gst_bin_new("video-output-bin");
     // might not get a parent, take ownership to avoid leak
     qt_gst_object_ref_sink(GST_OBJECT(m_videoOutputBin));
+
+    GstElement *videoOutputSink = m_videoIdentity;
+#if QT_CONFIG(gstreamer_gl)
+    if (QGstUtils::useOpenGL()) {
+        videoOutputSink = gst_element_factory_make("glupload", NULL);
+        GstElement *colorConvert = gst_element_factory_make("glcolorconvert", NULL);
+        gst_bin_add_many(GST_BIN(m_videoOutputBin), videoOutputSink, colorConvert, m_videoIdentity, m_nullVideoSink, NULL);
+        gst_element_link_many(videoOutputSink, colorConvert, m_videoIdentity, NULL);
+    } else {
+        gst_bin_add_many(GST_BIN(m_videoOutputBin), m_videoIdentity, m_nullVideoSink, NULL);
+    }
+#else
     gst_bin_add_many(GST_BIN(m_videoOutputBin), m_videoIdentity, m_nullVideoSink, NULL);
+#endif
     gst_element_link(m_videoIdentity, m_nullVideoSink);
 
     m_videoSink = m_nullVideoSink;
 
     // add ghostpads
-    GstPad *pad = gst_element_get_static_pad(m_videoIdentity,"sink");
+    GstPad *pad = gst_element_get_static_pad(videoOutputSink, "sink");
     gst_element_add_pad(GST_ELEMENT(m_videoOutputBin), gst_ghost_pad_new("sink", pad));
     gst_object_unref(GST_OBJECT(pad));
 
     if (m_playbin != 0) {
         // Sort out messages
-        m_bus = gst_element_get_bus(m_playbin);
-        m_busHelper = new QGstreamerBusHelper(m_bus, this);
-        m_busHelper->installMessageFilter(this);
+        setBus(gst_element_get_bus(m_playbin));
 
         g_object_set(G_OBJECT(m_playbin), "video-sink", m_videoOutputBin, NULL);
 
@@ -256,16 +240,36 @@ QGstreamerPlayerSession::~QGstreamerPlayerSession()
         removeAudioBufferProbe();
 
         delete m_busHelper;
-        gst_object_unref(GST_OBJECT(m_bus));
-        if (m_playbin)
-            gst_object_unref(GST_OBJECT(m_playbin));
-        gst_object_unref(GST_OBJECT(m_pipeline));
-#if !GST_CHECK_VERSION(1,0,0)
-        gst_object_unref(GST_OBJECT(m_colorSpace));
-#endif
-        gst_object_unref(GST_OBJECT(m_nullVideoSink));
-        gst_object_unref(GST_OBJECT(m_videoOutputBin));
+        m_busHelper = nullptr;
+        resetElements();
     }
+}
+
+template <class T>
+static inline void resetGstObject(T *&obj, T *v = nullptr)
+{
+    if (obj)
+        gst_object_unref(GST_OBJECT(obj));
+
+    obj = v;
+}
+
+void QGstreamerPlayerSession::resetElements()
+{
+    setBus(nullptr);
+    resetGstObject(m_playbin);
+    resetGstObject(m_pipeline);
+#if !GST_CHECK_VERSION(1,0,0)
+    resetGstObject(m_colorSpace);
+#endif
+    resetGstObject(m_nullVideoSink);
+    resetGstObject(m_videoOutputBin);
+
+    m_audioSink = nullptr;
+    m_volumeElement = nullptr;
+    m_videoIdentity = nullptr;
+    m_pendingVideoSink = nullptr;
+    m_videoSink = nullptr;
 }
 
 GstElement *QGstreamerPlayerSession::playbin() const
@@ -355,8 +359,14 @@ void QGstreamerPlayerSession::loadFromUri(const QNetworkRequest &request)
 
 bool QGstreamerPlayerSession::parsePipeline()
 {
-    if (m_request.url().scheme() != QLatin1String("gst-pipeline"))
+    if (m_request.url().scheme() != QLatin1String("gst-pipeline")) {
+        if (!m_playbin) {
+            resetElements();
+            initPlaybin();
+            updateVideoRenderer();
+        }
         return false;
+    }
 
     // Set current surface to video sink before creating a pipeline.
     auto renderer = qobject_cast<QVideoRendererControl *>(m_videoOutput);
@@ -403,25 +413,12 @@ bool QGstreamerPlayerSession::setPipeline(GstElement *pipeline)
     if (!bus)
         return false;
 
-    gst_object_unref(GST_OBJECT(m_pipeline));
-    m_pipeline = pipeline;
-    gst_object_unref(GST_OBJECT(m_bus));
-    m_bus = bus;
-    m_busHelper->deleteLater();
-    m_busHelper = new QGstreamerBusHelper(m_bus, this);
-    m_busHelper->installMessageFilter(this);
-
-    if (m_videoOutput)
-        m_busHelper->installMessageFilter(m_videoOutput);
-
-    if (m_playbin) {
+    if (m_playbin)
         gst_element_set_state(m_playbin, GST_STATE_NULL);
-        gst_object_unref(GST_OBJECT(m_playbin));
-    }
 
-    m_playbin = nullptr;
-    m_volumeElement = nullptr;
-    m_videoIdentity = nullptr;
+    resetElements();
+    setBus(bus);
+    m_pipeline = pipeline;
 
     if (m_renderer) {
         gst_foreach(gst_bin_iterate_sinks(GST_BIN(pipeline)),
@@ -449,6 +446,25 @@ bool QGstreamerPlayerSession::setPipeline(GstElement *pipeline)
 
     emit pipelineChanged();
     return true;
+}
+
+void QGstreamerPlayerSession::setBus(GstBus *bus)
+{
+    resetGstObject(m_bus, bus);
+
+    // It might still accept gst messages.
+    if (m_busHelper)
+        m_busHelper->deleteLater();
+    m_busHelper = nullptr;
+
+    if (!m_bus)
+        return;
+
+    m_busHelper = new QGstreamerBusHelper(m_bus, this);
+    m_busHelper->installMessageFilter(this);
+
+    if (m_videoOutput)
+        m_busHelper->installMessageFilter(m_videoOutput);
 }
 
 qint64 QGstreamerPlayerSession::duration() const
@@ -1174,10 +1190,12 @@ bool QGstreamerPlayerSession::processBusMessage(const QGstreamerMessage &message
                     gst_message_parse_state_changed(gm, &oldState, &newState, &pending);
 
 #ifdef DEBUG_PLAYBIN
-                    QStringList states;
-                    states << "GST_STATE_VOID_PENDING" <<  "GST_STATE_NULL" << "GST_STATE_READY" << "GST_STATE_PAUSED" << "GST_STATE_PLAYING";
+                    static QStringList states = {
+                              QStringLiteral("GST_STATE_VOID_PENDING"),  QStringLiteral("GST_STATE_NULL"),
+                              QStringLiteral("GST_STATE_READY"), QStringLiteral("GST_STATE_PAUSED"),
+                              QStringLiteral("GST_STATE_PLAYING") };
 
-                    qDebug() << QString("state changed: old: %1  new: %2  pending: %3") \
+                    qDebug() << QStringLiteral("state changed: old: %1  new: %2  pending: %3") \
                             .arg(states[oldState]) \
                             .arg(states[newState]) \
                             .arg(states[pending]);

@@ -88,7 +88,7 @@ static void sendMousePress(QWidget *widget, const QPoint &point, Qt::MouseButton
 static void sendMouseMove(QWidget *widget, const QPoint &point, Qt::MouseButton button = Qt::NoButton, Qt::MouseButtons buttons = 0)
 {
     QTest::mouseMove(widget, point);
-    QMouseEvent event(QEvent::MouseMove, point, button, buttons, 0);
+    QMouseEvent event(QEvent::MouseMove, point, widget->mapToGlobal(point), button, buttons, 0);
     QApplication::sendEvent(widget, &event);
     QApplication::processEvents();
 }
@@ -352,8 +352,8 @@ void tst_QGraphicsView::renderHints()
 
     view.setScene(&scene);
 
-    view.setRenderHints(QPainter::TextAntialiasing | QPainter::Antialiasing | QPainter::NonCosmeticDefaultPen);
-    QCOMPARE(view.renderHints(), QPainter::TextAntialiasing | QPainter::Antialiasing | QPainter::NonCosmeticDefaultPen);
+    view.setRenderHints(QPainter::TextAntialiasing | QPainter::Antialiasing);
+    QCOMPARE(view.renderHints(), QPainter::TextAntialiasing | QPainter::Antialiasing);
 
     QCOMPARE(item->hints, 0);
     view.show();
@@ -361,8 +361,8 @@ void tst_QGraphicsView::renderHints()
     view.repaint();
     QTRY_COMPARE(item->hints, view.renderHints());
 
-    view.setRenderHints(QPainter::Antialiasing | QPainter::NonCosmeticDefaultPen);
-    QCOMPARE(view.renderHints(), QPainter::Antialiasing | QPainter::NonCosmeticDefaultPen);
+    view.setRenderHints(QPainter::Antialiasing);
+    QCOMPARE(view.renderHints(), QPainter::Antialiasing);
 
     view.repaint();
     QTRY_COMPARE(item->hints, view.renderHints());
@@ -2219,7 +2219,7 @@ void tst_QGraphicsView::wheelEvent()
     {
         QWheelEvent event(view.mapFromScene(widget->boundingRect().center()),
                           view.mapToGlobal(view.mapFromScene(widget->boundingRect().center())),
-                          120, 0, 0, Qt::Horizontal);
+                          QPoint(), QPoint(120, 0), Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
         QApplication::sendEvent(view.viewport(), &event);
         QCOMPARE(scene.orientation, Qt::Horizontal);
     }
@@ -2228,7 +2228,7 @@ void tst_QGraphicsView::wheelEvent()
     {
         QWheelEvent event(view.mapFromScene(widget->boundingRect().center()),
                           view.mapToGlobal(view.mapFromScene(widget->boundingRect().center())),
-                          120, 0, 0, Qt::Vertical);
+                          QPoint(), QPoint(0, 120), Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
         QApplication::sendEvent(view.viewport(), &event);
         QCOMPARE(scene.orientation, Qt::Vertical);
     }
@@ -2526,9 +2526,8 @@ void tst_QGraphicsView::viewportUpdateMode2()
     view.setViewportUpdateMode(QGraphicsView::BoundingRectViewportUpdate);
     view.setScene(&dummyScene);
     view.ensurePolished(); // make sure we get the right content margins
-    int left, top, right, bottom;
-    view.getContentsMargins(&left, &top, &right, &bottom);
-    view.resize(200 + left + right, 200 + top + bottom);
+    const QMargins margins = view.contentsMargins();
+    view.resize(200 + margins.left() + margins.right(), 200 + margins.top() + margins.bottom());
     toplevel.show();
     qApp->setActiveWindow(&toplevel);
     QVERIFY(QTest::qWaitForWindowExposed(&toplevel));
@@ -2611,11 +2610,6 @@ void tst_QGraphicsView::optimizationFlags()
     QGraphicsView view;
     QVERIFY(!view.optimizationFlags());
 
-    view.setOptimizationFlag(QGraphicsView::DontClipPainter);
-    QVERIFY(view.optimizationFlags() & QGraphicsView::DontClipPainter);
-    view.setOptimizationFlag(QGraphicsView::DontClipPainter, false);
-    QVERIFY(!view.optimizationFlags());
-
     view.setOptimizationFlag(QGraphicsView::DontSavePainterState);
     QVERIFY(view.optimizationFlags() & QGraphicsView::DontSavePainterState);
     view.setOptimizationFlag(QGraphicsView::DontSavePainterState, false);
@@ -2626,10 +2620,8 @@ void tst_QGraphicsView::optimizationFlags()
     view.setOptimizationFlag(QGraphicsView::DontAdjustForAntialiasing, false);
     QVERIFY(!view.optimizationFlags());
 
-    view.setOptimizationFlags(QGraphicsView::DontAdjustForAntialiasing
-                              | QGraphicsView::DontClipPainter);
-    QCOMPARE(view.optimizationFlags(), QGraphicsView::OptimizationFlags(QGraphicsView::DontAdjustForAntialiasing
-             | QGraphicsView::DontClipPainter));
+    view.setOptimizationFlags(QGraphicsView::DontAdjustForAntialiasing);
+    QCOMPARE(view.optimizationFlags(), QGraphicsView::OptimizationFlags(QGraphicsView::DontAdjustForAntialiasing));
 }
 
 class MessUpPainterItem : public QGraphicsRectItem
@@ -4043,9 +4035,8 @@ void tst_QGraphicsView::update()
     CustomView view(0, &toplevel);
     view.setScene(&dummyScene);
     view.ensurePolished(); // must ensure polished to get content margins right
-    int left, top, right, bottom;
-    view.getContentsMargins(&left, &top, &right, &bottom);
-    view.resize(200 + left + right, 200 + top + bottom);
+    const QMargins margins = view.contentsMargins();
+    view.resize(200 + margins.left() + margins.right(), 200 + margins.top() + margins.bottom());
     toplevel.show();
     QVERIFY(QTest::qWaitForWindowExposed(&toplevel));
 
@@ -4857,7 +4848,7 @@ void tst_QGraphicsView::QTBUG_16063_microFocusRect()
 
     scene.setFocusItem(item);
     view.setFocus();
-    QRectF mfv = view.inputMethodQuery(Qt::ImMicroFocus).toRectF();
+    QRectF mfv = view.inputMethodQuery(Qt::ImCursorRectangle).toRectF();
     QCOMPARE(mfv, IMItem::mf.translated(-view.mapToScene(view.sceneRect().toRect()).boundingRect().topLeft()));
 }
 

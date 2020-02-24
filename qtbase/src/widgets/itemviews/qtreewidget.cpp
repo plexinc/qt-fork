@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtWidgets module of the Qt Toolkit.
@@ -748,11 +748,14 @@ QMimeData *QTreeModel::internalMimeData()  const
 
 QMimeData *QTreeModel::mimeData(const QModelIndexList &indexes) const
 {
-    QList<QTreeWidgetItem*> items;
-    for (const auto &index : indexes) {
-        if (index.column() == 0) // only one item per row
-            items << item(index);
-    }
+    QList<QTreeWidgetItem *> items;
+    std::transform(indexes.begin(), indexes.end(), std::back_inserter(items),
+                   [this](const QModelIndex &idx) -> QTreeWidgetItem * { return item(idx); });
+
+    // Ensure we only have one item as an item may have more than
+    // one index selected if there is more than one column
+    std::sort(items.begin(), items.end());
+    items.erase(std::unique(items.begin(), items.end()), items.end());
 
     // cachedIndexes is a little hack to avoid copying from QModelIndexList to
     // QList<QTreeWidgetItem*> and back again in the view
@@ -1251,6 +1254,7 @@ bool QTreeWidgetItem::isFirstColumnSpanned() const
     \sa font(), setText(), setForeground()
 */
 
+#if QT_DEPRECATED_SINCE(5, 13)
 /*!
     \fn QColor QTreeWidgetItem::backgroundColor(int column) const
     \obsolete
@@ -1264,6 +1268,7 @@ bool QTreeWidgetItem::isFirstColumnSpanned() const
 
     This function is deprecated. Use setBackground() instead.
 */
+#endif
 
 /*!
     \fn QBrush QTreeWidgetItem::background(int column) const
@@ -1281,9 +1286,13 @@ bool QTreeWidgetItem::isFirstColumnSpanned() const
     Sets the background brush of the label in the given \a column to the
     specified \a brush.
 
+    \note If \l{Qt Style Sheets} are used on the same widget as setBackground(),
+    style sheets will take precedence if the settings conflict.
+
     \sa setForeground()
 */
 
+#if QT_DEPRECATED_SINCE(5, 13)
 /*!
     \fn QColor QTreeWidgetItem::textColor(int column) const
     \obsolete
@@ -1297,6 +1306,7 @@ bool QTreeWidgetItem::isFirstColumnSpanned() const
 
     This function is deprecated. Use setForeground() instead.
 */
+#endif
 
 /*!
     \fn QBrush QTreeWidgetItem::foreground(int column) const

@@ -59,32 +59,38 @@ QT_BEGIN_NAMESPACE
 /*!
     \qmlmethod QtQuick.Particles::ItemParticle::freeze(Item item)
 
-    Suspends the flow of time for the logical particle which item represents, allowing you to control its movement.
+    Suspends the flow of time for the logical particle which \a item represents,
+    allowing you to control its movement.
 */
 
 /*!
     \qmlmethod QtQuick.Particles::ItemParticle::unfreeze(Item item)
 
-    Restarts the flow of time for the logical particle which item represents, allowing it to be moved by the particle system again.
+    Restarts the flow of time for the logical particle which \a item represents,
+    allowing it to be moved by the particle system again.
 */
 
 /*!
     \qmlmethod QtQuick.Particles::ItemParticle::take(Item item, bool prioritize)
 
-    Asks the ItemParticle to take over control of item positioning temporarily.
+    Asks the ItemParticle to take over control of \a item positioning temporarily.
     It will follow the movement of a logical particle when one is available.
 
-    By default items form a queue when waiting for a logical particle, but if prioritize is true then it will go immediately to the
-    head of the queue.
+    By default items form a queue when waiting for a logical particle, but if
+    \a prioritize is \c true, then it will go immediately to the head of the
+    queue.
 
     ItemParticle does not take ownership of the item, and will relinquish
     control when the logical particle expires. Commonly at this point you will
     want to put it back in the queue, you can do this with the below line in
     the delegate definition:
+
     \code
     ItemParticle.onDetached: itemParticleInstance.take(delegateRootItem);
     \endcode
+
     or delete it, such as with the below line in the delegate definition:
+
     \code
     ItemParticle.onDetached: delegateRootItem.destroy();
     \endcode
@@ -93,7 +99,9 @@ QT_BEGIN_NAMESPACE
 /*!
     \qmlmethod QtQuick.Particles::ItemParticle::give(Item item)
 
-    Orders the ItemParticle to give you control of the item. It will cease controlling it and the item will lose its association to the logical particle.
+    Orders the ItemParticle to give you control of the \a item. It will cease
+    controlling it and the item will lose its association to the logical
+    particle.
 */
 
 /*!
@@ -128,6 +136,7 @@ QQuickItemParticle::QQuickItemParticle(QQuickItem *parent) :
 QQuickItemParticle::~QQuickItemParticle()
 {
     delete clock;
+    qDeleteAll(m_managed);
 }
 
 void QQuickItemParticle::freeze(QQuickItem* item)
@@ -157,7 +166,8 @@ void QQuickItemParticle::give(QQuickItem *item)
 
 void QQuickItemParticle::initialize(int gIdx, int pIdx)
 {
-    m_loadables << m_system->groupData[gIdx]->data[pIdx];//defer to other thread
+    Q_UNUSED(gIdx);
+    Q_UNUSED(pIdx);
 }
 
 void QQuickItemParticle::commit(int, int)
@@ -188,55 +198,49 @@ void QQuickItemParticle::tick(int time)
     Q_UNUSED(time);//only needed because QTickAnimationProxy expects one
     processDeletables();
 
-    foreach (QQuickParticleData* d, m_loadables){
-        Q_ASSERT(d);
-        if (m_stasis.contains(d->delegate))
-            qWarning() << "Current model particles prefers overwrite:false";
-        //remove old item from the particle that is dying to make room for this one
-        if (d->delegate) {
-            m_deletables << d->delegate;
-            d->delegate = nullptr;
-        }
-        if (!m_pendingItems.isEmpty()){
-            d->delegate = m_pendingItems.front();
-            m_pendingItems.pop_front();
-        }else if (m_delegate){
-            d->delegate = qobject_cast<QQuickItem*>(m_delegate->create(qmlContext(this)));
-            if (d->delegate)
-                m_managed << d->delegate;
-        }
-        if (d && d->delegate){//###Data can be zero if creating an item leads to a reset - this screws things up.
-            d->delegate->setX(d->curX(m_system) - d->delegate->width() / 2); //TODO: adjust for system?
-            d->delegate->setY(d->curY(m_system) - d->delegate->height() / 2);
-            QQuickItemParticleAttached* mpa = qobject_cast<QQuickItemParticleAttached*>(qmlAttachedPropertiesObject<QQuickItemParticle>(d->delegate));
-            if (mpa){
-                mpa->m_mp = this;
-                mpa->attach();
+    for (auto groupId : groupIds()) {
+        for (QQuickParticleData* d : qAsConst(m_system->groupData[groupId]->data)) {
+            if (!d->delegate && d->t != -1 && d->stillAlive(m_system)) {
+                if (!m_pendingItems.isEmpty()){
+                    d->delegate = m_pendingItems.front();
+                    m_pendingItems.pop_front();
+                }else if (m_delegate){
+                    d->delegate = qobject_cast<QQuickItem*>(m_delegate->create(qmlContext(this)));
+                    if (d->delegate)
+                        m_managed << d->delegate;
+                }
+                if (d && d->delegate){//###Data can be zero if creating an item leads to a reset - this screws things up.
+                    d->delegate->setX(d->curX(m_system) - d->delegate->width() / 2); //TODO: adjust for system?
+                    d->delegate->setY(d->curY(m_system) - d->delegate->height() / 2);
+                    QQuickItemParticleAttached* mpa = qobject_cast<QQuickItemParticleAttached*>(qmlAttachedPropertiesObject<QQuickItemParticle>(d->delegate));
+                    if (mpa){
+                        mpa->m_mp = this;
+                        mpa->attach();
+                    }
+                    d->delegate->setParentItem(this);
+                    if (m_fade)
+                        d->delegate->setOpacity(0.);
+                    d->delegate->setVisible(false);//Will be set to true when we prepare the next frame
+                    m_activeCount++;
+                }
             }
-            d->delegate->setParentItem(this);
-            if (m_fade)
-                d->delegate->setOpacity(0.);
-            d->delegate->setVisible(false);//Will be set to true when we prepare the next frame
-            m_activeCount++;
         }
     }
-    m_loadables.clear();
 }
 
 void QQuickItemParticle::reset()
 {
     QQuickParticlePainter::reset();
-    m_loadables.clear();
 
     // delete all managed items which had their logical particles cleared
     // but leave it alone if the logical particle is maintained
-    QSet<QQuickItem*> lost = QSet<QQuickItem*>::fromList(m_managed);
+    QSet<QQuickItem*> lost = QSet<QQuickItem*>(m_managed.cbegin(), m_managed.cend());
     for (auto groupId : groupIds()) {
         for (QQuickParticleData* d : qAsConst(m_system->groupData[groupId]->data)) {
             lost.remove(d->delegate);
         }
     }
-    m_deletables.append(lost.toList());
+    m_deletables.unite(lost);
     //TODO: This doesn't yet handle calling detach on taken particles in the system reset case
     processDeletables();
 }
@@ -245,18 +249,9 @@ void QQuickItemParticle::reset()
 QSGNode* QQuickItemParticle::updatePaintNode(QSGNode* n, UpdatePaintNodeData* d)
 {
     //Dummy update just to get painting tick
-    if (m_pleaseReset){
+    if (m_pleaseReset)
         m_pleaseReset = false;
-        //Refill loadables, delayed here so as to only happen once per frame max
-        //### Constant resetting might lead to m_loadables never being populated when tick() occurs
-        for (auto groupId : groupIds()) {
-            for (QQuickParticleData* d : qAsConst(m_system->groupData[groupId]->data)) {
-                if (!d->delegate && d->t != -1  && d->stillAlive(m_system)) {
-                    m_loadables << d;
-                }
-            }
-        }
-    }
+
     prepareNextFrame();
 
     update();//Get called again

@@ -765,6 +765,14 @@ TEST(GURLTest, SchemeIsCryptographic) {
   EXPECT_FALSE(GURL("ws://foo.bar.com/").SchemeIsCryptographic());
 }
 
+TEST(GURLTest, SchemeIsCryptographicStatic) {
+  EXPECT_TRUE(GURL::SchemeIsCryptographic("https"));
+  EXPECT_TRUE(GURL::SchemeIsCryptographic("wss"));
+  EXPECT_FALSE(GURL::SchemeIsCryptographic("http"));
+  EXPECT_FALSE(GURL::SchemeIsCryptographic("ws"));
+  EXPECT_FALSE(GURL::SchemeIsCryptographic("ftp"));
+}
+
 TEST(GURLTest, SchemeIsBlob) {
   EXPECT_TRUE(GURL("BLOB://BAR/").SchemeIsBlob());
   EXPECT_TRUE(GURL("blob://bar/").SchemeIsBlob());
@@ -855,9 +863,32 @@ TEST(GURLTest, IsAboutBlank) {
   const std::string kNotAboutBlankUrls[] = {
       "http:blank",      "about:blan",          "about://blank",
       "about:blank/foo", "about://:8000/blank", "about://foo:foo@/blank",
-      "foo@about:blank", "foo:bar@about:blank", "about:blank:8000"};
+      "foo@about:blank", "foo:bar@about:blank", "about:blank:8000",
+      "about:blANk"};
   for (const auto& url : kNotAboutBlankUrls)
     EXPECT_FALSE(GURL(url).IsAboutBlank()) << url;
+}
+
+TEST(GURLTest, IsAboutSrcdoc) {
+  const std::string kAboutSrcdocUrls[] = {
+      "about:srcdoc", "about:srcdoc/", "about:srcdoc?foo", "about:srcdoc/#foo",
+      "about:srcdoc?foo#foo"};
+  for (const auto& url : kAboutSrcdocUrls)
+    EXPECT_TRUE(GURL(url).IsAboutSrcdoc()) << url;
+
+  const std::string kNotAboutSrcdocUrls[] = {"http:srcdoc",
+                                             "about:srcdo",
+                                             "about://srcdoc",
+                                             "about://srcdoc\\",
+                                             "about:srcdoc/foo",
+                                             "about://:8000/srcdoc",
+                                             "about://foo:foo@/srcdoc",
+                                             "foo@about:srcdoc",
+                                             "foo:bar@about:srcdoc",
+                                             "about:srcdoc:8000",
+                                             "about:srCDOc"};
+  for (const auto& url : kNotAboutSrcdocUrls)
+    EXPECT_FALSE(GURL(url).IsAboutSrcdoc()) << url;
 }
 
 TEST(GURLTest, EqualsIgnoringRef) {

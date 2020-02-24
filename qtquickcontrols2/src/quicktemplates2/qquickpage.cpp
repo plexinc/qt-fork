@@ -45,7 +45,7 @@ QT_BEGIN_NAMESPACE
 /*!
     \qmltype Page
     \inherits Pane
-    \instantiates QQuickPage
+//!     \instantiates QQuickPage
     \inqmlmodule QtQuick.Controls
     \since 5.7
     \ingroup qtquickcontrols2-containers
@@ -83,7 +83,7 @@ QT_BEGIN_NAMESPACE
     \endqml
 
     \sa ApplicationWindow, {Container Controls},
-        {Focus Management in Qt Quick Controls 2}
+        {Focus Management in Qt Quick Controls}
 */
 
 static const QQuickItemPrivate::ChangeTypes LayoutChanges = QQuickItemPrivate::Geometry | QQuickItemPrivate::Visibility | QQuickItemPrivate::Destroyed
@@ -285,7 +285,7 @@ void QQuickPage::setTitle(const QString &title)
         return;
 
     d->title = title;
-    setAccessibleName(title);
+    maybeSetAccessibleName(title);
     emit titleChanged();
 }
 
@@ -473,7 +473,7 @@ void QQuickPage::accessibilityActiveChanged(bool active)
     QQuickPane::accessibilityActiveChanged(active);
 
     if (active)
-        setAccessibleName(d->title);
+        maybeSetAccessibleName(d->title);
 }
 #endif
 

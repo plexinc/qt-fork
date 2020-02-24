@@ -467,11 +467,11 @@ bool Lookup::setterTwoClasses(Lookup *l, ExecutionEngine *engine, Value &object,
             return false;
         }
 
-        if (l->setter == Lookup::setter0 || l->setter == Lookup::setter0Inline) {
+        if (l->setter == Lookup::setter0MemberData || l->setter == Lookup::setter0Inline) {
             l->objectLookupTwoClasses.ic = first.objectLookup.ic;
             l->objectLookupTwoClasses.ic2 = second.objectLookup.ic;
-            l->objectLookupTwoClasses.offset = first.objectLookup.offset;
-            l->objectLookupTwoClasses.offset2 = second.objectLookup.offset;
+            l->objectLookupTwoClasses.offset = first.objectLookup.index;
+            l->objectLookupTwoClasses.offset2 = second.objectLookup.index;
             l->setter = setter0setter0;
             return true;
         }
@@ -492,11 +492,11 @@ bool Lookup::setterFallback(Lookup *l, ExecutionEngine *engine, Value &object, c
     return o->put(name, value);
 }
 
-bool Lookup::setter0(Lookup *l, ExecutionEngine *engine, Value &object, const Value &value)
+bool Lookup::setter0MemberData(Lookup *l, ExecutionEngine *engine, Value &object, const Value &value)
 {
     Heap::Object *o = static_cast<Heap::Object *>(object.heapObject());
     if (o && o->internalClass == l->objectLookup.ic) {
-        o->setProperty(engine, l->objectLookup.offset, value);
+        o->memberData->values.set(engine, l->objectLookup.offset, value);
         return true;
     }
 
@@ -507,7 +507,7 @@ bool Lookup::setter0Inline(Lookup *l, ExecutionEngine *engine, Value &object, co
 {
     Heap::Object *o = static_cast<Heap::Object *>(object.heapObject());
     if (o && o->internalClass == l->objectLookup.ic) {
-        o->setInlineProperty(engine, l->objectLookup.offset, value);
+        o->setInlinePropertyWithOffset(engine, l->objectLookup.offset, value);
         return true;
     }
 

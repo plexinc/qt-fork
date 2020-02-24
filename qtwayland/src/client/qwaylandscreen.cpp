@@ -175,7 +175,8 @@ QList<QPlatformScreen *> QWaylandScreen::virtualSiblings() const
 
 void QWaylandScreen::setOrientationUpdateMask(Qt::ScreenOrientations mask)
 {
-    foreach (QWindow *window, QGuiApplication::allWindows()) {
+    const auto allWindows = QGuiApplication::allWindows();
+    for (QWindow *window : allWindows) {
         QWaylandWindow *w = static_cast<QWaylandWindow *>(window->handle());
         if (w && w->waylandScreen() == this)
             w->setOrientationMask(mask);
@@ -217,8 +218,9 @@ QWaylandScreen * QWaylandScreen::waylandScreenFromWindow(QWindow *window)
 
 QWaylandScreen *QWaylandScreen::fromWlOutput(::wl_output *output)
 {
-    auto wlOutput = static_cast<QtWayland::wl_output *>(wl_output_get_user_data(output));
-    return static_cast<QWaylandScreen *>(wlOutput);
+    if (auto *o = QtWayland::wl_output::fromObject(output))
+        return static_cast<QWaylandScreen *>(o);
+    return nullptr;
 }
 
 void QWaylandScreen::output_mode(uint32_t flags, int width, int height, int refresh)

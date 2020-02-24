@@ -38,9 +38,8 @@
 ****************************************************************************/
 
 #include "qv4global_p.h"
-#include "qv4engine_p.h"
 #include "qv4runtime_p.h"
-#ifndef V4_BOOTSTRAP
+#include "qv4engine_p.h"
 #include "qv4object_p.h"
 #include "qv4objectproto_p.h"
 #include "qv4globalobject_p.h"
@@ -60,11 +59,10 @@
 #include <private/qqmltypewrapper_p.h>
 #include <private/qqmlengine_p.h>
 #include <private/qqmljavascriptexpression_p.h>
+#include <private/qqmljsast_p.h>
 #include "qv4qobjectwrapper_p.h"
 #include "qv4symbol_p.h"
 #include "qv4generatorobject_p.h"
-#include <private/qv8engine_p.h>
-#endif
 
 #include <QtCore/QDebug>
 #include <cassert>
@@ -223,13 +221,9 @@ void RuntimeCounters::count(const char *func, uint tag1, uint tag2)
 
 #endif // QV4_COUNT_RUNTIME_FUNCTIONS
 
-#ifndef V4_BOOTSTRAP
-
-Runtime::Runtime()
+static QV4::Lookup *runtimeLookup(Function *f, uint i)
 {
-#define INIT_METHOD(returnvalue, name, args) runtimeMethods[name] = reinterpret_cast<void*>(&method_##name);
-FOR_EACH_RUNTIME_METHOD(INIT_METHOD)
-#undef INIT_METHOD
+    return f->executableCompilationUnit()->runtimeLookups + i;
 }
 
 void RuntimeHelpers::numberToString(QString *result, double num, int radix)
@@ -320,9 +314,10 @@ void RuntimeHelpers::numberToString(QString *result, double num, int radix)
         result->prepend(QLatin1Char('-'));
 }
 
-ReturnedValue Runtime::method_closure(ExecutionEngine *engine, int functionId)
+ReturnedValue Runtime::Closure::call(ExecutionEngine *engine, int functionId)
 {
-    QV4::Function *clos = static_cast<CompiledData::CompilationUnit*>(engine->currentStackFrame->v4Function->compilationUnit)->runtimeFunctions[functionId];
+    QV4::Function *clos = engine->currentStackFrame->v4Function->executableCompilationUnit()
+                                  ->runtimeFunctions[functionId];
     Q_ASSERT(clos);
     ExecutionContext *current = static_cast<ExecutionContext *>(&engine->currentStackFrame->jsFrame->context);
     if (clos->isGenerator())
@@ -330,7 +325,7 @@ ReturnedValue Runtime::method_closure(ExecutionEngine *engine, int functionId)
     return FunctionObject::createScriptFunction(current, clos)->asReturnedValue();
 }
 
-bool Runtime::method_deleteProperty(ExecutionEngine *engine, const Value &base, const Value &index)
+Bool Runtime::DeleteProperty_NoThrow::call(ExecutionEngine *engine, const Value &base, const Value &index)
 {
     Scope scope(engine);
     ScopedObject o(scope, base.toObject(engine));
@@ -344,14 +339,36 @@ bool Runtime::method_deleteProperty(ExecutionEngine *engine, const Value &base, 
     return o->deleteProperty(key);
 }
 
-bool Runtime::method_deleteName(ExecutionEngine *engine, int nameIndex)
+ReturnedValue Runtime::DeleteProperty::call(ExecutionEngine *engine, QV4::Function *function, const QV4::Value &base, const QV4::Value &index)
+{
+    if (!Runtime::DeleteProperty_NoThrow::call(engine, base, index)) {
+        if (function->isStrict())
+            engine->throwTypeError();
+        return Encode(false);
+    } else {
+        return Encode(true);
+    }
+}
+
+Bool Runtime::DeleteName_NoThrow::call(ExecutionEngine *engine, int nameIndex)
 {
     Scope scope(engine);
     ScopedString name(scope, engine->currentStackFrame->v4Function->compilationUnit->runtimeStrings[nameIndex]);
     return static_cast<ExecutionContext &>(engine->currentStackFrame->jsFrame->context).deleteProperty(name);
 }
 
-QV4::ReturnedValue Runtime::method_instanceof(ExecutionEngine *engine, const Value &lval, const Value &rval)
+ReturnedValue Runtime::DeleteName::call(ExecutionEngine *engine, Function *function, int name)
+{
+    if (!Runtime::DeleteName_NoThrow::call(engine, name)) {
+        if (function->isStrict())
+            engine->throwTypeError();
+        return Encode(false);
+    } else {
+        return Encode(true);
+    }
+}
+
+QV4::ReturnedValue Runtime::Instanceof::call(ExecutionEngine *engine, const Value &lval, const Value &rval)
 {
     // 11.8.6, 5: rval must be an Object
     const Object *rhs = rval.as<Object>();
@@ -376,7 +393,7 @@ QV4::ReturnedValue Runtime::method_instanceof(ExecutionEngine *engine, const Val
     return Encode(result->toBoolean());
 }
 
-QV4::ReturnedValue Runtime::method_in(ExecutionEngine *engine, const Value &left, const Value &right)
+QV4::ReturnedValue Runtime::In::call(ExecutionEngine *engine, const Value &left, const Value &right)
 {
     Object *ro = right.objectValue();
     if (!ro)
@@ -391,6 +408,15 @@ QV4::ReturnedValue Runtime::method_in(ExecutionEngine *engine, const Value &left
 
 double RuntimeHelpers::stringToNumber(const QString &string)
 {
+    // The actual maximum valid length is certainly shorter, but due to the sheer number of
+    // different number formatting variants, we rather err on the side of caution here.
+    // For example, you can have up to 772 valid decimal digits left of the dot, as stated in the
+    // libdoubleconversion sources. The same maximum value would be represented by roughly 3.5 times
+    // as many binary digits.
+    const int excessiveLength = 16 * 1024;
+    if (string.length() > excessiveLength)
+        return qQNaN();
+
     const QStringRef s = QStringRef(&string).trimmed();
     if (s.startsWith(QLatin1Char('0'))) {
         int base = -1;
@@ -604,13 +630,12 @@ QV4::ReturnedValue RuntimeHelpers::addHelper(ExecutionEngine *engine, const Valu
     return Encode(x + y);
 }
 
-ReturnedValue RuntimeHelpers::getTemplateObject(Function *function, int index)
+ReturnedValue Runtime::GetTemplateObject::call(Function *function, int index)
 {
-    return function->compilationUnit->templateObjectAt(index)->asReturnedValue();
+    return function->executableCompilationUnit()->templateObjectAt(index)->asReturnedValue();
 }
 
-
-void Runtime::method_storeProperty(ExecutionEngine *engine, const Value &object, int nameIndex, const Value &value)
+void Runtime::StoreProperty::call(ExecutionEngine *engine, const Value &object, int nameIndex, const Value &value)
 {
     Scope scope(engine);
     QV4::Function *v4Function = engine->currentStackFrame->v4Function;
@@ -683,7 +708,7 @@ static Q_NEVER_INLINE ReturnedValue getElementFallback(ExecutionEngine *engine, 
     return o->get(name);
 }
 
-ReturnedValue Runtime::method_loadElement(ExecutionEngine *engine, const Value &object, const Value &index)
+ReturnedValue Runtime::LoadElement::call(ExecutionEngine *engine, const Value &object, const Value &index)
 {
     if (index.isPositiveInt()) {
         uint idx = static_cast<uint>(index.int_32());
@@ -701,30 +726,6 @@ ReturnedValue Runtime::method_loadElement(ExecutionEngine *engine, const Value &
         return getElementIntFallback(engine, object, idx);
     }
 
-    return getElementFallback(engine, object, index);
-}
-
-ReturnedValue Runtime::method_loadElement_traced(ExecutionEngine *engine, const Value &object, const Value &index, quint8 *traceSlot)
-{
-    *traceSlot |= quint8(ObservedTraceValues::ArrayWasAccessed);
-    if (index.isPositiveInt()) {
-        uint idx = static_cast<uint>(index.int_32());
-        if (Heap::Base *b = object.heapObject()) {
-            if (b->internalClass->vtable->isObject) {
-                Heap::Object *o = static_cast<Heap::Object *>(b);
-                if (o->arrayData && o->arrayData->type == Heap::ArrayData::Simple) {
-                    Heap::SimpleArrayData *s = o->arrayData.cast<Heap::SimpleArrayData>();
-                    if (idx < s->values.size)
-                        if (!s->data(idx).isEmpty())
-                            return s->data(idx).asReturnedValue();
-                }
-            }
-        }
-        *traceSlot |= quint8(ObservedTraceValues::ArrayAccessNeededFallback);
-        return getElementIntFallback(engine, object, idx);
-    }
-
-    *traceSlot |= quint8(ObservedTraceValues::ArrayAccessNeededFallback);
     return getElementFallback(engine, object, index);
 }
 
@@ -761,7 +762,7 @@ static Q_NEVER_INLINE bool setElementFallback(ExecutionEngine *engine, const Val
     return o->put(name, value);
 }
 
-void Runtime::method_storeElement(ExecutionEngine *engine, const Value &object, const Value &index, const Value &value)
+void Runtime::StoreElement::call(ExecutionEngine *engine, const Value &object, const Value &index, const Value &value)
 {
     if (index.isPositiveInt()) {
         uint idx = static_cast<uint>(index.int_32());
@@ -783,31 +784,7 @@ void Runtime::method_storeElement(ExecutionEngine *engine, const Value &object, 
         engine->throwTypeError();
 }
 
-void Runtime::method_storeElement_traced(ExecutionEngine *engine, const Value &object, const Value &index, const Value &value, quint8 *traceSlot)
-{
-    *traceSlot |= quint8(ObservedTraceValues::ArrayWasAccessed);
-    if (index.isPositiveInt()) {
-        uint idx = static_cast<uint>(index.int_32());
-        if (Heap::Base *b = object.heapObject()) {
-            if (b->internalClass->vtable->isObject) {
-                Heap::Object *o = static_cast<Heap::Object *>(b);
-                if (o->arrayData && o->arrayData->type == Heap::ArrayData::Simple) {
-                    Heap::SimpleArrayData *s = o->arrayData.cast<Heap::SimpleArrayData>();
-                    if (idx < s->values.size) {
-                        s->setData(engine, idx, value);
-                        return;
-                    }
-                }
-            }
-        }
-    }
-
-    *traceSlot |= quint8(ObservedTraceValues::ArrayAccessNeededFallback);
-    if (!setElementFallback(engine, object, index, value) && engine->currentStackFrame->v4Function->isStrict())
-        engine->throwTypeError();
-}
-
-ReturnedValue Runtime::method_getIterator(ExecutionEngine *engine, const Value &in, int iterator)
+ReturnedValue Runtime::GetIterator::call(ExecutionEngine *engine, const Value &in, int iterator)
 {
     Scope scope(engine);
     ScopedObject o(scope, (Object *)nullptr);
@@ -830,7 +807,7 @@ ReturnedValue Runtime::method_getIterator(ExecutionEngine *engine, const Value &
     return engine->newForInIteratorObject(o)->asReturnedValue();
 }
 
-ReturnedValue Runtime::method_iteratorNext(ExecutionEngine *engine, const Value &iterator, Value *value)
+ReturnedValue Runtime::IteratorNext::call(ExecutionEngine *engine, const Value &iterator, Value *value)
 {
     // if we throw an exception from here, return true, not undefined. This is to ensure iteratorDone is set to true
     // and the stack unwinding won't close the iterator
@@ -866,7 +843,7 @@ ReturnedValue Runtime::method_iteratorNext(ExecutionEngine *engine, const Value 
     return Encode(false);
 }
 
-ReturnedValue Runtime::method_iteratorNextForYieldStar(ExecutionEngine *engine, const Value &received, const Value &iterator, Value *object)
+ReturnedValue Runtime::IteratorNextForYieldStar::call(ExecutionEngine *engine, const Value &received, const Value &iterator, Value *object)
 {
     // the return value encodes how to continue the yield* iteration.
     // true implies iteration is done, false for iteration to continue
@@ -903,7 +880,7 @@ ReturnedValue Runtime::method_iteratorNextForYieldStar(ExecutionEngine *engine, 
             if (t->isUndefined()) {
                 // no throw method on the iterator
                 ScopedValue done(scope, Encode(false));
-                method_iteratorClose(engine, iterator, done);
+                IteratorClose::call(engine, iterator, done);
                 if (engine->hasException)
                     return Encode::undefined();
                 return engine->throwTypeError();
@@ -938,7 +915,7 @@ ReturnedValue Runtime::method_iteratorNextForYieldStar(ExecutionEngine *engine, 
     return Encode(false);
 }
 
-ReturnedValue Runtime::method_iteratorClose(ExecutionEngine *engine, const Value &iterator, const Value &done)
+ReturnedValue Runtime::IteratorClose::call(ExecutionEngine *engine, const Value &iterator, const Value &done)
 {
     Q_ASSERT(iterator.isObject());
     Q_ASSERT(done.isBoolean());
@@ -978,7 +955,7 @@ ReturnedValue Runtime::method_iteratorClose(ExecutionEngine *engine, const Value
     return originalCompletion();
 }
 
-ReturnedValue Runtime::method_destructureRestElement(ExecutionEngine *engine, const Value &iterator)
+ReturnedValue Runtime::DestructureRestElement::call(ExecutionEngine *engine, const Value &iterator)
 {
     Q_ASSERT(iterator.isObject());
 
@@ -988,7 +965,7 @@ ReturnedValue Runtime::method_destructureRestElement(ExecutionEngine *engine, co
     uint index = 0;
     while (1) {
         ScopedValue n(scope);
-        ScopedValue done(scope, method_iteratorNext(engine, iterator, n));
+        ScopedValue done(scope, IteratorNext::call(engine, iterator, n));
         if (engine->hasException)
             return Encode::undefined();
         Q_ASSERT(done->isBoolean());
@@ -1000,7 +977,7 @@ ReturnedValue Runtime::method_destructureRestElement(ExecutionEngine *engine, co
     return array->asReturnedValue();
 }
 
-void Runtime::method_storeNameSloppy(ExecutionEngine *engine, int nameIndex, const Value &value)
+void Runtime::StoreNameSloppy::call(ExecutionEngine *engine, int nameIndex, const Value &value)
 {
     Scope scope(engine);
     ScopedString name(scope, engine->currentStackFrame->v4Function->compilationUnit->runtimeStrings[nameIndex]);
@@ -1010,7 +987,7 @@ void Runtime::method_storeNameSloppy(ExecutionEngine *engine, int nameIndex, con
         engine->globalObject->put(name, value);
 }
 
-void Runtime::method_storeNameStrict(ExecutionEngine *engine, int nameIndex, const Value &value)
+void Runtime::StoreNameStrict::call(ExecutionEngine *engine, int nameIndex, const Value &value)
 {
     Scope scope(engine);
     ScopedString name(scope, engine->currentStackFrame->v4Function->compilationUnit->runtimeStrings[nameIndex]);
@@ -1021,7 +998,7 @@ void Runtime::method_storeNameStrict(ExecutionEngine *engine, int nameIndex, con
         engine->throwReferenceError(name);
 }
 
-ReturnedValue Runtime::method_loadProperty(ExecutionEngine *engine, const Value &object, int nameIndex)
+ReturnedValue Runtime::LoadProperty::call(ExecutionEngine *engine, const Value &object, int nameIndex)
 {
     Scope scope(engine);
     ScopedString name(scope, engine->currentStackFrame->v4Function->compilationUnit->runtimeStrings[nameIndex]);
@@ -1041,7 +1018,7 @@ ReturnedValue Runtime::method_loadProperty(ExecutionEngine *engine, const Value 
     return o->get(name);
 }
 
-ReturnedValue Runtime::method_loadName(ExecutionEngine *engine, int nameIndex)
+ReturnedValue Runtime::LoadName::call(ExecutionEngine *engine, int nameIndex)
 {
     Scope scope(engine);
     ScopedString name(scope, engine->currentStackFrame->v4Function->compilationUnit->runtimeStrings[nameIndex]);
@@ -1055,7 +1032,8 @@ static Object *getSuperBase(Scope &scope)
         return nullptr;
     }
 
-    ScopedFunctionObject f(scope, scope.engine->currentStackFrame->jsFrame->function);
+    ScopedFunctionObject f(
+            scope, Value::fromStaticValue(scope.engine->currentStackFrame->jsFrame->function));
     ScopedObject homeObject(scope, f->getHomeObject());
     if (!homeObject) {
         ScopedContext ctx(scope, static_cast<ExecutionContext *>(&scope.engine->currentStackFrame->jsFrame->context));
@@ -1084,7 +1062,7 @@ static Object *getSuperBase(Scope &scope)
     return proto;
 }
 
-ReturnedValue Runtime::method_loadSuperProperty(ExecutionEngine *engine, const Value &property)
+ReturnedValue Runtime::LoadSuperProperty::call(ExecutionEngine *engine, const Value &property)
 {
     Scope scope(engine);
     Object *base = getSuperBase(scope);
@@ -1093,10 +1071,11 @@ ReturnedValue Runtime::method_loadSuperProperty(ExecutionEngine *engine, const V
     ScopedPropertyKey key(scope, property.toPropertyKey(engine));
     if (engine->hasException)
         return Encode::undefined();
-    return base->get(key, &engine->currentStackFrame->jsFrame->thisObject);
+    return base->get(
+            key, &(engine->currentStackFrame->jsFrame->thisObject.asValue<Value>()));
 }
 
-void Runtime::method_storeSuperProperty(ExecutionEngine *engine, const Value &property, const Value &value)
+void Runtime::StoreSuperProperty::call(ExecutionEngine *engine, const Value &property, const Value &value)
 {
     Scope scope(engine);
     Object *base = getSuperBase(scope);
@@ -1105,12 +1084,46 @@ void Runtime::method_storeSuperProperty(ExecutionEngine *engine, const Value &pr
     ScopedPropertyKey key(scope, property.toPropertyKey(engine));
     if (engine->hasException)
         return;
-    bool result = base->put(key, value, &engine->currentStackFrame->jsFrame->thisObject);
+    bool result = base->put(
+            key, value, &(engine->currentStackFrame->jsFrame->thisObject.asValue<Value>()));
     if (!result && engine->currentStackFrame->v4Function->isStrict())
         engine->throwTypeError();
 }
 
-ReturnedValue Runtime::method_loadSuperConstructor(ExecutionEngine *engine, const Value &t)
+ReturnedValue Runtime::LoadGlobalLookup::call(ExecutionEngine *engine, Function *f, int index)
+{
+    Lookup *l = runtimeLookup(f, index);
+    return l->globalGetter(l, engine);
+}
+
+ReturnedValue Runtime::LoadQmlContextPropertyLookup::call(ExecutionEngine *engine, uint index)
+{
+    Lookup *l = runtimeLookup(engine->currentStackFrame->v4Function, index);
+    return l->qmlContextPropertyGetter(l, engine, nullptr);
+}
+
+ReturnedValue Runtime::GetLookup::call(ExecutionEngine *engine, Function *f, const Value &base, int index)
+{
+    Lookup *l = runtimeLookup(f, index);
+    return l->getter(l, engine, base);
+}
+
+void Runtime::SetLookupSloppy::call(Function *f, const Value &base, int index, const Value &value)
+{
+    ExecutionEngine *engine = f->internalClass->engine;
+    QV4::Lookup *l = runtimeLookup(f, index);
+    l->setter(l, engine, const_cast<Value &>(base), value);
+}
+
+void Runtime::SetLookupStrict::call(Function *f, const Value &base, int index, const Value &value)
+{
+    ExecutionEngine *engine = f->internalClass->engine;
+    QV4::Lookup *l = runtimeLookup(f, index);
+    if (!l->setter(l, engine, const_cast<Value &>(base), value))
+        engine->throwTypeError();
+}
+
+ReturnedValue Runtime::LoadSuperConstructor::call(ExecutionEngine *engine, const Value &t)
 {
     if (engine->currentStackFrame->thisObject() != Value::emptyValue().asReturnedValue()) {
         return engine->throwReferenceError(QStringLiteral("super() already called."), QString(), 0, 0); // ### fix line number
@@ -1123,8 +1136,6 @@ ReturnedValue Runtime::method_loadSuperConstructor(ExecutionEngine *engine, cons
         return engine->throwTypeError();
     return c->asReturnedValue();
 }
-
-#endif // V4_BOOTSTRAP
 
 uint RuntimeHelpers::equalHelper(const Value &x, const Value &y)
 {
@@ -1143,25 +1154,21 @@ uint RuntimeHelpers::equalHelper(const Value &x, const Value &y)
         double dx = RuntimeHelpers::toNumber(x);
         return dx == y.asDouble();
     } else if (x.isBoolean()) {
-        return Runtime::method_compareEqual(Value::fromDouble((double) x.booleanValue()), y);
+        return Runtime::CompareEqual::call(Value::fromDouble((double) x.booleanValue()), y);
     } else if (y.isBoolean()) {
-        return Runtime::method_compareEqual(x, Value::fromDouble((double) y.booleanValue()));
+        return Runtime::CompareEqual::call(x, Value::fromDouble((double) y.booleanValue()));
     } else {
-#ifdef V4_BOOTSTRAP
-        Q_UNIMPLEMENTED();
-#else
         Object *xo = x.objectValue();
         Object *yo = y.objectValue();
         if (yo && (x.isNumber() || x.isString())) {
             Scope scope(yo->engine());
             ScopedValue py(scope, RuntimeHelpers::objectDefaultValue(yo, PREFERREDTYPE_HINT));
-            return Runtime::method_compareEqual(x, py);
+            return Runtime::CompareEqual::call(x, py);
         } else if (xo && (y.isNumber() || y.isString())) {
             Scope scope(xo->engine());
             ScopedValue px(scope, RuntimeHelpers::objectDefaultValue(xo, PREFERREDTYPE_HINT));
-            return Runtime::method_compareEqual(px, y);
+            return Runtime::CompareEqual::call(px, y);
         }
-#endif
     }
 
     return false;
@@ -1177,12 +1184,13 @@ Bool RuntimeHelpers::strictEqual(const Value &x, const Value &y)
 
     if (x.isNumber())
         return y.isNumber() && x.asDouble() == y.asDouble();
-    if (x.isManaged())
+    if (x.isManaged()) {
         return y.isManaged() && x.cast<Managed>()->isEqualTo(y.cast<Managed>());
+    }
     return false;
 }
 
-QV4::Bool Runtime::method_compareGreaterThan(const Value &l, const Value &r)
+QV4::Bool Runtime::CompareGreaterThan::call(const Value &l, const Value &r)
 {
     TRACE2(l, r);
     if (l.isInteger() && r.isInteger())
@@ -1192,26 +1200,17 @@ QV4::Bool Runtime::method_compareGreaterThan(const Value &l, const Value &r)
     String *sl = l.stringValue();
     String *sr = r.stringValue();
     if (sl && sr) {
-#ifdef V4_BOOTSTRAP
-        Q_UNIMPLEMENTED();
-        return false;
-#else
         return sr->lessThan(sl);
-#endif
     }
 
     Object *ro = r.objectValue();
     Object *lo = l.objectValue();
     if (ro || lo) {
-#ifdef V4_BOOTSTRAP
-        Q_UNIMPLEMENTED();
-#else
         QV4::ExecutionEngine *e = (lo ? lo : ro)->engine();
         QV4::Scope scope(e);
         QV4::ScopedValue pl(scope, lo ? RuntimeHelpers::objectDefaultValue(lo, QV4::NUMBER_HINT) : l.asReturnedValue());
         QV4::ScopedValue pr(scope, ro ? RuntimeHelpers::objectDefaultValue(ro, QV4::NUMBER_HINT) : r.asReturnedValue());
-        return Runtime::method_compareGreaterThan(pl, pr);
-#endif
+        return Runtime::CompareGreaterThan::call(pl, pr);
     }
 
     double dl = RuntimeHelpers::toNumber(l);
@@ -1219,7 +1218,7 @@ QV4::Bool Runtime::method_compareGreaterThan(const Value &l, const Value &r)
     return dl > dr;
 }
 
-QV4::Bool Runtime::method_compareLessThan(const Value &l, const Value &r)
+QV4::Bool Runtime::CompareLessThan::call(const Value &l, const Value &r)
 {
     TRACE2(l, r);
     if (l.isInteger() && r.isInteger())
@@ -1229,26 +1228,17 @@ QV4::Bool Runtime::method_compareLessThan(const Value &l, const Value &r)
     String *sl = l.stringValue();
     String *sr = r.stringValue();
     if (sl && sr) {
-#ifdef V4_BOOTSTRAP
-        Q_UNIMPLEMENTED();
-        return false;
-#else
         return sl->lessThan(sr);
-#endif
     }
 
     Object *ro = r.objectValue();
     Object *lo = l.objectValue();
     if (ro || lo) {
-#ifdef V4_BOOTSTRAP
-        Q_UNIMPLEMENTED();
-#else
         QV4::ExecutionEngine *e = (lo ? lo : ro)->engine();
         QV4::Scope scope(e);
         QV4::ScopedValue pl(scope, lo ? RuntimeHelpers::objectDefaultValue(lo, QV4::NUMBER_HINT) : l.asReturnedValue());
         QV4::ScopedValue pr(scope, ro ? RuntimeHelpers::objectDefaultValue(ro, QV4::NUMBER_HINT) : r.asReturnedValue());
-        return Runtime::method_compareLessThan(pl, pr);
-#endif
+        return Runtime::CompareLessThan::call(pl, pr);
     }
 
     double dl = RuntimeHelpers::toNumber(l);
@@ -1256,7 +1246,7 @@ QV4::Bool Runtime::method_compareLessThan(const Value &l, const Value &r)
     return dl < dr;
 }
 
-QV4::Bool Runtime::method_compareGreaterEqual(const Value &l, const Value &r)
+QV4::Bool Runtime::CompareGreaterEqual::call(const Value &l, const Value &r)
 {
     TRACE2(l, r);
     if (l.isInteger() && r.isInteger())
@@ -1266,26 +1256,17 @@ QV4::Bool Runtime::method_compareGreaterEqual(const Value &l, const Value &r)
     String *sl = l.stringValue();
     String *sr = r.stringValue();
     if (sl && sr) {
-#ifdef V4_BOOTSTRAP
-        Q_UNIMPLEMENTED();
-        return false;
-#else
         return !sl->lessThan(sr);
-#endif
     }
 
     Object *ro = r.objectValue();
     Object *lo = l.objectValue();
     if (ro || lo) {
-#ifdef V4_BOOTSTRAP
-        Q_UNIMPLEMENTED();
-#else
         QV4::ExecutionEngine *e = (lo ? lo : ro)->engine();
         QV4::Scope scope(e);
         QV4::ScopedValue pl(scope, lo ? RuntimeHelpers::objectDefaultValue(lo, QV4::NUMBER_HINT) : l.asReturnedValue());
         QV4::ScopedValue pr(scope, ro ? RuntimeHelpers::objectDefaultValue(ro, QV4::NUMBER_HINT) : r.asReturnedValue());
-        return Runtime::method_compareGreaterEqual(pl, pr);
-#endif
+        return Runtime::CompareGreaterEqual::call(pl, pr);
     }
 
     double dl = RuntimeHelpers::toNumber(l);
@@ -1293,7 +1274,7 @@ QV4::Bool Runtime::method_compareGreaterEqual(const Value &l, const Value &r)
     return dl >= dr;
 }
 
-QV4::Bool Runtime::method_compareLessEqual(const Value &l, const Value &r)
+QV4::Bool Runtime::CompareLessEqual::call(const Value &l, const Value &r)
 {
     TRACE2(l, r);
     if (l.isInteger() && r.isInteger())
@@ -1303,26 +1284,17 @@ QV4::Bool Runtime::method_compareLessEqual(const Value &l, const Value &r)
     String *sl = l.stringValue();
     String *sr = r.stringValue();
     if (sl && sr) {
-#ifdef V4_BOOTSTRAP
-        Q_UNIMPLEMENTED();
-        return false;
-#else
         return !sr->lessThan(sl);
-#endif
     }
 
     Object *ro = r.objectValue();
     Object *lo = l.objectValue();
     if (ro || lo) {
-#ifdef V4_BOOTSTRAP
-        Q_UNIMPLEMENTED();
-#else
         QV4::ExecutionEngine *e = (lo ? lo : ro)->engine();
         QV4::Scope scope(e);
         QV4::ScopedValue pl(scope, lo ? RuntimeHelpers::objectDefaultValue(lo, QV4::NUMBER_HINT) : l.asReturnedValue());
         QV4::ScopedValue pr(scope, ro ? RuntimeHelpers::objectDefaultValue(ro, QV4::NUMBER_HINT) : r.asReturnedValue());
-        return Runtime::method_compareLessEqual(pl, pr);
-#endif
+        return Runtime::CompareLessEqual::call(pl, pr);
     }
 
     double dl = RuntimeHelpers::toNumber(l);
@@ -1330,22 +1302,21 @@ QV4::Bool Runtime::method_compareLessEqual(const Value &l, const Value &r)
     return dl <= dr;
 }
 
-#ifndef V4_BOOTSTRAP
-Bool Runtime::method_compareInstanceof(ExecutionEngine *engine, const Value &left, const Value &right)
+Bool Runtime::CompareInstanceof::call(ExecutionEngine *engine, const Value &left, const Value &right)
 {
     TRACE2(left, right);
 
     Scope scope(engine);
-    ScopedValue v(scope, method_instanceof(engine, left, right));
+    ScopedValue v(scope, Instanceof::call(engine, left, right));
     return v->booleanValue();
 }
 
-uint Runtime::method_compareIn(ExecutionEngine *engine, const Value &left, const Value &right)
+uint Runtime::CompareIn::call(ExecutionEngine *engine, const Value &left, const Value &right)
 {
     TRACE2(left, right);
 
     Scope scope(engine);
-    ScopedValue v(scope, method_in(engine, left, right));
+    ScopedValue v(scope, In::call(engine, left, right));
     return v->booleanValue();
 }
 
@@ -1359,33 +1330,36 @@ static ReturnedValue throwPropertyIsNotAFunctionTypeError(ExecutionEngine *engin
     return engine->throwTypeError(msg);
 }
 
-ReturnedValue Runtime::method_callGlobalLookup(ExecutionEngine *engine, uint index, Value *argv, int argc)
+ReturnedValue Runtime::CallGlobalLookup::call(ExecutionEngine *engine, uint index, Value argv[], int argc)
 {
     Scope scope(engine);
-    Lookup *l = engine->currentStackFrame->v4Function->compilationUnit->runtimeLookups + index;
+    Lookup *l = runtimeLookup(engine->currentStackFrame->v4Function, index);
     Value function = Value::fromReturnedValue(l->globalGetter(l, engine));
     Value thisObject = Value::undefinedValue();
-    if (!function.isFunctionObject())
+    if (!function.isFunctionObject()) {
         return throwPropertyIsNotAFunctionTypeError(engine, &thisObject,
                                                     engine->currentStackFrame->v4Function->compilationUnit->runtimeStrings[l->nameIndex]->toQString());
+    }
 
     return static_cast<FunctionObject &>(function).call(&thisObject, argv, argc);
 }
 
-ReturnedValue Runtime::method_callQmlContextPropertyLookup(ExecutionEngine *engine, uint index, Value *argv, int argc)
+ReturnedValue Runtime::CallQmlContextPropertyLookup::call(ExecutionEngine *engine, uint index,
+                                                          Value *argv, int argc)
 {
     Scope scope(engine);
     ScopedValue thisObject(scope);
-    Lookup *l = engine->currentStackFrame->v4Function->compilationUnit->runtimeLookups + index;
+    Lookup *l = runtimeLookup(engine->currentStackFrame->v4Function, index);
     Value function = Value::fromReturnedValue(l->qmlContextPropertyGetter(l, engine, thisObject));
-    if (!function.isFunctionObject())
+    if (!function.isFunctionObject()) {
         return throwPropertyIsNotAFunctionTypeError(engine, thisObject,
                                                     engine->currentStackFrame->v4Function->compilationUnit->runtimeStrings[l->nameIndex]->toQString());
+    }
 
     return static_cast<FunctionObject &>(function).call(thisObject, argv, argc);
 }
 
-ReturnedValue Runtime::method_callPossiblyDirectEval(ExecutionEngine *engine, Value *argv, int argc)
+ReturnedValue Runtime::CallPossiblyDirectEval::call(ExecutionEngine *engine, Value *argv, int argc)
 {
     Scope scope(engine);
     ScopedValue thisObject(scope);
@@ -1404,7 +1378,7 @@ ReturnedValue Runtime::method_callPossiblyDirectEval(ExecutionEngine *engine, Va
     return function->call(thisObject, argv, argc);
 }
 
-ReturnedValue Runtime::method_callName(ExecutionEngine *engine, int nameIndex, Value *argv, int argc)
+ReturnedValue Runtime::CallName::call(ExecutionEngine *engine, int nameIndex, Value *argv, int argc)
 {
     Scope scope(engine);
     ScopedValue thisObject(scope);
@@ -1415,17 +1389,22 @@ ReturnedValue Runtime::method_callName(ExecutionEngine *engine, int nameIndex, V
     if (engine->hasException)
         return Encode::undefined();
 
-    if (!f)
-        return throwPropertyIsNotAFunctionTypeError(engine, thisObject,
-                                                    engine->currentStackFrame->v4Function->compilationUnit->runtimeStrings[nameIndex]->toQString());
+    if (!f) {
+        return throwPropertyIsNotAFunctionTypeError(
+                engine, thisObject, engine->currentStackFrame->v4Function->compilationUnit
+                                            ->runtimeStrings[nameIndex]->toQString());
+    }
 
     return f->call(thisObject, argv, argc);
 }
 
-ReturnedValue Runtime::method_callProperty(ExecutionEngine *engine, Value *base, int nameIndex, Value *argv, int argc)
+ReturnedValue Runtime::CallProperty::call(ExecutionEngine *engine, const Value &baseRef, int nameIndex, Value *argv, int argc)
 {
+    const Value *base = &baseRef;
     Scope scope(engine);
-    ScopedString name(scope, engine->currentStackFrame->v4Function->compilationUnit->runtimeStrings[nameIndex]);
+    ScopedString name(
+            scope,
+            engine->currentStackFrame->v4Function->compilationUnit->runtimeStrings[nameIndex]);
     ScopedObject lookupObject(scope, base);
 
     if (!lookupObject) {
@@ -1437,7 +1416,7 @@ ReturnedValue Runtime::method_callProperty(ExecutionEngine *engine, Value *base,
         }
 
         if (base->isManaged()) {
-            Managed *m = static_cast<Managed *>(base);
+            const Managed *m = static_cast<const Managed *>(base);
             lookupObject = m->internalClass()->prototype;
             Q_ASSERT(m->internalClass()->prototype);
         } else {
@@ -1461,20 +1440,21 @@ ReturnedValue Runtime::method_callProperty(ExecutionEngine *engine, Value *base,
     return f->call(base, argv, argc);
 }
 
-ReturnedValue Runtime::method_callPropertyLookup(ExecutionEngine *engine, Value *base, uint index, Value *argv, int argc)
+ReturnedValue Runtime::CallPropertyLookup::call(ExecutionEngine *engine, const Value &base, uint index, Value *argv, int argc)
 {
-    Lookup *l = engine->currentStackFrame->v4Function->compilationUnit->runtimeLookups + index;
+    Lookup *l = runtimeLookup(engine->currentStackFrame->v4Function, index);
     // ok to have the value on the stack here
-    Value f = Value::fromReturnedValue(l->getter(l, engine, *base));
+    Value f = Value::fromReturnedValue(l->getter(l, engine, base));
 
     if (!f.isFunctionObject())
         return engine->throwTypeError();
 
-    return static_cast<FunctionObject &>(f).call(base, argv, argc);
+    return static_cast<FunctionObject &>(f).call(&base, argv, argc);
 }
 
-ReturnedValue Runtime::method_callElement(ExecutionEngine *engine, Value *base, const Value &index, Value *argv, int argc)
+ReturnedValue Runtime::CallElement::call(ExecutionEngine *engine, const Value &baseRef, const Value &index, Value *argv, int argc)
 {
+    const Value *base = &baseRef;
     Scope scope(engine);
     ScopedValue thisObject(scope, base->toObject(engine));
     base = thisObject;
@@ -1483,14 +1463,14 @@ ReturnedValue Runtime::method_callElement(ExecutionEngine *engine, Value *base, 
     if (engine->hasException)
         return Encode::undefined();
 
-    ScopedFunctionObject f(scope, static_cast<Object *>(base)->get(str));
+    ScopedFunctionObject f(scope, static_cast<const Object *>(base)->get(str));
     if (!f)
         return engine->throwTypeError();
 
     return f->call(base, argv, argc);
 }
 
-ReturnedValue Runtime::method_callValue(ExecutionEngine *engine, const Value &func, Value *argv, int argc)
+ReturnedValue Runtime::CallValue::call(ExecutionEngine *engine, const Value &func, Value *argv, int argc)
 {
     if (!func.isFunctionObject())
         return engine->throwTypeError(QStringLiteral("%1 is not a function").arg(func.toQStringNoThrow()));
@@ -1498,11 +1478,12 @@ ReturnedValue Runtime::method_callValue(ExecutionEngine *engine, const Value &fu
     return static_cast<const FunctionObject &>(func).call(&undef, argv, argc);
 }
 
-ReturnedValue Runtime::method_callWithReceiver(ExecutionEngine *engine, const Value &func, const Value *thisObject, Value *argv, int argc)
+ReturnedValue Runtime::CallWithReceiver::call(ExecutionEngine *engine, const Value &func,
+                                               const Value &thisObject, Value argv[], int argc)
 {
     if (!func.isFunctionObject())
         return engine->throwTypeError(QStringLiteral("%1 is not a function").arg(func.toQStringNoThrow()));
-    return static_cast<const FunctionObject &>(func).call(thisObject, argv, argc);
+    return static_cast<const FunctionObject &>(func).call(&thisObject, argv, argc);
 }
 
 struct CallArgs {
@@ -1528,11 +1509,11 @@ static CallArgs createSpreadArguments(Scope &scope, Value *argv, int argc)
         }
         // spread element
         ++i;
-        it = Runtime::method_getIterator(scope.engine, argv[i], /* ForInIterator */ 1);
+        it = Runtime::GetIterator::call(scope.engine, argv[i], /* ForInIterator */ 1);
         if (scope.engine->hasException)
             return { nullptr, 0 };
         while (1) {
-            done = Runtime::method_iteratorNext(scope.engine, it, v);
+            done = Runtime::IteratorNext::call(scope.engine, it, v);
             if (scope.engine->hasException)
                 return { nullptr, 0 };
             Q_ASSERT(done->isBoolean());
@@ -1545,7 +1526,7 @@ static CallArgs createSpreadArguments(Scope &scope, Value *argv, int argc)
     return { arguments, argCount };
 }
 
-ReturnedValue Runtime::method_callWithSpread(ExecutionEngine *engine, const Value &function, const Value &thisObject, Value *argv, int argc)
+ReturnedValue Runtime::CallWithSpread::call(ExecutionEngine *engine, const Value &function, const Value &thisObject, Value *argv, int argc)
 {
     Q_ASSERT(argc >= 1);
     if (!function.isFunctionObject())
@@ -1559,7 +1540,7 @@ ReturnedValue Runtime::method_callWithSpread(ExecutionEngine *engine, const Valu
     return static_cast<const FunctionObject &>(function).call(&thisObject, arguments.argv, arguments.argc);
 }
 
-ReturnedValue Runtime::method_construct(ExecutionEngine *engine, const Value &function, const Value &newTarget, Value *argv, int argc)
+ReturnedValue Runtime::Construct::call(ExecutionEngine *engine, const Value &function, const Value &newTarget, Value *argv, int argc)
 {
     if (!function.isFunctionObject())
         return engine->throwTypeError();
@@ -1567,7 +1548,7 @@ ReturnedValue Runtime::method_construct(ExecutionEngine *engine, const Value &fu
     return static_cast<const FunctionObject &>(function).callAsConstructor(argv, argc, &newTarget);
 }
 
-ReturnedValue Runtime::method_constructWithSpread(ExecutionEngine *engine, const Value &function, const Value &newTarget, Value *argv, int argc)
+ReturnedValue Runtime::ConstructWithSpread::call(ExecutionEngine *engine, const Value &function, const Value &newTarget, Value *argv, int argc)
 {
     if (!function.isFunctionObject())
         return engine->throwTypeError();
@@ -1580,7 +1561,7 @@ ReturnedValue Runtime::method_constructWithSpread(ExecutionEngine *engine, const
     return static_cast<const FunctionObject &>(function).callAsConstructor(arguments.argv, arguments.argc, &newTarget);
 }
 
-ReturnedValue Runtime::method_tailCall(CppStackFrame *frame, ExecutionEngine *engine)
+ReturnedValue Runtime::TailCall::call(CppStackFrame *frame, ExecutionEngine *engine)
 {
     // IMPORTANT! The JIT assumes that this method has the same amount (or less) arguments than
     // the jitted function, so it can safely do a tail call.
@@ -1603,20 +1584,21 @@ ReturnedValue Runtime::method_tailCall(CppStackFrame *frame, ExecutionEngine *en
     }
 
     memcpy(frame->jsFrame->args, argv, argc * sizeof(Value));
-    frame->init(engine, fo.function(), frame->jsFrame->args, argc, frame->callerCanHandleTailCall);
+    frame->init(engine, fo.function(), frame->jsFrame->argValues<Value>(), argc,
+                frame->callerCanHandleTailCall);
     frame->setupJSFrame(frame->savedStackTop, fo, fo.scope(), thisObject, Primitive::undefinedValue());
     engine->jsStackTop = frame->savedStackTop + frame->requiredJSStackFrameSize();
     frame->pendingTailCall = true;
     return Encode::undefined();
 }
 
-void Runtime::method_throwException(ExecutionEngine *engine, const Value &value)
+void Runtime::ThrowException::call(ExecutionEngine *engine, const Value &value)
 {
     if (!value.isEmpty())
         engine->throwError(value);
 }
 
-ReturnedValue Runtime::method_typeofValue(ExecutionEngine *engine, const Value &value)
+ReturnedValue Runtime::TypeofValue::call(ExecutionEngine *engine, const Value &value)
 {
     Scope scope(engine);
     ScopedString res(scope);
@@ -1647,83 +1629,110 @@ ReturnedValue Runtime::method_typeofValue(ExecutionEngine *engine, const Value &
     return res.asReturnedValue();
 }
 
-QV4::ReturnedValue Runtime::method_typeofName(ExecutionEngine *engine, int nameIndex)
+QV4::ReturnedValue Runtime::TypeofName::call(ExecutionEngine *engine, int nameIndex)
 {
     Scope scope(engine);
     ScopedString name(scope, engine->currentStackFrame->v4Function->compilationUnit->runtimeStrings[nameIndex]);
     ScopedValue prop(scope, static_cast<ExecutionContext &>(engine->currentStackFrame->jsFrame->context).getProperty(name));
     // typeof doesn't throw. clear any possible exception
     scope.engine->hasException = false;
-    return method_typeofValue(engine, prop);
+    return TypeofValue::call(engine, prop);
 }
 
-ReturnedValue Runtime::method_createWithContext(ExecutionEngine *engine, Value *jsStackFrame)
+void Runtime::PushCallContext::call(CppStackFrame *frame)
 {
-    QV4::Value &accumulator = jsStackFrame[CallData::Accumulator];
-    accumulator = accumulator.toObject(engine);
-    if (engine->hasException)
-        return Encode::undefined();
-    Q_ASSERT(accumulator.isObject());
-    const Object &obj = static_cast<const Object &>(accumulator);
-    ExecutionContext *context = static_cast<ExecutionContext *>(jsStackFrame + CallData::Context);
-    return context->newWithContext(obj.d())->asReturnedValue();
+    frame->jsFrame->context = ExecutionContext::newCallContext(frame)->asReturnedValue();
 }
 
-ReturnedValue Runtime::method_createCatchContext(ExecutionContext *parent, int blockIndex, int exceptionVarNameIndex)
+ReturnedValue Runtime::PushWithContext::call(ExecutionEngine *engine, const Value &acc)
 {
-    ExecutionEngine *e = parent->engine();
-    return parent->newCatchContext(e->currentStackFrame, blockIndex,
-                                   e->currentStackFrame->v4Function->compilationUnit->runtimeStrings[exceptionVarNameIndex])->asReturnedValue();
+    CallData *jsFrame = engine->currentStackFrame->jsFrame;
+    Value &newAcc = jsFrame->accumulator.asValue<Value>();
+    newAcc = Value::fromHeapObject(acc.toObject(engine));
+    if (!engine->hasException) {
+        Q_ASSERT(newAcc.isObject());
+        const Object &obj = static_cast<const Object &>(newAcc);
+        Value &context = jsFrame->context.asValue<Value>();
+        auto ec = static_cast<const ExecutionContext *>(&context);
+        context = ec->newWithContext(obj.d())->asReturnedValue();
+    }
+    return newAcc.asReturnedValue();
 }
 
-ReturnedValue Runtime::method_createBlockContext(ExecutionContext *parent, int index)
+void Runtime::PushCatchContext::call(ExecutionEngine *engine, int blockIndex, int exceptionVarNameIndex)
 {
-    ExecutionEngine *e = parent->engine();
-    return parent->newBlockContext(e->currentStackFrame, index)->asReturnedValue();
+    auto name = engine->currentStackFrame->v4Function->compilationUnit->runtimeStrings[exceptionVarNameIndex];
+    engine->currentStackFrame->jsFrame->context = ExecutionContext::newCatchContext(engine->currentStackFrame, blockIndex, name)->asReturnedValue();
 }
 
-ReturnedValue Runtime::method_cloneBlockContext(ExecutionContext *previous)
+void Runtime::PushBlockContext::call(ExecutionEngine *engine, int index)
 {
-    return ExecutionContext::cloneBlockContext(static_cast<Heap::CallContext *>(previous->d()))->asReturnedValue();
+    engine->currentStackFrame->jsFrame->context = ExecutionContext::newBlockContext(engine->currentStackFrame, index)->asReturnedValue();
 }
 
+void Runtime::CloneBlockContext::call(ExecutionEngine *engine)
+{
+    auto frame = engine->currentStackFrame;
+    auto context = static_cast<Heap::CallContext *>(
+            Value::fromStaticValue(frame->jsFrame->context).m());
+    frame->jsFrame->context =
+            ExecutionContext::cloneBlockContext(engine, context)->asReturnedValue();
+}
 
-ReturnedValue Runtime::method_createScriptContext(ExecutionEngine *engine, int index)
+void Runtime::PushScriptContext::call(ExecutionEngine *engine, int index)
 {
     Q_ASSERT(engine->currentStackFrame->context()->d()->type == Heap::ExecutionContext::Type_GlobalContext ||
              engine->currentStackFrame->context()->d()->type == Heap::ExecutionContext::Type_QmlContext);
     ReturnedValue c = ExecutionContext::newBlockContext(engine->currentStackFrame, index)->asReturnedValue();
     engine->setScriptContext(c);
-    return c;
+    engine->currentStackFrame->jsFrame->context = c;
 }
 
-ReturnedValue Runtime::method_popScriptContext(ExecutionEngine *engine)
+void Runtime::PopScriptContext::call(ExecutionEngine *engine)
 {
     ReturnedValue root = engine->rootContext()->asReturnedValue();
     engine->setScriptContext(root);
-    return root;
+    engine->currentStackFrame->jsFrame->context = root;
 }
 
-void Runtime::method_throwReferenceError(ExecutionEngine *engine, int nameIndex)
+void Runtime::ThrowReferenceError::call(ExecutionEngine *engine, int nameIndex)
 {
     Scope scope(engine);
     ScopedString name(scope, engine->currentStackFrame->v4Function->compilationUnit->runtimeStrings[nameIndex]);
     engine->throwReferenceError(name);
 }
 
-void Runtime::method_declareVar(ExecutionEngine *engine, bool deletable, int nameIndex)
+void Runtime::ThrowOnNullOrUndefined::call(ExecutionEngine *engine, const Value &v)
+{
+    if (v.isNullOrUndefined())
+        engine->throwTypeError();
+}
+
+ReturnedValue Runtime::ConvertThisToObject::call(ExecutionEngine *engine, const Value &t)
+{
+    if (!t.isObject()) {
+        if (t.isNullOrUndefined()) {
+            return engine->globalObject->asReturnedValue();
+        } else {
+            return t.toObject(engine)->asReturnedValue();
+        }
+    }
+    return t.asReturnedValue();
+}
+
+void Runtime::DeclareVar::call(ExecutionEngine *engine, Bool deletable, int nameIndex)
 {
     Scope scope(engine);
     ScopedString name(scope, engine->currentStackFrame->v4Function->compilationUnit->runtimeStrings[nameIndex]);
     static_cast<ExecutionContext &>(engine->currentStackFrame->jsFrame->context).createMutableBinding(name, deletable);
 }
 
-ReturnedValue Runtime::method_arrayLiteral(ExecutionEngine *engine, Value *values, uint length)
+ReturnedValue Runtime::ArrayLiteral::call(ExecutionEngine *engine, Value *values, uint length)
 {
     return engine->newArrayObject(values, length)->asReturnedValue();
 }
 
-ReturnedValue Runtime::method_objectLiteral(ExecutionEngine *engine, int classId, const QV4::Value *args, int argc)
+ReturnedValue Runtime::ObjectLiteral::call(ExecutionEngine *engine, int classId, QV4::Value args[], int argc)
 {
     Scope scope(engine);
     Scoped<InternalClass> klass(scope, engine->currentStackFrame->v4Function->compilationUnit->runtimeClasses[classId]);
@@ -1755,7 +1764,8 @@ ReturnedValue Runtime::method_objectLiteral(ExecutionEngine *engine, int classId
         if (arg != ObjectLiteralArgument::Value) {
             Q_ASSERT(args[2].isInteger());
             int functionId = args[2].integerValue();
-            QV4::Function *clos = static_cast<CompiledData::CompilationUnit*>(engine->currentStackFrame->v4Function->compilationUnit)->runtimeFunctions[functionId];
+            QV4::Function *clos = engine->currentStackFrame->v4Function->executableCompilationUnit()
+                                          ->runtimeFunctions[functionId];
             Q_ASSERT(clos);
 
             PropertyKey::FunctionNamePrefix prefix = PropertyKey::None;
@@ -1796,9 +1806,11 @@ ReturnedValue Runtime::method_objectLiteral(ExecutionEngine *engine, int classId
     return o.asReturnedValue();
 }
 
-ReturnedValue Runtime::method_createClass(ExecutionEngine *engine, int classIndex, const Value &superClass, const Value *computedNames)
+ReturnedValue Runtime::CreateClass::call(ExecutionEngine *engine, int classIndex,
+                                          const Value &superClass, Value computedNames[])
 {
-    const CompiledData::CompilationUnit *unit = engine->currentStackFrame->v4Function->compilationUnit;
+    const QV4::ExecutableCompilationUnit *unit
+            = engine->currentStackFrame->v4Function->executableCompilationUnit();
     const QV4::CompiledData::Class *cls = unit->unitData()->classAt(classIndex);
 
     Scope scope(engine);
@@ -1898,20 +1910,20 @@ ReturnedValue Runtime::method_createClass(ExecutionEngine *engine, int classInde
     return constructor->asReturnedValue();
 }
 
-QV4::ReturnedValue Runtime::method_createMappedArgumentsObject(ExecutionEngine *engine)
+QV4::ReturnedValue Runtime::CreateMappedArgumentsObject::call(ExecutionEngine *engine)
 {
     Q_ASSERT(engine->currentContext()->d()->type == Heap::ExecutionContext::Type_CallContext);
     Heap::InternalClass *ic = engine->internalClasses(EngineBase::Class_ArgumentsObject);
     return engine->memoryManager->allocObject<ArgumentsObject>(ic, engine->currentStackFrame)->asReturnedValue();
 }
 
-QV4::ReturnedValue Runtime::method_createUnmappedArgumentsObject(ExecutionEngine *engine)
+QV4::ReturnedValue Runtime::CreateUnmappedArgumentsObject::call(ExecutionEngine *engine)
 {
     Heap::InternalClass *ic = engine->internalClasses(EngineBase::Class_StrictArgumentsObject);
     return engine->memoryManager->allocObject<StrictArgumentsObject>(ic, engine->currentStackFrame)->asReturnedValue();
 }
 
-QV4::ReturnedValue Runtime::method_createRestParameter(ExecutionEngine *engine, int argIndex)
+QV4::ReturnedValue Runtime::CreateRestParameter::call(ExecutionEngine *engine, int argIndex)
 {
     const Value *values = engine->currentStackFrame->originalArguments + argIndex;
     int nValues = engine->currentStackFrame->originalArgumentsCount - argIndex;
@@ -1920,14 +1932,33 @@ QV4::ReturnedValue Runtime::method_createRestParameter(ExecutionEngine *engine, 
     return engine->newArrayObject(values, nValues)->asReturnedValue();
 }
 
-ReturnedValue Runtime::method_regexpLiteral(ExecutionEngine *engine, int id)
+ReturnedValue Runtime::RegexpLiteral::call(ExecutionEngine *engine, int id)
 {
-    Heap::RegExpObject *ro = engine->newRegExpObject(engine->currentStackFrame->v4Function->compilationUnit->runtimeRegularExpressions[id].as<RegExp>());
+    const auto val
+            = engine->currentStackFrame->v4Function->compilationUnit->runtimeRegularExpressions[id];
+    Heap::RegExpObject *ro = engine->newRegExpObject(Value::fromStaticValue(val).as<RegExp>());
     return ro->asReturnedValue();
 }
-#endif // V4_BOOTSTRAP
 
-ReturnedValue Runtime::method_uMinus(const Value &value)
+ReturnedValue Runtime::ToObject::call(ExecutionEngine *engine, const Value &obj)
+{
+    if (obj.isObject())
+        return obj.asReturnedValue();
+
+    return obj.toObject(engine)->asReturnedValue();
+}
+
+Bool Runtime::ToBoolean::call(const Value &obj)
+{
+    return obj.toBoolean();
+}
+
+ReturnedValue Runtime::ToNumber::call(ExecutionEngine *, const Value &v)
+{
+    return Encode(v.toNumber());
+}
+
+ReturnedValue Runtime::UMinus::call(const Value &value)
 {
     TRACE1(value);
 
@@ -1943,8 +1974,7 @@ ReturnedValue Runtime::method_uMinus(const Value &value)
 
 // binary operators
 
-#ifndef V4_BOOTSTRAP
-ReturnedValue Runtime::method_add(ExecutionEngine *engine, const Value &left, const Value &right)
+ReturnedValue Runtime::Add::call(ExecutionEngine *engine, const Value &left, const Value &right)
 {
     TRACE2(left, right);
 
@@ -1956,7 +1986,7 @@ ReturnedValue Runtime::method_add(ExecutionEngine *engine, const Value &left, co
     return RuntimeHelpers::addHelper(engine, left, right);
 }
 
-ReturnedValue Runtime::method_sub(const Value &left, const Value &right)
+ReturnedValue Runtime::Sub::call(const Value &left, const Value &right)
 {
     TRACE2(left, right);
 
@@ -1969,7 +1999,7 @@ ReturnedValue Runtime::method_sub(const Value &left, const Value &right)
     return Value::fromDouble(lval - rval).asReturnedValue();
 }
 
-ReturnedValue Runtime::method_mul(const Value &left, const Value &right)
+ReturnedValue Runtime::Mul::call(const Value &left, const Value &right)
 {
     TRACE2(left, right);
 
@@ -1982,7 +2012,7 @@ ReturnedValue Runtime::method_mul(const Value &left, const Value &right)
     return Value::fromDouble(lval * rval).asReturnedValue();
 }
 
-ReturnedValue Runtime::method_div(const Value &left, const Value &right)
+ReturnedValue Runtime::Div::call(const Value &left, const Value &right)
 {
     TRACE2(left, right);
 
@@ -2003,7 +2033,7 @@ ReturnedValue Runtime::method_div(const Value &left, const Value &right)
     return Value::fromDouble(lval / rval).asReturnedValue();
 }
 
-ReturnedValue Runtime::method_mod(const Value &left, const Value &right)
+ReturnedValue Runtime::Mod::call(const Value &left, const Value &right)
 {
     TRACE2(left, right);
 
@@ -2024,7 +2054,43 @@ ReturnedValue Runtime::method_mod(const Value &left, const Value &right)
     return Value::fromDouble(std::fmod(lval, rval)).asReturnedValue();
 }
 
-ReturnedValue Runtime::method_shl(const Value &left, const Value &right)
+ReturnedValue Runtime::Exp::call(const Value &base, const Value &exp)
+{
+    double b = base.toNumber();
+    double e = exp.toNumber();
+    if (qt_is_inf(e) && (b == 1 || b == -1))
+        return Encode(qt_qnan());
+    return Encode(pow(b,e));
+}
+
+ReturnedValue Runtime::BitAnd::call(const Value &left, const Value &right)
+{
+    TRACE2(left, right);
+
+    int lval = left.toInt32();
+    int rval = right.toInt32();
+    return Encode((int)(lval & rval));
+}
+
+ReturnedValue Runtime::BitOr::call(const Value &left, const Value &right)
+{
+    TRACE2(left, right);
+
+    int lval = left.toInt32();
+    int rval = right.toInt32();
+    return Encode((int)(lval | rval));
+}
+
+ReturnedValue Runtime::BitXor::call(const Value &left, const Value &right)
+{
+    TRACE2(left, right);
+
+    int lval = left.toInt32();
+    int rval = right.toInt32();
+    return Encode((int)(lval ^ rval));
+}
+
+ReturnedValue Runtime::Shl::call(const Value &left, const Value &right)
 {
     TRACE2(left, right);
 
@@ -2033,7 +2099,7 @@ ReturnedValue Runtime::method_shl(const Value &left, const Value &right)
     return Encode((int)(lval << rval));
 }
 
-ReturnedValue Runtime::method_shr(const Value &left, const Value &right)
+ReturnedValue Runtime::Shr::call(const Value &left, const Value &right)
 {
     TRACE2(left, right);
 
@@ -2042,7 +2108,7 @@ ReturnedValue Runtime::method_shr(const Value &left, const Value &right)
     return Encode((int)(lval >> rval));
 }
 
-ReturnedValue Runtime::method_ushr(const Value &left, const Value &right)
+ReturnedValue Runtime::UShr::call(const Value &left, const Value &right)
 {
     TRACE2(left, right);
 
@@ -2053,37 +2119,35 @@ ReturnedValue Runtime::method_ushr(const Value &left, const Value &right)
     return Encode(res);
 }
 
-#endif // V4_BOOTSTRAP
-
-ReturnedValue Runtime::method_greaterThan(const Value &left, const Value &right)
+ReturnedValue Runtime::GreaterThan::call(const Value &left, const Value &right)
 {
     TRACE2(left, right);
 
-    bool r = method_compareGreaterThan(left, right);
+    bool r = CompareGreaterThan::call(left, right);
     return Encode(r);
 }
 
-ReturnedValue Runtime::method_lessThan(const Value &left, const Value &right)
+ReturnedValue Runtime::LessThan::call(const Value &left, const Value &right)
 {
     TRACE2(left, right);
 
-    bool r = method_compareLessThan(left, right);
+    bool r = CompareLessThan::call(left, right);
     return Encode(r);
 }
 
-ReturnedValue Runtime::method_greaterEqual(const Value &left, const Value &right)
+ReturnedValue Runtime::GreaterEqual::call(const Value &left, const Value &right)
 {
     TRACE2(left, right);
 
-    bool r = method_compareGreaterEqual(left, right);
+    bool r = CompareGreaterEqual::call(left, right);
     return Encode(r);
 }
 
-ReturnedValue Runtime::method_lessEqual(const Value &left, const Value &right)
+ReturnedValue Runtime::LessEqual::call(const Value &left, const Value &right)
 {
     TRACE2(left, right);
 
-    bool r = method_compareLessEqual(left, right);
+    bool r = CompareLessEqual::call(left, right);
     return Encode(r);
 }
 
@@ -2107,18 +2171,16 @@ struct LazyScope
     }
 };
 
-Bool Runtime::method_compareEqual(const Value &left, const Value &right)
+Bool Runtime::CompareEqual::call(const Value &left, const Value &right)
 {
     TRACE2(left, right);
 
     Value lhs = left;
     Value rhs = right;
 
-#ifndef V4_BOOTSTRAP
     LazyScope scope;
     Value *lhsGuard = nullptr;
     Value *rhsGuard = nullptr;
-#endif
 
   redo:
     if (lhs.asReturnedValue() == rhs.asReturnedValue())
@@ -2148,7 +2210,6 @@ Bool Runtime::method_compareEqual(const Value &left, const Value &right)
         case QV4::Value::QT_ManagedOrUndefined1:
         case QV4::Value::QT_ManagedOrUndefined2:
         case QV4::Value::QT_ManagedOrUndefined3: {
-#ifndef V4_BOOTSTRAP
             // RHS: Managed
             Heap::Base *l = lhs.m();
             Heap::Base *r = rhs.m();
@@ -2166,7 +2227,6 @@ Bool Runtime::method_compareEqual(const Value &left, const Value &right)
                 lhs = lhsGuard->asReturnedValue();
                 break;
             }
-#endif
             return false;
         }
         case QV4::Value::QT_Empty:
@@ -2178,16 +2238,12 @@ Bool Runtime::method_compareEqual(const Value &left, const Value &right)
             rhs = Value::fromDouble(rhs.int_32());
             // fall through
         default: // double
-#ifndef V4_BOOTSTRAP
             if (lhs.m()->internalClass->vtable->isStringOrSymbol) {
                 return lhs.m()->internalClass->vtable->isString ? (RuntimeHelpers::toNumber(lhs) == rhs.doubleValue()) : false;
             } else {
                 scope.set(&lhsGuard, RuntimeHelpers::objectDefaultValue(&static_cast<QV4::Object &>(lhs), PREFERREDTYPE_HINT), lhs.m()->internalClass->engine);
                 lhs = lhsGuard->asReturnedValue();
             }
-#else
-            Q_UNIMPLEMENTED();
-#endif
         }
         goto redo;
     case QV4::Value::QT_Empty:
@@ -2216,23 +2272,23 @@ Bool Runtime::method_compareEqual(const Value &left, const Value &right)
     }
 }
 
-ReturnedValue Runtime::method_equal(const Value &left, const Value &right)
+ReturnedValue Runtime::Equal::call(const Value &left, const Value &right)
 {
     TRACE2(left, right);
 
-    bool r = method_compareEqual(left, right);
+    bool r = CompareEqual::call(left, right);
     return Encode(r);
 }
 
-ReturnedValue Runtime::method_notEqual(const Value &left, const Value &right)
+ReturnedValue Runtime::NotEqual::call(const Value &left, const Value &right)
 {
     TRACE2(left, right);
 
-    bool r = !method_compareEqual(left, right);
+    bool r = !CompareEqual::call(left, right);
     return Encode(r);
 }
 
-ReturnedValue Runtime::method_strictEqual(const Value &left, const Value &right)
+ReturnedValue Runtime::StrictEqual::call(const Value &left, const Value &right)
 {
     TRACE2(left, right);
 
@@ -2240,7 +2296,7 @@ ReturnedValue Runtime::method_strictEqual(const Value &left, const Value &right)
     return Encode(r);
 }
 
-ReturnedValue Runtime::method_strictNotEqual(const Value &left, const Value &right)
+ReturnedValue Runtime::StrictNotEqual::call(const Value &left, const Value &right)
 {
     TRACE2(left, right);
 
@@ -2248,21 +2304,21 @@ ReturnedValue Runtime::method_strictNotEqual(const Value &left, const Value &rig
     return Encode(r);
 }
 
-Bool Runtime::method_compareNotEqual(const Value &left, const Value &right)
+Bool Runtime::CompareNotEqual::call(const Value &left, const Value &right)
 {
     TRACE2(left, right);
 
-    return !Runtime::method_compareEqual(left, right);
+    return !Runtime::CompareEqual::call(left, right);
 }
 
-Bool Runtime::method_compareStrictEqual(const Value &left, const Value &right)
+Bool Runtime::CompareStrictEqual::call(const Value &left, const Value &right)
 {
     TRACE2(left, right);
 
     return RuntimeHelpers::strictEqual(left, right);
 }
 
-Bool Runtime::method_compareStrictNotEqual(const Value &left, const Value &right)
+Bool Runtime::CompareStrictNotEqual::call(const Value &left, const Value &right)
 {
     TRACE2(left, right);
 

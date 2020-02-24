@@ -266,9 +266,9 @@ void QQuickFlickablePrivate::init()
     QQml_setParent_noEvent(contentItem, q);
     contentItem->setParentItem(q);
     qmlobject_connect(&timeline, QQuickTimeLine, SIGNAL(completed()),
-                      q, QQuickFlickable, SLOT(timelineCompleted()))
+                      q, QQuickFlickable, SLOT(timelineCompleted()));
     qmlobject_connect(&velocityTimeline, QQuickTimeLine, SIGNAL(completed()),
-                      q, QQuickFlickable, SLOT(velocityTimelineCompleted()))
+                      q, QQuickFlickable, SLOT(velocityTimelineCompleted()));
     q->setAcceptedMouseButtons(Qt::LeftButton);
     q->setAcceptTouchEvents(false); // rely on mouse events synthesized from touch
     q->setFiltersChildMouseEvents(true);
@@ -1489,7 +1489,7 @@ void QQuickFlickable::wheelEvent(QWheelEvent *event)
         d->vData.velocity = 0;
         d->hData.velocity = 0;
         d->timer.start();
-        d->maybeBeginDrag(currentTimestamp, event->posF());
+        d->maybeBeginDrag(currentTimestamp, event->position());
         break;
     case Qt::NoScrollPhase: // default phase with an ordinary wheel mouse
     case Qt::ScrollUpdate:
@@ -1571,7 +1571,8 @@ void QQuickFlickable::wheelEvent(QWheelEvent *event)
         QVector2D velocity(xDelta / elapsed, yDelta / elapsed);
         d->lastPosTime = currentTimestamp;
         d->accumulatedWheelPixelDelta += QVector2D(event->pixelDelta());
-        d->drag(currentTimestamp, event->type(), event->posF(), d->accumulatedWheelPixelDelta, true, !d->scrollingPhase, true, velocity);
+        d->drag(currentTimestamp, event->type(), event->position(), d->accumulatedWheelPixelDelta,
+                true, !d->scrollingPhase, true, velocity);
         event->accept();
     }
 
