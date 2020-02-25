@@ -155,6 +155,7 @@ class Build:
         "-sdk macosx10.15",
         "-device-option QMAKE_APPLE_DEVICE_ARCHS=x86_64",
         "-xplatform macx-clang",
+        "-reduce-exports",
       ]
       if self.is_debug:
         flags += ["-debug-and-release"]
@@ -164,7 +165,7 @@ class Build:
         flags += ["-debug"]
 
     if not self.is_debug:
-      flags += ["-release", "-ltcg", "-optimize-size", "-reduce-exports"]
+      flags += ["-release", "-ltcg", "-optimize-size"]
     else:
       flags += ["-separate-debug-info"]
 
@@ -270,9 +271,14 @@ class Build:
       zfp.extractall()
     os.remove("jom.zip")
 
+  def _download_vswhere(self):
+    sp.run(["curl", "-L", "-o", "vswhere.exe",
+            "https://github.com/microsoft/vswhere/releases/download/2.8.4/vswhere.exe"])
+
   def _get_vs_dir(self):
     import json
-    vswhere = sp.run([str(self.build_root / "vswhere.exe"), "-format", "json",
+    self._download_vswhere()
+    vswhere = sp.run([str(Path.cwd() / "vswhere.exe"), "-format", "json",
                       "-version", "15.0"], stdout=sp.PIPE)
     vswhere.check_returncode()
     vs_data = json.loads(vswhere.stdout.decode())
