@@ -32,6 +32,7 @@
 #include "qwasmcompositor.h"
 #include "qwasmintegration.h"
 #include "qwasmclipboard.h"
+#include "qwasmstring.h"
 
 #include <QtGui/qevent.h>
 #include <qpa/qwindowsysteminterface.h>
@@ -355,9 +356,10 @@ void QWasmEventTranslator::initEventHandlers()
 
         if (emscripten::val::global("window")["safari"].isUndefined()) {
             val document = val::global("document");
-            val canvas = document.call<val>("getElementById", val(canvasId));
+            val jsCanvasId = QWasmString::fromQString(screen()->canvasId());
+            val canvas = document.call<val>("getElementById", jsCanvasId);
             canvas.call<void>("addEventListener",
-                              std::string("wheel"),
+                              val("wheel"),
                               val::module_property("qtMouseWheelEvent"));
         }
     }
@@ -546,7 +548,7 @@ void resizeWindow(QWindow *window, QWasmWindow::ResizeMode mode,
 
 void QWasmEventTranslator::processMouse(int eventType, const EmscriptenMouseEvent *mouseEvent)
 {
-    auto timestamp = mouseEvent->timestamp;
+    auto timestamp = emscripten_date_now();
     QPoint targetPoint(mouseEvent->targetX, mouseEvent->targetY);
     QPoint globalPoint = screen()->geometry().topLeft() + targetPoint;
 
@@ -672,7 +674,7 @@ int QWasmEventTranslator::wheel_cb(int eventType, const EmscriptenWheelEvent *wh
 
     QWasmEventTranslator *translator = (QWasmEventTranslator*)userData;
     Qt::KeyboardModifiers modifiers = translator->translateMouseEventModifier(&mouseEvent);
-    auto timestamp = mouseEvent.timestamp;
+    auto timestamp = emscripten_date_now();
     QPoint targetPoint(mouseEvent.targetX, mouseEvent.targetY);
     QPoint globalPoint = eventTranslator->screen()->geometry().topLeft() + targetPoint;
 

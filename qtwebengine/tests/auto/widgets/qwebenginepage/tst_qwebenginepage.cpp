@@ -226,9 +226,13 @@ private Q_SLOTS:
 
     void customUserAgentInNewTab();
     void renderProcessCrashed();
+    void backgroundColor();
 
 private:
     static QPoint elementCenter(QWebEnginePage *page, const QString &id);
+    static bool isFalseJavaScriptResult(QWebEnginePage *page, const QString &javaScript);
+    static bool isTrueJavaScriptResult(QWebEnginePage *page, const QString &javaScript);
+    static bool isEmptyListJavaScriptResult(QWebEnginePage *page, const QString &javaScript);
 
     QWebEngineView* m_view;
     QWebEnginePage* m_page;
@@ -697,7 +701,7 @@ public:
     CursorTrackedPage(QWidget *parent = 0): QWebEnginePage(parent) {
     }
 
-    QString selectedText() {
+    QString jsSelectedText() {
         return evaluateJavaScriptSync(this, "window.getSelection().toString()").toString();
     }
 
@@ -713,62 +717,91 @@ public:
     int isSelectionCollapsed() {
         return evaluateJavaScriptSync(this, "window.getSelection().getRangeAt(0).collapsed").toBool();
     }
-    bool hasSelection()
-    {
-        return !selectedText().isEmpty();
-    }
 };
 
 void tst_QWebEnginePage::textSelection()
 {
-    QWebEngineView view;
-    CursorTrackedPage *page = new CursorTrackedPage(&view);
-    QString content("<html><body><p id=one>The quick brown fox</p>" \
+    CursorTrackedPage page;
+
+    QString textToSelect("The quick brown fox");
+    QString content = QString("<html><body><p id=one>%1</p>" \
         "<p id=two>jumps over the lazy dog</p>" \
-        "<p>May the source<br/>be with you!</p></body></html>");
-    page->setView(&view);
-    QSignalSpy loadSpy(&view, SIGNAL(loadFinished(bool)));
-    page->setHtml(content);
+        "<p>May the source<br/>be with you!</p></body></html>").arg(textToSelect);
+
+    QSignalSpy loadSpy(&page, SIGNAL(loadFinished(bool)));
+    page.setHtml(content);
     QTRY_COMPARE_WITH_TIMEOUT(loadSpy.count(), 1, 20000);
 
     // these actions must exist
-    QVERIFY(page->action(QWebEnginePage::SelectAll) != 0);
+    QVERIFY(page.action(QWebEnginePage::SelectAll) != 0);
 
     // ..but SelectAll is disabled because the page has no focus due to disabled FocusOnNavigationEnabled.
-    QCOMPARE(page->action(QWebEnginePage::SelectAll)->isEnabled(), false);
+    QCOMPARE(page.action(QWebEnginePage::SelectAll)->isEnabled(), false);
 
     // Verify hasSelection returns false since there is no selection yet...
-    QCOMPARE(page->hasSelection(), false);
+    QVERIFY(!page.hasSelection());
+    QVERIFY(page.jsSelectedText().isEmpty());
 
     // this will select the first paragraph
     QString selectScript = "var range = document.createRange(); " \
         "var node = document.getElementById(\"one\"); " \
         "range.selectNode(node); " \
         "getSelection().addRange(range);";
-    evaluateJavaScriptSync(page, selectScript);
-    QCOMPARE(page->selectedText().trimmed(), QString::fromLatin1("The quick brown fox"));
+    evaluateJavaScriptSync(&page, selectScript);
+
     // Make sure hasSelection returns true, since there is selected text now...
-    QCOMPARE(page->hasSelection(), true);
+    QTRY_VERIFY(page.hasSelection());
+    QCOMPARE(page.selectedText().trimmed(), textToSelect);
+
+    QCOMPARE(page.jsSelectedText().trimmed(), textToSelect);
+
+    // navigate away and check that selection is cleared
+    page.load(QUrl("about:blank"));
+    QTRY_COMPARE(loadSpy.count(), 2);
+
+    QVERIFY(!page.hasSelection());
+    QVERIFY(page.selectedText().isEmpty());
+
+    QVERIFY(page.jsSelectedText().isEmpty());
 }
 
 
 void tst_QWebEnginePage::backActionUpdate()
 {
     QWebEngineView view;
+    view.resize(640, 480);
+    view.show();
+
     QWebEnginePage *page = view.page();
+    QSignalSpy loadSpy(page, &QWebEnginePage::loadFinished);
     QAction *action = page->action(QWebEnginePage::Back);
     QVERIFY(!action->isEnabled());
-    QSignalSpy loadSpy(page, SIGNAL(loadFinished(bool)));
-    QUrl url = QUrl("qrc:///resources/framedindex.html");
-    page->load(url);
+
+    page->load(QUrl("qrc:///resources/framedindex.html"));
     QTRY_COMPARE_WITH_TIMEOUT(loadSpy.count(), 1, 20000);
     QVERIFY(!action->isEnabled());
-    QTest::mouseClick(&view, Qt::LeftButton, 0, QPoint(10, 10));
-    QEXPECT_FAIL("", "Behavior change: Load signals are emitted only for the main frame in QtWebEngine.", Continue);
-    QTRY_COMPARE_WITH_TIMEOUT(loadSpy.count(), 2, 100);
 
-    QEXPECT_FAIL("", "FIXME: Mouse events aren't passed from the QWebEngineView down to the RWHVQtDelegateWidget", Continue);
-    QVERIFY(action->isEnabled());
+    auto firstAnchorCenterInFrame = [](QWebEnginePage *page, const QString &frameName) {
+        QVariantList rectList = evaluateJavaScriptSync(page,
+            "(function(){"
+            "var frame = document.getElementsByName('" + frameName + "')[0];"
+            "var anchor = frame.contentDocument.getElementsByTagName('a')[0];"
+            "var rect = anchor.getBoundingClientRect();"
+            "return [(rect.left + rect.right) / 2, (rect.top + rect.bottom) / 2];"
+        "})()").toList();
+
+        if (rectList.count() != 2) {
+            qWarning("firstAnchorCenterInFrame failed.");
+            return QPoint();
+        }
+
+        return QPoint(rectList.at(0).toInt(), rectList.at(1).toInt());
+    };
+
+    QVERIFY(evaluateJavaScriptSync(page, "document.getElementsByName('frame_b')[0].contentDocument == undefined").toBool());
+    QTest::mouseClick(view.focusProxy(), Qt::LeftButton, 0, firstAnchorCenterInFrame(page, "frame_c"));
+    QTRY_VERIFY(evaluateJavaScriptSync(page, "document.getElementsByName('frame_b')[0].contentDocument != undefined").toBool());
+    QTRY_VERIFY(action->isEnabled());
 }
 
 void tst_QWebEnginePage::localStorageVisibility()
@@ -791,11 +824,13 @@ void tst_QWebEnginePage::localStorageVisibility()
     QVERIFY(evaluateJavaScriptSync(&webPage1, QString("(window.localStorage != undefined)")).toBool());
     QVERIFY(!evaluateJavaScriptSync(&webPage2, QString("(window.localStorage != undefined)")).toBool());
 
-    // Switching the feature off does not actively remove the object from webPage1.
+    // Toggle local setting for every page and...
     webPage1.settings()->setAttribute(QWebEngineSettings::LocalStorageEnabled, false);
     webPage2.settings()->setAttribute(QWebEngineSettings::LocalStorageEnabled, true);
+    // ...first check second page (for storage to appear) as applying settings is batched and done asynchronously
+    QTRY_VERIFY(evaluateJavaScriptSync(&webPage2, QString("(window.localStorage != undefined)")).toBool());
+    // Switching the feature off does not actively remove the object from webPage1.
     QVERIFY(evaluateJavaScriptSync(&webPage1, QString("(window.localStorage != undefined)")).toBool());
-    QVERIFY(evaluateJavaScriptSync(&webPage2, QString("(window.localStorage != undefined)")).toBool());
 
     // The object disappears only after reloading.
     webPage1.triggerAction(QWebEnginePage::Reload);
@@ -1682,34 +1717,51 @@ void tst_QWebEnginePage::openWindowDefaultSize()
     QCOMPARE(requestedGeometry.height(), 100);
 }
 
+bool tst_QWebEnginePage::isFalseJavaScriptResult(QWebEnginePage *page, const QString &javaScript)
+{
+    QVariant result = evaluateJavaScriptSync(page, javaScript);
+    return !result.isNull() && result.isValid() && result == QVariant(false);
+}
+
+bool tst_QWebEnginePage::isTrueJavaScriptResult(QWebEnginePage *page, const QString &javaScript)
+{
+    QVariant result = evaluateJavaScriptSync(page, javaScript);
+    return !result.isNull() && result.isValid() && result == QVariant(true);
+}
+
+bool tst_QWebEnginePage::isEmptyListJavaScriptResult(QWebEnginePage *page, const QString &javaScript)
+{
+    QVariant result = evaluateJavaScriptSync(page, javaScript);
+    return !result.isNull() && result.isValid() && result == QList<QVariant>();
+}
+
 void tst_QWebEnginePage::runJavaScript()
 {
     TestPage page;
     QVariant result;
-    QVariantList list;
     QVariantMap map;
 
-    QTRY_VERIFY(!evaluateJavaScriptSync(&page, "false").toBool());
-    QTRY_COMPARE(evaluateJavaScriptSync(&page, "2").toInt(), 2);
-    QTRY_COMPARE(evaluateJavaScriptSync(&page, "2.5").toDouble(), 2.5);
-    QTRY_COMPARE(evaluateJavaScriptSync(&page, "\"Test\"").toString(), "Test");
-    QTRY_COMPARE(evaluateJavaScriptSync(&page, "[]").toList(), list);
+    QVERIFY(isFalseJavaScriptResult(&page, "false"));
+    QCOMPARE(evaluateJavaScriptSync(&page, "2").toInt(), 2);
+    QCOMPARE(evaluateJavaScriptSync(&page, "2.5").toDouble(), 2.5);
+    QCOMPARE(evaluateJavaScriptSync(&page, "\"Test\"").toString(), "Test");
+    QVERIFY(isEmptyListJavaScriptResult(&page, "[]"));
 
     map.insert(QStringLiteral("test"), QVariant(2));
-    QTRY_COMPARE(evaluateJavaScriptSync(&page, "var el = {\"test\": 2}; el").toMap(), map);
+    QCOMPARE(evaluateJavaScriptSync(&page, "var el = {\"test\": 2}; el").toMap(), map);
 
-    QTRY_VERIFY(evaluateJavaScriptSync(&page, "null").isNull());
+    QVERIFY(evaluateJavaScriptSync(&page, "null").isNull());
 
     result = evaluateJavaScriptSync(&page, "undefined");
-    QTRY_VERIFY(result.isNull() && !result.isValid());
+    QVERIFY(result.isNull() && !result.isValid());
 
-    QTRY_COMPARE(evaluateJavaScriptSync(&page, "new Date(42000)").toDate(), QVariant(42.0).toDate());
-    QTRY_COMPARE(evaluateJavaScriptSync(&page, "new ArrayBuffer(8)").toByteArray(), QByteArray(8, 0));
+    QCOMPARE(evaluateJavaScriptSync(&page, "new Date(42000)").toDate(), QVariant(42.0).toDate());
+    QCOMPARE(evaluateJavaScriptSync(&page, "new ArrayBuffer(8)").toByteArray(), QByteArray(8, 0));
 
     result = evaluateJavaScriptSync(&page, "(function(){})");
-    QTRY_VERIFY(result.isNull() && !result.isValid());
+    QVERIFY(result.isNull() && !result.isValid());
 
-    QTRY_COMPARE(evaluateJavaScriptSync(&page, "new Promise(function(){})"), QVariant(QVariantMap{}));
+    QCOMPARE(evaluateJavaScriptSync(&page, "new Promise(function(){})"), QVariant(QVariantMap{}));
 }
 
 void tst_QWebEnginePage::runJavaScriptDisabled()
@@ -1762,8 +1814,8 @@ void tst_QWebEnginePage::fullScreenRequested()
     page->load(QUrl("qrc:///resources/fullscreen.html"));
     QTRY_COMPARE(loadSpy.count(), 1);
 
-    QTRY_VERIFY(evaluateJavaScriptSync(page, "document.webkitFullscreenEnabled").toBool());
-    QTRY_VERIFY(!evaluateJavaScriptSync(page, "document.webkitIsFullScreen").toBool());
+    QTRY_VERIFY(isTrueJavaScriptResult(page, "document.webkitFullscreenEnabled"));
+    QVERIFY(isFalseJavaScriptResult(page, "document.webkitIsFullScreen"));
 
     // FullscreenRequest must be a user gesture
     bool acceptRequest = true;
@@ -1773,15 +1825,15 @@ void tst_QWebEnginePage::fullScreenRequested()
     });
 
     QTest::keyPress(view.focusProxy(), Qt::Key_Space);
-    QTRY_VERIFY(evaluateJavaScriptSync(page, "document.webkitIsFullScreen").toBool());
-    QVariant result = evaluateJavaScriptSync(page, "document.webkitExitFullscreen()");
-    QTRY_VERIFY(result.isNull() && !result.isValid());
+    QTRY_VERIFY(isTrueJavaScriptResult(page, "document.webkitIsFullScreen"));
+    page->runJavaScript("document.webkitExitFullscreen()");
+    QTRY_VERIFY(isFalseJavaScriptResult(page, "document.webkitIsFullScreen"));
 
     acceptRequest = false;
 
-    QTRY_VERIFY(evaluateJavaScriptSync(page, "document.webkitFullscreenEnabled").toBool());
+    QVERIFY(isTrueJavaScriptResult(page, "document.webkitFullscreenEnabled"));
     QTest::keyPress(view.focusProxy(), Qt::Key_Space);
-    QTRY_VERIFY(!evaluateJavaScriptSync(page, "document.webkitIsFullScreen").toBool());
+    QTRY_VERIFY(isFalseJavaScriptResult(page, "document.webkitIsFullScreen"));
 }
 
 void tst_QWebEnginePage::quotaRequested()
@@ -4317,6 +4369,43 @@ void tst_QWebEnginePage::renderProcessCrashed()
     // otherwise a CrashedTerminationStatus.
     QVERIFY(status == QWebEnginePage::CrashedTerminationStatus ||
             status == QWebEnginePage::AbnormalTerminationStatus);
+}
+
+void tst_QWebEnginePage::backgroundColor()
+{
+    QWebEngineProfile profile;
+    QWebEngineView view;
+    QWebEnginePage *page = new QWebEnginePage(&profile, &view);
+
+    view.resize(640, 480);
+    view.show();
+    QPoint center(view.size().width() / 2, view.size().height() / 2);
+
+    QCOMPARE(page->backgroundColor(), Qt::white);
+    QTRY_COMPARE(view.grab().toImage().pixelColor(center), Qt::white);
+
+    page->setBackgroundColor(Qt::red);
+    view.setPage(page);
+
+    QCOMPARE(page->backgroundColor(), Qt::red);
+    QTRY_COMPARE(view.grab().toImage().pixelColor(center), Qt::red);
+
+    page->setHtml(QString("<html>"
+                          "<head><style>html, body { margin:0; padding:0; }</style></head>"
+                          "<body><div style=\"width:100%; height:10px; background-color:black\"/></body>"
+                          "</html>"));
+    QSignalSpy spyFinished(page, &QWebEnginePage::loadFinished);
+    QVERIFY(spyFinished.wait());
+    // Make sure the page is rendered and the test is not grabbing the color of the RenderWidgetHostViewQtDelegateWidget.
+    QTRY_COMPARE(view.grab().toImage().pixelColor(QPoint(5, 5)), Qt::black);
+
+    QCOMPARE(page->backgroundColor(), Qt::red);
+    QCOMPARE(view.grab().toImage().pixelColor(center), Qt::red);
+
+    page->setBackgroundColor(Qt::green);
+
+    QCOMPARE(page->backgroundColor(), Qt::green);
+    QTRY_COMPARE(view.grab().toImage().pixelColor(center), Qt::green);
 }
 
 static QByteArrayList params = {QByteArrayLiteral("--use-fake-device-for-media-stream")};

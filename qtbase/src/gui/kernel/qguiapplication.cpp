@@ -610,7 +610,7 @@ static QWindowGeometrySpecification windowGeometrySpecification = Q_WINDOW_GEOME
         \li \c {dialogs=[xp|none]}, \c xp uses XP-style native dialogs and
             \c none disables them.
 
-        \li \c {dpiawareness=[0|1|2} Sets the DPI awareness of the process
+        \li \c {dpiawareness=[0|1|2]} Sets the DPI awareness of the process
                (see \l{High DPI Displays}, since Qt 5.4).
         \li \c {fontengine=freetype}, uses the FreeType font engine.
         \li \c {menus=[native|none]}, controls the use of native menus.
@@ -1715,13 +1715,7 @@ QGuiApplicationPrivate::~QGuiApplicationPrivate()
         qt_gl_set_global_share_context(0);
     }
 #endif
-#ifdef Q_OS_WASM
-    EM_ASM(
-        // unmount persistent directory as IDBFS
-        // see QTBUG-70002
-        FS.unmount('/home/web_user');
-    );
-#endif
+
     platform_integration->destroy();
 
     delete platform_theme;

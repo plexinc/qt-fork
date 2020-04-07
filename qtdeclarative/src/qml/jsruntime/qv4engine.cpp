@@ -1508,12 +1508,41 @@ static QVariant toVariant(QV4::ExecutionEngine *e, const QV4::Value &value, int 
             return QVariant::fromValue(QV4::JsonObject::toJsonArray(a));
         }
 
+        QVariant retn;
 #if QT_CONFIG(qml_sequence_object)
         bool succeeded = false;
-        QVariant retn = QV4::SequencePrototype::toVariant(value, typeHint, &succeeded);
+        retn = QV4::SequencePrototype::toVariant(value, typeHint, &succeeded);
         if (succeeded)
             return retn;
 #endif
+        if (typeHint != -1) {
+            // the QVariant constructor will create a copy, so we have manually
+            // destroy the value returned by QMetaType::create
+            auto temp = QMetaType::create(typeHint);
+            retn = QVariant(typeHint, temp);
+            QMetaType::destroy(typeHint, temp);
+            auto retnAsIterable = retn.value<QtMetaTypePrivate::QSequentialIterableImpl>();
+            if (retnAsIterable._iteratorCapabilities & QtMetaTypePrivate::ContainerIsAppendable) {
+                auto const length = a->getLength();
+                QV4::ScopedValue arrayValue(scope);
+                for (qint64 i = 0; i < length; ++i) {
+                    arrayValue = a->get(i);
+                    QVariant asVariant = toVariant(e, arrayValue, retnAsIterable._metaType_id, false, visitedObjects);
+                    auto originalType = asVariant.userType();
+                    bool couldConvert = asVariant.convert(retnAsIterable._metaType_id);
+                    if (!couldConvert) {
+                        qWarning() << QLatin1String("Could not convert array value at position %1 from %2 to %3")
+                                                    .arg(QString::number(i),
+                                                         QMetaType::typeName(originalType),
+                                                         QMetaType::typeName(retnAsIterable._metaType_id));
+                        // create default constructed value
+                        asVariant = QVariant(retnAsIterable._metaType_id, nullptr);
+                    }
+                    retnAsIterable.append(asVariant.constData());
+                }
+                return retn;
+            }
+        }
     }
 
     if (value.isUndefined())
@@ -2326,9 +2355,11 @@ int ExecutionEngine::registerExtension()
     return registrationData()->extensionCount++;
 }
 
+#if QT_CONFIG(qml_network)
 QNetworkAccessManager *QV4::detail::getNetworkAccessManager(ExecutionEngine *engine)
 {
     return engine->qmlEngine()->networkAccessManager();
 }
+#endif // qml_network
 
 QT_END_NAMESPACE

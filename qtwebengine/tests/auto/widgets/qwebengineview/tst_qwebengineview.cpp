@@ -199,6 +199,7 @@ private Q_SLOTS:
     void visibilityState();
     void visibilityState2();
     void visibilityState3();
+    void jsKeyboardEvent_data();
     void jsKeyboardEvent();
     void deletePage();
     void closeOpenerTab();
@@ -1829,6 +1830,7 @@ void tst_QWebEngineView::inputFieldOverridesShortcuts()
     view.setHtml(QString("<html><body>"
                          "<button id=\"btn1\" type=\"button\">push it real good</button>"
                          "<input id=\"input1\" type=\"text\" value=\"x\">"
+                         "<input id=\"pass1\" type=\"password\" value=\"x\">"
                          "</body></html>"));
     QVERIFY(loadFinishedSpy.wait());
 
@@ -1838,6 +1840,11 @@ void tst_QWebEngineView::inputFieldOverridesShortcuts()
     auto inputFieldValue = [&view] () -> QString {
         return evaluateJavaScriptSync(view.page(),
                                       "document.getElementById('input1').value").toString();
+    };
+
+    auto passwordFieldValue = [&view] () -> QString {
+        return evaluateJavaScriptSync(view.page(),
+                                      "document.getElementById('pass1').value").toString();
     };
 
     // The input form is not focused. The action is triggered on pressing Shift+Delete.
@@ -1863,8 +1870,20 @@ void tst_QWebEngineView::inputFieldOverridesShortcuts()
     QTRY_COMPARE(inputFieldValue(), QString("yxx"));
     QVERIFY(!actionTriggered);
 
+    // The password input form is focused. The action is not triggered, and the form's text changed.
+    evaluateJavaScriptSync(view.page(), "document.getElementById('pass1').focus();");
+    QTRY_COMPARE(evaluateJavaScriptSync(view.page(), "document.activeElement.id").toString(), QStringLiteral("pass1"));
+    actionTriggered = false;
+    QTest::keyClick(view.windowHandle(), Qt::Key_Y);
+    QTRY_COMPARE(passwordFieldValue(), QString("yx"));
+    QTest::keyClick(view.windowHandle(), Qt::Key_X);
+    QTRY_COMPARE(passwordFieldValue(), QString("yxx"));
+    QVERIFY(!actionTriggered);
+
     // The input form is focused. Make sure we don't override all short cuts.
     // A Ctrl-1 action is no default Qt key binding and should be triggerable.
+    evaluateJavaScriptSync(view.page(), "document.getElementById('input1').focus();");
+    QTRY_COMPARE(evaluateJavaScriptSync(view.page(), "document.activeElement.id").toString(), QStringLiteral("input1"));
     action->setShortcut(Qt::CTRL + Qt::Key_1);
     QTest::keyClick(view.windowHandle(), Qt::Key_1, Qt::ControlModifier);
     QTRY_VERIFY(actionTriggered);
@@ -3346,6 +3365,28 @@ void tst_QWebEngineView::visibilityState3()
     QCOMPARE(evaluateJavaScriptSync(&page2, "document.visibilityState").toString(), QStringLiteral("visible"));
 }
 
+void tst_QWebEngineView::jsKeyboardEvent_data()
+{
+    QTest::addColumn<char>("key");
+    QTest::addColumn<Qt::KeyboardModifiers>("modifiers");
+    QTest::addColumn<QString>("expected");
+
+#if defined(Q_OS_MACOS)
+    // See Qt::AA_MacDontSwapCtrlAndMeta
+    Qt::KeyboardModifiers controlModifier = Qt::MetaModifier;
+#else
+    Qt::KeyboardModifiers controlModifier = Qt::ControlModifier;
+#endif
+
+    QTest::newRow("Ctrl+Shift+A") << 'A' << (controlModifier | Qt::ShiftModifier) << QStringLiteral(
+                                         "16,ShiftLeft,Shift,false,true,false;"
+                                         "17,ControlLeft,Control,true,true,false;"
+                                         "65,KeyA,A,true,true,false;");
+    QTest::newRow("Ctrl+z") << 'z' << controlModifier << QStringLiteral(
+                                   "17,ControlLeft,Control,true,false,false;"
+                                   "90,KeyZ,z,true,false,false;");
+}
+
 void tst_QWebEngineView::jsKeyboardEvent()
 {
     QWebEngineView view;
@@ -3355,18 +3396,13 @@ void tst_QWebEngineView::jsKeyboardEvent()
         "addEventListener('keydown', (ev) => {"
         "  log += [ev.keyCode, ev.code, ev.key, ev.ctrlKey, ev.shiftKey, ev.altKey].join(',') + ';';"
         "});");
+
+    QFETCH(char, key);
+    QFETCH(Qt::KeyboardModifiers, modifiers);
+    QFETCH(QString, expected);
+
     // Note that this only tests the fallback code path where native scan codes are not used.
-#if defined(Q_OS_MACOS)
-    // See Qt::AA_MacDontSwapCtrlAndMeta
-    QTest::keyClick(view.focusProxy(), 'A', Qt::MetaModifier | Qt::ShiftModifier);
-#else
-    QTest::keyClick(view.focusProxy(), 'A', Qt::ControlModifier | Qt::ShiftModifier);
-#endif
-    QString expected = QStringLiteral(
-        "16,ShiftLeft,Shift,false,true,false;"
-        "17,ControlLeft,Control,true,true,false;"
-        "65,KeyA,A,true,true,false;"
-    );
+    QTest::keyClick(view.focusProxy(), key, modifiers);
     QTRY_VERIFY(evaluateJavaScriptSync(view.page(), "log") != QVariant(QString()));
     QCOMPARE(evaluateJavaScriptSync(view.page(), "log"), expected);
 }

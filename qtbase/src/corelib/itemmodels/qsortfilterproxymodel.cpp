@@ -1949,8 +1949,9 @@ void QSortFilterProxyModelPrivate::_q_sourceColumnsMoved(
     example.)
 
     If you are working with large amounts of filtering and have to invoke
-    invalidateFilter() repeatedly, using reset() may be more efficient,
-    depending on the implementation of your model. However, reset() returns the
+    invalidateFilter() repeatedly, using beginResetModel() / endResetModel() may
+    be more efficient, depending on the implementation of your model. However,
+    beginResetModel() / endResetModel() returns the
     proxy model to its original state, losing selection information, and will
     cause the proxy model to be repopulated.
 
@@ -3055,12 +3056,8 @@ bool QSortFilterProxyModel::filterAcceptsRow(int source_row, const QModelIndex &
     Returns \c true if the item in the column indicated by the given \a source_column
     and \a source_parent should be included in the model; otherwise returns \c false.
 
-    The default implementation returns \c true if the value held by the relevant item
-    matches the filter string, wildcard string or regular expression.
-
-    \note By default, the Qt::DisplayRole is used to determine if the column
-    should be accepted or not. This can be changed by setting the \l
-    filterRole property.
+    \note The default implementation always returns \c true. You must reimplement this
+    method to get the described behavior.
 
     \sa filterAcceptsRow(), setFilterFixedString(), setFilterRegExp(), setFilterWildcard()
 */

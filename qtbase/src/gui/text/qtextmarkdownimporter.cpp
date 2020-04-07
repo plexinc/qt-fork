@@ -397,10 +397,12 @@ int QTextMarkdownImporter::cbEnterSpan(int spanType, void *det)
         break;
     case MD_SPAN_A: {
         MD_SPAN_A_DETAIL *detail = static_cast<MD_SPAN_A_DETAIL *>(det);
-        QString url = QString::fromLatin1(detail->href.text, int(detail->href.size));
-        QString title = QString::fromLatin1(detail->title.text, int(detail->title.size));
+        QString url = QString::fromUtf8(detail->href.text, int(detail->href.size));
+        QString title = QString::fromUtf8(detail->title.text, int(detail->title.size));
+        charFmt.setAnchor(true);
         charFmt.setAnchorHref(url);
-        charFmt.setAnchorNames(QStringList(title));
+        if (!title.isEmpty())
+            charFmt.setToolTip(title);
         charFmt.setForeground(m_palette.link());
         qCDebug(lcMD) << "anchor" << url << title;
         } break;
@@ -575,7 +577,10 @@ void QTextMarkdownImporter::insertBlock()
     QTextBlockFormat blockFormat;
     if (!m_listStack.isEmpty() && !m_needsInsertList && m_listItem) {
         QTextList *list = m_listStack.top();
-        blockFormat = list->item(list->count() - 1).blockFormat();
+        if (list)
+            blockFormat = list->item(list->count() - 1).blockFormat();
+        else
+            qWarning() << "attempted to insert into a list that no longer exists";
     }
     if (m_blockQuoteDepth) {
         blockFormat.setProperty(QTextFormat::BlockQuoteLevel, m_blockQuoteDepth);
@@ -605,7 +610,7 @@ void QTextMarkdownImporter::insertBlock()
     }
     if (m_needsInsertList) {
         m_listStack.push(m_cursor->createList(m_listFormat));
-    } else if (!m_listStack.isEmpty() && m_listItem) {
+    } else if (!m_listStack.isEmpty() && m_listItem && m_listStack.top()) {
         m_listStack.top()->add(m_cursor->block());
     }
     m_needsInsertList = false;

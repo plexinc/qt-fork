@@ -686,7 +686,7 @@ void AVFMediaPlayerSession::setPosition(qint64 pos)
 
     CMTime newTime = [playerItem currentTime];
     newTime.value = (pos / 1000.0f) * newTime.timescale;
-    [playerItem seekToTime:newTime];
+    [playerItem seekToTime:newTime toleranceBefore:kCMTimeZero toleranceAfter:kCMTimeZero completionHandler:nil];
 
     Q_EMIT positionChanged(pos);
 
@@ -875,9 +875,11 @@ void AVFMediaPlayerSession::processLoadStateChange(QMediaPlayer::State newState)
             // Get the native size of the video, and reset the bounds of the player layer
             AVPlayerLayer *playerLayer = [static_cast<AVFMediaPlayerSessionObserver*>(m_observer) playerLayer];
             if (videoTrack && playerLayer) {
-                playerLayer.bounds = CGRectMake(0.0f, 0.0f,
-                                                videoTrack.naturalSize.width,
-                                                videoTrack.naturalSize.height);
+                if (!playerLayer.bounds.size.width || !playerLayer.bounds.size.height) {
+                    playerLayer.bounds = CGRectMake(0.0f, 0.0f,
+                                                    videoTrack.naturalSize.width,
+                                                    videoTrack.naturalSize.height);
+                }
 
                 if (m_videoOutput && newState != QMediaPlayer::StoppedState) {
                     m_videoOutput->setLayer(playerLayer);
@@ -928,7 +930,8 @@ void AVFMediaPlayerSession::processBufferStateChange(int bufferStatus)
     } else if (status == QMediaPlayer::StalledMedia) {
         status = QMediaPlayer::BufferedMedia;
         // Resume playback.
-        [[static_cast<AVFMediaPlayerSessionObserver*>(m_observer) player] setRate:m_rate];
+        if (m_state == QMediaPlayer::PlayingState)
+            [[static_cast<AVFMediaPlayerSessionObserver*>(m_observer) player] setRate:m_rate];
     }
 
     if (m_mediaStatus != status)

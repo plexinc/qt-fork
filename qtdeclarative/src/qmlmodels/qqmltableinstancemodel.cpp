@@ -78,7 +78,10 @@ void QQmlTableInstanceModel::deleteModelItemLater(QQmlDelegateModelItem *modelIt
 QQmlTableInstanceModel::QQmlTableInstanceModel(QQmlContext *qmlContext, QObject *parent)
     : QQmlInstanceModel(*(new QObjectPrivate()), parent)
     , m_qmlContext(qmlContext)
-    , m_metaType(new QQmlDelegateModelItemMetaType(m_qmlContext->engine()->handle(), nullptr, QStringList()))
+    , m_metaType(
+          new QQmlDelegateModelItemMetaType(m_qmlContext->engine()->handle(), nullptr,
+                                            QStringList()),
+          QQmlRefPointer<QQmlDelegateModelItemMetaType>::Adopt)
 {
 }
 
@@ -149,7 +152,7 @@ QQmlDelegateModelItem *QQmlTableInstanceModel::resolveModelItem(int index)
     }
 
     // Create a new item from scratch
-    modelItem = m_adaptorModel.createItem(m_metaType, index);
+    modelItem = m_adaptorModel.createItem(m_metaType.data(), index);
     if (modelItem) {
         modelItem->delegate = delegate;
         m_modelItems.insert(index, modelItem);
@@ -235,6 +238,25 @@ QQmlInstanceModel::ReleaseFlags QQmlTableInstanceModel::release(QObject *object,
 
     delete modelItem;
     return QQmlInstanceModel::Destroyed;
+}
+
+void QQmlTableInstanceModel::dispose(QObject *object)
+{
+    Q_ASSERT(object);
+    auto modelItem = qvariant_cast<QQmlDelegateModelItem *>(object->property(kModelItemTag));
+    Q_ASSERT(modelItem);
+
+    modelItem->releaseObject();
+
+    // The item is not referenced by anyone
+    Q_ASSERT(!modelItem->isObjectReferenced());
+    Q_ASSERT(!modelItem->isReferenced());
+
+    m_modelItems.remove(modelItem->index);
+
+    emit destroyingItem(object);
+    delete object;
+    delete modelItem;
 }
 
 void QQmlTableInstanceModel::cancel(int index)
@@ -333,7 +355,14 @@ void QQmlTableInstanceModel::drainReusableItemsPool(int maxPoolTime)
             ++it;
         } else {
             it = m_reusableItemsPool.erase(it);
-            release(modelItem->object, NotReusable);
+
+            Q_ASSERT(!modelItem->incubationTask);
+            Q_ASSERT(!modelItem->isObjectReferenced());
+            Q_ASSERT(!modelItem->isReferenced());
+            Q_ASSERT(modelItem->object);
+            emit destroyingItem(modelItem->object);
+            delete modelItem->object;
+            delete modelItem;
         }
     }
 }

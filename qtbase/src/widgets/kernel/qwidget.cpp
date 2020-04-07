@@ -392,7 +392,7 @@ void QWidget::setAutoFillBackground(bool enabled)
     Every widget's constructor accepts one or two standard arguments:
 
     \list 1
-        \li  \c{QWidget *parent = \nullptr} is the parent of the new widget.
+        \li  \c{QWidget *parent = nullptr} is the parent of the new widget.
             If it is \nullptr (the default), the new widget will be a window.
             If not, it will be a child of \e parent, and be constrained by
             \e parent's geometry (unless you specify Qt::Window as window flag).
@@ -2350,7 +2350,9 @@ QWidget *QWidget::find(WId id)
 */
 WId QWidget::winId() const
 {
-    if (!testAttribute(Qt::WA_WState_Created) || !internalWinId()) {
+    if (!data->in_destructor
+        && (!testAttribute(Qt::WA_WState_Created) || !internalWinId()))
+    {
 #ifdef ALIEN_DEBUG
         qDebug() << "QWidget::winId: creating native window for" << this;
 #endif
@@ -6309,7 +6311,7 @@ void QWidget::setFocus(Qt::FocusReason reason)
             previousProxyFocus = topData->proxyWidget->widget()->focusWidget();
             if (previousProxyFocus && previousProxyFocus->focusProxy())
                 previousProxyFocus = previousProxyFocus->focusProxy();
-            if (previousProxyFocus == this && !topData->proxyWidget->d_func()->proxyIsGivingFocus)
+            if (previousProxyFocus == f && !topData->proxyWidget->d_func()->proxyIsGivingFocus)
                 return;
         }
     }

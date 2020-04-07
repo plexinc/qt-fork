@@ -71,6 +71,13 @@ Item {
     Connections {
         target: targetView.camera
         onSceneTransformChanged: updateOverlay()
+        Component.onCompleted: updateOverlay()
+    }
+
+    Connections {
+        target: targetView
+        onCameraChanged: updateOverlay()
+        Component.onCompleted: updateOverlay()
     }
 
     function updateOverlay()

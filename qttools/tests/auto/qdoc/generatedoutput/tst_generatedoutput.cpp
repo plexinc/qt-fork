@@ -48,6 +48,8 @@ private slots:
     void webXmlFromCppBug80259();
 
     void examplesManifestXml();
+    void inheritedQmlPropertyGroups();
+    void includeFromExampleDirs();
 
 private:
     QScopedPointer<QTemporaryDir> m_outputDir;
@@ -244,6 +246,19 @@ void tst_generatedOutput::examplesManifestXml()
                    "examples-manifest.xml");
 }
 
+void tst_generatedOutput::inheritedQmlPropertyGroups()
+{
+    testAndCompare("qmlpropertygroups/qmlpropertygroups.qdocconf",
+                   "qmlpropertygroups/qml-qdoc-test-anotherchild-members.html");
+}
+
+void tst_generatedOutput::includeFromExampleDirs()
+{
+    testAndCompare("includefromexampledirs/includefromexampledirs.qdocconf",
+                   "includefromexampledirs/index.html "
+                   "includefromexampledirs/qml-qdoc-test-abstractparent.html "
+                   "includefromexampledirs/qml-qdoc-test-abstractparent-members.html");
+}
 QTEST_APPLESS_MAIN(tst_generatedOutput)
 
 #include "tst_generatedoutput.moc"

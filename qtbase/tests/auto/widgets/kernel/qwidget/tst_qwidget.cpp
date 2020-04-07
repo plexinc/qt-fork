@@ -72,6 +72,7 @@
 #include <QtWidgets/QGraphicsProxyWidget>
 #include <QtGui/qwindow.h>
 #include <qtimer.h>
+#include <QtWidgets/QDoubleSpinBox>
 
 #if defined(Q_OS_OSX)
 #include "tst_qwidget_mac_helpers.h"  // Abstract the ObjC stuff out so not everyone must run an ObjC++ compile.
@@ -187,6 +188,7 @@ private slots:
     void tabOrderNoChange2();
     void appFocusWidgetWithFocusProxyLater();
     void appFocusWidgetWhenLosingFocusProxy();
+    void explicitTabOrderWithComplexWidget();
 #if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
     void activation();
 #endif
@@ -406,6 +408,8 @@ private slots:
 
     void closeEvent();
     void closeWithChildWindow();
+
+    void winIdAfterClose();
 
 private:
     bool ensureScreenSize(int width, int height);
@@ -2084,6 +2088,32 @@ void tst_QWidget::appFocusWidgetWhenLosingFocusProxy()
 
     // Then the application focus widget should be back to the lineedit
     QCOMPARE(QApplication::focusWidget(), lineEdit);
+}
+
+void tst_QWidget::explicitTabOrderWithComplexWidget()
+{
+    // Check that handling tab/backtab with a widget comprimised of other widgets
+    // handles tabbing correctly
+    Container window;
+    auto lineEditOne = new QLineEdit;
+    window.box->addWidget(lineEditOne);
+    auto lineEditTwo = new QLineEdit;
+    window.box->addWidget(lineEditTwo);
+    QWidget::setTabOrder(lineEditOne, lineEditTwo);
+    lineEditOne->setFocus();
+    window.show();
+    QApplication::setActiveWindow(&window);
+    QVERIFY(QTest::qWaitForWindowActive(&window));
+    QTRY_COMPARE(QApplication::focusWidget(), lineEditOne);
+
+    window.tab();
+    QTRY_COMPARE(QApplication::focusWidget(), lineEditTwo);
+    window.tab();
+    QTRY_COMPARE(QApplication::focusWidget(), lineEditOne);
+    window.backTab();
+    QTRY_COMPARE(QApplication::focusWidget(), lineEditTwo);
+    window.backTab();
+    QTRY_COMPARE(QApplication::focusWidget(), lineEditOne);
 }
 
 #if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
@@ -7884,7 +7914,17 @@ void tst_QWidget::updateWhileMinimized()
     QTest::qWait(10);
     if (m_platform == QStringLiteral("winrt"))
         QEXPECT_FAIL("", "WinRT: This fails. QTBUG-68297.", Abort);
-    QCOMPARE(widget.numPaintEvents, 0);
+    int count = 0;
+    // mutter/GNOME Shell doesn't unmap when minimizing window.
+    // More details at https://gitlab.gnome.org/GNOME/mutter/issues/185
+    if (m_platform == QStringLiteral("xcb")) {
+        const QString desktop = qgetenv("XDG_CURRENT_DESKTOP");
+        qDebug() << "xcb: XDG_CURRENT_DESKTOP=" << desktop;
+        if (desktop == QStringLiteral("ubuntu:GNOME")
+            || desktop == QStringLiteral("GNOME-Classic:GNOME"))
+            count = 1;
+    }
+    QCOMPARE(widget.numPaintEvents, count);
 
     // Restore window.
     widget.showNormal();
@@ -11231,6 +11271,55 @@ void tst_QWidget::closeWithChildWindow()
     widget.show();
     QVERIFY(QTest::qWaitForWindowExposed(&widget));
     QVERIFY(!childWidget->isVisible());
+}
+
+class WinIdChangeSpy : public QObject
+{
+    Q_OBJECT
+public:
+    QWidget *widget = nullptr;
+    WId winId = 0;
+    explicit WinIdChangeSpy(QWidget *w, QObject *parent = nullptr)
+        : QObject(parent)
+        , widget(w)
+        , winId(widget->winId())
+    {
+    }
+
+public slots:
+    bool eventFilter(QObject *obj, QEvent *event) override
+    {
+        if (obj == widget) {
+            if (event->type() == QEvent::WinIdChange) {
+                winId = widget->winId();
+                return true;
+            }
+        }
+        return false;
+    }
+};
+
+void tst_QWidget::winIdAfterClose()
+{
+    auto widget = new QWidget;
+    auto notifier = new QObject(widget);
+    auto deleteWidget = new QWidget(new QWidget(widget));
+    auto spy = new WinIdChangeSpy(deleteWidget);
+    deleteWidget->installEventFilter(spy);
+    connect(notifier, &QObject::destroyed, [&] { delete deleteWidget; });
+
+    widget->setAttribute(Qt::WA_NativeWindow);
+    widget->windowHandle()->create();
+    widget->show();
+
+    QVERIFY(QTest::qWaitForWindowExposed(widget));
+    QVERIFY(spy->winId);
+
+    widget->windowHandle()->close();
+    delete widget;
+
+    QCOMPARE(spy->winId, WId(0));
+    delete spy;
 }
 
 QTEST_MAIN(tst_QWidget)

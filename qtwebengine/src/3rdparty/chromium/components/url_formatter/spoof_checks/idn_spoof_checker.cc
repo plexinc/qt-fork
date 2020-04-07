@@ -76,6 +76,35 @@ base::ThreadLocalStorage::Slot& DangerousPatternTLS() {
   return *dangerous_pattern_tls;
 }
 
+// Allow middle dot (U+00B7) only on Catalan domains when between two 'l's, to
+// permit the Catalan character ela geminada to be expressed.
+// See https://tools.ietf.org/html/rfc5892#appendix-A.3 for details.
+bool HasUnsafeMiddleDot(const icu::UnicodeString& label_string,
+                        base::StringPiece top_level_domain) {
+  int last_index = 0;
+  while (true) {
+    int index = label_string.indexOf("·", last_index);
+    if (index < 0) {
+      break;
+    }
+    DCHECK_LT(index, label_string.length());
+    if (top_level_domain != "cat") {
+      // Non-Catalan domains cannot contain middle dot.
+      return true;
+    }
+    // Middle dot at the beginning or end.
+    if (index == 0 || index == label_string.length() - 1) {
+      return true;
+    }
+    // Middle dot not surrounded by an 'l'.
+    if (label_string[index - 1] != 'l' || label_string[index + 1] != 'l') {
+      return true;
+    }
+    last_index = index + 1;
+  }
+  return false;
+}
+
 #include "components/url_formatter/top_domains/alexa_domains-trie-inc.cc"
 
 // All the domains in the above file have 3 or fewer labels.
@@ -167,6 +196,14 @@ IDNSpoofChecker::IDNSpoofChecker() {
       status);
   lgc_letters_n_ascii_.freeze();
 
+  // Latin small letter thorn ("þ", U+00FE) can be used to spoof both b and p.
+  // It's used in modern Icelandic orthography, so allow it for the Icelandic
+  // ccTLD (.is) but block in any other TLD. Also block Latin small letter eth
+  // ("ð", U+00F0) which can be used to spoof the letter o.
+  icelandic_characters_ =
+      icu::UnicodeSet(UNICODE_STRING_SIMPLE("[\\u00fe\\u00f0]"), status);
+  icelandic_characters_.freeze();
+
   // Used for diacritics-removal before the skeleton calculation. Add
   // "ł > l; ø > o; đ > d" that are not handled by "NFD; Nonspacing mark
   // removal; NFC".
@@ -180,7 +217,7 @@ IDNSpoofChecker::IDNSpoofChecker() {
 
   // Supplement the Unicode confusable list by the following mapping.
   //   - {U+00E6 (æ), U+04D5 (ӕ)}  => "ae"
-  //   - {U+00FE (þ), U+03FC (ϼ), U+048F (ҏ)} => p
+  //   - {U+03FC (ϼ), U+048F (ҏ)} => p
   //   - {U+0127 (ħ), U+043D (н), U+045B (ћ), U+04A3 (ң), U+04A5 (ҥ),
   //      U+04C8 (ӈ), U+04CA (ӊ), U+050B (ԋ), U+0527 (ԧ), U+0529 (ԩ)} => h
   //   - {U+0138 (ĸ), U+03BA (κ), U+043A (к), U+049B (қ), U+049D (ҝ),
@@ -221,7 +258,7 @@ IDNSpoofChecker::IDNSpoofChecker() {
   extra_confusable_mapper_.reset(icu::Transliterator::createFromRules(
       UNICODE_STRING_SIMPLE("ExtraConf"),
       icu::UnicodeString::fromUTF8(
-          "[æӕ] > ae; [þϼҏ] > p; [ħнћңҥӈӊԋԧԩ] > h;"
+          "[æӕ] > ae; [ϼҏ] > p; [ħнћңҥӈӊԋԧԩ] > h;"
           "[ĸκкқҝҟҡӄԟ] > k; [ŋпԥกח] > n; œ > ce;"
           "[ŧтҭԏ七丅丆丁] > t; [ƅьҍв] > b;  [ωшщพฟພຟ] > w;"
           "[мӎ] > m; [єҽҿၔ] > e; ґ > r; [ғӻ] > f;"
@@ -246,8 +283,10 @@ IDNSpoofChecker::~IDNSpoofChecker() {
   uspoof_close(checker_);
 }
 
-bool IDNSpoofChecker::SafeToDisplayAsUnicode(base::StringPiece16 label,
-                                             bool is_tld_ascii) {
+bool IDNSpoofChecker::SafeToDisplayAsUnicode(
+    base::StringPiece16 label,
+    base::StringPiece top_level_domain,
+    base::StringPiece16 top_level_domain_unicode) {
   UErrorCode status = U_ZERO_ERROR;
   int32_t result =
       uspoof_check(checker_, label.data(),
@@ -257,7 +296,7 @@ bool IDNSpoofChecker::SafeToDisplayAsUnicode(base::StringPiece16 label,
   if (U_FAILURE(status) || (result & USPOOF_ALL_CHECKS))
     return false;
 
-  icu::UnicodeString label_string(FALSE, label.data(),
+  icu::UnicodeString label_string(FALSE /* isTerminated */, label.data(),
                                   base::checked_cast<int32_t>(label.size()));
 
   // A punycode label with 'xn--' prefix is not subject to the URL
@@ -273,6 +312,21 @@ bool IDNSpoofChecker::SafeToDisplayAsUnicode(base::StringPiece16 label,
   // such. See http://crbug.com/595263 .
   if (deviation_characters_.containsSome(label_string))
     return false;
+
+  // Disallow Icelandic confusables for domains outside Iceland's ccTLD (.is).
+  if (label_string.length() > 1 && top_level_domain != "is" &&
+      icelandic_characters_.containsSome(label_string))
+    return false;
+
+  // Disallow Latin Schwa (U+0259) for domains outside Azerbaijan's ccTLD (.az).
+  if (label_string.length() > 1 && top_level_domain != "az" &&
+      label_string.indexOf("ə") != -1)
+    return false;
+
+  // Disallow middle dot (U+00B7) when unsafe.
+  if (HasUnsafeMiddleDot(label_string, top_level_domain)) {
+    return false;
+  }
 
   // If there's no script mixing, the input is regarded as safe without any
   // extra check unless it falls into one of three categories:
@@ -291,8 +345,11 @@ bool IDNSpoofChecker::SafeToDisplayAsUnicode(base::StringPiece16 label,
   if (result == USPOOF_SINGLE_SCRIPT_RESTRICTIVE &&
       kana_letters_exceptions_.containsNone(label_string) &&
       combining_diacritics_exceptions_.containsNone(label_string)) {
-    // Check Cyrillic confusable only for ASCII TLDs.
-    return !is_tld_ascii || !IsMadeOfLatinAlikeCyrillic(label_string);
+    // Check Cyrillic confusable only for TLDs where Cyrillic characters are
+    // uncommon.
+    return IsCyrillicTopLevelDomain(top_level_domain,
+                                    top_level_domain_unicode) ||
+           !IsMadeOfLatinAlikeCyrillic(label_string);
   }
 
   // Additional checks for |label| with multiple scripts, one of which is Latin.
@@ -571,6 +628,21 @@ bool IDNSpoofChecker::IsMadeOfLatinAlikeCyrillic(
   }
   return !cyrillic_in_label.isEmpty() &&
          cyrillic_letters_latin_alike_.containsAll(cyrillic_in_label);
+}
+
+bool IDNSpoofChecker::IsCyrillicTopLevelDomain(
+    base::StringPiece tld,
+    base::StringPiece16 tld_unicode) const {
+  icu::UnicodeString tld_string(
+      FALSE /* isTerminated */, tld_unicode.data(),
+      base::checked_cast<int32_t>(tld_unicode.size()));
+  if (cyrillic_letters_.containsSome(tld_string)) {
+    return true;
+  }
+  // These ASCII TLDs contain a large number of domains with Cyrillic
+  // characters.
+  return tld == "bg" || tld == "by" || tld == "kz" || tld == "pyc" ||
+         tld == "ru" || tld == "su" || tld == "ua" || tld == "uz";
 }
 
 // static

@@ -744,29 +744,48 @@ QQuickWebEngineViewAccessible::QQuickWebEngineViewAccessible(QQuickWebEngineView
     : QAccessibleObject(o)
 {}
 
+bool QQuickWebEngineViewAccessible::isValid() const
+{
+    if (!QAccessibleObject::isValid())
+        return false;
+
+    if (!engineView() || !engineView()->d_func())
+        return false;
+
+    return true;
+}
+
 QAccessibleInterface *QQuickWebEngineViewAccessible::parent() const
 {
     QQuickItem *parent = engineView()->parentItem();
-    return QAccessible::queryAccessibleInterface(parent);
+    QAccessibleInterface *iface = QAccessible::queryAccessibleInterface(parent);
+    if (!iface)
+        return QAccessible::queryAccessibleInterface(engineView()->window());
+    return iface;
+}
+
+QAccessibleInterface *QQuickWebEngineViewAccessible::focusChild() const
+{
+    if (child(0) && child(0)->focusChild())
+        return child(0)->focusChild();
+    return const_cast<QQuickWebEngineViewAccessible *>(this);
 }
 
 int QQuickWebEngineViewAccessible::childCount() const
 {
-    if (engineView() && child(0))
-        return 1;
-    return 0;
+    return child(0) ? 1 : 0;
 }
 
 QAccessibleInterface *QQuickWebEngineViewAccessible::child(int index) const
 {
-    if (index == 0)
+    if (index == 0 && isValid())
         return engineView()->d_func()->adapter->browserAccessible();
-    return 0;
+    return nullptr;
 }
 
 int QQuickWebEngineViewAccessible::indexOfChild(const QAccessibleInterface *c) const
 {
-    if (c == child(0))
+    if (child(0) && c == child(0))
         return 0;
     return -1;
 }
@@ -778,7 +797,7 @@ QString QQuickWebEngineViewAccessible::text(QAccessible::Text) const
 
 QAccessible::Role QQuickWebEngineViewAccessible::role() const
 {
-    return QAccessible::Document;
+    return QAccessible::Client;
 }
 
 QAccessible::State QQuickWebEngineViewAccessible::state() const
@@ -939,10 +958,17 @@ void QQuickWebEngineViewPrivate::widgetChanged(RenderWidgetHostViewQtDelegateQui
 {
     Q_Q(QQuickWebEngineView);
 
-    if (oldWidget)
+    if (oldWidget) {
         oldWidget->setParentItem(nullptr);
+#if QT_CONFIG(accessibility)
+        QAccessible::deleteAccessibleInterface(QAccessible::uniqueId(QAccessible::queryAccessibleInterface(oldWidget)));
+#endif
+    }
 
     if (newWidget) {
+#if QT_CONFIG(accessibility)
+        QAccessible::registerAccessibleInterface(new QtWebEngineCore::RenderWidgetHostViewQtDelegateQuickAccessible(newWidget, q));
+#endif
         newWidget->setParentItem(q);
         newWidget->setSize(q->boundingRect().size());
         // Focus on creation if the view accepts it

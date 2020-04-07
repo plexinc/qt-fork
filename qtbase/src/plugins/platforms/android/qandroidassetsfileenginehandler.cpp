@@ -110,6 +110,8 @@ public:
 
     static AssetItem::Type fileType(const QString &filePath)
     {
+        if (filePath.isEmpty())
+            return AssetItem::Type::Folder;
         const QStringList paths = filePath.split(QLatin1Char('/'));
         QString fullPath;
         AssetItem::Type res = AssetItem::Type::Invalid;
@@ -200,9 +202,7 @@ public:
                                       const QString &path)
         : QAbstractFileEngineIterator(filters, nameFilters)
     {
-        m_stack.push_back(FolderIterator::fromCache(cleanedAssetPath(path), true));
-        if (m_stack.last()->empty())
-            m_stack.pop_back();
+        m_currentIterator = FolderIterator::fromCache(cleanedAssetPath(path), true);
     }
 
     QFileInfo currentFileInfo() const override
@@ -226,36 +226,23 @@ public:
 
     bool hasNext() const override
     {
-        if (m_stack.empty())
+        if (!m_currentIterator)
             return false;
-        if (!m_stack.last()->hasNext()) {
-            m_stack.pop_back();
-            return hasNext();
-        }
-        return true;
+        return m_currentIterator->hasNext();
     }
 
     QString next() override
     {
-        if (m_stack.empty()) {
-            m_currentIterator.reset();
+        if (!m_currentIterator)
             return {};
-        }
-        m_currentIterator = m_stack.last();
         auto res = m_currentIterator->next();
         if (!res)
             return {};
-        if (res->second.type == AssetItem::Type::Folder) {
-            m_stack.push_back(FolderIterator::fromCache(cleanedAssetPath(currentFilePath()), true));
-            if (m_stack.last()->empty())
-                m_stack.pop_back();
-        }
         return res->first;
     }
 
 private:
-    mutable QSharedPointer<FolderIterator> m_currentIterator;
-    mutable QVector<QSharedPointer<FolderIterator>> m_stack;
+    QSharedPointer<FolderIterator> m_currentIterator;
 };
 
 class AndroidAbstractFileEngine: public QAbstractFileEngine
@@ -399,7 +386,8 @@ public:
 private:
     AAsset *m_assetFile = nullptr;
     AAssetManager *m_assetManager = nullptr;
-    QString m_fileName;
+    // initialize with a name that can't be used as a file name
+    QString m_fileName = QLatin1String(".");
     bool m_isFolder = false;
 };
 

@@ -163,6 +163,7 @@ class CONTENT_EXPORT StoragePartitionImpl
   void ClearBluetoothAllowedDevicesMapForTesting() override;
   void FlushNetworkInterfaceForTesting() override;
   void WaitForDeletionTasksForTesting() override;
+  void WaitForCodeCacheShutdownForTesting() override;
   BackgroundFetchContext* GetBackgroundFetchContext();
   PaymentAppContextImpl* GetPaymentAppContext();
   BroadcastChannelProvider* GetBroadcastChannelProvider();
@@ -247,6 +248,10 @@ class CONTENT_EXPORT StoragePartitionImpl
   void SetOriginPolicyManagerForBrowserProcessForTesting(
       network::mojom::OriginPolicyManagerPtr test_origin_policy_manager);
   void ResetOriginPolicyManagerForBrowserProcessForTesting();
+
+#ifdef TOOLKIT_QT
+  void ResetNetworkContext() { InitNetworkContext(); }
+#endif
 
  private:
   class DataDeletionHelper;

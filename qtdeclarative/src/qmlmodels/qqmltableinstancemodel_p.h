@@ -117,6 +117,7 @@ public:
     QObject *object(int index, QQmlIncubator::IncubationMode incubationMode = QQmlIncubator::AsynchronousIfNested) override;
     ReleaseFlags release(QObject *object) override { return release(object, NotReusable); }
     ReleaseFlags release(QObject *object, ReusableFlag reusable);
+    void dispose(QObject *object);
     void cancel(int) override;
 
     void insertIntoReusableItemsPool(QQmlDelegateModelItem *modelItem);
@@ -142,7 +143,7 @@ private:
     QQmlAbstractDelegateComponent *m_delegateChooser = nullptr;
     QQmlComponent *m_delegate = nullptr;
     QPointer<QQmlContext> m_qmlContext;
-    QQmlDelegateModelItemMetaType *m_metaType;
+    QQmlRefPointer<QQmlDelegateModelItemMetaType> m_metaType;
 
     QHash<int, QQmlDelegateModelItem *> m_modelItems;
     QList<QQmlDelegateModelItem *> m_reusableItemsPool;

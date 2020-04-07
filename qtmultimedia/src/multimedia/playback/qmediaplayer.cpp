@@ -58,6 +58,7 @@
 #include <QtCore/qpointer.h>
 #include <QtCore/qfileinfo.h>
 #include <QtCore/qtemporaryfile.h>
+#include <QDir>
 
 QT_BEGIN_NAMESPACE
 
@@ -366,6 +367,13 @@ void QMediaPlayerPrivate::setMedia(const QMediaContent &media, QIODevice *stream
             control->setMedia(media, file.data());
         } else {
 #if QT_CONFIG(temporaryfile)
+#if defined(Q_OS_ANDROID)
+            QString tempFileName = QDir::tempPath() + media.request().url().path();
+            QDir().mkpath(QFileInfo(tempFileName).path());
+            QTemporaryFile *tempFile = QTemporaryFile::createNativeFile(*file);
+            if (!tempFile->rename(tempFileName))
+                qWarning() << "Could not rename temporary file to:" << tempFileName;
+#else
             QTemporaryFile *tempFile = new QTemporaryFile;
 
             // Preserve original file extension, some backends might not load the file if it doesn't
@@ -384,7 +392,7 @@ void QMediaPlayerPrivate::setMedia(const QMediaContent &media, QIODevice *stream
                 tempFile->write(buffer, len);
             }
             tempFile->close();
-
+#endif
             file.reset(tempFile);
             control->setMedia(QMediaContent(QUrl::fromLocalFile(file->fileName())), nullptr);
 #else
@@ -1014,8 +1022,17 @@ void QMediaPlayer::setPlaybackRate(qreal rate)
 
     \snippet multimedia-snippets/media.cpp Pipeline
 
-    If the pipeline contains a video sink element named \c qtvideosink,
-    current QVideoWidget can be used to render the video.
+    If QAbstractVideoSurface is used as the video output,
+    \c qtvideosink can be used as a video sink element directly in the pipeline.
+    After that the surface will receive the video frames in QAbstractVideoSurface::present().
+
+    \snippet multimedia-snippets/media.cpp Pipeline Surface
+
+    If QVideoWidget is used as the video output
+    and the pipeline contains a video sink element named \c qtvideosink,
+    current QVideoWidget will be used to render the video.
+
+    \snippet multimedia-snippets/media.cpp Pipeline Widget
 
     If the pipeline contains appsrc element, it will be used to push data from \a stream.
 

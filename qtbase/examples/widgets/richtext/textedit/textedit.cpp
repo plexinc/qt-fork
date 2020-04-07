@@ -197,7 +197,7 @@ void TextEdit::setupFileActions()
     a->setPriority(QAction::LowPriority);
     menu->addSeparator();
 
-#ifndef QT_NO_PRINTER
+#if defined(QT_PRINTSUPPORT_LIB) && QT_CONFIG(printer)
     const QIcon printIcon = QIcon::fromTheme("document-print", QIcon(rsrcPath + "/fileprint.png"));
     a = menu->addAction(printIcon, tr("&Print..."), this, &TextEdit::filePrint);
     a->setPriority(QAction::LowPriority);
@@ -419,18 +419,18 @@ bool TextEdit::load(const QString &f)
     QByteArray data = file.readAll();
     QTextCodec *codec = Qt::codecForHtml(data);
     QString str = codec->toUnicode(data);
-    QUrl baseUrl = (f.front() == QLatin1Char(':') ? QUrl(f) : QUrl::fromLocalFile(f)).adjusted(QUrl::RemoveFilename);
-    textEdit->document()->setBaseUrl(baseUrl);
     if (Qt::mightBeRichText(str)) {
+        QUrl baseUrl = (f.front() == QLatin1Char(':') ? QUrl(f) : QUrl::fromLocalFile(f)).adjusted(QUrl::RemoveFilename);
+        textEdit->document()->setBaseUrl(baseUrl);
         textEdit->setHtml(str);
     } else {
 #if QT_CONFIG(textmarkdownreader)
         QMimeDatabase db;
         if (db.mimeTypeForFileNameAndData(f, data).name() == QLatin1String("text/markdown"))
-            textEdit->setMarkdown(str);
+            textEdit->setMarkdown(QString::fromUtf8(data));
         else
 #endif
-            textEdit->setPlainText(QString::fromLocal8Bit(data));
+            textEdit->setPlainText(QString::fromUtf8(data));
     }
 
     setCurrentFileName(f);
@@ -545,7 +545,7 @@ bool TextEdit::fileSaveAs()
 
 void TextEdit::filePrint()
 {
-#if QT_CONFIG(printdialog)
+#if defined(QT_PRINTSUPPORT_LIB) && QT_CONFIG(printdialog)
     QPrinter printer(QPrinter::HighResolution);
     QPrintDialog *dlg = new QPrintDialog(&printer, this);
     if (textEdit->textCursor().hasSelection())
@@ -559,7 +559,7 @@ void TextEdit::filePrint()
 
 void TextEdit::filePrintPreview()
 {
-#if QT_CONFIG(printpreviewdialog)
+#if defined(QT_PRINTSUPPORT_LIB) && QT_CONFIG(printpreviewdialog)
     QPrinter printer(QPrinter::HighResolution);
     QPrintPreviewDialog preview(&printer, this);
     connect(&preview, &QPrintPreviewDialog::paintRequested, this, &TextEdit::printPreview);
@@ -569,17 +569,17 @@ void TextEdit::filePrintPreview()
 
 void TextEdit::printPreview(QPrinter *printer)
 {
-#ifdef QT_NO_PRINTER
-    Q_UNUSED(printer);
-#else
+#if defined(QT_PRINTSUPPORT_LIB) && QT_CONFIG(printer)
     textEdit->print(printer);
+#else
+    Q_UNUSED(printer)
 #endif
 }
 
 
 void TextEdit::filePrintPdf()
 {
-#ifndef QT_NO_PRINTER
+#if defined(QT_PRINTSUPPORT_LIB) && QT_CONFIG(printer)
 //! [0]
     QFileDialog fileDialog(this, tr("Export PDF"));
     fileDialog.setAcceptMode(QFileDialog::AcceptSave);
