@@ -44,7 +44,6 @@
 #include <QtMultimedia/qvideosurfaceformat.h>
 #include <QtMultimedia/qcameraimagecapture.h>
 #include <private/qmemoryvideobuffer_p.h>
-#include <private/qvideoframe_p.h>
 
 #include "dscamerasession.h"
 #include "dsvideorenderer.h"
@@ -429,6 +428,7 @@ bool DSCameraSession::unload()
     SAFE_RELEASE(m_nullRendererFilter);
     SAFE_RELEASE(m_filterGraph);
     SAFE_RELEASE(m_graphBuilder);
+    SAFE_RELEASE(m_outputPin);
 
     setStatus(QCamera::UnloadedStatus);
 
@@ -637,7 +637,7 @@ void DSCameraSession::presentFrame()
 
     if (m_capturedFrame.isValid()) {
 
-        captureImage = qt_imageFromVideoFrame(m_capturedFrame);
+        captureImage = m_capturedFrame.image();
 
         const bool needsVerticalMirroring = m_previewSurfaceFormat.scanLineDirection() != QVideoSurfaceFormat::TopToBottom;
         captureImage = captureImage.mirrored(m_needsHorizontalMirroring, needsVerticalMirroring); // also causes a deep copy of the data
@@ -781,6 +781,9 @@ bool DSCameraSession::createFilterGraph()
         errorString = tr("No capture device found");
         goto failed;
     }
+
+    if (!DirectShowUtils::getPin(m_sourceFilter, PINDIR_OUTPUT, PIN_CATEGORY_CAPTURE, &m_outputPin, &hr))
+        qWarning() << "Failed to get the pin for the video control:" << hr;
 
     // Sample grabber filter
     if (!m_previewSampleGrabber) {
@@ -1056,24 +1059,18 @@ void DSCameraSession::updateSourceCapabilities()
                                        reinterpret_cast<void**>(&pVideoControl));
     if (FAILED(hr)) {
         qWarning() << "Failed to get the video control";
-    } else {
-        IPin *pPin = nullptr;
-        if (!DirectShowUtils::getPin(m_sourceFilter, PINDIR_OUTPUT, &pPin, &hr)) {
-            qWarning() << "Failed to get the pin for the video control";
-        } else {
-            long supportedModes;
-            hr = pVideoControl->GetCaps(pPin, &supportedModes);
-            if (FAILED(hr)) {
-                qWarning() << "Failed to get the supported modes of the video control";
-            } else if (supportedModes & VideoControlFlag_FlipHorizontal) {
-                long mode;
-                hr = pVideoControl->GetMode(pPin, &mode);
-                if (FAILED(hr))
-                    qWarning() << "Failed to get the mode of the video control";
-                else if (supportedModes & VideoControlFlag_FlipHorizontal)
-                    m_needsHorizontalMirroring = (mode & VideoControlFlag_FlipHorizontal);
-            }
-            pPin->Release();
+    } else if (m_outputPin) {
+        long supportedModes;
+        hr = pVideoControl->GetCaps(m_outputPin, &supportedModes);
+        if (FAILED(hr)) {
+            qWarning() << "Failed to get the supported modes of the video control";
+        } else if (supportedModes & VideoControlFlag_FlipHorizontal) {
+            long mode;
+            hr = pVideoControl->GetMode(m_outputPin, &mode);
+            if (FAILED(hr))
+                qWarning() << "Failed to get the mode of the video control";
+            else if (supportedModes & VideoControlFlag_FlipHorizontal)
+                m_needsHorizontalMirroring = (mode & VideoControlFlag_FlipHorizontal);
         }
         pVideoControl->Release();
     }
@@ -1108,28 +1105,22 @@ void DSCameraSession::updateSourceCapabilities()
 
                 QList<QCamera::FrameRateRange> frameRateRanges;
 
-                if (pVideoControl) {
-                    IPin *pPin = nullptr;
-                    if (!DirectShowUtils::getPin(m_sourceFilter, PINDIR_OUTPUT, &pPin, &hr)) {
-                        qWarning() << "Failed to get the pin for the video control";
-                    } else {
-                        long listSize = 0;
-                        LONGLONG *frameRates = nullptr;
-                        SIZE size = { resolution.width(), resolution.height() };
-                        hr = pVideoControl->GetFrameRateList(pPin, iIndex, size, &listSize, &frameRates);
-                        if (hr == S_OK && listSize > 0 && frameRates) {
-                            for (long i = 0; i < listSize; ++i) {
-                                qreal fr = qreal(10000000) / frameRates[i];
-                                frameRateRanges.append(QCamera::FrameRateRange(fr, fr));
-                            }
-
-                            // Make sure higher frame rates come first
-                            std::sort(frameRateRanges.begin(), frameRateRanges.end(), qt_frameRateRangeGreaterThan);
+                if (pVideoControl && m_outputPin) {
+                    long listSize = 0;
+                    LONGLONG *frameRates = nullptr;
+                    SIZE size = { resolution.width(), resolution.height() };
+                    hr = pVideoControl->GetFrameRateList(m_outputPin, iIndex, size, &listSize, &frameRates);
+                    if (hr == S_OK && listSize > 0 && frameRates) {
+                        for (long i = 0; i < listSize; ++i) {
+                            qreal fr = qreal(10000000) / frameRates[i];
+                            frameRateRanges.append(QCamera::FrameRateRange(fr, fr));
                         }
 
-                        CoTaskMemFree(frameRates);
-                        pPin->Release();
+                        // Make sure higher frame rates come first
+                        std::sort(frameRateRanges.begin(), frameRateRanges.end(), qt_frameRateRangeGreaterThan);
                     }
+
+                    CoTaskMemFree(frameRates);
                 }
 
                 if (frameRateRanges.isEmpty()) {
@@ -1147,9 +1138,14 @@ void DSCameraSession::updateSourceCapabilities()
                     m_supportedViewfinderSettings.append(settings);
                     m_supportedFormats.append(DirectShowMediaType(*pmt));
                 }
-
-
+            } else {
+                OLECHAR *guidString = nullptr;
+                StringFromCLSID(pmt->subtype, &guidString);
+                if (guidString)
+                    qWarning() << "Unsupported media type:" << QString::fromWCharArray(guidString);
+                ::CoTaskMemFree(guidString);
             }
+
             DirectShowMediaType::deleteType(pmt);
         }
     }

@@ -26,6 +26,23 @@ struct EnumTraits<display::mojom::HDCPState, display::HDCPState> {
                         display::HDCPState* out);
 };
 
+template <>
+struct EnumTraits<display::mojom::PanelOrientation, display::PanelOrientation> {
+  static display::mojom::PanelOrientation ToMojom(
+      display::PanelOrientation type);
+  static bool FromMojom(display::mojom::PanelOrientation type,
+                        display::PanelOrientation* out);
+};
+
+template <>
+struct EnumTraits<display::mojom::PrivacyScreenState,
+                  display::PrivacyScreenState> {
+  static display::mojom::PrivacyScreenState ToMojom(
+      display::PrivacyScreenState type);
+  static bool FromMojom(display::mojom::PrivacyScreenState type,
+                        display::PrivacyScreenState* out);
+};
+
 }  // namespace mojo
 
 #endif  // UI_DISPLAY_MOJOM_DISPLAY_CONSTANTS_MOJOM_TRAITS_H_

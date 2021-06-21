@@ -4,7 +4,6 @@
 
 #include "third_party/blink/renderer/core/inspector/inspector_resource_content_loader.h"
 
-#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink.h"
 #include "third_party/blink/public/platform/web_url_request.h"
 #include "third_party/blink/renderer/core/css/css_style_sheet.h"
@@ -29,8 +28,7 @@ namespace blink {
 // resources. Stylesheets can only safely use a RawResourceClient because it has
 // no custom interface and simply uses the base ResourceClient.
 class InspectorResourceContentLoader::ResourceClient final
-    : public GarbageCollectedFinalized<
-          InspectorResourceContentLoader::ResourceClient>,
+    : public GarbageCollected<InspectorResourceContentLoader::ResourceClient>,
       private RawResourceClient {
   USING_GARBAGE_COLLECTED_MIXIN(ResourceClient);
 
@@ -38,7 +36,7 @@ class InspectorResourceContentLoader::ResourceClient final
   explicit ResourceClient(InspectorResourceContentLoader* loader)
       : loader_(loader) {}
 
-  void Trace(blink::Visitor* visitor) override {
+  void Trace(Visitor* visitor) override {
     visitor->Trace(loader_);
     RawResourceClient::Trace(visitor);
   }
@@ -95,8 +93,7 @@ void InspectorResourceContentLoader::Start() {
     }
 
     ResourceFetcher* fetcher = document->Fetcher();
-    if (base::FeatureList::IsEnabled(
-            features::kHtmlImportsRequestInitiatorLock)) {
+    if (document->ImportsController()) {
       // For @imports from HTML imported Documents, we use the
       // context document for getting origin and ResourceFetcher to use the
       // main Document's origin, while using the element document for
@@ -110,7 +107,7 @@ void InspectorResourceContentLoader::Start() {
       urls_to_fetch.insert(resource_request.Url().GetString());
       ResourceLoaderOptions options;
       options.initiator_info.name = fetch_initiator_type_names::kInternal;
-      FetchParameters params(resource_request, options);
+      FetchParameters params(std::move(resource_request), options);
       ResourceClient* resource_client =
           MakeGarbageCollected<ResourceClient>(this);
       // Prevent garbage collection by holding a reference to this resource.
@@ -132,7 +129,7 @@ void InspectorResourceContentLoader::Start() {
       resource_request.SetRequestContext(mojom::RequestContextType::INTERNAL);
       ResourceLoaderOptions options;
       options.initiator_info.name = fetch_initiator_type_names::kInternal;
-      FetchParameters params(resource_request, options);
+      FetchParameters params(std::move(resource_request), options);
       ResourceClient* resource_client =
           MakeGarbageCollected<ResourceClient>(this);
       // Prevent garbage collection by holding a reference to this resource.
@@ -171,7 +168,7 @@ InspectorResourceContentLoader::~InspectorResourceContentLoader() {
   DCHECK(resources_.IsEmpty());
 }
 
-void InspectorResourceContentLoader::Trace(blink::Visitor* visitor) {
+void InspectorResourceContentLoader::Trace(Visitor* visitor) {
   visitor->Trace(inspected_frame_);
   visitor->Trace(pending_resource_clients_);
   visitor->Trace(resources_);

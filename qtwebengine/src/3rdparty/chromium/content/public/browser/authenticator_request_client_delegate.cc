@@ -9,7 +9,12 @@
 #include "base/callback.h"
 #include "base/strings/string_piece.h"
 #include "build/build_config.h"
+#include "device/fido/features.h"
 #include "device/fido/fido_discovery_factory.h"
+
+#if defined(OS_WIN)
+#include "device/fido/win/webauthn_api.h"
+#endif  // defined(OS_WIN)
 
 namespace content {
 
@@ -18,15 +23,24 @@ AuthenticatorRequestClientDelegate::AuthenticatorRequestClientDelegate() =
 AuthenticatorRequestClientDelegate::~AuthenticatorRequestClientDelegate() =
     default;
 
+base::Optional<std::string>
+AuthenticatorRequestClientDelegate::MaybeGetRelyingPartyIdOverride(
+    const std::string& claimed_relying_party_id,
+    const url::Origin& caller_origin) {
+  return base::nullopt;
+}
+
+void AuthenticatorRequestClientDelegate::SetRelyingPartyId(const std::string&) {
+}
+
 bool AuthenticatorRequestClientDelegate::DoesBlockRequestOnFailure(
-    const ::device::FidoAuthenticator* authenticator,
     InterestingFailureReason reason) {
   return false;
 }
 
 void AuthenticatorRequestClientDelegate::RegisterActionCallbacks(
     base::OnceClosure cancel_callback,
-    base::Closure start_over_callback,
+    base::RepeatingClosure start_over_callback,
     device::FidoRequestHandlerBase::RequestCallback request_callback,
     base::RepeatingClosure bluetooth_adapter_power_on_callback,
     device::FidoRequestHandlerBase::BlePairingCallback ble_pairing_callback) {}
@@ -50,6 +64,23 @@ bool AuthenticatorRequestClientDelegate::SupportsResidentKeys() {
 void AuthenticatorRequestClientDelegate::SetMightCreateResidentCredential(
     bool v) {}
 
+bool AuthenticatorRequestClientDelegate::ShouldPermitCableExtension(
+    const url::Origin& origin) {
+  return false;
+}
+
+bool AuthenticatorRequestClientDelegate::SetCableTransportInfo(
+    bool cable_extension_provided,
+    bool have_paired_phones,
+    base::Optional<device::QRGeneratorKey> qr_generator_key) {
+  return false;
+}
+
+std::vector<device::CableDiscoveryData>
+AuthenticatorRequestClientDelegate::GetCablePairings() {
+  return {};
+}
+
 void AuthenticatorRequestClientDelegate::SelectAccount(
     std::vector<device::AuthenticatorGetAssertionResponse> responses,
     base::OnceCallback<void(device::AuthenticatorGetAssertionResponse)>
@@ -69,9 +100,9 @@ AuthenticatorRequestClientDelegate::GetTouchIdAuthenticatorConfig() {
 }
 #endif  // defined(OS_MACOSX)
 
-bool AuthenticatorRequestClientDelegate::
-    IsUserVerifyingPlatformAuthenticatorAvailable() {
-  return false;
+base::Optional<bool> AuthenticatorRequestClientDelegate::
+    IsUserVerifyingPlatformAuthenticatorAvailableOverride() {
+  return base::nullopt;
 }
 
 device::FidoDiscoveryFactory*
@@ -86,6 +117,15 @@ AuthenticatorRequestClientDelegate::GetDiscoveryFactory() {
 #if defined(OS_MACOSX)
     discovery_factory_->set_mac_touch_id_info(GetTouchIdAuthenticatorConfig());
 #endif  // defined(OS_MACOSX)
+
+#if defined(OS_WIN)
+    if (base::FeatureList::IsEnabled(device::kWebAuthUseNativeWinApi)) {
+      discovery_factory_->set_win_webauthn_api(
+          device::WinWebAuthnApi::GetDefault());
+    }
+#endif  // defined(OS_WIN)
+
+    CustomizeDiscoveryFactory(discovery_factory_.get());
   }
   return discovery_factory_.get();
 #endif
@@ -136,8 +176,16 @@ void AuthenticatorRequestClientDelegate::CollectPIN(
   NOTREACHED();
 }
 
-void AuthenticatorRequestClientDelegate::FinishCollectPIN() {
+void AuthenticatorRequestClientDelegate::FinishCollectToken() {
   NOTREACHED();
 }
+
+void AuthenticatorRequestClientDelegate::OnRetryUserVerification(int attempts) {
+}
+
+void AuthenticatorRequestClientDelegate::OnInternalUserVerificationLocked() {}
+
+void AuthenticatorRequestClientDelegate::CustomizeDiscoveryFactory(
+    device::FidoDiscoveryFactory* discovery_factory) {}
 
 }  // namespace content

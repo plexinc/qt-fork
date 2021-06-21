@@ -12,8 +12,8 @@ struct ColorSuggestion {
 // A ColorChooser window is shown for <input type="color">.
 interface ColorChooserFactory {
   OpenColorChooser(
-      ColorChooser& chooser,
-      ColorChooserClient client,
+      pending_receiver<ColorChooser> chooser,
+      pending_remote<ColorChooserClient> client,
       uint32 color,
       array<ColorSuggestion> suggestions);
 };
@@ -28,3 +28,8 @@ interface ColorChooserClient {
   DidChooseColor(uint32 color);
 };
 
+// Interface exposed by the browser to the renderer.
+interface EyeDropperChooser {
+  // EyeDropper window is shown.
+  Choose() => (bool success, uint32 color);
+};

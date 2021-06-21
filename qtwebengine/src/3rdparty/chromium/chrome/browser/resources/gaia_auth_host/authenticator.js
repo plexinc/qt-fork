@@ -5,8 +5,19 @@
 // <include src="saml_handler.js">
 // Note: webview_event_manager.js is already included by saml_handler.js.
 
+// clang-format off
+// #import {NativeEventTarget as EventTarget} from 'chrome://resources/js/cr/event_target.m.js'
+// #import {assert} from 'chrome://resources/js/assert.m.js';
+// #import {$, appendParam} from 'chrome://resources/js/util.m.js';
+// #import {sendWithPromise} from 'chrome://resources/js/cr.m.js';
+
+// #import {SamlHandler, OnHeadersReceivedDetails} from './saml_handler.m.js';
+// #import {WebviewEventManager} from './webview_event_manager.m.js';
+// #import {PasswordAttributes} from './saml_password_attributes.m.js';
+// clang-format on
+
 /**
- * @fileoverview An UI component to authenciate to Chrome. The component hosts
+ * @fileoverview An UI component to authenticate to Chrome. The component hosts
  * IdP web pages in a webview. A client who is interested in monitoring
  * authentication events should subscribe itself via addEventListener(). After
  * initialization, call {@code load} to start the authentication flow.
@@ -15,7 +26,51 @@
  */
 
 cr.define('cr.login', function() {
-  'use strict';
+  /* #ignore */ 'use strict';
+
+  /**
+   * Credentials passed with 'authCompleted' message.
+   * @typedef {{
+   *   email: string,
+   *   gaiaId: string,
+   *   password: string,
+   *   usingSAML: boolean,
+   *   publicSAML: boolean,
+   *   chooseWhatToSync: boolean,
+   *   skipForNow: boolean,
+   *   sessionIndex: string,
+   *   trusted: boolean,
+   *   services: Array,
+   *   passwordAttributes: !PasswordAttributes
+   * }}
+   */
+  /* #export */ let AuthCompletedCredentials;
+
+  /**
+   * Parameters for the authorization flow.
+   * @typedef {{
+   *   hl: string,
+   *   gaiaUrl: string,
+   *   authMode: AuthMode,
+   *   isLoginPrimaryAccount: boolean,
+   *   email: string,
+   *   constrained: string,
+   *   readOnlyEmail: boolean,
+   *   service: string,
+   *   dontResizeNonEmbeddedPages: boolean,
+   *   clientId: string,
+   *   gaiaPath: string,
+   *   emailDomain: string,
+   *   showTos: string,
+   *   extractSamlPasswordAttributes: boolean,
+   *   flow: string,
+   *   ignoreCrOSIdpSetting: boolean,
+   *   enableGaiaActionButtons: boolean,
+   *   enterpriseEnrollmentDomain: string,
+   *   samlAclUrl: string
+   * }}
+   */
+  /* #export */ let AuthParams;
 
   // TODO(rogerta): should use gaia URL from GaiaUrls::gaia_url() instead
   // of hardcoding the prod URL here.  As is, this does not work with staging
@@ -32,20 +87,20 @@ cr.define('cr.login', function() {
   /**
    * The source URL parameter for the constrained signin flow.
    */
-  const CONSTRAINED_FLOW_SOURCE = 'chrome';
+  /* #export */ const CONSTRAINED_FLOW_SOURCE = 'chrome';
 
   /**
    * Enum for the authorization mode, must match AuthMode defined in
    * chrome/browser/ui/webui/inline_login_ui.cc.
    * @enum {number}
    */
-  const AuthMode = {DEFAULT: 0, OFFLINE: 1, DESKTOP: 2};
+  /* #export */ const AuthMode = {DEFAULT: 0, OFFLINE: 1, DESKTOP: 2};
 
   /**
    * Enum for the authorization type.
    * @enum {number}
    */
-  const AuthFlow = {DEFAULT: 0, SAML: 1};
+  /* #export */ const AuthFlow = {DEFAULT: 0, SAML: 1};
 
   /**
    * Supported Authenticator params.
@@ -109,6 +164,12 @@ cr.define('cr.login', function() {
     'email',
     'readOnlyEmail',
     'realm',
+    // If the authentication is done via external IdP, 'startsOnSamlPage'
+    // indicates whether the flow should start on the IdP page.
+    'startsOnSamlPage',
+    // SAML assertion consumer URL, used to detect when Gaia-less SAML flows end
+    // (e.g. for SAML managed guest sessions).
+    'samlAclUrl',
   ];
 
 
@@ -118,7 +179,7 @@ cr.define('cr.login', function() {
    * and the data field of the HTML5 Payload.
    */
   const messageHandlers = {
-    'attemptLogin': function(msg) {
+    'attemptLogin'(msg) {
       this.email_ = msg.email;
       if (this.authMode == AuthMode.DESKTOP) {
         this.password_ = msg.password;
@@ -129,65 +190,65 @@ cr.define('cr.login', function() {
       // We need to dispatch only first event, before user enters password.
       this.dispatchEvent(new CustomEvent('attemptLogin', {detail: msg.email}));
     },
-    'dialogShown': function(msg) {
+    'dialogShown'(msg) {
       this.dispatchEvent(new Event('dialogShown'));
     },
-    'dialogHidden': function(msg) {
+    'dialogHidden'(msg) {
       this.dispatchEvent(new Event('dialogHidden'));
     },
-    'backButton': function(msg) {
+    'backButton'(msg) {
       this.dispatchEvent(new CustomEvent('backButton', {detail: msg.show}));
     },
-    'showView': function(msg) {
+    'showView'(msg) {
       this.dispatchEvent(new Event('showView'));
     },
-    'menuItemClicked': function(msg) {
+    'menuItemClicked'(msg) {
       this.dispatchEvent(
           new CustomEvent('menuItemClicked', {detail: msg.item}));
     },
-    'identifierEntered': function(msg) {
+    'identifierEntered'(msg) {
       this.dispatchEvent(new CustomEvent(
           'identifierEntered',
           {detail: {accountIdentifier: msg.accountIdentifier}}));
     },
-    'userInfo': function(msg) {
+    'userInfo'(msg) {
       this.services_ = msg.services;
       if (this.email_ && this.gaiaId_ && this.sessionIndex_) {
         this.maybeCompleteAuth_();
       }
     },
-    'showIncognito': function(msg) {
+    'showIncognito'(msg) {
       this.dispatchEvent(new Event('showIncognito'));
     },
-    'setPrimaryActionLabel': function(msg) {
+    'setPrimaryActionLabel'(msg) {
       if (!this.enableGaiaActionButtons_) {
         return;
       }
       this.dispatchEvent(
           new CustomEvent('setPrimaryActionLabel', {detail: msg.value}));
     },
-    'setPrimaryActionEnabled': function(msg) {
+    'setPrimaryActionEnabled'(msg) {
       if (!this.enableGaiaActionButtons_) {
         return;
       }
       this.dispatchEvent(
           new CustomEvent('setPrimaryActionEnabled', {detail: msg.value}));
     },
-    'setSecondaryActionLabel': function(msg) {
+    'setSecondaryActionLabel'(msg) {
       if (!this.enableGaiaActionButtons_) {
         return;
       }
       this.dispatchEvent(
           new CustomEvent('setSecondaryActionLabel', {detail: msg.value}));
     },
-    'setSecondaryActionEnabled': function(msg) {
+    'setSecondaryActionEnabled'(msg) {
       if (!this.enableGaiaActionButtons_) {
         return;
       }
       this.dispatchEvent(
           new CustomEvent('setSecondaryActionEnabled', {detail: msg.value}));
     },
-    'setAllActionsEnabled': function(msg) {
+    'setAllActionsEnabled'(msg) {
       if (!this.enableGaiaActionButtons_) {
         return;
       }
@@ -197,9 +258,19 @@ cr.define('cr.login', function() {
   };
 
   /**
+   * Old or not supported on Chrome OS messages.
+   * @type {!Array<string>}
+   * @const
+   */
+  const IGNORED_MESSAGES_FROM_GAIA = [
+    'clearOldAttempts',
+    'showConfirmCancel',
+  ];
+
+  /**
    * Initializes the authenticator component.
    */
-  class Authenticator extends cr.EventTarget {
+  /* #export */ class Authenticator extends cr.EventTarget {
     /**
      * @param {!WebView|string} webview The webview element or its ID to host
      *     IdP web pages.
@@ -214,6 +285,10 @@ cr.define('cr.login', function() {
       this.chooseWhatToSync_ = false;
       this.skipForNow_ = false;
       this.authFlow = AuthFlow.DEFAULT;
+      /** @type {AuthMode} */
+      this.authMode = AuthMode.DEFAULT;
+      this.dontResizeNonEmbeddedPages = false;
+
       this.authDomain = '';
       /**
        * @type {!cr.login.SamlHandler|undefined}
@@ -226,7 +301,13 @@ cr.define('cr.login', function() {
       this.reloadUrl_ = null;
       this.trusted_ = true;
       this.readyFired_ = false;
-      this.webview_ = typeof webview == 'string' ? $(webview) : webview;
+      this.authCompletedFired_ = false;
+      /**
+       * @private {WebView|undefined}
+       */
+      this.webview_ = typeof webview == 'string' ?
+          /** @type {WebView} */ ($(webview)) :
+          webview;
       assert(this.webview_);
       this.enableGaiaActionButtons_ = false;
       this.webviewEventManager_ = WebviewEventManager.create();
@@ -235,6 +316,7 @@ cr.define('cr.login', function() {
 
       this.confirmPasswordCallback = null;
       this.noPasswordCallback = null;
+      this.onePasswordCallback = null;
       this.insecureContentBlockedCallback = null;
       this.samlApiUsedCallback = null;
       this.missingGaiaInfoCallback = null;
@@ -242,7 +324,7 @@ cr.define('cr.login', function() {
        * Callback allowing to request whether the specified user which
        * authenticates via SAML is a user without a password (neither a manually
        * entered one nor one provided via Credentials Passing API).
-       * @type {function(string, string, function(boolean))} Arguments are the
+       * @type {?function(string, string, function(boolean))} Arguments are the
        * e-mail, the GAIA ID, and the response callback.
        */
       this.getIsSamlUserPasswordlessCallback = null;
@@ -255,6 +337,9 @@ cr.define('cr.login', function() {
        * @private
        */
       this.isSamlUserPasswordless_ = null;
+      /** @private {boolean} */
+      this.isConstrainedWindow_ = false;
+      this.samlAclUrl_ = null;
 
       window.addEventListener(
           'message', this.onMessageFromWebview_.bind(this), false);
@@ -336,6 +421,9 @@ cr.define('cr.login', function() {
       this.webviewEventManager_.addEventListener(
           this.samlHandler_, 'apiPasswordAdded',
           this.onSamlApiPasswordAdded_.bind(this));
+      this.webviewEventManager_.addEventListener(
+          this.samlHandler_, 'challengeMachineKeyRequired',
+          this.onChallengeMachineKeyRequired_.bind(this));
 
       this.webviewEventManager_.addEventListener(
           this.webview_, 'droplink', this.onDropLink_.bind(this));
@@ -376,7 +464,8 @@ cr.define('cr.login', function() {
 
     /**
      * Re-binds to another webview.
-     * @param {Object} webview the new webview to be used by this Authenticator.
+     * @param {WebView} webview the new webview to be used by this
+     *     Authenticator.
      * @private
      */
     rebindWebview_(webview) {
@@ -433,18 +522,19 @@ cr.define('cr.login', function() {
 
         webivewParent.replaceChild(newWebview, this.webview_);
 
-        this.rebindWebview_(newWebview);
+        this.rebindWebview_(/** @type {WebView} */ (newWebview));
       }
     }
 
     /**
      * Loads the authenticator component with the given parameters.
      * @param {AuthMode} authMode Authorization mode.
-     * @param {Object} data Parameters for the authorization flow.
+     * @param {AuthParams} data Parameters for the authorization flow.
      */
     load(authMode, data) {
       this.authMode = authMode;
       this.resetStates();
+      this.authCompletedFired_ = false;
       // gaiaUrl parameter is used for testing. Once defined, it is never
       // changed.
       this.idpOrigin_ = data.gaiaUrl || IDP_ORIGIN;
@@ -455,12 +545,23 @@ cr.define('cr.login', function() {
 
       this.initialFrameUrl_ = this.constructInitialFrameUrl_(data);
       this.reloadUrl_ = data.frameUrl || this.initialFrameUrl_;
+      this.samlAclUrl_ = data.samlAclUrl;
+      // The email field is repurposed as public session email in SAML guest
+      // mode, ie when frameUrl is not empty.
+      if (data.samlAclUrl) {
+        this.email_ = data.email;
+      }
+
+      if (data.startsOnSamlPage) {
+        this.samlHandler_.startsOnSamlPage = true;
+      }
       // Don't block insecure content for desktop flow because it lands on
       // http. Otherwise, block insecure content as long as gaia is https.
       this.samlHandler_.blockInsecureContent = authMode != AuthMode.DESKTOP &&
           this.idpOrigin_.startsWith('https://');
       this.samlHandler_.extractSamlPasswordAttributes =
           data.extractSamlPasswordAttributes;
+
       this.needPassword = !('needPassword' in data) || data.needPassword;
 
       this.webview_.contextMenus.onShow.addListener(function(e) {
@@ -480,6 +581,7 @@ cr.define('cr.login', function() {
      */
     reload() {
       this.resetStates();
+      this.authCompletedFired_ = false;
       this.webview_.src = this.reloadUrl_;
       this.isLoaded_ = true;
     }
@@ -541,7 +643,7 @@ cr.define('cr.login', function() {
       }
 
       if (data.isFirstUser) {
-        url = appendParam(url, 'is_first_user', true);
+        url = appendParam(url, 'is_first_user', 'true');
 
         if (data.lsbReleaseBoard) {
           url = appendParam(url, 'chromeos_board', data.lsbReleaseBoard);
@@ -570,13 +672,17 @@ cr.define('cr.login', function() {
         url = appendParam(url, 'flow', data.flow);
       }
       if (data.emailDomain) {
-        url = appendParam(url, 'emaildomain', data.emailDomain);
-        // ChromeOS embedded signin page uses 'hd' (hosted domain) as the query
-        // argument to show an email domain.
+        // Use 'hd' (hosted domain) as the argument to show an email domain.
         url = appendParam(url, 'hd', data.emailDomain);
+      }
+      if (data.showTos) {
+        url = appendParam(url, 'show_tos', data.showTos);
       }
       if (data.ignoreCrOSIdpSetting === true) {
         url = appendParam(url, 'ignoreCrOSIdpSetting', 'true');
+      }
+      if (data.enableGaiaActionButtons) {
+        url = appendParam(url, 'use_native_navigation', '1');
       }
       return url;
     }
@@ -645,10 +751,9 @@ cr.define('cr.login', function() {
 
     /**
      * Invoked when the sign-in page takes focus.
-     * @param {object} e The focus event being triggered.
      * @private
      */
-    onFocus_(e) {
+    onFocus_() {
       if (this.authMode == AuthMode.DESKTOP &&
           document.activeElement == document.body) {
         this.webview_.focus();
@@ -657,7 +762,7 @@ cr.define('cr.login', function() {
 
     /**
      * Invoked when the history state is changed.
-     * @param {object} e The popstate event being triggered.
+     * @param {!Event} e The popstate event being triggered.
      * @private
      */
     onPopState_(e) {
@@ -671,10 +776,17 @@ cr.define('cr.login', function() {
      * Invoked when headers are received in the main frame of the webview. It
      * 1) reads the authenticated user info from a signin header,
      * 2) signals the start of a saml flow upon receiving a saml header.
-     * @return {!Object} Modified request headers.
+     * @param {OnHeadersReceivedDetails} details
      * @private
      */
     onHeadersReceived_(details) {
+      if (this.authCompletedFired_) {
+        // SIGN_IN_HEADER could be sent more thane once. Sometimes already
+        // after authentication completed. Return here to avoid triggering
+        // maybeCompleteAuth which shows "create your password screen" because
+        // scraped passwords are wiped at that point.
+        return;
+      }
       const currentUrl = details.url;
       if (currentUrl.lastIndexOf(this.idpOrigin_, 0) != 0) {
         return;
@@ -699,6 +811,7 @@ cr.define('cr.login', function() {
         } else if (headerName == LOCATION_HEADER) {
           // If the "choose what to sync" checkbox was clicked, then the
           // continue URL will contain a source=3 field.
+          assert(header.value);
           const location = decodeURIComponent(header.value);
           this.chooseWhatToSync_ = !!location.match(/(\?|&)source=3($|&)/);
         }
@@ -707,7 +820,7 @@ cr.define('cr.login', function() {
 
     /**
      * Returns true if given HTML5 message is received from the webview element.
-     * @param {object} e Payload of the received HTML5 message.
+     * @param {Object} e Payload of the received HTML5 message.
      */
     isGaiaMessage(e) {
       if (!this.isWebviewEvent_(e)) {
@@ -729,7 +842,7 @@ cr.define('cr.login', function() {
 
     /**
      * Invoked when an HTML5 message is received from the webview element.
-     * @param {object} e Payload of the received HTML5 message.
+     * @param {Object} e Payload of the received HTML5 message.
      * @private
      */
     onMessageFromWebview_(e) {
@@ -739,15 +852,18 @@ cr.define('cr.login', function() {
 
       const msg = e.data;
       if (msg.method in messageHandlers) {
+        if (this.authCompletedFired_) {
+          console.error(msg.method + ' message sent after auth completed');
+        }
         messageHandlers[msg.method].call(this, msg);
-      } else {
+      } else if (!IGNORED_MESSAGES_FROM_GAIA.includes(msg.method)) {
         console.warn('Unrecognized message from GAIA: ' + msg.method);
       }
     }
 
     /**
      * Invoked to send a HTML5 message to the webview element.
-     * @param {object} e Payload of the HTML5 message.
+     * @param {Object} payload Payload of the HTML5 message.
      */
     sendMessageToWebview(payload) {
       const currentUrl = this.webview_.src;
@@ -783,6 +899,9 @@ cr.define('cr.login', function() {
      * @private
      */
     maybeCompleteAuth_() {
+      if (this.authCompletedFired_) {
+        return;
+      }
       const missingGaiaInfo =
           !this.email_ || !this.gaiaId_ || !this.sessionIndex_;
       if (missingGaiaInfo && !this.skipForNow_) {
@@ -827,7 +946,9 @@ cr.define('cr.login', function() {
 
       if (this.samlHandler_.samlApiUsed) {
         if (this.samlApiUsedCallback) {
-          this.samlApiUsedCallback();
+          // Makes distinction between Gaia and Chrome Credentials Passing API
+          // login to properly fill ChromeOS.SAML.ApiLogin metrics.
+          this.samlApiUsedCallback(this.authFlow == AuthFlow.SAML);
         }
         this.password_ = this.samlHandler_.apiPasswordBytes;
         this.onAuthCompleted_();
@@ -849,6 +970,9 @@ cr.define('cr.login', function() {
           // If we scraped exactly one password, we complete the
           // authentication right away.
           this.password_ = this.samlHandler_.firstScrapedPassword;
+          if (this.onePasswordCallback) {
+            this.onePasswordCallback();
+          }
           this.onAuthCompleted_();
           return;
         }
@@ -867,8 +991,8 @@ cr.define('cr.login', function() {
 
     /**
      * Invoked to complete the authentication using the password the user
-     * enters manually for non-principals API SAML IdPs that we couldn't
-     * scrape their password input.
+     * enters manually for SAML IdPs that do not use Chrome Credentials Passing
+     * API and we couldn't scrape their password input.
      */
     completeAuthWithManualPassword(password) {
       this.password_ = password;
@@ -960,6 +1084,7 @@ cr.define('cr.login', function() {
               gaiaId: this.gaiaId_ || '',
               password: this.password_ || '',
               usingSAML: this.authFlow == AuthFlow.SAML,
+              publicSAML: this.samlAclUrl_ || false,
               chooseWhatToSync: this.chooseWhatToSync_,
               skipForNow: this.skipForNow_,
               sessionIndex: this.sessionIndex_ || '',
@@ -969,6 +1094,7 @@ cr.define('cr.login', function() {
             }
           }));
       this.resetStates();
+      this.authCompletedFired_ = true;
     }
 
     /**
@@ -1029,6 +1155,16 @@ cr.define('cr.login', function() {
     }
 
     /**
+     * Invoked when |samlHandler_| fires 'challengeMachineKeyRequired' event.
+     * @private
+     */
+    onChallengeMachineKeyRequired_(e) {
+      cr.sendWithPromise(
+            'samlChallengeMachineKey', e.detail.url, e.detail.challenge)
+          .then(e.detail.callback);
+    }
+
+    /**
      * Invoked when a link is dropped on the webview.
      * @private
      */
@@ -1085,6 +1221,9 @@ cr.define('cr.login', function() {
         this.webview_.focus();
       } else if (currentUrl == BLANK_PAGE_URL) {
         this.fireReadyEvent_();
+      } else if (currentUrl == this.samlAclUrl_) {
+        this.skipForNow_ = true;
+        this.onAuthCompleted_();
       }
     }
 
@@ -1093,8 +1232,12 @@ cr.define('cr.login', function() {
      * @private
      */
     onLoadAbort_(e) {
+      if (this.samlHandler_.isIntentionalAbort()) {
+        return;
+      }
+
       this.dispatchEvent(new CustomEvent(
-          'loadAbort', {detail: {error: e.reason, src: e.url}}));
+          'loadAbort', {detail: {error_code: e.code, src: e.url}}));
     }
 
     /**
@@ -1120,6 +1263,7 @@ cr.define('cr.login', function() {
     }
   }
 
+  // #cr_define_end
   /**
    * The current auth flow of the hosted auth page.
    * @type {AuthFlow}

@@ -8,6 +8,7 @@
 #include <stddef.h>
 
 #include "base/i18n/char_iterator.h"
+#include "base/numerics/ranges.h"
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "ui/base/ime/composition_text.h"
@@ -40,7 +41,7 @@ void ExtractCompositionTextFromGtkPreedit(const char* utf8_text,
   char16_offsets.push_back(length);
 
   size_t cursor_offset =
-      char16_offsets[std::max(0, std::min(char_length, cursor_position))];
+      char16_offsets[base::ClampToRange(cursor_position, 0, char_length)];
 
   composition->selection = gfx::Range(cursor_offset);
 
@@ -75,10 +76,10 @@ void ExtractCompositionTextFromGtkPreedit(const char* utf8_text,
 
       if (background_attr || underline_attr) {
         // Use a thin underline with text color by default.
-        ImeTextSpan ime_text_span(ImeTextSpan::Type::kComposition,
-                                  char16_offsets[start], char16_offsets[end],
-                                  ImeTextSpan::Thickness::kThin,
-                                  SK_ColorTRANSPARENT);
+        ImeTextSpan ime_text_span(
+            ImeTextSpan::Type::kComposition, char16_offsets[start],
+            char16_offsets[end], ImeTextSpan::Thickness::kThin,
+            ImeTextSpan::UnderlineStyle::kSolid, SK_ColorTRANSPARENT);
 
         // Always use thick underline for a range with background color, which
         // is usually the selection range.
@@ -112,7 +113,8 @@ void ExtractCompositionTextFromGtkPreedit(const char* utf8_text,
   if (composition->ime_text_spans.empty()) {
     composition->ime_text_spans.push_back(
         ImeTextSpan(ImeTextSpan::Type::kComposition, 0, length,
-                    ImeTextSpan::Thickness::kThin, SK_ColorTRANSPARENT));
+                    ImeTextSpan::Thickness::kThin,
+                    ImeTextSpan::UnderlineStyle::kSolid, SK_ColorTRANSPARENT));
   }
 }
 

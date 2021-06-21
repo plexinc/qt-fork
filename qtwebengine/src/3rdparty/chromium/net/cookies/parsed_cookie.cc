@@ -47,6 +47,7 @@
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_util.h"
+#include "net/cookies/cookie_constants.h"
 #include "net/http/http_util.h"
 
 namespace {
@@ -153,10 +154,16 @@ bool ParsedCookie::IsValid() const {
   return !pairs_.empty();
 }
 
-CookieSameSite ParsedCookie::SameSite() const {
-  return (same_site_index_ == 0)
-             ? CookieSameSite::UNSPECIFIED
-             : StringToCookieSameSite(pairs_[same_site_index_].second);
+CookieSameSite ParsedCookie::SameSite(
+    CookieSameSiteString* samesite_string) const {
+  CookieSameSite samesite = CookieSameSite::UNSPECIFIED;
+  if (same_site_index_ != 0) {
+    samesite = StringToCookieSameSite(pairs_[same_site_index_].second,
+                                      samesite_string);
+  } else if (samesite_string) {
+    *samesite_string = CookieSameSiteString::kUnspecified;
+  }
+  return samesite;
 }
 
 CookiePriority ParsedCookie::Priority() const {
@@ -168,6 +175,11 @@ CookiePriority ParsedCookie::Priority() const {
 bool ParsedCookie::SetName(const std::string& name) {
   if (!name.empty() && !HttpUtil::IsToken(name))
     return false;
+
+  // Fail if we'd be creating a cookie with an empty name and value.
+  if (name.empty() && (pairs_.empty() || pairs_[0].second.empty()))
+    return false;
+
   if (pairs_.empty())
     pairs_.push_back(std::make_pair("", ""));
   pairs_[0].first = name;
@@ -177,6 +189,11 @@ bool ParsedCookie::SetName(const std::string& name) {
 bool ParsedCookie::SetValue(const std::string& value) {
   if (!IsValidCookieValue(value))
     return false;
+
+  // Fail if we'd be creating a cookie with an empty name and value.
+  if (value.empty() && (pairs_.empty() || pairs_[0].first.empty()))
+    return false;
+
   if (pairs_.empty())
     pairs_.push_back(std::make_pair("", ""));
   pairs_[0].second = value;
@@ -354,13 +371,9 @@ void ParsedCookie::ParseTokenValuePairs(const std::string& cookie_line) {
   // Then we can log any unexpected terminators.
   std::string::const_iterator end = FindFirstTerminator(cookie_line);
 
-  // For an empty |cookie_line|, add an empty-key with an empty value, which
-  // has the effect of clearing any prior setting of the empty-key. This is done
-  // to match the behavior of other browsers. See https://crbug.com/601786.
-  if (it == end) {
-    pairs_.push_back(TokenValuePair("", ""));
+  // Exit early for an empty cookie string.
+  if (it == end)
     return;
-  }
 
   for (int pair_num = 0; it != end; ++pair_num) {
     TokenValuePair pair;
@@ -405,9 +418,16 @@ void ParsedCookie::ParseTokenValuePairs(const std::string& cookie_line) {
     // OK, we're finished with a Token/Value.
     pair.second = std::string(value_start, value_end);
 
+    // Ignore cookies with neither name nor value.
+    if (pair_num == 0 && (pair.first.empty() && pair.second.empty())) {
+      pairs_.clear();
+      break;
+    }
+
     // From RFC2109: "Attributes (names) (attr) are case-insensitive."
     if (pair_num != 0)
       pair.first = base::ToLowerASCII(pair.first);
+
     // Ignore Set-Cookie directives contaning control characters. See
     // http://crbug.com/238041.
     if (!IsValidCookieAttributeValue(pair.first) ||

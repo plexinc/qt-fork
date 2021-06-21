@@ -38,6 +38,8 @@ class PrefService;
 class PrefRegistrySimple;
 FORWARD_DECLARE_TEST(ChromeMetricsServiceClientTest,
                      TestRegisterMetricsServiceProviders);
+FORWARD_DECLARE_TEST(IOSChromeMetricsServiceClientTest,
+                     TestRegisterMetricsServiceProviders);
 
 namespace base {
 class HistogramSamples;
@@ -132,7 +134,7 @@ class MetricsService : public base::HistogramFlattener {
   void OnAppEnterBackground(bool keep_recording_in_background = false);
 
   // Called when the application is coming out of background mode.
-  void OnAppEnterForeground();
+  void OnAppEnterForeground(bool force_open_new_log = false);
 #else
   // Set the dirty flag, which will require a later call to LogCleanShutdown().
   void LogNeedForCleanShutdown();
@@ -163,6 +165,9 @@ class MetricsService : public base::HistogramFlattener {
   // should not be called more than once.
   void CheckForClonedInstall();
 
+  // Checks if the cloned install detector says that client ids should be reset.
+  bool ShouldResetClientIdsOnClonedInstall();
+
   // Clears the stability metrics that are saved in local state.
   void ClearSavedStabilityMetrics();
 
@@ -173,12 +178,24 @@ class MetricsService : public base::HistogramFlattener {
     return &synthetic_trial_registry_;
   }
 
+  MetricsLogStore* LogStoreForTest() {
+    return reporting_service_.metrics_log_store();
+  }
+
+  // Test hook to safely stage the current log in the log store.
+  bool StageCurrentLogForTest();
+
  protected:
   // Exposed for testing.
+  // TODO(1034679): migrate these to public FooForTest() methods.
   MetricsLogManager* log_manager() { return &log_manager_; }
   MetricsLogStore* log_store() {
     return reporting_service_.metrics_log_store();
   }
+
+  // Sets the persistent system profile. Virtual for tests.
+  virtual void SetPersistentSystemProfile(const std::string& serialized_proto,
+                                          bool complete);
 
   // Records the current environment (system profile) in |log|, and persists
   // the results in prefs.
@@ -219,7 +236,7 @@ class MetricsService : public base::HistogramFlattener {
   // state should be INIT_TASK_SCHEDULED.
   void FinishedInitTask();
 
-  void OnUserAction(const std::string& action);
+  void OnUserAction(const std::string& action, base::TimeTicks action_time);
 
   // Get the amount of uptime since this process started and since the last
   // call to this function.  Also updates the cumulative uptime metric (stored
@@ -291,8 +308,7 @@ class MetricsService : public base::HistogramFlattener {
 
   // Records the current environment (system profile) in |log|, and persists
   // the results in prefs and GlobalPersistentSystemProfile.
-  // Exposed for testing.
-  void RecordCurrentEnvironment(MetricsLog* log);
+  void RecordCurrentEnvironment(MetricsLog* log, bool complete);
 
   // Record complete list of histograms into the current log.
   // Called when we close a log.
@@ -389,6 +405,8 @@ class MetricsService : public base::HistogramFlattener {
 
   FRIEND_TEST_ALL_PREFIXES(MetricsServiceTest, IsPluginProcess);
   FRIEND_TEST_ALL_PREFIXES(::ChromeMetricsServiceClientTest,
+                           TestRegisterMetricsServiceProviders);
+  FRIEND_TEST_ALL_PREFIXES(::IOSChromeMetricsServiceClientTest,
                            TestRegisterMetricsServiceProviders);
   SEQUENCE_CHECKER(sequence_checker_);
 

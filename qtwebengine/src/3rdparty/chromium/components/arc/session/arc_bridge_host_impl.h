@@ -10,10 +10,12 @@
 
 #include "base/macros.h"
 #include "base/threading/thread_checker.h"
-#include "components/arc/common/arc_bridge.mojom.h"
+#include "components/arc/mojom/arc_bridge.mojom.h"
 #include "components/arc/session/connection_holder.h"
-#include "mojo/public/cpp/bindings/binding.h"
 #include "mojo/public/cpp/bindings/interface_ptr.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
+#include "mojo/public/cpp/bindings/receiver.h"
+#include "mojo/public/cpp/bindings/remote.h"
 
 namespace arc {
 
@@ -32,7 +34,7 @@ class MojoChannelBase;
 class ArcBridgeHostImpl : public mojom::ArcBridgeHost {
  public:
   ArcBridgeHostImpl(ArcBridgeService* arc_bridge_service,
-                    mojom::ArcBridgeInstancePtr instance);
+                    mojo::PendingRemote<mojom::ArcBridgeInstance> instance);
   ~ArcBridgeHostImpl() override;
 
   // ArcBridgeHost overrides.
@@ -99,6 +101,8 @@ class ArcBridgeHostImpl : public mojom::ArcBridgeHost {
       mojom::RotationLockInstancePtr rotation_lock_ptr) override;
   void OnScreenCaptureInstanceReady(
       mojom::ScreenCaptureInstancePtr screen_capture_ptr) override;
+  void OnSmartCardManagerInstanceReady(
+      mojom::SmartCardManagerInstancePtr smart_card_manager_ptr) override;
   void OnStorageManagerInstanceReady(
       mojom::StorageManagerInstancePtr storage_manager_ptr) override;
   void OnTimerInstanceReady(mojom::TimerInstancePtr timer_ptr) override;
@@ -136,8 +140,8 @@ class ArcBridgeHostImpl : public mojom::ArcBridgeHost {
   // Owned by ArcServiceManager.
   ArcBridgeService* const arc_bridge_service_;
 
-  mojo::Binding<mojom::ArcBridgeHost> binding_;
-  mojom::ArcBridgeInstancePtr instance_;
+  mojo::Receiver<mojom::ArcBridgeHost> receiver_;
+  mojo::Remote<mojom::ArcBridgeInstance> instance_;
 
   // Put as a last member to ensure that any callback tied to the elements
   // is not invoked.

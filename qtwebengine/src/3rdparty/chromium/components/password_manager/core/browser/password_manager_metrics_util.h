@@ -18,15 +18,6 @@ namespace password_manager {
 
 namespace metrics_util {
 
-// Metrics: "PasswordManager.InfoBarResponse"
-enum ResponseType {
-  NO_RESPONSE = 0,
-  REMEMBER_PASSWORD,
-  NEVER_REMEMBER_PASSWORD,
-  INFOBAR_DISMISSED,
-  NUM_RESPONSE_TYPES,
-};
-
 // Metrics: "PasswordBubble.DisplayDisposition"
 enum UIDisplayDisposition {
   AUTOMATIC_WITH_PASSWORD_PENDING = 0,
@@ -39,7 +30,8 @@ enum UIDisplayDisposition {
   MANUAL_WITH_PASSWORD_PENDING_UPDATE,
   AUTOMATIC_WITH_PASSWORD_PENDING_UPDATE,
   MANUAL_GENERATED_PASSWORD_CONFIRMATION,
-  NUM_DISPLAY_DISPOSITIONS
+  AUTOMATIC_SAVE_UNSYNCED_CREDENTIALS_LOCALLY,
+  NUM_DISPLAY_DISPOSITIONS,
 };
 
 // Metrics: "PasswordManager.UIDismissalReason"
@@ -60,6 +52,94 @@ enum UIDismissalReason {
   CLICKED_BRAND_NAME_OBSOLETE,         // obsolete.
   CLICKED_PASSWORDS_DASHBOARD,
   NUM_UI_RESPONSES,
+};
+
+// Enum representing the different leak detection dialogs shown to the user.
+// Corresponds to LeakDetectionDialogType suffix in histograms.xml.
+enum class LeakDialogType {
+  // The user is asked to visit the Password Checkup.
+  kCheckup = 0,
+  // The user is asked to change the password for the current site.
+  kChange = 1,
+  // The user is asked to visit the Password Checkup and change the password for
+  // the current site.
+  kCheckupAndChange = 2,
+  kMaxValue = kCheckupAndChange,
+};
+
+// Enum recording the dismissal reason of the data breach dialog which is shown
+// in case a credential is reported as leaked. Needs to stay in sync with the
+// PasswordLeakDetectionDialogDismissalReason enum in enums.xml.
+//
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused.
+enum class LeakDialogDismissalReason {
+  kNoDirectInteraction = 0,
+  kClickedClose = 1,
+  kClickedCheckPasswords = 2,
+  kClickedOk = 3,
+  kMaxValue = kClickedOk,
+};
+
+// Metrics: "PasswordManager.Onboarding.State"
+// Enum recording the state of showing the onboarding to the user. This
+// will be recorded on startup. Needs to stay in sync with the
+// PasswordManagerOnboardingState enum in enums.xml.
+//
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused.
+// GENERATED_JAVA_ENUM_PACKAGE: org.chromium.chrome.browser.password_manager
+enum class OnboardingState {
+  // The onboarding wasn't shown to the user.
+  kDoNotShow = 0,
+  // The onboarding wasn't shown to the user,
+  // but it should be shown the next time they are prompted to save a password.
+  kShouldShow = 1,
+  // The onboarding was shown to the user.
+  kShown = 2,
+  kMaxValue = kShown,
+};
+
+// Metrics: "PasswordManager.Onboarding.UIDismissalReason"
+// Enum recording the dismissal reason of the onboarding dialog which is shown
+// when the user is offered to save their password for the first time.
+// Needs to stay in sync with the PasswordManagerOnboardingUIDismissalReason
+// enum in enums.xml.
+//
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused.
+enum class OnboardingUIDismissalReason {
+  // The accepting button was pressed, e.g. "Continue" or "Got it".
+  kAccepted = 0,
+  // The rejecting button was pressed, e.g. "Cancel".
+  kRejected = 1,
+  // The dialog was dismissed, e.g. by pressing the back button, or
+  // opening a new tab.
+  kDismissed = 2,
+  kMaxValue = kDismissed,
+};
+
+// Metrics: "PasswordManager.Onboarding.ResultOfSavingFlow"
+// Metrics: "PasswordManager.Onboarding.ResultOfSavingFlowAfterOnboarding"
+// Enum recording the result of the combined saving flow consisting of the
+// potentially shown onboarding dialog and the save infobar.
+// Needs to stay in sync with the PasswordManagerOnboardingResultOfSavingFlow
+// enum in enums.xml.
+//
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused.
+enum class OnboardingResultOfSavingFlow {
+  // Possible infobar responses from the |UIDismissalReason| enum.
+  kInfobarNoDirectInteraction = 0,
+  kInfobarClickedSave = 1,
+  kInfobarClickedCancel = 2,
+  kInfobarClickedNever = 3,
+  // The rejecting button on the onboarding dialog was pressed, e.g. "Cancel".
+  kOnboardingRejected = 4,
+  // The onboarding dialog was dismissed, e.g. by pressing the back button, or
+  // opening a new tab.
+  kOnboardingDismissed = 5,
+  kMaxValue = kOnboardingDismissed,
 };
 
 enum FormDeserializationStatus {
@@ -145,13 +225,6 @@ enum class CredentialManagerGetResult {
   kMaxValue = kAutoSignIn,
 };
 
-// Metrics: "PasswordManager.HttpPasswordMigrationMode"
-enum HttpPasswordMigrationMode {
-  HTTP_PASSWORD_MIGRATION_MODE_MOVE,
-  HTTP_PASSWORD_MIGRATION_MODE_COPY,
-  HTTP_PASSWORD_MIGRATION_MODE_COUNT
-};
-
 enum PasswordReusePasswordFieldDetected {
   NO_PASSWORD_FIELD,
   HAS_PASSWORD_FIELD,
@@ -171,15 +244,19 @@ enum class SubmittedFormFrame {
 enum AccessPasswordInSettingsEvent {
   ACCESS_PASSWORD_VIEWED = 0,
   ACCESS_PASSWORD_COPIED = 1,
+  ACCESS_PASSWORD_EDITED = 2,
   ACCESS_PASSWORD_COUNT
 };
 
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused. Needs to stay in sync with
+// "PasswordManager.ReauthResult" in enums.xml.
 // Metrics: PasswordManager.ReauthToAccessPasswordInSettings
-enum ReauthToAccessPasswordInSettingsEvent {
-  REAUTH_SUCCESS = 0,
-  REAUTH_FAILURE = 1,
-  REAUTH_SKIPPED = 2,
-  REAUTH_COUNT
+enum class ReauthResult {
+  kSuccess = 0,
+  kFailure = 1,
+  kSkipped = 2,
+  kMaxValue = kSkipped,
 };
 
 // Specifies the type of PasswordFormManagers and derived classes to distinguish
@@ -212,20 +289,37 @@ enum class DeleteCorruptedPasswordsResult {
 };
 
 #if defined(SYNC_PASSWORD_REUSE_DETECTION_ENABLED)
-enum class SyncPasswordHashChange {
-  SAVED_ON_CHROME_SIGNIN,
-  SAVED_IN_CONTENT_AREA,
-  CLEARED_ON_CHROME_SIGNOUT,
-  CHANGED_IN_CONTENT_AREA,
-  NOT_SYNC_PASSWORD_CHANGE,
-  SAVED_SYNC_PASSWORD_CHANGE_COUNT
+enum class GaiaPasswordHashChange {
+  // These values are persisted to logs. Entries should not be renumbered and
+  // numeric values should never be reused.
+
+  // Password hash saved event where the account is used to sign in to Chrome
+  // (syncing).
+  SAVED_ON_CHROME_SIGNIN = 0,
+  // Password hash saved in content area.
+  SAVED_IN_CONTENT_AREA = 1,
+  // Clear password hash when the account is signed out of Chrome.
+  CLEARED_ON_CHROME_SIGNOUT = 2,
+  // Password hash changed event where the account is used to sign in to Chrome
+  // (syncing).
+  CHANGED_IN_CONTENT_AREA = 3,
+  // Password hash changed event where the account is not syncing.
+  NOT_SYNC_PASSWORD_CHANGE = 4,
+  // Password hash change event for non-GAIA enterprise accounts.
+  NON_GAIA_ENTERPRISE_PASSWORD_CHANGE = 5,
+  SAVED_SYNC_PASSWORD_CHANGE_COUNT = 6,
+  kMaxValue = SAVED_SYNC_PASSWORD_CHANGE_COUNT,
 };
 
 enum class IsSyncPasswordHashSaved {
-  NOT_SAVED,
-  SAVED_VIA_STRING_PREF,
-  SAVED_VIA_LIST_PREF,
-  IS_SYNC_PASSWORD_HASH_SAVED_COUNT
+  // These values are persisted to logs. Entries should not be renumbered and
+  // numeric values should never be reused.
+
+  NOT_SAVED = 0,
+  SAVED_VIA_STRING_PREF = 1,
+  SAVED_VIA_LIST_PREF = 2,
+  IS_SYNC_PASSWORD_HASH_SAVED_COUNT = 3,
+  kMaxValue = IS_SYNC_PASSWORD_HASH_SAVED_COUNT,
 };
 #endif
 
@@ -234,16 +328,19 @@ enum class IsSyncPasswordHashSaved {
 // Metrics:
 // - PasswordManager.ShowAllSavedPasswordsAcceptedContext
 // - PasswordManager.ShowAllSavedPasswordsShownContext
-enum ShowAllSavedPasswordsContext {
-  SHOW_ALL_SAVED_PASSWORDS_CONTEXT_NONE,
+//
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused.
+enum class ShowAllSavedPasswordsContext {
+  kNone = 0,
   // The "Show all saved passwords..." fallback is shown below a list of
   // available passwords.
-  SHOW_ALL_SAVED_PASSWORDS_CONTEXT_PASSWORD,
+  kPassword = 1,
   // Obsolete.
-  SHOW_ALL_SAVED_PASSWORDS_CONTEXT_MANUAL_FALLBACK_DEPRECATED,
+  kManualFallbackDeprecated = 2,
   // The "Show all saved  passwords..." fallback is shown in context menu.
-  SHOW_ALL_SAVED_PASSWORDS_CONTEXT_CONTEXT_MENU,
-  SHOW_ALL_SAVED_PASSWORDS_CONTEXT_COUNT
+  kContextMenu = 3,
+  kMaxValue = kContextMenu,
 };
 
 // Metrics: "PasswordManager.CertificateErrorsWhileSeeingForms"
@@ -283,7 +380,7 @@ enum class LinuxBackendMigrationStatus {
   // The last attempt was not completed.
   kDeprecatedFailed = 1,
   // All the data is in the encrypted loginDB.
-  kCopiedAll = 2,
+  kDeprecatedCopiedAll = 2,
   // The standard login database is encrypted.
   kLoginDBReplaced = 3,
   // The migration is about to be attempted.
@@ -294,13 +391,13 @@ enum class LinuxBackendMigrationStatus {
   // by more precise errors.
   kDeprecatedFailedCreatedEncrypted = 6,
   // Could not read from the native backend.
-  kFailedAccessNative = 7,
+  kDeprecatedFailedAccessNative = 7,
   // Could not replace old database.
   kFailedReplace = 8,
   // Could not initialise the temporary encrypted database.
   kFailedInitEncrypted,
   // Could not reset th temporary encrypted database.
-  kFailedRecreateEncrypted,
+  kDeprecatedFailedRecreateEncrypted,
   // Could not add entries into the temporary encrypted database.
   kFailedWriteToEncrypted,
   kMaxValue = kFailedWriteToEncrypted
@@ -348,10 +445,6 @@ enum class GenerationPresaveConflict {
   kMaxValue = kConflictWithEmptyUsername
 };
 
-// A version of the UMA_HISTOGRAM_BOOLEAN macro that allows the |name|
-// to vary over the program's runtime.
-void LogUMAHistogramBoolean(const std::string& name, bool sample);
-
 // Log the |reason| a user dismissed the password manager UI except save/update
 // bubbles.
 void LogGeneralUIDismissalReason(UIDismissalReason reason);
@@ -365,6 +458,24 @@ void LogUpdateUIDismissalReason(UIDismissalReason reason);
 // Log the |reason| a user dismissed the update password bubble when resolving a
 // conflict during generation.
 void LogPresavedUpdateUIDismissalReason(UIDismissalReason reason);
+
+// Log the |type| of a leak dialog shown to the user and the |reason| why it was
+// dismissed.
+void LogLeakDialogTypeAndDismissalReason(LeakDialogType type,
+                                         LeakDialogDismissalReason reason);
+
+// Log the current onboarding |state| of the user.
+void LogOnboardingState(OnboardingState state);
+
+// Log the |reason| a user dismissed the onboarding UI.
+void LogOnboardingUIDismissalReason(OnboardingUIDismissalReason reason);
+
+// Log the |result| of the password saving flow.
+void LogResultOfSavingFlow(OnboardingResultOfSavingFlow result);
+
+// Log the |result| of the password saving flow if the onboarding was shown in
+// the process.
+void LogResultOfOnboardingSavingFlow(OnboardingResultOfSavingFlow result);
 
 // Log the appropriate display disposition.
 void LogUIDisplayDisposition(UIDisplayDisposition disposition);
@@ -394,12 +505,6 @@ void LogAutoSigninPromoUserAction(AutoSigninPromoUserAction action);
 // Log a user action on showing the account chooser for one or many accounts.
 void LogAccountChooserUserActionOneAccount(AccountChooserUserAction action);
 void LogAccountChooserUserActionManyAccounts(AccountChooserUserAction action);
-
-// Logs number of passwords migrated from HTTP to HTTPS.
-void LogCountHttpMigratedPasswords(int count);
-
-// Logs mode of HTTP password migration.
-void LogHttpPasswordMigrationMode(HttpPasswordMigrationMode mode);
 
 // Log the result of navigator.credentials.get.
 void LogCredentialManagerGetResult(CredentialManagerGetResult result,
@@ -440,6 +545,9 @@ void LogPasswordAcceptedSaveUpdateSubmissionIndicatorEvent(
 // Log a frame of a submitted password form.
 void LogSubmittedFormFrame(SubmittedFormFrame frame);
 
+// Logs the result of a re-auth challenge in the password settings.
+void LogPasswordSettingsReauthResult(ReauthResult result);
+
 // Log a return value of LoginDatabase::DeleteUndecryptableLogins method.
 void LogDeleteUndecryptableLoginsReturnValue(
     DeleteCorruptedPasswordsResult result);
@@ -462,17 +570,20 @@ void LogGenerationDialogChoice(
 void LogGenerationPresaveConflict(GenerationPresaveConflict value);
 
 #if defined(SYNC_PASSWORD_REUSE_DETECTION_ENABLED)
-// Log a save sync password change event.
-void LogSyncPasswordHashChange(SyncPasswordHashChange event);
+// Log a save gaia password change event.
+void LogGaiaPasswordHashChange(GaiaPasswordHashChange event,
+                               bool is_sync_password);
 
 // Log whether a sync password hash saved.
 void LogIsSyncPasswordHashSaved(IsSyncPasswordHashSaved state,
                                 bool is_under_advanced_protection);
 
 // Log the number of Gaia password hashes saved, and the number of enterprise
-// password hashes saved.
+// password hashes saved. Currently only called on profile start up.
 void LogProtectedPasswordHashCounts(size_t gaia_hash_count,
-                                    size_t enterprise_hash_count);
+                                    size_t enterprise_hash_count,
+                                    bool does_primary_account_exists,
+                                    bool is_signed_in);
 
 #endif
 

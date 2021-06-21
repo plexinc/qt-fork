@@ -19,6 +19,7 @@
 #include "components/signin/core/browser/account_reconcilor.h"
 #include "components/signin/core/browser/signin_header_helper.h"
 #include "components/signin/public/base/account_consistency_method.h"
+#include "components/signin/public/identity_manager/accounts_cookie_mutator.h"
 #include "ios/web/common/web_view_creation_util.h"
 #include "ios/web/public/browser_state.h"
 #import "ios/web/public/navigation/web_state_policy_decider.h"
@@ -153,7 +154,7 @@ void AccountConsistencyHandler::WebStateDestroyed() {
 
 // Designated initializer. |callback| will be called every time a navigation has
 // finished. |callback| must not be empty.
-- (instancetype)initWithCallback:(const base::Closure&)callback
+- (instancetype)initWithCallback:(const base::RepeatingClosure&)callback
     NS_DESIGNATED_INITIALIZER;
 
 - (instancetype)init NS_UNAVAILABLE;
@@ -161,10 +162,10 @@ void AccountConsistencyHandler::WebStateDestroyed() {
 
 @implementation AccountConsistencyNavigationDelegate {
   // Callback that will be called every time a navigation has finished.
-  base::Closure _callback;
+  base::RepeatingClosure _callback;
 }
 
-- (instancetype)initWithCallback:(const base::Closure&)callback {
+- (instancetype)initWithCallback:(const base::RepeatingClosure&)callback {
   self = [super init];
   if (self) {
     DCHECK(!callback.is_null());
@@ -370,7 +371,7 @@ void AccountConsistencyService::ApplyCookieRequests() {
         FinishedApplyingCookieRequest(false);
         return;
       }
-      // Create expiration date of Now+2y to roughly follow the APISID cookie.
+      // Create expiration date of Now+2y to roughly follow the SAPISID cookie.
       expiration_date =
           (base::Time::Now() + base::TimeDelta::FromDays(730)).ToJsTime();
       break;
@@ -425,9 +426,9 @@ WKWebView* AccountConsistencyService::GetWKWebView() {
   if (!web_view_) {
     web_view_ = BuildWKWebView();
     navigation_delegate_ = [[AccountConsistencyNavigationDelegate alloc]
-        initWithCallback:base::Bind(&AccountConsistencyService::
-                                        FinishedApplyingCookieRequest,
-                                    base::Unretained(this), true)];
+        initWithCallback:base::BindRepeating(&AccountConsistencyService::
+                                                 FinishedApplyingCookieRequest,
+                                             base::Unretained(this), true)];
     [web_view_ setNavigationDelegate:navigation_delegate_];
   }
   return web_view_;
@@ -470,10 +471,10 @@ void AccountConsistencyService::OnBrowsingDataRemoved() {
   base::DictionaryValue dict;
   prefs_->Set(kDomainsWithCookiePref, dict);
 
-  // APISID cookie has been removed, notify the GCMS.
+  // SAPISID cookie has been removed, notify the GCMS.
   // TODO(https://crbug.com/930582) : Remove the need to expose this method
   // or move it to the network::CookieManager.
-  identity_manager_->ForceTriggerOnCookieChange();
+  identity_manager_->GetAccountsCookieMutator()->ForceTriggerOnCookieChange();
 }
 
 void AccountConsistencyService::OnPrimaryAccountSet(

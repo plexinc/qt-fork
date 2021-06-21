@@ -38,7 +38,7 @@
 
 #define EC_WIN_SIZE (sizeof(ec_win) << 3)
 
-static inline void ctx_refill(MsacContext *s) {
+static inline void ctx_refill(MsacContext *const s) {
     const uint8_t *buf_pos = s->buf_pos;
     const uint8_t *buf_end = s->buf_end;
     int c = EC_WIN_SIZE - s->cnt - 24;
@@ -57,7 +57,9 @@ static inline void ctx_refill(MsacContext *s) {
  * necessary), and stores them back in the decoder context.
  * dif: The new value of dif.
  * rng: The new value of the range. */
-static inline void ctx_norm(MsacContext *s, ec_win dif, unsigned rng) {
+static inline void ctx_norm(MsacContext *const s, const ec_win dif,
+                            const unsigned rng)
+{
     const int d = 15 ^ (31 ^ clz(rng));
     assert(rng <= 65535U);
     s->cnt -= d;
@@ -68,16 +70,16 @@ static inline void ctx_norm(MsacContext *s, ec_win dif, unsigned rng) {
 }
 
 unsigned dav1d_msac_decode_bool_equi_c(MsacContext *const s) {
-    ec_win vw, dif = s->dif;
-    unsigned ret, v, r = s->rng;
+    const unsigned r = s->rng;
+    ec_win dif = s->dif;
     assert((dif >> (EC_WIN_SIZE - 16)) < r);
     // When the probability is 1/2, f = 16384 >> EC_PROB_SHIFT = 256 and we can
     // replace the multiply with a simple shift.
-    v = ((r >> 8) << 7) + EC_MIN_PROB;
-    vw   = (ec_win)v << (EC_WIN_SIZE - 16);
-    ret  = dif >= vw;
-    dif -= ret*vw;
-    v   += ret*(r - 2*v);
+    unsigned v = ((r >> 8) << 7) + EC_MIN_PROB;
+    const ec_win vw = (ec_win)v << (EC_WIN_SIZE - 16);
+    const unsigned ret = dif >= vw;
+    dif -= ret * vw;
+    v += ret * (r - 2 * v);
     ctx_norm(s, dif, v);
     return !ret;
 }
@@ -86,14 +88,14 @@ unsigned dav1d_msac_decode_bool_equi_c(MsacContext *const s) {
  * f: The probability that the bit is one
  * Return: The value decoded (0 or 1). */
 unsigned dav1d_msac_decode_bool_c(MsacContext *const s, const unsigned f) {
-    ec_win vw, dif = s->dif;
-    unsigned ret, v, r = s->rng;
+    const unsigned r = s->rng;
+    ec_win dif = s->dif;
     assert((dif >> (EC_WIN_SIZE - 16)) < r);
-    v = ((r >> 8) * (f >> EC_PROB_SHIFT) >> (7 - EC_PROB_SHIFT)) + EC_MIN_PROB;
-    vw   = (ec_win)v << (EC_WIN_SIZE - 16);
-    ret  = dif >= vw;
-    dif -= ret*vw;
-    v   += ret*(r - 2*v);
+    unsigned v = ((r >> 8) * (f >> EC_PROB_SHIFT) >> (7 - EC_PROB_SHIFT)) + EC_MIN_PROB;
+    const ec_win vw = (ec_win)v << (EC_WIN_SIZE - 16);
+    const unsigned ret = dif >= vw;
+    dif -= ret * vw;
+    v += ret * (r - 2 * v);
     ctx_norm(s, dif, v);
     return !ret;
 }
@@ -116,42 +118,39 @@ int dav1d_msac_decode_subexp(MsacContext *const s, const int ref,
 
 /* Decodes a symbol given an inverse cumulative distribution function (CDF)
  * table in Q15. */
-static unsigned decode_symbol(MsacContext *const s, const uint16_t *const cdf,
-                              const size_t n_symbols)
+unsigned dav1d_msac_decode_symbol_adapt_c(MsacContext *const s,
+                                          uint16_t *const cdf,
+                                          const size_t n_symbols)
 {
-    const unsigned c = s->dif >> (EC_WIN_SIZE - 16);
-    unsigned u, v = s->rng, r = s->rng >> 8, ret = 0;
+    const unsigned c = s->dif >> (EC_WIN_SIZE - 16), r = s->rng >> 8;
+    unsigned u, v = s->rng, val = -1;
 
-    assert(!cdf[n_symbols - 1]);
+    assert(n_symbols <= 15);
+    assert(cdf[n_symbols] <= 32);
 
     do {
+        val++;
         u = v;
-        v = r * (cdf[ret++] >> EC_PROB_SHIFT);
+        v = r * (cdf[val] >> EC_PROB_SHIFT);
         v >>= 7 - EC_PROB_SHIFT;
-        v += EC_MIN_PROB * (int) (n_symbols - ret);
+        v += EC_MIN_PROB * ((unsigned)n_symbols - val);
     } while (c < v);
 
     assert(u <= s->rng);
 
     ctx_norm(s, s->dif - ((ec_win)v << (EC_WIN_SIZE - 16)), u - v);
-    return ret - 1;
-}
 
-unsigned dav1d_msac_decode_symbol_adapt_c(MsacContext *const s,
-                                          uint16_t *const cdf,
-                                          const size_t n_symbols)
-{
-    const unsigned val = decode_symbol(s, cdf, n_symbols);
     if (s->allow_update_cdf) {
         const unsigned count = cdf[n_symbols];
-        const int rate = ((count >> 4) | 4) + (n_symbols > 3);
+        const unsigned rate = 4 + (count >> 4) + (n_symbols > 2);
         unsigned i;
         for (i = 0; i < val; i++)
             cdf[i] += (32768 - cdf[i]) >> rate;
-        for (; i < n_symbols - 1; i++)
+        for (; i < n_symbols; i++)
             cdf[i] -= cdf[i] >> rate;
         cdf[n_symbols] = count + (count < 32);
     }
+
     return val;
 }
 
@@ -163,7 +162,7 @@ unsigned dav1d_msac_decode_bool_adapt_c(MsacContext *const s,
     if (s->allow_update_cdf) {
         // update_cdf() specialized for boolean CDFs
         const unsigned count = cdf[1];
-        const int rate = (count >> 4) | 4;
+        const int rate = 4 + (count >> 4);
         if (bit)
             cdf[0] += (32768 - cdf[0]) >> rate;
         else
@@ -172,6 +171,22 @@ unsigned dav1d_msac_decode_bool_adapt_c(MsacContext *const s,
     }
 
     return bit;
+}
+
+unsigned dav1d_msac_decode_hi_tok_c(MsacContext *const s, uint16_t *const cdf) {
+    unsigned tok_br = dav1d_msac_decode_symbol_adapt4(s, cdf, 3);
+    unsigned tok = 3 + tok_br;
+    if (tok_br == 3) {
+        tok_br = dav1d_msac_decode_symbol_adapt4(s, cdf, 3);
+        tok = 6 + tok_br;
+        if (tok_br == 3) {
+            tok_br = dav1d_msac_decode_symbol_adapt4(s, cdf, 3);
+            tok = 9 + tok_br;
+            if (tok_br == 3)
+                tok = 12 + dav1d_msac_decode_symbol_adapt4(s, cdf, 3);
+        }
+    }
+    return tok;
 }
 
 void dav1d_msac_init(MsacContext *const s, const uint8_t *const data,
@@ -183,5 +198,12 @@ void dav1d_msac_init(MsacContext *const s, const uint8_t *const data,
     s->rng = 0x8000;
     s->cnt = -15;
     s->allow_update_cdf = !disable_cdf_update_flag;
+
+#if ARCH_X86_64 && HAVE_ASM
+    s->symbol_adapt16 = dav1d_msac_decode_symbol_adapt_c;
+
+    dav1d_msac_init_x86(s);
+#endif
+
     ctx_refill(s);
 }

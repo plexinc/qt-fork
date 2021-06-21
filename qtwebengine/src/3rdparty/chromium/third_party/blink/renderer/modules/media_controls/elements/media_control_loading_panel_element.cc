@@ -4,6 +4,7 @@
 
 #include "third_party/blink/renderer/modules/media_controls/elements/media_control_loading_panel_element.h"
 
+#include "third_party/blink/public/strings/grit/blink_strings.h"
 #include "third_party/blink/renderer/core/css/css_style_declaration.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
 #include "third_party/blink/renderer/core/dom/events/event_listener.h"
@@ -20,7 +21,6 @@
 
 namespace {
 
-static const char kAnimationIterationCountName[] = "animation-iteration-count";
 static const char kInfinite[] = "infinite";
 
 bool IsInLoadingState(blink::MediaControlsImpl& controls) {
@@ -38,9 +38,9 @@ MediaControlLoadingPanelElement::MediaControlLoadingPanelElement(
     MediaControlsImpl& media_controls)
     : MediaControlDivElement(media_controls) {
   SetShadowPseudoId(AtomicString("-internal-media-controls-loading-panel"));
-  setAttribute(html_names::kAriaLabelAttr,
-               WTF::AtomicString(GetLocale().QueryString(
-                   WebLocalizedString::kAXMediaLoadingPanel)));
+  setAttribute(
+      html_names::kAriaLabelAttr,
+      WTF::AtomicString(GetLocale().QueryString(IDS_AX_MEDIA_LOADING_PANEL)));
   setAttribute(html_names::kAriaLiveAttr, "polite");
   CreateUserAgentShadowRoot();
 
@@ -137,12 +137,14 @@ void MediaControlLoadingPanelElement::CleanupShadowDOM() {
 
 void MediaControlLoadingPanelElement::SetAnimationIterationCount(
     const String& count_value) {
-  mask1_background_->style()->setProperty(&GetDocument(),
-                                          kAnimationIterationCountName,
-                                          count_value, "", ASSERT_NO_EXCEPTION);
-  mask2_background_->style()->setProperty(&GetDocument(),
-                                          kAnimationIterationCountName,
-                                          count_value, "", ASSERT_NO_EXCEPTION);
+  if (mask1_background_) {
+    mask1_background_->SetInlineStyleProperty(
+        CSSPropertyID::kAnimationIterationCount, count_value);
+  }
+  if (mask2_background_) {
+    mask2_background_->SetInlineStyleProperty(
+        CSSPropertyID::kAnimationIterationCount, count_value);
+  }
 }
 
 void MediaControlLoadingPanelElement::UpdateDisplayState() {
@@ -224,7 +226,7 @@ Element& MediaControlLoadingPanelElement::WatchedAnimationElement() const {
   return *mask1_background_;
 }
 
-void MediaControlLoadingPanelElement::Trace(blink::Visitor* visitor) {
+void MediaControlLoadingPanelElement::Trace(Visitor* visitor) {
   MediaControlAnimationEventListener::Observer::Trace(visitor);
   MediaControlDivElement::Trace(visitor);
   visitor->Trace(event_listener_);

@@ -42,7 +42,10 @@
 
 #include <Qt3DCore/qaspectjob.h>
 #include <Qt3DCore/private/matrix4x4_p.h>
+#include <Qt3DCore/private/vector3d_p.h>
+#include <Qt3DCore/private/vector4d_p.h>
 #include <Qt3DRender/private/aligned_malloc_p.h>
+#include <Qt3DRender/private/qt3drender_global_p.h>
 
 //
 //  W A R N I N G
@@ -66,10 +69,11 @@ class EntityManager;
 class NodeManagers;
 struct Plane;
 
-class FrustumCullingJob : public Qt3DCore::QAspectJob
+class Q_3DRENDERSHARED_PRIVATE_EXPORT FrustumCullingJob : public Qt3DCore::QAspectJob
 {
 public:
     FrustumCullingJob();
+    ~FrustumCullingJob();
 
     QT3D_ALIGNED_MALLOC_AND_FREE()
 
@@ -85,6 +89,19 @@ public:
     void run() final;
 
 private:
+    struct Q_AUTOTEST_EXPORT Plane
+    {
+        explicit Plane(const Vector4D &planeEquation)
+            : planeEquation(planeEquation)
+            , normal(Vector3D(planeEquation).normalized())
+            , d(planeEquation.w() / Vector3D(planeEquation).length())
+        {}
+
+        const Vector4D planeEquation;
+        const Vector3D normal;
+        const float d;
+    };
+
     void cullScene(Entity *e, const Plane *planes);
     Matrix4x4 m_viewProjection;
     Entity *m_root;

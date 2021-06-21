@@ -11,33 +11,104 @@
 
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/files/file_path.h"
 #include "base/location.h"
+#include "base/optional.h"
 #include "base/run_loop.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "chromeos/constants/chromeos_switches.h"
-#include "chromeos/dbus/session_manager/fake_session_manager_client.h"
-#include "components/account_id/account_id.h"
+#include "chromeos/system/scheduler_configuration_manager_base.h"
+#include "components/arc/session/arc_client_adapter.h"
 #include "components/arc/session/arc_session_impl.h"
+#include "components/arc/session/arc_start_params.h"
+#include "components/arc/session/arc_upgrade_params.h"
 #include "components/arc/test/fake_arc_bridge_host.h"
-#include "components/user_manager/fake_user_manager.h"
-#include "components/user_manager/scoped_user_manager.h"
 #include "components/version_info/channel.h"
-#include "mojo/public/cpp/bindings/binding.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace arc {
 namespace {
 
-constexpr char kFakeGmail[] = "user@gmail.com";
-constexpr char kFakeGmailGaiaId[] = "1234567890";
 constexpr char kDefaultLocale[] = "en-US";
 
-ArcSession::UpgradeParams DefaultUpgradeParams() {
-  ArcSession::UpgradeParams params;
+UpgradeParams DefaultUpgradeParams() {
+  UpgradeParams params;
   params.locale = kDefaultLocale;
   return params;
 }
+
+// An ArcClientAdapter implementation that does the same as the real ones but
+// without any D-Bus calls.
+class FakeArcClientAdapter : public ArcClientAdapter {
+ public:
+  FakeArcClientAdapter() = default;
+  ~FakeArcClientAdapter() override = default;
+
+  FakeArcClientAdapter(const FakeArcClientAdapter&) = delete;
+  FakeArcClientAdapter& operator=(const FakeArcClientAdapter&) = delete;
+
+  // ArcClientAdapter overrides:
+  void StartMiniArc(StartParams params,
+                    chromeos::VoidDBusMethodCallback callback) override {
+    last_start_params_ = std::move(params);
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::BindOnce(&FakeArcClientAdapter::OnMiniArcStarted,
+                                  base::Unretained(this), std::move(callback),
+                                  arc_available_));
+  }
+
+  void UpgradeArc(UpgradeParams params,
+                  chromeos::VoidDBusMethodCallback callback) override {
+    last_upgrade_params_ = std::move(params);
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::BindOnce(&FakeArcClientAdapter::OnArcUpgraded,
+                                  base::Unretained(this), std::move(callback),
+                                  !force_upgrade_failure_));
+  }
+
+  void StopArcInstance(bool on_shutdown) override {
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE,
+        base::BindOnce(&FakeArcClientAdapter::NotifyArcInstanceStopped,
+                       base::Unretained(this)));
+  }
+
+  void SetUserInfo(const std::string& hash,
+                   const std::string& serial_number) override {}
+
+  // Notifies ArcSessionImpl of the ARC instance stop event.
+  void NotifyArcInstanceStopped() {
+    for (auto& observer : observer_list_)
+      observer.ArcInstanceStopped();
+  }
+
+  void set_arc_available(bool arc_available) { arc_available_ = arc_available; }
+  void set_force_upgrade_failure(bool force_upgrade_failure) {
+    force_upgrade_failure_ = force_upgrade_failure;
+  }
+  const StartParams& last_start_params() const { return last_start_params_; }
+  const UpgradeParams& last_upgrade_params() const {
+    return last_upgrade_params_;
+  }
+
+ private:
+  void OnMiniArcStarted(chromeos::VoidDBusMethodCallback callback,
+                        bool result) {
+    std::move(callback).Run(result);
+  }
+
+  void OnArcUpgraded(chromeos::VoidDBusMethodCallback callback, bool result) {
+    std::move(callback).Run(result);
+    if (!result)
+      NotifyArcInstanceStopped();
+  }
+
+  bool arc_available_ = true;
+  bool force_upgrade_failure_ = false;
+  StartParams last_start_params_;
+  UpgradeParams last_upgrade_params_;
+};
 
 class FakeDelegate : public ArcSessionImpl::Delegate {
  public:
@@ -96,6 +167,10 @@ class FakeDelegate : public ArcSessionImpl::Delegate {
 
   version_info::Channel GetChannel() override {
     return version_info::Channel::DEFAULT;
+  }
+
+  std::unique_ptr<ArcClientAdapter> CreateClient() override {
+    return std::make_unique<FakeArcClientAdapter>();
   }
 
   void SetLcdDensity(int32_t lcd_density) {
@@ -176,42 +251,47 @@ struct ArcSessionDeleter {
   }
 };
 
+class FakeSchedulerConfigurationManager
+    : public chromeos::SchedulerConfigurationManagerBase {
+ public:
+  FakeSchedulerConfigurationManager() = default;
+  ~FakeSchedulerConfigurationManager() override = default;
+
+  void SetLastReply(size_t num_cores_disabled) {
+    reply_ = std::make_pair(true, num_cores_disabled);
+    for (Observer& obs : observer_list_)
+      obs.OnConfigurationSet(reply_->first, reply_->second);
+  }
+
+  base::Optional<std::pair<bool, size_t>> GetLastReply() const override {
+    return reply_;
+  }
+
+ private:
+  base::Optional<std::pair<bool, size_t>> reply_;
+
+  DISALLOW_COPY_AND_ASSIGN(FakeSchedulerConfigurationManager);
+};
+
 class ArcSessionImplTest : public testing::Test {
  public:
-  ArcSessionImplTest() {
-    // Create a user and set it as the primary user.
-    const AccountId account_id =
-        AccountId::FromUserEmailGaiaId(kFakeGmail, kFakeGmailGaiaId);
-    const user_manager::User* user = GetUserManager()->AddUser(account_id);
-    GetUserManager()->UserLoggedIn(account_id, user->username_hash(),
-                                   false /* browser_restart */,
-                                   false /* is_child */);
-  }
-
-  ~ArcSessionImplTest() override {
-    GetUserManager()->RemoveUserFromList(
-        AccountId::FromUserEmailGaiaId(kFakeGmail, kFakeGmailGaiaId));
-  }
-
-  void SetUp() override {
-    chromeos::SessionManagerClient::InitializeFakeInMemory();
-    chromeos::FakeSessionManagerClient::Get()->set_arc_available(true);
-  }
-
-  void TearDown() override { chromeos::SessionManagerClient::Shutdown(); }
-
-  user_manager::FakeUserManager* GetUserManager() {
-    return static_cast<user_manager::FakeUserManager*>(
-        user_manager::UserManager::Get());
-  }
+  ArcSessionImplTest() = default;
+  ~ArcSessionImplTest() override = default;
 
   std::unique_ptr<ArcSessionImpl, ArcSessionDeleter> CreateArcSession(
       std::unique_ptr<ArcSessionImpl::Delegate> delegate = nullptr,
       int32_t lcd_density = 160) {
-    if (!delegate)
-      delegate = std::make_unique<FakeDelegate>(lcd_density);
-    return std::unique_ptr<ArcSessionImpl, ArcSessionDeleter>(
-        new ArcSessionImpl(std::move(delegate)));
+    auto arc_session =
+        CreateArcSessionInternal(std::move(delegate), lcd_density);
+    fake_schedule_configuration_manager_.SetLastReply(0);
+    return arc_session;
+  }
+
+  std::unique_ptr<ArcSessionImpl, ArcSessionDeleter>
+  CreateArcSessionWithoutCpuInfo(
+      std::unique_ptr<ArcSessionImpl::Delegate> delegate = nullptr,
+      int32_t lcd_density = 160) {
+    return CreateArcSessionInternal(std::move(delegate), lcd_density);
   }
 
   void SetupMiniContainer(ArcSessionImpl* arc_session,
@@ -223,10 +303,25 @@ class ArcSessionImplTest : public testing::Test {
     ASSERT_FALSE(observer->on_session_stopped_args().has_value());
   }
 
+ protected:
+  FakeArcClientAdapter* GetClient(ArcSessionImpl* session) {
+    return static_cast<FakeArcClientAdapter*>(session->GetClientForTesting());
+  }
+
+  FakeSchedulerConfigurationManager fake_schedule_configuration_manager_;
+
  private:
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
-  user_manager::ScopedUserManager scoped_user_manager_{
-      std::make_unique<user_manager::FakeUserManager>()};
+  std::unique_ptr<ArcSessionImpl, ArcSessionDeleter> CreateArcSessionInternal(
+      std::unique_ptr<ArcSessionImpl::Delegate> delegate,
+      int32_t lcd_density) {
+    if (!delegate)
+      delegate = std::make_unique<FakeDelegate>(lcd_density);
+    return std::unique_ptr<ArcSessionImpl, ArcSessionDeleter>(
+        new ArcSessionImpl(std::move(delegate),
+                           &fake_schedule_configuration_manager_));
+  }
+
+  base::test::TaskEnvironment task_environment_;
 
   DISALLOW_COPY_AND_ASSIGN(ArcSessionImplTest);
 };
@@ -243,13 +338,12 @@ TEST_F(ArcSessionImplTest, MiniInstance_Success) {
   EXPECT_FALSE(observer.on_session_stopped_args().has_value());
 }
 
-// SessionManagerClient::StartArcMiniContainer() reports an error, causing the
-// mini-container start to fail.
+// ArcClientAdapter::StartMiniArc() reports an error, causing the mini instance
+// start to fail.
 TEST_F(ArcSessionImplTest, MiniInstance_DBusFail) {
-  chromeos::FakeSessionManagerClient::Get()->set_arc_available(false);
-
   auto arc_session = CreateArcSession();
   TestArcSessionObserver observer(arc_session.get());
+  GetClient(arc_session.get())->set_arc_available(false);
   arc_session->StartMiniInstance();
   base::RunLoop().RunUntilIdle();
 
@@ -261,7 +355,7 @@ TEST_F(ArcSessionImplTest, MiniInstance_DBusFail) {
   EXPECT_FALSE(observer.on_session_stopped_args()->upgrade_requested);
 }
 
-// SessionManagerClient::UpgradeArcContainer() reports an error due to low disk,
+// ArcClientAdapter::UpgradeArc() reports an error due to low disk,
 // causing the container upgrade to fail to start container with reason
 // LOW_DISK_SPACE.
 TEST_F(ArcSessionImplTest, Upgrade_LowDisk) {
@@ -303,16 +397,15 @@ TEST_F(ArcSessionImplTest, Upgrade_Success) {
   EXPECT_FALSE(observer.on_session_stopped_args().has_value());
 }
 
-// SessionManagerClient::UpgradeArcContainer() reports an error, then the
-// upgrade fails.
+// ArcClientAdapter::UpgradeArc() reports an error, then the upgrade fails.
 TEST_F(ArcSessionImplTest, Upgrade_DBusFail) {
   // Set up. Start a mini instance.
   auto arc_session = CreateArcSession();
   TestArcSessionObserver observer(arc_session.get());
   ASSERT_NO_FATAL_FAILURE(SetupMiniContainer(arc_session.get(), &observer));
 
-  // Hereafter, let SessionManagerClient::UpgradeArcContainer() fail.
-  chromeos::FakeSessionManagerClient::Get()->set_force_upgrade_failure(true);
+  // Hereafter, let ArcClientAdapter::UpgradeArc() fail.
+  GetClient(arc_session.get())->set_force_upgrade_failure(true);
 
   // Then upgrade, which should fail.
   arc_session->RequestUpgrade(DefaultUpgradeParams());
@@ -530,8 +623,8 @@ TEST_F(ArcSessionImplTest, ArcStopInstance) {
   ASSERT_EQ(ArcSessionImpl::State::RUNNING_FULL_INSTANCE,
             arc_session->GetStateForTesting());
 
-  // Deliver the ArcInstanceStopped D-Bus signal.
-  chromeos::FakeSessionManagerClient::Get()->NotifyArcInstanceStopped();
+  // Notify ArcClientAdapter's observers of the crash event.
+  GetClient(arc_session.get())->NotifyArcInstanceStopped();
 
   EXPECT_EQ(ArcSessionImpl::State::STOPPED, arc_session->GetStateForTesting());
   ASSERT_TRUE(observer.on_session_stopped_args().has_value());
@@ -544,24 +637,18 @@ struct PackagesCacheModeState {
   // Possible values for chromeos::switches::kArcPackagesCacheMode
   const char* chrome_switch;
   bool full_container;
-  login_manager::UpgradeArcContainerRequest_PackageCacheMode
-      expected_packages_cache_mode;
+  UpgradeParams::PackageCacheMode expected_packages_cache_mode;
 };
 
 constexpr PackagesCacheModeState kPackagesCacheModeStates[] = {
-    {nullptr, true,
-     login_manager::UpgradeArcContainerRequest_PackageCacheMode_DEFAULT},
-    {nullptr, false,
-     login_manager::UpgradeArcContainerRequest_PackageCacheMode_DEFAULT},
-    {ArcSessionImpl::kPackagesCacheModeCopy, true,
-     login_manager::UpgradeArcContainerRequest_PackageCacheMode_COPY_ON_INIT},
-    {ArcSessionImpl::kPackagesCacheModeCopy, false,
-     login_manager::UpgradeArcContainerRequest_PackageCacheMode_DEFAULT},
-    {ArcSessionImpl::kPackagesCacheModeSkipCopy, true,
-     login_manager::
-         UpgradeArcContainerRequest_PackageCacheMode_SKIP_SETUP_COPY_ON_INIT},
-    {ArcSessionImpl::kPackagesCacheModeCopy, false,
-     login_manager::UpgradeArcContainerRequest_PackageCacheMode_DEFAULT},
+    {nullptr, true, UpgradeParams::PackageCacheMode::DEFAULT},
+    {nullptr, false, UpgradeParams::PackageCacheMode::DEFAULT},
+    {kPackagesCacheModeCopy, true,
+     UpgradeParams::PackageCacheMode::COPY_ON_INIT},
+    {kPackagesCacheModeCopy, false, UpgradeParams::PackageCacheMode::DEFAULT},
+    {kPackagesCacheModeSkipCopy, true,
+     UpgradeParams::PackageCacheMode::SKIP_SETUP_COPY_ON_INIT},
+    {kPackagesCacheModeCopy, false, UpgradeParams::PackageCacheMode::DEFAULT},
 };
 
 class ArcSessionImplPackagesCacheModeTest
@@ -569,8 +656,7 @@ class ArcSessionImplPackagesCacheModeTest
       public ::testing::WithParamInterface<PackagesCacheModeState> {};
 
 TEST_P(ArcSessionImplPackagesCacheModeTest, PackagesCacheModes) {
-  std::unique_ptr<ArcSessionImpl, ArcSessionDeleter> arc_session =
-      CreateArcSession();
+  auto arc_session = CreateArcSession();
 
   const PackagesCacheModeState& state = GetParam();
   if (state.chrome_switch) {
@@ -583,92 +669,147 @@ TEST_P(ArcSessionImplPackagesCacheModeTest, PackagesCacheModes) {
   if (state.full_container)
     arc_session->RequestUpgrade(DefaultUpgradeParams());
   base::RunLoop().RunUntilIdle();
-  EXPECT_EQ(state.expected_packages_cache_mode,
-            chromeos::FakeSessionManagerClient::Get()
-                ->last_upgrade_arc_request()
-                .packages_cache_mode());
+  EXPECT_EQ(
+      state.expected_packages_cache_mode,
+      GetClient(arc_session.get())->last_upgrade_params().packages_cache_mode);
 }
 
-INSTANTIATE_TEST_SUITE_P(,
+INSTANTIATE_TEST_SUITE_P(All,
                          ArcSessionImplPackagesCacheModeTest,
                          ::testing::ValuesIn(kPackagesCacheModeStates));
+
+class ArcSessionImplGmsCoreCacheTest
+    : public ArcSessionImplTest,
+      public ::testing::WithParamInterface<bool> {};
+
+TEST_P(ArcSessionImplGmsCoreCacheTest, GmsCoreCaches) {
+  auto arc_session = CreateArcSession();
+
+  if (GetParam()) {
+    base::CommandLine::ForCurrentProcess()->AppendSwitch(
+        chromeos::switches::kArcDisableGmsCoreCache);
+  }
+
+  arc_session->StartMiniInstance();
+  arc_session->RequestUpgrade(DefaultUpgradeParams());
+  base::RunLoop().RunUntilIdle();
+  EXPECT_EQ(
+      GetParam(),
+      GetClient(arc_session.get())->last_upgrade_params().skip_gms_core_cache);
+}
+
+INSTANTIATE_TEST_SUITE_P(All,
+                         ArcSessionImplGmsCoreCacheTest,
+                         ::testing::Bool());
 
 TEST_F(ArcSessionImplTest, DemoSession) {
   auto arc_session = CreateArcSession();
   arc_session->StartMiniInstance();
 
-  const std::string demo_apps_path =
-      "/run/imageloader/demo_mode_resources/android_apps.squash";
-  ArcSession::UpgradeParams params;
+  const base::FilePath demo_apps_path(
+      "/run/imageloader/demo_mode_resources/android_apps.squash");
+  UpgradeParams params;
   params.is_demo_session = true;
   params.demo_session_apps_path = base::FilePath(demo_apps_path);
   params.locale = kDefaultLocale;
   arc_session->RequestUpgrade(std::move(params));
 
   base::RunLoop().RunUntilIdle();
-  EXPECT_TRUE(chromeos::FakeSessionManagerClient::Get()
-                  ->last_upgrade_arc_request()
-                  .is_demo_session());
-  EXPECT_EQ(demo_apps_path, chromeos::FakeSessionManagerClient::Get()
-                                ->last_upgrade_arc_request()
-                                .demo_session_apps_path());
+  EXPECT_TRUE(
+      GetClient(arc_session.get())->last_upgrade_params().is_demo_session);
+  EXPECT_EQ(demo_apps_path, GetClient(arc_session.get())
+                                ->last_upgrade_params()
+                                .demo_session_apps_path);
 }
 
 TEST_F(ArcSessionImplTest, DemoSessionWithoutOfflineDemoApps) {
   auto arc_session = CreateArcSession();
   arc_session->StartMiniInstance();
 
-  ArcSession::UpgradeParams params;
+  UpgradeParams params;
   params.is_demo_session = true;
   params.locale = kDefaultLocale;
   arc_session->RequestUpgrade(std::move(params));
 
   base::RunLoop().RunUntilIdle();
-  EXPECT_TRUE(chromeos::FakeSessionManagerClient::Get()
-                  ->last_upgrade_arc_request()
-                  .is_demo_session());
-  EXPECT_EQ(std::string(), chromeos::FakeSessionManagerClient::Get()
-                               ->last_upgrade_arc_request()
-                               .demo_session_apps_path());
+  EXPECT_TRUE(
+      GetClient(arc_session.get())->last_upgrade_params().is_demo_session);
+  EXPECT_EQ(base::FilePath(), GetClient(arc_session.get())
+                                  ->last_upgrade_params()
+                                  .demo_session_apps_path);
 }
 
 TEST_F(ArcSessionImplTest, SupervisionTransitionShouldGraduate) {
   auto arc_session = CreateArcSession();
   arc_session->StartMiniInstance();
 
-  ArcSession::UpgradeParams params;
+  UpgradeParams params;
   params.supervision_transition = ArcSupervisionTransition::CHILD_TO_REGULAR;
   params.locale = kDefaultLocale;
   arc_session->RequestUpgrade(std::move(params));
 
   base::RunLoop().RunUntilIdle();
-  EXPECT_EQ(
-      login_manager::
-          UpgradeArcContainerRequest_SupervisionTransition_CHILD_TO_REGULAR,
-      chromeos::FakeSessionManagerClient::Get()
-          ->last_upgrade_arc_request()
-          .supervision_transition());
-  EXPECT_EQ(160, chromeos::FakeSessionManagerClient::Get()
-                     ->last_start_arc_mini_container_request()
-                     .lcd_density());
+  EXPECT_EQ(ArcSupervisionTransition::CHILD_TO_REGULAR,
+            GetClient(arc_session.get())
+                ->last_upgrade_params()
+                .supervision_transition);
+  EXPECT_EQ(160, GetClient(arc_session.get())->last_start_params().lcd_density);
 }
 
 TEST_F(ArcSessionImplTest, StartArcMiniContainerWithDensity) {
-  auto arc_session = CreateArcSession(nullptr, 240);
+  auto arc_session = CreateArcSessionWithoutCpuInfo(nullptr, 240);
   arc_session->StartMiniInstance();
+  EXPECT_EQ(ArcSessionImpl::State::WAITING_FOR_NUM_CORES,
+            arc_session->GetStateForTesting());
+  fake_schedule_configuration_manager_.SetLastReply(2);
   base::RunLoop().RunUntilIdle();
 
   EXPECT_EQ(ArcSessionImpl::State::RUNNING_MINI_INSTANCE,
             arc_session->GetStateForTesting());
-  EXPECT_EQ(240, chromeos::FakeSessionManagerClient::Get()
-                     ->last_start_arc_mini_container_request()
-                     .lcd_density());
+  EXPECT_EQ(240, GetClient(arc_session.get())->last_start_params().lcd_density);
 }
 
 TEST_F(ArcSessionImplTest, StartArcMiniContainerWithDensityAsync) {
   auto delegate = std::make_unique<FakeDelegate>(0);
   auto* delegate_ptr = delegate.get();
-  auto arc_session = CreateArcSession(std::move(delegate));
+  auto arc_session = CreateArcSessionWithoutCpuInfo(std::move(delegate));
+  arc_session->StartMiniInstance();
+  EXPECT_EQ(ArcSessionImpl::State::WAITING_FOR_LCD_DENSITY,
+            arc_session->GetStateForTesting());
+  delegate_ptr->SetLcdDensity(240);
+  EXPECT_EQ(ArcSessionImpl::State::WAITING_FOR_NUM_CORES,
+            arc_session->GetStateForTesting());
+  fake_schedule_configuration_manager_.SetLastReply(2);
+  EXPECT_EQ(ArcSessionImpl::State::STARTING_MINI_INSTANCE,
+            arc_session->GetStateForTesting());
+  base::RunLoop().RunUntilIdle();
+
+  EXPECT_EQ(240, GetClient(arc_session.get())->last_start_params().lcd_density);
+}
+
+TEST_F(ArcSessionImplTest, StartArcMiniContainerWithDensityAsyncReversedOrder) {
+  auto delegate = std::make_unique<FakeDelegate>(0);
+  auto* delegate_ptr = delegate.get();
+  auto arc_session = CreateArcSessionWithoutCpuInfo(std::move(delegate));
+  arc_session->StartMiniInstance();
+  // This time, set the CPU cores information first.
+  fake_schedule_configuration_manager_.SetLastReply(2);
+  EXPECT_EQ(ArcSessionImpl::State::WAITING_FOR_LCD_DENSITY,
+            arc_session->GetStateForTesting());
+  delegate_ptr->SetLcdDensity(240);
+  EXPECT_EQ(ArcSessionImpl::State::STARTING_MINI_INSTANCE,
+            arc_session->GetStateForTesting());
+  base::RunLoop().RunUntilIdle();
+
+  EXPECT_EQ(240, GetClient(arc_session.get())->last_start_params().lcd_density);
+}
+
+TEST_F(ArcSessionImplTest, StartArcMiniContainerWithDensityAsyncCpuInfoEarly) {
+  auto delegate = std::make_unique<FakeDelegate>(0);
+  auto* delegate_ptr = delegate.get();
+  auto arc_session = CreateArcSessionWithoutCpuInfo(std::move(delegate));
+  // Set the CPU cores information even before StartMiniInstance() request.
+  fake_schedule_configuration_manager_.SetLastReply(2);
   arc_session->StartMiniInstance();
   EXPECT_EQ(ArcSessionImpl::State::WAITING_FOR_LCD_DENSITY,
             arc_session->GetStateForTesting());
@@ -677,15 +818,14 @@ TEST_F(ArcSessionImplTest, StartArcMiniContainerWithDensityAsync) {
             arc_session->GetStateForTesting());
   base::RunLoop().RunUntilIdle();
 
-  EXPECT_EQ(240, chromeos::FakeSessionManagerClient::Get()
-                     ->last_start_arc_mini_container_request()
-                     .lcd_density());
+  EXPECT_EQ(240, GetClient(arc_session.get())->last_start_params().lcd_density);
 }
 
 TEST_F(ArcSessionImplTest, StopWhileWaitingForLcdDensity) {
   auto delegate = std::make_unique<FakeDelegate>(0);
-  auto arc_session = CreateArcSession(std::move(delegate));
+  auto arc_session = CreateArcSessionWithoutCpuInfo(std::move(delegate));
   arc_session->StartMiniInstance();
+  fake_schedule_configuration_manager_.SetLastReply(2);
   EXPECT_EQ(ArcSessionImpl::State::WAITING_FOR_LCD_DENSITY,
             arc_session->GetStateForTesting());
   arc_session->Stop();
@@ -694,9 +834,34 @@ TEST_F(ArcSessionImplTest, StopWhileWaitingForLcdDensity) {
 
 TEST_F(ArcSessionImplTest, ShutdownWhileWaitingForLcdDensity) {
   auto delegate = std::make_unique<FakeDelegate>(0);
-  auto arc_session = CreateArcSession(std::move(delegate));
+  auto arc_session = CreateArcSessionWithoutCpuInfo(std::move(delegate));
   arc_session->StartMiniInstance();
+  fake_schedule_configuration_manager_.SetLastReply(2);
   EXPECT_EQ(ArcSessionImpl::State::WAITING_FOR_LCD_DENSITY,
+            arc_session->GetStateForTesting());
+  arc_session->OnShutdown();
+  EXPECT_EQ(ArcSessionImpl::State::STOPPED, arc_session->GetStateForTesting());
+}
+
+TEST_F(ArcSessionImplTest, StopWhileWaitingForNumCores) {
+  auto delegate = std::make_unique<FakeDelegate>(0);
+  auto* delegate_ptr = delegate.get();
+  auto arc_session = CreateArcSessionWithoutCpuInfo(std::move(delegate));
+  arc_session->StartMiniInstance();
+  delegate_ptr->SetLcdDensity(240);
+  EXPECT_EQ(ArcSessionImpl::State::WAITING_FOR_NUM_CORES,
+            arc_session->GetStateForTesting());
+  arc_session->Stop();
+  EXPECT_EQ(ArcSessionImpl::State::STOPPED, arc_session->GetStateForTesting());
+}
+
+TEST_F(ArcSessionImplTest, ShutdownWhileWaitingForNumCores) {
+  auto delegate = std::make_unique<FakeDelegate>(0);
+  auto* delegate_ptr = delegate.get();
+  auto arc_session = CreateArcSessionWithoutCpuInfo(std::move(delegate));
+  arc_session->StartMiniInstance();
+  delegate_ptr->SetLcdDensity(240);
+  EXPECT_EQ(ArcSessionImpl::State::WAITING_FOR_NUM_CORES,
             arc_session->GetStateForTesting());
   arc_session->OnShutdown();
   EXPECT_EQ(ArcSessionImpl::State::STOPPED, arc_session->GetStateForTesting());

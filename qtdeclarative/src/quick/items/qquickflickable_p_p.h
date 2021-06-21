@@ -73,7 +73,7 @@ class QQuickFlickableVisibleArea;
 class QQuickTransition;
 class QQuickFlickableReboundTransition;
 
-class Q_AUTOTEST_EXPORT QQuickFlickablePrivate : public QQuickItemPrivate, public QQuickItemChangeListener
+class Q_QUICK_PRIVATE_EXPORT QQuickFlickablePrivate : public QQuickItemPrivate, public QQuickItemChangeListener
 {
     Q_DECLARE_PUBLIC(QQuickFlickable)
 
@@ -208,6 +208,9 @@ public:
 
     void addPointerHandler(QQuickPointerHandler *h) override;
 
+    // TODO Qt 6: QPointerEvent
+    virtual bool wantsPointerEvent(const QEvent *) { return true; }
+
 public:
     QQuickItem *contentItem;
 
@@ -284,6 +287,7 @@ class QQuickFlickableVisibleArea : public QObject
     Q_PROPERTY(qreal yPosition READ yPosition NOTIFY yPositionChanged)
     Q_PROPERTY(qreal widthRatio READ widthRatio NOTIFY widthRatioChanged)
     Q_PROPERTY(qreal heightRatio READ heightRatio NOTIFY heightRatioChanged)
+    QML_ANONYMOUS
 
 public:
     QQuickFlickableVisibleArea(QQuickFlickable *parent=nullptr);

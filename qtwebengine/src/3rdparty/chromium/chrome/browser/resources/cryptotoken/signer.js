@@ -58,6 +58,9 @@ function handleU2fSignRequest(messageSender, request, sendResponse) {
 
   queuedSignRequest = validateAndEnqueueSignRequest(
       sender, request, sendErrorResponse, sendSuccessResponse);
+  if (queuedSignRequest) {
+    chrome.cryptotokenPrivate.recordSignRequest(sender.tabId, sender.frameId);
+  }
   return queuedSignRequest;
 }
 
@@ -445,8 +448,7 @@ Signer.prototype.doSign_ = async function() {
     }
     var keyHandle = challenge['keyHandle'];
 
-    var browserData = makeSignBrowserData(
-        serverChallenge, this.sender_.origin, this.sender_.tlsChannelId);
+    var browserData = makeSignBrowserData(serverChallenge, this.sender_.origin);
     this.browserData_[keyHandle] = browserData;
     this.serverChallenges_[keyHandle] = challenge;
   }

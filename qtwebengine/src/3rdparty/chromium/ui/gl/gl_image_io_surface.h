@@ -46,6 +46,7 @@ class GL_EXPORT GLImageIOSurface : public GLImage {
   // Overridden from GLImage:
   gfx::Size GetSize() override;
   unsigned GetInternalFormat() override;
+  unsigned GetDataType() override;
   BindOrCopy ShouldBindOrCopy() override;
   bool BindTexImage(unsigned target) override;
   bool BindTexImageWithInternalformat(unsigned target,
@@ -90,7 +91,7 @@ class GL_EXPORT GLImageIOSurface : public GLImage {
  protected:
   GLImageIOSurface(const gfx::Size& size, unsigned internalformat);
   ~GLImageIOSurface() override;
-  virtual bool BindTexImageImpl(unsigned internalformat);
+  virtual bool BindTexImageImpl(unsigned target, unsigned internalformat);
 
   static bool ValidFormat(gfx::BufferFormat format);
   Type GetType() const override;

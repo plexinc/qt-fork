@@ -29,7 +29,7 @@
 
 #include <memory>
 #include "base/memory/scoped_refptr.h"
-#include "third_party/blink/public/mojom/net/ip_address_space.mojom-blink.h"
+#include "services/network/public/mojom/ip_address_space.mojom-blink.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
 #include "third_party/blink/renderer/core/html/parser/text_resource_decoder.h"
@@ -67,7 +67,7 @@ namespace {
 String CheckSameOriginEnforcement(const KURL& request_url,
                                   const KURL& response_url) {
   if (request_url != response_url &&
-      !SecurityOrigin::AreSameSchemeHostPort(request_url, response_url)) {
+      !SecurityOrigin::AreSameOrigin(request_url, response_url)) {
     return "Refused to load the top-level worker script from '" +
            response_url.ElidedString() +
            "' because it doesn't match the origin of the request URL '" +
@@ -97,13 +97,14 @@ String CheckSameOriginEnforcement(const KURL& request_url,
 }  // namespace
 
 WorkerClassicScriptLoader::WorkerClassicScriptLoader()
-    : response_address_space_(mojom::IPAddressSpace::kPublic) {}
+    : response_address_space_(network::mojom::IPAddressSpace::kPublic) {}
 
 void WorkerClassicScriptLoader::LoadSynchronously(
     ExecutionContext& execution_context,
     ResourceFetcher* fetch_client_settings_object_fetcher,
     const KURL& url,
-    mojom::RequestContextType request_context) {
+    mojom::RequestContextType request_context,
+    network::mojom::RequestDestination destination) {
   DCHECK(fetch_client_settings_object_fetcher);
   url_ = url;
   fetch_client_settings_object_fetcher_ = fetch_client_settings_object_fetcher;
@@ -115,6 +116,7 @@ void WorkerClassicScriptLoader::LoadSynchronously(
           .GetFetchClientSettingsObject()
           .GetAddressSpace());
   request.SetRequestContext(request_context);
+  request.SetRequestDestination(destination);
 
   SECURITY_DCHECK(execution_context.IsWorkerGlobalScope());
 
@@ -134,10 +136,14 @@ void WorkerClassicScriptLoader::LoadTopLevelScriptAsynchronously(
     ResourceFetcher* fetch_client_settings_object_fetcher,
     const KURL& url,
     mojom::RequestContextType request_context,
+    network::mojom::RequestDestination destination,
     network::mojom::RequestMode request_mode,
     network::mojom::CredentialsMode credentials_mode,
     base::OnceClosure response_callback,
-    base::OnceClosure finished_callback) {
+    base::OnceClosure finished_callback,
+    RejectCoepUnsafeNone reject_coep_unsafe_none,
+    mojo::PendingRemote<network::mojom::blink::URLLoaderFactory>
+        blob_url_loader_factory) {
   DCHECK(fetch_client_settings_object_fetcher);
   DCHECK(response_callback || finished_callback);
   response_callback_ = std::move(response_callback);
@@ -153,12 +159,21 @@ void WorkerClassicScriptLoader::LoadTopLevelScriptAsynchronously(
           .GetFetchClientSettingsObject()
           .GetAddressSpace());
   request.SetRequestContext(request_context);
+  request.SetRequestDestination(destination);
   request.SetMode(request_mode);
   request.SetCredentialsMode(credentials_mode);
 
   need_to_cancel_ = true;
+  ResourceLoaderOptions resource_loader_options;
+  resource_loader_options.reject_coep_unsafe_none = reject_coep_unsafe_none;
+  if (blob_url_loader_factory) {
+    resource_loader_options.url_loader_factory =
+        base::MakeRefCounted<base::RefCountedData<
+            mojo::PendingRemote<network::mojom::blink::URLLoaderFactory>>>(
+            std::move(blob_url_loader_factory));
+  }
   threadable_loader_ = MakeGarbageCollected<ThreadableLoader>(
-      execution_context, this, ResourceLoaderOptions(),
+      execution_context, this, resource_loader_options,
       fetch_client_settings_object_fetcher);
   threadable_loader_->Start(request);
   if (failed_)
@@ -211,8 +226,8 @@ void WorkerClassicScriptLoader::DidReceiveResponse(
   if (network_utils::IsReservedIPAddress(response.RemoteIPAddress())) {
     response_address_space_ =
         SecurityOrigin::Create(response_url_)->IsLocalhost()
-            ? mojom::IPAddressSpace::kLocal
-            : mojom::IPAddressSpace::kPrivate;
+            ? network::mojom::IPAddressSpace::kLocal
+            : network::mojom::IPAddressSpace::kPrivate;
   }
 
   if (response_callback_)

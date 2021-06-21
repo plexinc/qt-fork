@@ -6,6 +6,7 @@
 #define CONTENT_PUBLIC_BROWSER_SERVICE_PROCESS_HOST_H_
 
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -34,14 +35,14 @@ namespace content {
 //   constexpr auto kFooServiceIdleTimeout = base::TimeDelta::FromSeconds(5);
 //   auto foo_service = ServiceProcessHost::Launch<foo::mojom::FooService>(
 //       ServiceProcessHost::Options()
-//           .WithSandboxType(SANDBOX_TYPE_UTILITY)
+//           .WithSandboxType(SandboxType::kUtility)
 //           .WithDisplayName(IDS_FOO_SERVICE_DISPLAY_NAME)
 //           .Pass());
 //   foo_service.set_idle_handler(
 //       kFooServiceIdleTimeout,
 //       base::BindRepeating(
 //           /* Something to reset |foo_service|,  killing the process. */));
-//   foo_service->DoSomeWork();
+//   foo_service->DoWork();
 //
 class CONTENT_EXPORT ServiceProcessHost {
  public:
@@ -58,6 +59,7 @@ class CONTENT_EXPORT ServiceProcessHost {
     // Specifies the display name of the service process. This should generally
     // be a human readable and meaningful application or service name and will
     // appear in places like the system task viewer.
+    Options& WithDisplayName(const std::string& name);
     Options& WithDisplayName(const base::string16& name);
     Options& WithDisplayName(int resource_id);
 
@@ -65,14 +67,18 @@ class CONTENT_EXPORT ServiceProcessHost {
     // ChildProcessHost for flag definitions.
     Options& WithChildFlags(int flags);
 
+    // Specifies extra command line switches to append before launch.
+    Options& WithExtraCommandLineSwitches(std::vector<std::string> switches);
+
     // Passes the contents of this Options object to a newly returned Options
     // value. This must be called when moving a built Options object into a call
     // to |Launch()|.
     Options Pass();
 
-    SandboxType sandbox_type = service_manager::SANDBOX_TYPE_UTILITY;
+    SandboxType sandbox_type = SandboxType::kUtility;
     base::string16 display_name;
     base::Optional<int> child_flags;
+    std::vector<std::string> extra_switches;
   };
 
   // An interface which can be implemented and registered/unregistered with

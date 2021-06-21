@@ -15,7 +15,8 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/task/post_task.h"
-#include "mojo/public/cpp/bindings/strong_binding.h"
+#include "base/task/thread_pool.h"
+#include "mojo/public/cpp/bindings/self_owned_receiver.h"
 
 namespace {
 
@@ -58,15 +59,16 @@ HyphenationImpl::HyphenationImpl() {}
 HyphenationImpl::~HyphenationImpl() {}
 
 // static
-void HyphenationImpl::Create(blink::mojom::HyphenationRequest request) {
-  mojo::MakeStrongBinding(std::make_unique<HyphenationImpl>(),
-                          std::move(request));
+void HyphenationImpl::Create(
+    mojo::PendingReceiver<blink::mojom::Hyphenation> receiver) {
+  mojo::MakeSelfOwnedReceiver(std::make_unique<HyphenationImpl>(),
+                              std::move(receiver));
 }
 
 // static
 scoped_refptr<base::SequencedTaskRunner> HyphenationImpl::GetTaskRunner() {
   static base::NoDestructor<scoped_refptr<base::SequencedTaskRunner>> runner(
-      base::CreateSequencedTaskRunnerWithTraits(
+      base::ThreadPool::CreateSequencedTaskRunner(
           {base::MayBlock(), base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN,
            base::TaskPriority::USER_BLOCKING}));
   return *runner;

@@ -259,6 +259,13 @@ std::string GetHostOrSpecFromURL(const GURL& url) {
   return url.has_host() ? TrimEndingDot(url.host_piece()) : url.spec();
 }
 
+std::string GetSuperdomain(base::StringPiece domain) {
+  size_t dot_pos = domain.find('.');
+  if (dot_pos == std::string::npos)
+    return "";
+  return domain.substr(dot_pos + 1).as_string();
+}
+
 std::string CanonicalizeHost(base::StringPiece host,
                              url::CanonHostInfo* host_info) {
   // Try to canonicalize the host.
@@ -356,27 +363,10 @@ bool IsLocalhost(const GURL& url) {
 }
 
 bool HostStringIsLocalhost(base::StringPiece host) {
-  if (IsLocalHostname(host, nullptr))
-    return true;
-
   IPAddress ip_address;
-  if (ip_address.AssignFromIPLiteral(host)) {
-    size_t size = ip_address.size();
-    switch (size) {
-      case IPAddress::kIPv4AddressSize: {
-        const uint8_t prefix[] = {127};
-        return IPAddressStartsWith(ip_address, prefix);
-      }
-
-      case IPAddress::kIPv6AddressSize:
-        return ip_address == IPAddress::IPv6Localhost();
-
-      default:
-        NOTREACHED();
-    }
-  }
-
-  return false;
+  if (ip_address.AssignFromIPLiteral(host))
+    return ip_address.IsLoopback();
+  return IsLocalHostname(host, nullptr);
 }
 
 GURL SimplifyUrlForRequest(const GURL& url) {

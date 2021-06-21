@@ -17,7 +17,7 @@
 class GrCCAtlas;
 class GrCCPerFlushResources;
 struct GrCCPerFlushResourceSpecs;
-struct GrCCPerOpListPaths;
+struct GrCCPerOpsTaskPaths;
 class GrOnFlushResourceProvider;
 class GrRecordingContext;
 
@@ -37,16 +37,16 @@ public:
     FixedFunctionFlags fixedFunctionFlags() const override { return FixedFunctionFlags::kNone; }
     GrProcessorSet::Analysis finalize(const GrCaps&, const GrAppliedClip*,
                                       bool hasMixedSampledCoverage, GrClampType) override;
-    CombineResult onCombineIfPossible(GrOp*, const GrCaps&) override;
+    CombineResult onCombineIfPossible(GrOp*, GrRecordingContext::Arenas*, const GrCaps&) override;
     void visitProxies(const VisitProxyFunc& fn) const override {
         for (const auto& range : fInstanceRanges) {
             fn(range.fAtlasProxy, GrMipMapped::kNo);
         }
         fProcessors.visitProxies(fn);
     }
-    void onPrepare(GrOpFlushState*) override {}
+    void onPrepare(GrOpFlushState*) override;
 
-    void addToOwningPerOpListPaths(sk_sp<GrCCPerOpListPaths> owningPerOpListPaths);
+    void addToOwningPerOpsTaskPaths(sk_sp<GrCCPerOpsTaskPaths> owningPerOpsTaskPaths);
 
     // Makes decisions about how to draw each path (cached, copied, rendered, etc.), and
     // increments/fills out the corresponding GrCCPerFlushResourceSpecs.
@@ -71,6 +71,11 @@ public:
     void onExecute(GrOpFlushState*, const SkRect& chainBounds) override;
 
 private:
+    void onPrePrepare(GrRecordingContext*,
+                      const GrSurfaceProxyView* outputView,
+                      GrAppliedClip*,
+                      const GrXferProcessor::DstProxyView&) override {}
+
     friend class GrOpMemoryPool;
 
     static std::unique_ptr<GrCCDrawPathsOp> InternalMake(GrRecordingContext*,
@@ -125,9 +130,9 @@ private:
         friend class GrCCSTLList<SingleDraw>;  // To access fNext.
     };
 
-    // Declare fOwningPerOpListPaths first, before fDraws. The draws use memory allocated by
-    // fOwningPerOpListPaths, so it must not be unreffed until after fDraws is destroyed.
-    sk_sp<GrCCPerOpListPaths> fOwningPerOpListPaths;
+    // Declare fOwningPerOpsTaskPaths first, before fDraws. The draws use memory allocated by
+    // fOwningPerOpsTaskPaths, so it must not be unreffed until after fDraws is destroyed.
+    sk_sp<GrCCPerOpsTaskPaths> fOwningPerOpsTaskPaths;
 
     GrCCSTLList<SingleDraw> fDraws;
     SkDEBUGCODE(int fNumDraws = 1);

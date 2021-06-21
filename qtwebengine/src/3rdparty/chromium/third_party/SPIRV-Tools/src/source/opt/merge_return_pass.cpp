@@ -69,6 +69,32 @@ Pass::Status MergeReturnPass::Process() {
   return modified ? Status::SuccessWithChange : Status::SuccessWithoutChange;
 }
 
+void MergeReturnPass::GenerateState(BasicBlock* block) {
+  if (Instruction* mergeInst = block->GetMergeInst()) {
+    if (mergeInst->opcode() == SpvOpLoopMerge) {
+      // If new loop, break to this loop merge block
+      state_.emplace_back(mergeInst, mergeInst);
+    } else {
+      auto branchInst = mergeInst->NextNode();
+      if (branchInst->opcode() == SpvOpSwitch) {
+        // If switch inside of loop, break to innermost loop merge block.
+        // Otherwise need to break to this switch merge block.
+        auto lastMergeInst = state_.back().BreakMergeInst();
+        if (lastMergeInst && lastMergeInst->opcode() == SpvOpLoopMerge)
+          state_.emplace_back(lastMergeInst, mergeInst);
+        else
+          state_.emplace_back(mergeInst, mergeInst);
+      } else {
+        // If branch conditional inside loop, always break to innermost
+        // loop merge block. If branch conditional inside switch, break to
+        // innermost switch merge block.
+        auto lastMergeInst = state_.back().BreakMergeInst();
+        state_.emplace_back(lastMergeInst, mergeInst);
+      }
+    }
+  }
+}
+
 bool MergeReturnPass::ProcessStructured(
     Function* function, const std::vector<BasicBlock*>& return_blocks) {
   if (HasNontrivialUnreachableBlocks(function)) {
@@ -81,7 +107,8 @@ bool MergeReturnPass::ProcessStructured(
     return false;
   }
 
-  AddDummyLoopAroundFunction();
+  RecordImmediateDominators(function);
+  AddDummySwitchAroundFunction();
 
   std::list<BasicBlock*> order;
   cfg()->ComputeStructuredOrder(function, &*function->begin(), &order);
@@ -102,12 +129,8 @@ bool MergeReturnPass::ProcessStructured(
 
     ProcessStructuredBlock(block);
 
-    // Generate state for next block
-    if (Instruction* mergeInst = block->GetMergeInst()) {
-      Instruction* loopMergeInst = block->GetLoopMergeInst();
-      if (!loopMergeInst) loopMergeInst = state_.back().LoopMergeInst();
-      state_.emplace_back(loopMergeInst, mergeInst);
-    }
+    // Generate state for next block if warranted
+    GenerateState(block);
   }
 
   state_.clear();
@@ -132,12 +155,8 @@ bool MergeReturnPass::ProcessStructured(
       }
     }
 
-    // Generate state for next block
-    if (Instruction* mergeInst = block->GetMergeInst()) {
-      Instruction* loopMergeInst = block->GetLoopMergeInst();
-      if (!loopMergeInst) loopMergeInst = state_.back().LoopMergeInst();
-      state_.emplace_back(loopMergeInst, mergeInst);
-    }
+    // Generate state for next block if warranted
+    GenerateState(block);
   }
 
   // We have not kept the dominator tree up-to-date.
@@ -201,8 +220,8 @@ void MergeReturnPass::ProcessStructuredBlock(BasicBlock* block) {
 
   if (tail_opcode == SpvOpReturn || tail_opcode == SpvOpReturnValue ||
       tail_opcode == SpvOpUnreachable) {
-    assert(CurrentState().InLoop() && "Should be in the dummy loop.");
-    BranchToBlock(block, CurrentState().LoopMergeId());
+    assert(CurrentState().InBreakable() && "Should be in the dummy construct.");
+    BranchToBlock(block, CurrentState().BreakMergeId());
     return_blocks_.insert(block->id());
   }
 }
@@ -236,10 +255,6 @@ void MergeReturnPass::UpdatePhiNodes(BasicBlock* new_source,
     inst->AddOperand({SPV_OPERAND_TYPE_ID, {new_source->id()}});
     context()->UpdateDefUse(inst);
   });
-
-  // Store the immediate dominator for this block in case new phi nodes will be
-  // needed later.
-  RecordImmediateDominator(target);
 }
 
 void MergeReturnPass::CreatePhiNodesForInst(BasicBlock* merge_block,
@@ -340,8 +355,8 @@ bool MergeReturnPass::PredicateBlocks(
   std::unordered_set<BasicBlock*> seen;
   if (block->id() == state->CurrentMergeId()) {
     state++;
-  } else if (block->id() == state->LoopMergeId()) {
-    while (state->LoopMergeId() == block->id()) {
+  } else if (block->id() == state->BreakMergeId()) {
+    while (state->BreakMergeId() == block->id()) {
       state++;
     }
   }
@@ -349,15 +364,14 @@ bool MergeReturnPass::PredicateBlocks(
   while (block != nullptr && block != final_return_block_) {
     if (!predicated->insert(block).second) break;
     // Skip structured subgraphs.
-    assert(state->InLoop() && "Should be in the dummy loop at the very least.");
-    Instruction* current_loop_merge_inst = state->LoopMergeInst();
-    uint32_t merge_block_id =
-        current_loop_merge_inst->GetSingleWordInOperand(0);
-    while (state->LoopMergeId() == merge_block_id) {
+    assert(state->InBreakable() &&
+           "Should be in the dummy construct at the very least.");
+    Instruction* break_merge_inst = state->BreakMergeInst();
+    uint32_t merge_block_id = break_merge_inst->GetSingleWordInOperand(0);
+    while (state->BreakMergeId() == merge_block_id) {
       state++;
     }
-    if (!BreakFromConstruct(block, predicated, order,
-                            current_loop_merge_inst)) {
+    if (!BreakFromConstruct(block, predicated, order, break_merge_inst)) {
       return false;
     }
     block = context()->get_instr_block(merge_block_id);
@@ -367,9 +381,7 @@ bool MergeReturnPass::PredicateBlocks(
 
 bool MergeReturnPass::BreakFromConstruct(
     BasicBlock* block, std::unordered_set<BasicBlock*>* predicated,
-    std::list<BasicBlock*>* order, Instruction* loop_merge_inst) {
-  assert(loop_merge_inst->opcode() == SpvOpLoopMerge &&
-         "loop_merge_inst must be a loop merge instruction.");
+    std::list<BasicBlock*>* order, Instruction* break_merge_inst) {
   // Make sure the CFG is build here.  If we don't then it becomes very hard
   // to know which new blocks need to be updated.
   context()->BuildInvalidAnalyses(IRContext::kAnalysisCFG);
@@ -391,7 +403,7 @@ bool MergeReturnPass::BreakFromConstruct(
     }
   }
 
-  uint32_t merge_block_id = loop_merge_inst->GetSingleWordInOperand(0);
+  uint32_t merge_block_id = break_merge_inst->GetSingleWordInOperand(0);
   BasicBlock* merge_block = context()->get_instr_block(merge_block_id);
   if (merge_block->GetLoopMergeInst()) {
     cfg()->SplitLoopHeader(merge_block);
@@ -419,9 +431,10 @@ bool MergeReturnPass::BreakFromConstruct(
 
   // If |block| was a continue target for a loop |old_body| is now the correct
   // continue target.
-  if (loop_merge_inst->GetSingleWordInOperand(1) == block->id()) {
-    loop_merge_inst->SetInOperand(1, {old_body->id()});
-    context()->UpdateDefUse(loop_merge_inst);
+  if (break_merge_inst->opcode() == SpvOpLoopMerge &&
+      break_merge_inst->GetSingleWordInOperand(1) == block->id()) {
+    break_merge_inst->SetInOperand(1, {old_body->id()});
+    context()->UpdateDefUse(break_merge_inst);
   }
 
   // Update |order| so old_block will be traversed.
@@ -433,8 +446,8 @@ bool MergeReturnPass::BreakFromConstruct(
   // 3. Update OpPhi instructions in |merge_block|.
   // 4. Update the CFG.
   //
-  // Sine we are branching to the merge block of the current construct, there is
-  // no need for an OpSelectionMerge.
+  // Since we are branching to the merge block of the current construct, there
+  // is no need for an OpSelectionMerge.
 
   InstructionBuilder builder(
       context(), block,
@@ -683,7 +696,7 @@ void MergeReturnPass::AddNewPhiNodes(BasicBlock* bb) {
     return;
   }
 
-  BasicBlock* current_bb = new_merge_nodes_[bb];
+  BasicBlock* current_bb = context()->get_instr_block(original_dominator_[bb]);
   while (current_bb != nullptr && current_bb != dominator) {
     for (Instruction& inst : *current_bb) {
       CreatePhiNodesForInst(bb, inst);
@@ -692,11 +705,16 @@ void MergeReturnPass::AddNewPhiNodes(BasicBlock* bb) {
   }
 }
 
-void MergeReturnPass::RecordImmediateDominator(BasicBlock* block) {
-  DominatorAnalysis* dom_tree =
-      context()->GetDominatorAnalysis(block->GetParent());
-  auto idom = dom_tree->ImmediateDominator(block);
-  new_merge_nodes_[block] = idom;
+void MergeReturnPass::RecordImmediateDominators(Function* function) {
+  DominatorAnalysis* dom_tree = context()->GetDominatorAnalysis(function);
+  for (BasicBlock& bb : *function) {
+    BasicBlock* dominator_bb = dom_tree->ImmediateDominator(&bb);
+    if (dominator_bb && dominator_bb != cfg()->pseudo_entry_block()) {
+      original_dominator_[&bb] = dominator_bb->terminator();
+    } else {
+      original_dominator_[&bb] = nullptr;
+    }
+  }
 }
 
 void MergeReturnPass::InsertAfterElement(BasicBlock* element,
@@ -708,7 +726,7 @@ void MergeReturnPass::InsertAfterElement(BasicBlock* element,
   list->insert(pos, new_element);
 }
 
-void MergeReturnPass::AddDummyLoopAroundFunction() {
+void MergeReturnPass::AddDummySwitchAroundFunction() {
   CreateReturnBlock();
   CreateReturn(final_return_block_);
 
@@ -716,7 +734,7 @@ void MergeReturnPass::AddDummyLoopAroundFunction() {
     cfg()->RegisterBlock(final_return_block_);
   }
 
-  CreateDummyLoop(final_return_block_);
+  CreateDummySwitch(final_return_block_);
 }
 
 BasicBlock* MergeReturnPass::CreateContinueTarget(uint32_t header_label_id) {
@@ -751,14 +769,8 @@ BasicBlock* MergeReturnPass::CreateContinueTarget(uint32_t header_label_id) {
   return new_block;
 }
 
-void MergeReturnPass::CreateDummyLoop(BasicBlock* merge_target) {
-  std::unique_ptr<Instruction> label(
-      new Instruction(context(), SpvOpLabel, 0u, TakeNextId(), {}));
-
-  // Create the new basic block
-  std::unique_ptr<BasicBlock> block(new BasicBlock(std::move(label)));
-
-  // Insert the new block before any code is run.  We have to split the entry
+void MergeReturnPass::CreateDummySwitch(BasicBlock* merge_target) {
+  // Insert the switch before any code is run.  We have to split the entry
   // block to make sure the OpVariable instructions remain in the entry block.
   BasicBlock* start_block = &*function_->begin();
   auto split_pos = start_block->begin();
@@ -769,38 +781,16 @@ void MergeReturnPass::CreateDummyLoop(BasicBlock* merge_target) {
   BasicBlock* old_block =
       start_block->SplitBasicBlock(context(), TakeNextId(), split_pos);
 
-  // The new block must be inserted after the entry block.  We cannot make the
-  // entry block the header for the dummy loop because it is not valid to have a
-  // branch to the entry block, and the continue target must branch back to the
-  // loop header.
-  auto pos = function_->begin();
-  pos++;
-  BasicBlock* header_block = &*pos.InsertBefore(std::move(block));
-  context()->AnalyzeDefUse(header_block->GetLabelInst());
-  header_block->SetParent(function_);
-
-  // We have to create the continue block before OpLoopMerge instruction.
-  // Otherwise the def-use manager will compalain that there is a use without a
-  // definition.
-  uint32_t continue_target = CreateContinueTarget(header_block->id())->id();
-
-  // Add the code the the header block.
+  // Add the switch to the end of the entry block.
   InstructionBuilder builder(
-      context(), header_block,
-      IRContext::kAnalysisDefUse | IRContext::kAnalysisInstrToBlockMapping);
-
-  builder.AddLoopMerge(merge_target->id(), continue_target);
-  builder.AddBranch(old_block->id());
-
-  // Fix up the entry block by adding a branch to the loop header.
-  InstructionBuilder builder2(
       context(), start_block,
       IRContext::kAnalysisDefUse | IRContext::kAnalysisInstrToBlockMapping);
-  builder2.AddBranch(header_block->id());
+
+  builder.AddSwitch(builder.GetUintConstantId(0u), old_block->id(), {},
+                    merge_target->id());
 
   if (context()->AreAnalysesValid(IRContext::kAnalysisCFG)) {
     cfg()->RegisterBlock(old_block);
-    cfg()->RegisterBlock(header_block);
     cfg()->AddEdges(start_block);
   }
 }
@@ -818,12 +808,7 @@ bool MergeReturnPass::HasNontrivialUnreachableBlocks(Function* function) {
 
     StructuredCFGAnalysis* struct_cfg_analysis =
         context()->GetStructuredCFGAnalysis();
-    if (struct_cfg_analysis->IsMergeBlock(bb.id())) {
-      // |bb| must be an empty block ending with OpUnreachable.
-      if (bb.begin()->opcode() != SpvOpUnreachable) {
-        return true;
-      }
-    } else if (struct_cfg_analysis->IsContinueBlock(bb.id())) {
+    if (struct_cfg_analysis->IsContinueBlock(bb.id())) {
       // |bb| must be an empty block ending with a branch to the header.
       Instruction* inst = &*bb.begin();
       if (inst->opcode() != SpvOpBranch) {
@@ -832,6 +817,11 @@ bool MergeReturnPass::HasNontrivialUnreachableBlocks(Function* function) {
 
       if (inst->GetSingleWordInOperand(0) !=
           struct_cfg_analysis->ContainingLoop(bb.id())) {
+        return true;
+      }
+    } else if (struct_cfg_analysis->IsMergeBlock(bb.id())) {
+      // |bb| must be an empty block ending with OpUnreachable.
+      if (bb.begin()->opcode() != SpvOpUnreachable) {
         return true;
       }
     } else {

@@ -67,7 +67,14 @@ class PropertyHelper;
 class UI_BASE_EXPORT PropertyHandler {
  public:
   PropertyHandler();
-  ~PropertyHandler();
+  PropertyHandler(PropertyHandler&& other);
+  virtual ~PropertyHandler();
+  PropertyHandler& operator=(PropertyHandler&& rhs) = default;
+
+  // Takes the ownership of all the properties in |other|, overwriting any
+  // similarly-keyed existing properties without affecting existing ones with
+  // different keys.
+  void AcquireAllPropertiesFrom(PropertyHandler&& other);
 
   // Sets the |value| of the given class |property|. Setting to the default
   // value (e.g., NULL) removes the property. The lifetime of objects set as
@@ -133,9 +140,7 @@ class UI_BASE_EXPORT PropertyHandler {
 namespace {
 
 // No single new-style cast works for every conversion to/from int64_t, so we
-// need this helper class. A third specialization is needed for bool because
-// MSVC warning C4800 (forcing value to bool) is not suppressed by an explicit
-// cast (!).
+// need this helper class.
 template<typename T>
 class ClassPropertyCaster {
  public:
@@ -147,12 +152,6 @@ class ClassPropertyCaster<T*> {
  public:
   static int64_t ToInt64(T* x) { return reinterpret_cast<int64_t>(x); }
   static T* FromInt64(int64_t x) { return reinterpret_cast<T*>(x); }
-};
-template<>
-class ClassPropertyCaster<bool> {
- public:
-  static int64_t ToInt64(bool x) { return static_cast<int64_t>(x); }
-  static bool FromInt64(int64_t x) { return x != 0; }
 };
 template <>
 class ClassPropertyCaster<base::TimeDelta> {

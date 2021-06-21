@@ -11,7 +11,7 @@
 #include "chrome/common/extensions/extension_test_util.h"
 #include "chrome/common/url_constants.h"
 #include "chromeos/login/login_state/scoped_test_public_session_login_state.h"
-#include "content/public/test/test_browser_thread_bundle.h"
+#include "content/public/test/browser_task_environment.h"
 #include "extensions/browser/api/web_request/permission_helper.h"
 #include "extensions/browser/api/web_request/web_request_info.h"
 #include "extensions/browser/api/web_request/web_request_permissions.h"
@@ -19,10 +19,6 @@
 #include "extensions/common/constants.h"
 #include "extensions/common/permissions/permissions_data.h"
 #include "ipc/ipc_message.h"
-#include "net/base/request_priority.h"
-#include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
-#include "net/url_request/url_request.h"
-#include "net/url_request/url_request_test_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 #if defined(OS_CHROMEOS)
@@ -116,7 +112,8 @@ TEST_F(ExtensionWebRequestHelpersTestWithThreadsTest, LocalNTPRequests) {
   const GURL example_com("http://example.com");
 
   auto create_request_params =
-      [&example_com](const url::Origin& initiator, content::ResourceType type,
+      [&example_com](const url::Origin& initiator,
+                     blink::mojom::ResourceType type,
                      extensions::WebRequestResourceType web_request_type,
                      bool is_navigation_request) {
         WebRequestInfoInitParams info_params;
@@ -133,15 +130,15 @@ TEST_F(ExtensionWebRequestHelpersTestWithThreadsTest, LocalNTPRequests) {
       url::Origin::Create(GURL(chrome::kChromeSearchLocalNtpUrl));
 
   // Sub-resource browser initiated requests are hidden from extensions.
-  WebRequestInfoInitParams info_params_1 =
-      create_request_params(ntp_origin, content::ResourceType::kSubResource,
-                            extensions::WebRequestResourceType::OTHER, false);
+  WebRequestInfoInitParams info_params_1 = create_request_params(
+      ntp_origin, blink::mojom::ResourceType::kSubResource,
+      extensions::WebRequestResourceType::OTHER, false);
   EXPECT_TRUE(WebRequestPermissions::HideRequest(
       permission_helper_, WebRequestInfo(std::move(info_params_1))));
 
   // Sub-frame navigations initiated from the local ntp should be hidden.
   WebRequestInfoInitParams info_params_2 = create_request_params(
-      ntp_origin, content::ResourceType::kSubFrame,
+      ntp_origin, blink::mojom::ResourceType::kSubFrame,
       extensions::WebRequestResourceType::SUB_FRAME, true);
   EXPECT_TRUE(WebRequestPermissions::HideRequest(
       permission_helper_, WebRequestInfo(std::move(info_params_2))));
@@ -149,7 +146,7 @@ TEST_F(ExtensionWebRequestHelpersTestWithThreadsTest, LocalNTPRequests) {
   // Sub-frame navigations initiated from a non-sensitive domain should not be
   // hidden.
   WebRequestInfoInitParams info_params_3 = create_request_params(
-      url::Origin::Create(example_com), content::ResourceType::kSubFrame,
+      url::Origin::Create(example_com), blink::mojom::ResourceType::kSubFrame,
       extensions::WebRequestResourceType::SUB_FRAME, true);
   EXPECT_FALSE(WebRequestPermissions::HideRequest(
       permission_helper_, WebRequestInfo(std::move(info_params_3))));
@@ -158,8 +155,8 @@ TEST_F(ExtensionWebRequestHelpersTestWithThreadsTest, LocalNTPRequests) {
 TEST_F(ExtensionWebRequestHelpersTestWithThreadsTest,
        TestCanExtensionAccessURL_HostPermissions) {
   const GURL url("http://example.com");
-  const content::ResourceType kResourceType =
-      content::ResourceType::kSubResource;
+  const blink::mojom::ResourceType kResourceType =
+      blink::mojom::ResourceType::kSubResource;
 
   EXPECT_EQ(PermissionsData::PageAccess::kAllowed,
             WebRequestPermissions::CanExtensionAccessURL(
@@ -239,7 +236,7 @@ TEST_F(ExtensionWebRequestHelpersTestWithThreadsTest,
           -1,     // No tab id.
           false,  // crosses_incognito
           WebRequestPermissions::REQUIRE_HOST_PERMISSION_FOR_URL_AND_INITIATOR,
-          initiator, content::ResourceType::kSubFrame));
+          initiator, blink::mojom::ResourceType::kSubFrame));
 
   EXPECT_EQ(
       PermissionsData::PageAccess::kDenied,

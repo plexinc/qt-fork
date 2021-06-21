@@ -117,8 +117,8 @@ public:
 
     int effectiveStepSize() const;
 
-    void updateDisplayText();
-    void setDisplayText(const QString &displayText);
+    void updateDisplayText(bool modified = false);
+    void setDisplayText(const QString &displayText, bool modified = false);
 
     bool upEnabled() const;
     void updateUpEnabled();
@@ -209,24 +209,34 @@ void QQuickSpinBoxPrivate::updateValue()
     }
 }
 
+// modified indicates if the value was modified by the user and not programatically
+// this is then passed on to updateDisplayText to indicate that the user has modified
+// the value so it may need to trigger an update of the contentItem's text too
+
 bool QQuickSpinBoxPrivate::setValue(int newValue, bool allowWrap, bool modified)
 {
     Q_Q(QQuickSpinBox);
+    int correctedValue = newValue;
     if (q->isComponentComplete())
-        newValue = boundValue(newValue, allowWrap);
+         correctedValue = boundValue(newValue, allowWrap);
 
-    if (value == newValue)
+    if (!modified && newValue == correctedValue && newValue == value)
         return false;
 
-    value = newValue;
+    const bool emitSignals = (value != correctedValue);
+    value = correctedValue;
 
-    updateDisplayText();
+    updateDisplayText(modified);
     updateUpEnabled();
     updateDownEnabled();
 
-    emit q->valueChanged();
-    if (modified)
-        emit q->valueModified();
+    // Only emit the signals if the corrected value is not the same as the
+    // original value to avoid unnecessary updates
+    if (emitSignals) {
+        emit q->valueChanged();
+        if (modified)
+            emit q->valueModified();
+    }
     return true;
 }
 
@@ -250,7 +260,7 @@ int QQuickSpinBoxPrivate::effectiveStepSize() const
     return from > to ? -1 * stepSize : stepSize;
 }
 
-void QQuickSpinBoxPrivate::updateDisplayText()
+void QQuickSpinBoxPrivate::updateDisplayText(bool modified)
 {
     Q_Q(QQuickSpinBox);
     QString text;
@@ -262,13 +272,14 @@ void QQuickSpinBoxPrivate::updateDisplayText()
     } else {
         text = locale.toString(value);
     }
-    setDisplayText(text);
+    setDisplayText(text, modified);
 }
 
-void QQuickSpinBoxPrivate::setDisplayText(const QString &text)
+void QQuickSpinBoxPrivate::setDisplayText(const QString &text, bool modified)
 {
     Q_Q(QQuickSpinBox);
-    if (displayText == text)
+
+    if (!modified && displayText == text)
         return;
 
     displayText = text;
@@ -698,7 +709,7 @@ QJSValue QQuickSpinBox::valueFromText() const
     if (!d->valueFromText.isCallable()) {
         QQmlEngine *engine = qmlEngine(this);
         if (engine)
-            d->valueFromText = engine->evaluate(QStringLiteral("function(text, locale) { return Number.fromLocaleString(locale, text); }"));
+            d->valueFromText = engine->evaluate(QStringLiteral("(function(text, locale) { return Number.fromLocaleString(locale, text); })"));
     }
     return d->valueFromText;
 }
@@ -1126,7 +1137,7 @@ void QQuickSpinButton::setIndicator(QQuickItem *indicator)
 
     QQuickSpinBox *spinBox = static_cast<QQuickSpinBox *>(parent());
     QQuickSpinBoxPrivate::get(spinBox)->removeImplicitSizeListener(d->indicator);
-    delete d->indicator;
+    QQuickControlPrivate::hideOldItem(d->indicator);
     d->indicator = indicator;
 
     if (indicator) {

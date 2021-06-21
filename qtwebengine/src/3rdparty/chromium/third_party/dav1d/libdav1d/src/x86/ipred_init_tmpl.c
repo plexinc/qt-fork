@@ -39,6 +39,7 @@ decl_angular_ipred_fn(dav1d_ipred_smooth_avx2);
 decl_angular_ipred_fn(dav1d_ipred_smooth_v_avx2);
 decl_angular_ipred_fn(dav1d_ipred_smooth_h_avx2);
 decl_angular_ipred_fn(dav1d_ipred_z1_avx2);
+decl_angular_ipred_fn(dav1d_ipred_z2_avx2);
 decl_angular_ipred_fn(dav1d_ipred_z3_avx2);
 decl_angular_ipred_fn(dav1d_ipred_filter_avx2);
 
@@ -49,6 +50,7 @@ decl_cfl_pred_fn(dav1d_ipred_cfl_left_avx2);
 
 decl_cfl_ac_fn(dav1d_ipred_cfl_ac_420_avx2);
 decl_cfl_ac_fn(dav1d_ipred_cfl_ac_422_avx2);
+decl_cfl_ac_fn(dav1d_ipred_cfl_ac_444_avx2);
 
 decl_pal_pred_fn(dav1d_pal_pred_avx2);
 
@@ -119,6 +121,7 @@ COLD void bitfn(dav1d_intra_pred_dsp_init_x86)(Dav1dIntraPredDSPContext *const c
     c->intra_pred[SMOOTH_V_PRED] = dav1d_ipred_smooth_v_avx2;
     c->intra_pred[SMOOTH_H_PRED] = dav1d_ipred_smooth_h_avx2;
     c->intra_pred[Z1_PRED]       = dav1d_ipred_z1_avx2;
+    c->intra_pred[Z2_PRED]       = dav1d_ipred_z2_avx2;
     c->intra_pred[Z3_PRED]       = dav1d_ipred_z3_avx2;
     c->intra_pred[FILTER_PRED]   = dav1d_ipred_filter_avx2;
 
@@ -129,6 +132,7 @@ COLD void bitfn(dav1d_intra_pred_dsp_init_x86)(Dav1dIntraPredDSPContext *const c
 
     c->cfl_ac[DAV1D_PIXEL_LAYOUT_I420 - 1] = dav1d_ipred_cfl_ac_420_avx2;
     c->cfl_ac[DAV1D_PIXEL_LAYOUT_I422 - 1] = dav1d_ipred_cfl_ac_422_avx2;
+    c->cfl_ac[DAV1D_PIXEL_LAYOUT_I444 - 1] = dav1d_ipred_cfl_ac_444_avx2;
 
     c->pal_pred = dav1d_pal_pred_avx2;
 #endif

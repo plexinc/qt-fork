@@ -15,7 +15,7 @@ namespace content {
 
 FakeEmbeddedWorkerInstanceClient::FakeEmbeddedWorkerInstanceClient(
     EmbeddedWorkerTestHelper* helper)
-    : helper_(helper), binding_(this) {}
+    : helper_(helper) {}
 
 FakeEmbeddedWorkerInstanceClient::~FakeEmbeddedWorkerInstanceClient() = default;
 
@@ -25,10 +25,11 @@ FakeEmbeddedWorkerInstanceClient::GetWeakPtr() {
 }
 
 void FakeEmbeddedWorkerInstanceClient::Bind(
-    blink::mojom::EmbeddedWorkerInstanceClientRequest request) {
-  binding_.Bind(std::move(request));
-  binding_.set_connection_error_handler(
-      base::BindOnce(&FakeEmbeddedWorkerInstanceClient::OnConnectionError,
+    mojo::PendingReceiver<blink::mojom::EmbeddedWorkerInstanceClient>
+        receiver) {
+  receiver_.Bind(std::move(receiver));
+  receiver_.set_disconnect_handler(
+      base::BindOnce(&FakeEmbeddedWorkerInstanceClient::CallOnConnectionError,
                      base::Unretained(this)));
 
   if (quit_closure_for_bind_)
@@ -36,7 +37,7 @@ void FakeEmbeddedWorkerInstanceClient::Bind(
 }
 
 void FakeEmbeddedWorkerInstanceClient::RunUntilBound() {
-  if (binding_)
+  if (receiver_.is_bound())
     return;
   base::RunLoop loop;
   quit_closure_for_bind_ = loop.QuitClosure();
@@ -44,8 +45,8 @@ void FakeEmbeddedWorkerInstanceClient::RunUntilBound() {
 }
 
 void FakeEmbeddedWorkerInstanceClient::Disconnect() {
-  binding_.Close();
-  OnConnectionError();
+  receiver_.reset();
+  CallOnConnectionError();
 }
 
 void FakeEmbeddedWorkerInstanceClient::StartWorker(
@@ -53,10 +54,22 @@ void FakeEmbeddedWorkerInstanceClient::StartWorker(
   host_.Bind(std::move(params->instance_host));
   start_params_ = std::move(params);
 
-  helper_->OnServiceWorkerRequest(
-      std::move(start_params_->service_worker_request));
+  helper_->OnServiceWorkerReceiver(
+      std::move(start_params_->service_worker_receiver));
 
-  host_->OnReadyForInspection();
+  // Create message pipes. We may need to keep |devtools_agent_receiver| and
+  // |devtools_agent_host_remote| if we want not to invoke
+  // connection error handlers.
+
+  mojo::PendingRemote<blink::mojom::DevToolsAgent> devtools_agent_remote;
+  mojo::PendingReceiver<blink::mojom::DevToolsAgent> devtools_agent_receiver =
+      devtools_agent_remote.InitWithNewPipeAndPassReceiver();
+
+  mojo::Remote<blink::mojom::DevToolsAgentHost> devtools_agent_host_remote;
+  host_->OnReadyForInspection(
+      std::move(devtools_agent_remote),
+      devtools_agent_host_remote.BindNewPipeAndPassReceiver());
+
   if (start_params_->is_installed) {
     EvaluateScript();
     return;
@@ -67,7 +80,7 @@ void FakeEmbeddedWorkerInstanceClient::StartWorker(
   // storage. We do that manually here.
   //
   // TODO(falken): For new workers, this should use
-  // |script_loader_factory_ptr_info| from |start_params_->provider_info|
+  // |script_loader_factory_remote| from |start_params_->provider_info|
   // to request the script and the browser process should be able to mock it.
   // For installed workers, the map should already be populated.
   ServiceWorkerVersion* version = helper_->context()->GetLiveVersion(
@@ -92,19 +105,11 @@ void FakeEmbeddedWorkerInstanceClient::StopWorker() {
   // Destroys |this|. This matches the production implementation, which
   // calls OnStopped() from the worker thread and then posts task
   // to the EmbeddedWorkerInstanceClient to have it self-destruct.
-  OnConnectionError();
-}
-
-void FakeEmbeddedWorkerInstanceClient::ResumeAfterDownload() {
-  EvaluateScript();
+  CallOnConnectionError();
 }
 
 void FakeEmbeddedWorkerInstanceClient::DidPopulateScriptCacheMap() {
   host_->OnScriptLoaded();
-  if (start_params_->pause_after_download) {
-    // We continue when ResumeAfterDownload() is called.
-    return;
-  }
   EvaluateScript();
 }
 
@@ -113,10 +118,15 @@ void FakeEmbeddedWorkerInstanceClient::OnConnectionError() {
   helper_->RemoveInstanceClient(this);
 }
 
+void FakeEmbeddedWorkerInstanceClient::CallOnConnectionError() {
+  // Call OnConnectionError(), which subclasses can override.
+  OnConnectionError();
+}
+
 void FakeEmbeddedWorkerInstanceClient::EvaluateScript() {
   host_->OnScriptEvaluationStart();
   host_->OnStarted(blink::mojom::ServiceWorkerStartStatus::kNormalCompletion,
-                   helper_->GetNextThreadId(),
+                   true /* has_fetch_handler */, helper_->GetNextThreadId(),
                    blink::mojom::EmbeddedWorkerStartTiming::New());
 }
 

@@ -6,6 +6,9 @@
 
 #include <stddef.h>
 
+#include <memory>
+#include <utility>
+
 #include "base/strings/utf_string_conversions.h"
 #include "ui/events/event.h"
 #include "ui/gfx/color_palette.h"
@@ -14,6 +17,7 @@
 #include "ui/views/controls/button/label_button.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/textfield/textfield.h"
+#include "ui/views/examples/examples_window.h"
 #include "ui/views/layout/grid_layout.h"
 #include "ui/views/view.h"
 
@@ -46,7 +50,7 @@ void TextfieldExample::CreateExampleView(View* container) {
   name->set_controller(this);
   auto password = std::make_unique<Textfield>();
   password->SetTextInputType(ui::TEXT_INPUT_TYPE_PASSWORD);
-  password->set_placeholder_text(ASCIIToUTF16("password"));
+  password->SetPlaceholderText(ASCIIToUTF16("password"));
   password->set_controller(this);
   auto disabled = std::make_unique<Textfield>();
   disabled->SetEnabled(false);
@@ -63,10 +67,10 @@ void TextfieldExample::CreateExampleView(View* container) {
       container->SetLayoutManager(std::make_unique<views::GridLayout>());
 
   ColumnSet* column_set = layout->AddColumnSet(0);
-  column_set->AddColumn(GridLayout::LEADING, GridLayout::FILL,
-                        0.2f, GridLayout::USE_PREF, 0, 0);
-  column_set->AddColumn(GridLayout::FILL, GridLayout::FILL,
-                        0.8f, GridLayout::USE_PREF, 0, 0);
+  column_set->AddColumn(GridLayout::LEADING, GridLayout::FILL, 0.2f,
+                        GridLayout::USE_PREF, 0, 0);
+  column_set->AddColumn(GridLayout::FILL, GridLayout::FILL, 0.8f,
+                        GridLayout::USE_PREF, 0, 0);
 
   name_ = MakeRow(layout, std::make_unique<Label>(ASCIIToUTF16("Name:")),
                   std::move(name));
@@ -130,7 +134,7 @@ bool TextfieldExample::HandleMouseEvent(Textfield* sender,
 
 void TextfieldExample::ButtonPressed(Button* sender, const ui::Event& event) {
   if (sender == show_password_) {
-    PrintStatus("Password [%s]", UTF16ToUTF8(password_->text()).c_str());
+    PrintStatus("Password [%s]", UTF16ToUTF8(password_->GetText()).c_str());
   } else if (sender == set_background_) {
     password_->SetBackgroundColor(gfx::kGoogleRed300);
   } else if (sender == clear_all_) {
@@ -156,11 +160,11 @@ void TextfieldExample::ButtonPressed(Button* sender, const ui::Event& event) {
     invalid_->SetText(ASCIIToUTF16("[set]"));
     rtl_->SetText(ASCIIToUTF16("[set]"));
   } else if (sender == set_style_) {
-    if (!name_->text().empty()) {
+    if (!name_->GetText().empty()) {
       name_->SetColor(SK_ColorGREEN);
 
-      if (name_->text().length() >= 5) {
-        size_t fifth = name_->text().length() / 5;
+      if (name_->GetText().length() >= 5) {
+        size_t fifth = name_->GetText().length() / 5;
         const gfx::Range big_range(1 * fifth, 4 * fifth);
         name_->ApplyStyle(gfx::TEXT_STYLE_UNDERLINE, true, big_range);
         name_->ApplyColor(SK_ColorBLUE, big_range);

@@ -14,6 +14,7 @@
 #include "base/logging.h"
 #include "base/process/kill.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "build/build_config.h"
 #include "chrome/browser/extensions/api/messaging/native_messaging_host_manifest.h"
 #include "chrome/browser/extensions/api/messaging/native_messaging_launch_from_native.h"
@@ -71,8 +72,8 @@ NativeMessageProcessHost::NativeMessageProcessHost(
       write_pending_(false) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
-  task_runner_ = base::CreateSingleThreadTaskRunnerWithTraits(
-      {content::BrowserThread::IO});
+  task_runner_ =
+      base::CreateSingleThreadTaskRunner({content::BrowserThread::IO});
 }
 
 NativeMessageProcessHost::~NativeMessageProcessHost() {
@@ -83,7 +84,7 @@ NativeMessageProcessHost::~NativeMessageProcessHost() {
 // TODO(https://crbug.com/806451): On OSX EnsureProcessTerminated() may
 // block, so we have to post a task on the blocking pool.
 #if defined(OS_MACOSX)
-    base::PostTaskWithTraits(
+    base::ThreadPool::PostTask(
         FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
         base::BindOnce(&base::EnsureProcessTerminated, Passed(&process_)));
 #else
@@ -106,7 +107,8 @@ std::unique_ptr<NativeMessageHost> NativeMessageHost::Create(
           allow_user_level, native_view,
           GetProfilePathIfEnabled(Profile::FromBrowserContext(browser_context),
                                   source_extension_id, native_host_name),
-          /* require_native_initiated_connections = */ false));
+          /* require_native_initiated_connections = */ false,
+          /* connect_id = */ "", /* error_arg = */ ""));
 }
 
 // static
@@ -162,9 +164,10 @@ void NativeMessageProcessHost::OnHostProcessLaunched(
   read_file_ = read_file.GetPlatformFile();
 #endif
 
-  scoped_refptr<base::TaskRunner> task_runner(base::CreateTaskRunnerWithTraits(
-      {base::MayBlock(), base::TaskPriority::USER_VISIBLE,
-       base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN}));
+  scoped_refptr<base::TaskRunner> task_runner(
+      base::ThreadPool::CreateTaskRunner(
+          {base::MayBlock(), base::TaskPriority::USER_VISIBLE,
+           base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN}));
 
   read_stream_.reset(new net::FileStream(std::move(read_file), task_runner));
   write_stream_.reset(new net::FileStream(std::move(write_file), task_runner));

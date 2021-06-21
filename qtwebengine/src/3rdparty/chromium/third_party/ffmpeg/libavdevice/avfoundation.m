@@ -98,6 +98,7 @@ typedef struct
     int             capture_cursor;
     int             capture_mouse_clicks;
     int             capture_raw_data;
+    int             drop_late_frames;
     int             video_is_muxed;
 
     int             list_devices;
@@ -496,7 +497,7 @@ static int add_video_device(AVFormatContext *s, AVCaptureDevice *video_device)
 
         [ctx->video_output setVideoSettings:capture_dict];
     }
-    [ctx->video_output setAlwaysDiscardsLateVideoFrames:YES];
+    [ctx->video_output setAlwaysDiscardsLateVideoFrames:ctx->drop_late_frames];
 
     ctx->avf_delegate = [[AVFFrameReceiver alloc] initWithContext:ctx];
 
@@ -1135,12 +1136,13 @@ static const AVOption options[] = {
     { "capture_cursor", "capture the screen cursor", offsetof(AVFContext, capture_cursor), AV_OPT_TYPE_BOOL, {.i64=0}, 0, 1, AV_OPT_FLAG_DECODING_PARAM },
     { "capture_mouse_clicks", "capture the screen mouse clicks", offsetof(AVFContext, capture_mouse_clicks), AV_OPT_TYPE_BOOL, {.i64=0}, 0, 1, AV_OPT_FLAG_DECODING_PARAM },
     { "capture_raw_data", "capture the raw data from device connection", offsetof(AVFContext, capture_raw_data), AV_OPT_TYPE_BOOL, {.i64=0}, 0, 1, AV_OPT_FLAG_DECODING_PARAM },
+    { "drop_late_frames", "drop frames that are available later than expected", offsetof(AVFContext, drop_late_frames), AV_OPT_TYPE_BOOL, {.i64=1}, 0, 1, AV_OPT_FLAG_DECODING_PARAM },
 
     { NULL },
 };
 
 static const AVClass avf_class = {
-    .class_name = "AVFoundation input device",
+    .class_name = "AVFoundation indev",
     .item_name  = av_default_item_name,
     .option     = options,
     .version    = LIBAVUTIL_VERSION_INT,

@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2002-2013 The ANGLE Project Authors. All rights reserved.
+// Copyright 2002 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -11,6 +11,7 @@
 #ifndef LIBANGLE_DISPLAY_H_
 #define LIBANGLE_DISPLAY_H_
 
+#include <mutex>
 #include <set>
 #include <vector>
 
@@ -25,11 +26,6 @@
 #include "libANGLE/Version.h"
 #include "platform/Feature.h"
 #include "platform/FrontendFeatures.h"
-
-namespace angle
-{
-class FrameCapture;
-}  // namespace angle
 
 namespace gl
 {
@@ -55,13 +51,15 @@ using SurfaceSet = std::set<Surface *>;
 
 struct DisplayState final : private angle::NonCopyable
 {
-    DisplayState();
+    DisplayState(EGLNativeDisplayType nativeDisplayId);
     ~DisplayState();
 
     EGLLabelKHR label;
     SurfaceSet surfaceSet;
     std::vector<std::string> featureOverridesEnabled;
     std::vector<std::string> featureOverridesDisabled;
+    bool featuresAllDisabled;
+    EGLNativeDisplayType displayId;
 };
 
 // Constant coded here as a sanity limit.
@@ -115,7 +113,7 @@ class Display final : public LabeledObject, angle::NonCopyable
     Error createStream(const AttributeMap &attribs, Stream **outStream);
 
     Error createContext(const Config *configuration,
-                        const gl::Context *shareContext,
+                        gl::Context *shareContext,
                         const EGLenum clientType,
                         const AttributeMap &attribs,
                         gl::Context **outContext);
@@ -190,7 +188,7 @@ class Display final : public LabeledObject, angle::NonCopyable
     EGLint programCacheResize(EGLint limit, EGLenum mode);
 
     const AttributeMap &getAttributeMap() const { return mAttributeMap; }
-    EGLNativeDisplayType getNativeDisplayId() const { return mDisplayId; }
+    EGLNativeDisplayType getNativeDisplayId() const { return mState.displayId; }
 
     rx::DisplayImpl *getImplementation() const { return mImplementation; }
     Device *getDevice() const;
@@ -212,13 +210,20 @@ class Display final : public LabeledObject, angle::NonCopyable
 
     EGLAttrib queryAttrib(const EGLint attribute);
 
-    angle::FrameCapture *getFrameCapture() { return mFrameCapture; }
-    void onPostSwap() const;
+    angle::ScratchBuffer requestScratchBuffer();
+    void returnScratchBuffer(angle::ScratchBuffer scratchBuffer);
+
+    angle::ScratchBuffer requestZeroFilledBuffer();
+    void returnZeroFilledBuffer(angle::ScratchBuffer zeroFilledBuffer);
 
   private:
     Display(EGLenum platform, EGLNativeDisplayType displayId, Device *eglDevice);
 
-    void setAttributes(rx::DisplayImpl *impl, const AttributeMap &attribMap);
+    void setAttributes(const AttributeMap &attribMap) { mAttributeMap = attribMap; }
+
+    void setupDisplayPlatform(rx::DisplayImpl *impl);
+
+    void updateAttribsFromEnvironment(const AttributeMap &attribMap);
 
     Error restoreLostDevice();
 
@@ -226,10 +231,13 @@ class Display final : public LabeledObject, angle::NonCopyable
     void initVendorString();
     void initializeFrontendFeatures();
 
+    angle::ScratchBuffer requestScratchBufferImpl(std::vector<angle::ScratchBuffer> *bufferVector);
+    void returnScratchBufferImpl(angle::ScratchBuffer scratchBuffer,
+                                 std::vector<angle::ScratchBuffer> *bufferVector);
+
     DisplayState mState;
     rx::DisplayImpl *mImplementation;
 
-    EGLNativeDisplayType mDisplayId;
     AttributeMap mAttributeMap;
 
     ConfigSet mConfigSet;
@@ -269,10 +277,9 @@ class Display final : public LabeledObject, angle::NonCopyable
 
     angle::FeatureList mFeatures;
 
-    // Might want to revisit who owns this and has access in the future. Threaded use would mean
-    // it might make sense to use different captures for EGL and GLES contexts.
-    // Note: we use a raw pointer here so we can exclude frame capture sources from the build.
-    angle::FrameCapture *mFrameCapture;
+    std::mutex mScratchBufferMutex;
+    std::vector<angle::ScratchBuffer> mScratchBuffers;
+    std::vector<angle::ScratchBuffer> mZeroFilledBuffers;
 };
 
 }  // namespace egl

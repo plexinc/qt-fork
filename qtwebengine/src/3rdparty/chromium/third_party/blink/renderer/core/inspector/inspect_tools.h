@@ -34,7 +34,7 @@ class SearchingForNodeTool : public InspectTool {
   bool HandlePointerEvent(const WebPointerEvent&) override;
   void Draw(float scale) override;
   void NodeHighlightRequested(Node*);
-  void Trace(blink::Visitor* visitor) override;
+  void Trace(Visitor* visitor) override;
 
   Member<InspectorDOMAgent> dom_agent_;
   bool ua_shadow_;
@@ -79,7 +79,7 @@ class NodeHighlightTool : public InspectTool {
   void Draw(float scale) override;
   void DrawNode();
   void DrawMatchingSelector();
-  void Trace(blink::Visitor* visitor) override;
+  void Trace(Visitor* visitor) override;
 
   bool is_locked_ancestor_ = false;
   Member<Node> node_;
@@ -96,13 +96,13 @@ class NearbyDistanceTool : public InspectTool {
   NearbyDistanceTool() = default;
 
  private:
-  String GetDataResourceName() override;
+  int GetDataResourceId() override;
   bool HandleMouseDown(const WebMouseEvent& event,
                        bool* swallow_next_mouse_up) override;
   bool HandleMouseMove(const WebMouseEvent& event) override;
   bool HandleMouseUp(const WebMouseEvent& event) override;
   void Draw(float scale) override;
-  void Trace(blink::Visitor* visitor) override;
+  void Trace(Visitor* visitor) override;
 
   Member<Node> hovered_node_;
   DISALLOW_COPY_AND_ASSIGN(NearbyDistanceTool);
@@ -116,7 +116,7 @@ class ShowViewSizeTool : public InspectTool {
 
  private:
   bool ForwardEventsToOverlay() override;
-  String GetDataResourceName() override;
+  int GetDataResourceId() override;
   void Draw(float scale) override;
   DISALLOW_COPY_AND_ASSIGN(ShowViewSizeTool);
 };
@@ -128,7 +128,7 @@ class ScreenshotTool : public InspectTool {
   ScreenshotTool() = default;
 
  private:
-  String GetDataResourceName() override;
+  int GetDataResourceId() override;
   void DoInit() override;
   void Dispatch(const String& message) override;
 
@@ -144,7 +144,7 @@ class PausedInDebuggerTool : public InspectTool {
       : v8_session_(v8_session), message_(message) {}
 
  private:
-  String GetDataResourceName() override;
+  int GetDataResourceId() override;
   void Draw(float scale) override;
   void Dispatch(const String& message) override;
   v8_inspector::V8InspectorSession* v8_session_;

@@ -202,7 +202,7 @@ class AudioBufferSourceNode final : public AudioScheduledSourceNode {
                                        AudioBufferSourceOptions*,
                                        ExceptionState&);
   AudioBufferSourceNode(BaseAudioContext&);
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
   AudioBufferSourceHandler& GetAudioBufferSourceHandler() const;
 
   AudioBuffer* buffer() const;
@@ -223,6 +223,10 @@ class AudioBufferSourceNode final : public AudioScheduledSourceNode {
              double grain_offset,
              double grain_duration,
              ExceptionState&);
+
+  // InspectorHelperMixin
+  void ReportDidCreate() final;
+  void ReportWillBeDestroyed() final;
 
  private:
   Member<AudioParam> playback_rate_;

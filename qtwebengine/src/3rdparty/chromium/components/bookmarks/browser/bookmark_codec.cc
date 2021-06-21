@@ -11,6 +11,7 @@
 #include <utility>
 
 #include "base/base64.h"
+#include "base/guid.h"
 #include "base/json/json_string_value_serializer.h"
 #include "base/memory/ptr_util.h"
 #include "base/strings/string_number_conversions.h"
@@ -35,13 +36,12 @@ const char BookmarkCodec::kChecksumKey[] = "checksum";
 const char BookmarkCodec::kIdKey[] = "id";
 const char BookmarkCodec::kTypeKey[] = "type";
 const char BookmarkCodec::kNameKey[] = "name";
+const char BookmarkCodec::kGuidKey[] = "guid";
 const char BookmarkCodec::kDateAddedKey[] = "date_added";
 const char BookmarkCodec::kURLKey[] = "url";
 const char BookmarkCodec::kDateModifiedKey[] = "date_modified";
 const char BookmarkCodec::kChildrenKey[] = "children";
 const char BookmarkCodec::kMetaInfo[] = "meta_info";
-const char BookmarkCodec::kSyncTransactionVersion[] =
-    "sync_transaction_version";
 const char BookmarkCodec::kTypeURL[] = "url";
 const char BookmarkCodec::kTypeFolder[] = "folder";
 const char BookmarkCodec::kSyncMetadata[] = "sync_metadata";
@@ -51,11 +51,9 @@ static const int kCurrentVersion = 1;
 
 BookmarkCodec::BookmarkCodec()
     : ids_reassigned_(false),
+      guids_reassigned_(false),
       ids_valid_(true),
-      maximum_id_(0),
-      model_sync_transaction_version_(
-          BookmarkNode::kInvalidSyncTransactionVersion) {
-}
+      maximum_id_(0) {}
 
 BookmarkCodec::~BookmarkCodec() = default;
 
@@ -64,7 +62,6 @@ std::unique_ptr<base::Value> BookmarkCodec::Encode(
     const std::string& sync_metadata_str) {
   return Encode(model->bookmark_bar_node(), model->other_node(),
                 model->mobile_node(), model->root_node()->GetMetaInfoMap(),
-                model->root_node()->sync_transaction_version(),
                 sync_metadata_str);
 }
 
@@ -73,9 +70,9 @@ std::unique_ptr<base::Value> BookmarkCodec::Encode(
     const BookmarkNode* other_folder_node,
     const BookmarkNode* mobile_folder_node,
     const BookmarkNode::MetaInfoMap* model_meta_info_map,
-    int64_t sync_transaction_version,
     const std::string& sync_metadata_str) {
   ids_reassigned_ = false;
+  guids_reassigned_ = false;
   InitializeChecksum();
   auto roots = std::make_unique<base::DictionaryValue>();
   roots->Set(kRootFolderNameKey, EncodeNode(bookmark_bar_node));
@@ -83,11 +80,6 @@ std::unique_ptr<base::Value> BookmarkCodec::Encode(
   roots->Set(kMobileBookmarkFolderNameKey, EncodeNode(mobile_folder_node));
   if (model_meta_info_map)
     roots->Set(kMetaInfo, EncodeMetaInfo(*model_meta_info_map));
-  if (sync_transaction_version !=
-      BookmarkNode::kInvalidSyncTransactionVersion) {
-    roots->SetString(kSyncTransactionVersion,
-                     base::NumberToString(sync_transaction_version));
-  }
   auto main = std::make_unique<base::DictionaryValue>();
   main->SetInteger(kVersionKey, kCurrentVersion);
   FinalizeChecksum();
@@ -112,7 +104,12 @@ bool BookmarkCodec::Decode(const base::Value& value,
                            int64_t* max_id,
                            std::string* sync_metadata_str) {
   ids_.clear();
+  guids_ = {BookmarkNode::kRootNodeGuid, BookmarkNode::kBookmarkBarNodeGuid,
+            BookmarkNode::kOtherBookmarksNodeGuid,
+            BookmarkNode::kMobileBookmarksNodeGuid,
+            BookmarkNode::kManagedNodeGuid};
   ids_reassigned_ = false;
+  guids_reassigned_ = false;
   ids_valid_ = true;
   maximum_id_ = 0;
   stored_checksum_.clear();
@@ -135,6 +132,8 @@ std::unique_ptr<base::Value> BookmarkCodec::EncodeNode(
   value->SetString(kIdKey, id);
   const base::string16& title = node->GetTitle();
   value->SetString(kNameKey, title);
+  const std::string& guid = node->guid();
+  value->SetString(kGuidKey, guid);
   value->SetString(kDateAddedKey,
                    base::NumberToString(node->date_added().ToInternalValue()));
   if (node->is_url()) {
@@ -157,11 +156,6 @@ std::unique_ptr<base::Value> BookmarkCodec::EncodeNode(
   const BookmarkNode::MetaInfoMap* meta_info_map = node->GetMetaInfoMap();
   if (meta_info_map)
     value->Set(kMetaInfo, EncodeMetaInfo(*meta_info_map));
-  if (node->sync_transaction_version() !=
-      BookmarkNode::kInvalidSyncTransactionVersion) {
-    value->SetString(kSyncTransactionVersion,
-                     base::NumberToString(node->sync_transaction_version()));
-  }
   return std::move(value);
 }
 
@@ -234,15 +228,7 @@ bool BookmarkCodec::DecodeHelper(BookmarkNode* bb_node,
       ReassignIDsHelper(mobile_folder_node);
   }
 
-  if (!DecodeMetaInfo(*roots_d_value, &model_meta_info_map_,
-                      &model_sync_transaction_version_))
-    return false;
-
-  std::string sync_transaction_version_str;
-  if (roots_d_value->GetString(kSyncTransactionVersion,
-                               &sync_transaction_version_str) &&
-      !base::StringToInt64(sync_transaction_version_str,
-                           &model_sync_transaction_version_))
+  if (!DecodeMetaInfo(*roots_d_value, &model_meta_info_map_))
     return false;
 
   std::string sync_metadata_str_base64;
@@ -310,6 +296,36 @@ bool BookmarkCodec::DecodeNode(const base::DictionaryValue& value,
   base::string16 title;
   value.GetString(kNameKey, &title);
 
+  std::string guid;
+  // |node| is only passed in for bookmarks of type BookmarkPermanentNode, in
+  // which case we do not need to check for GUID validity as their GUIDs are
+  // hard-coded and not read from the persisted file.
+  if (!node) {
+    // GUIDs can be empty for bookmarks that were created before GUIDs were
+    // required. When encountering one such bookmark we thus assign to it a new
+    // GUID. The same applies if the stored GUID is invalid or a duplicate.
+    if (!value.GetString(kGuidKey, &guid) || guid.empty() ||
+        !base::IsValidGUID(guid)) {
+      guid = base::GenerateGUID();
+      guids_reassigned_ = true;
+    }
+
+    // GUIDs are case insensitive as per RFC 4122. To prevent collisions due to
+    // capitalization differences, all GUIDs are canonicalized to lowercase
+    // during JSON-parsing.
+    guid = base::ToLowerASCII(guid);
+    DCHECK(base::IsValidGUIDOutputString(guid));
+
+    // Guard against GUID collisions, which would violate BookmarkModel's
+    // invariant that each GUID is unique.
+    if (guids_.count(guid) != 0) {
+      guid = base::GenerateGUID();
+      guids_reassigned_ = true;
+    }
+
+    guids_.insert(guid);
+  }
+
   std::string date_added_string;
   if (!value.GetString(kDateAddedKey, &date_added_string))
     date_added_string = base::NumberToString(Time::Now().ToInternalValue());
@@ -330,7 +346,7 @@ bool BookmarkCodec::DecodeNode(const base::DictionaryValue& value,
 
     GURL url = GURL(url_string);
     if (!node && url.is_valid())
-      node = new BookmarkNode(id, url);
+      node = new BookmarkNode(id, guid, url);
     else
       return false;  // Node invalid.
 
@@ -350,7 +366,7 @@ bool BookmarkCodec::DecodeNode(const base::DictionaryValue& value,
       return false;
 
     if (!node) {
-      node = new BookmarkNode(id, GURL());
+      node = new BookmarkNode(id, guid, GURL());
     } else {
       // If a new node is not created, explicitly assign ID to the existing one.
       node->set_id(id);
@@ -375,28 +391,17 @@ bool BookmarkCodec::DecodeNode(const base::DictionaryValue& value,
   node->SetTitle(title);
   node->set_date_added(Time::FromInternalValue(internal_time));
 
-  int64_t sync_transaction_version = node->sync_transaction_version();
   BookmarkNode::MetaInfoMap meta_info_map;
-  if (!DecodeMetaInfo(value, &meta_info_map, &sync_transaction_version))
+  if (!DecodeMetaInfo(value, &meta_info_map))
     return false;
   node->SetMetaInfoMap(meta_info_map);
-
-  std::string sync_transaction_version_str;
-  if (value.GetString(kSyncTransactionVersion, &sync_transaction_version_str) &&
-      !base::StringToInt64(sync_transaction_version_str,
-                           &sync_transaction_version))
-    return false;
-
-  node->set_sync_transaction_version(sync_transaction_version);
 
   return true;
 }
 
 bool BookmarkCodec::DecodeMetaInfo(const base::DictionaryValue& value,
-                                   BookmarkNode::MetaInfoMap* meta_info_map,
-                                   int64_t* sync_transaction_version) {
+                                   BookmarkNode::MetaInfoMap* meta_info_map) {
   DCHECK(meta_info_map);
-  DCHECK(sync_transaction_version);
   meta_info_map->clear();
 
   const base::Value* meta_info;
@@ -423,18 +428,6 @@ bool BookmarkCodec::DecodeMetaInfo(const base::DictionaryValue& value,
   if (!meta_info->GetAsDictionary(&meta_info_dict))
     return false;
   DecodeMetaInfoHelper(*meta_info_dict, std::string(), meta_info_map);
-
-  // Previously sync transaction version was stored in the meta info field
-  // using this key. If the key is present when decoding, set the sync
-  // transaction version to its value, then delete the field.
-  if (deserialized_holder) {
-    const char kBookmarkTransactionVersionKey[] = "sync.transaction_version";
-    auto it = meta_info_map->find(kBookmarkTransactionVersionKey);
-    if (it != meta_info_map->end()) {
-      base::StringToInt64(it->second, sync_transaction_version);
-      meta_info_map->erase(it);
-    }
-  }
 
   return true;
 }

@@ -13,15 +13,13 @@
 #include "base/no_destructor.h"
 #include "components/viz/common/surfaces/frame_sink_id_allocator.h"
 #include "components/viz/host/host_frame_sink_manager.h"
-#include "services/viz/privileged/interfaces/compositing/frame_sink_manager.mojom.h"
+#include "mojo/public/cpp/bindings/pending_receiver.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
+#include "services/viz/privileged/mojom/compositing/frame_sink_manager.mojom.h"
 
 namespace cc {
 class TaskGraphRunner;
 }  // namespace cc
-
-namespace viz {
-class FrameSinkManagerImpl;
-}  // namespace viz
 
 namespace content {
 
@@ -37,10 +35,6 @@ class CompositorDependenciesAndroid {
     return &host_frame_sink_manager_;
   }
 
-  viz::FrameSinkManagerImpl* frame_sink_manager_impl() {
-    return frame_sink_manager_impl_.get();
-  }
-
   viz::FrameSinkId AllocateFrameSinkId();
   void TryEstablishVizConnectionIfNeeded();
   void OnCompositorVisible(CompositorImpl* compositor);
@@ -50,8 +44,8 @@ class CompositorDependenciesAndroid {
   friend class base::NoDestructor<CompositorDependenciesAndroid>;
 
   static void ConnectVizFrameSinkManagerOnIOThread(
-      viz::mojom::FrameSinkManagerRequest request,
-      viz::mojom::FrameSinkManagerClientPtrInfo client);
+      mojo::PendingReceiver<viz::mojom::FrameSinkManager> receiver,
+      mojo::PendingRemote<viz::mojom::FrameSinkManagerClient> client);
 
   CompositorDependenciesAndroid();
   ~CompositorDependenciesAndroid();
@@ -63,14 +57,6 @@ class CompositorDependenciesAndroid {
 
   viz::HostFrameSinkManager host_frame_sink_manager_;
   viz::FrameSinkIdAllocator frame_sink_id_allocator_;
-
-  // Non-viz members:
-  // This is owned here so that SurfaceManager will be accessible in process
-  // when display is in the same process. Other than using SurfaceManager,
-  // access to |in_process_frame_sink_manager_| should happen via
-  // |host_frame_sink_manager_| instead which uses Mojo. See
-  // http://crbug.com/657959.
-  std::unique_ptr<viz::FrameSinkManagerImpl> frame_sink_manager_impl_;
 
   // A task which runs cleanup tasks on low-end Android after a delay. Enqueued
   // when we hide, canceled when we're shown.

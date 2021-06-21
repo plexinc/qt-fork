@@ -10,7 +10,7 @@
 namespace extensions {
 
 class EnterpriseDeviceAttributesGetDirectoryDeviceIdFunction
-    : public UIThreadExtensionFunction {
+    : public ExtensionFunction {
  public:
   EnterpriseDeviceAttributesGetDirectoryDeviceIdFunction();
 
@@ -25,7 +25,7 @@ class EnterpriseDeviceAttributesGetDirectoryDeviceIdFunction
 };
 
 class EnterpriseDeviceAttributesGetDeviceSerialNumberFunction
-    : public UIThreadExtensionFunction {
+    : public ExtensionFunction {
  public:
   EnterpriseDeviceAttributesGetDeviceSerialNumberFunction();
 
@@ -41,7 +41,7 @@ class EnterpriseDeviceAttributesGetDeviceSerialNumberFunction
 };
 
 class EnterpriseDeviceAttributesGetDeviceAssetIdFunction
-    : public UIThreadExtensionFunction {
+    : public ExtensionFunction {
  public:
   EnterpriseDeviceAttributesGetDeviceAssetIdFunction();
 
@@ -56,7 +56,7 @@ class EnterpriseDeviceAttributesGetDeviceAssetIdFunction
 };
 
 class EnterpriseDeviceAttributesGetDeviceAnnotatedLocationFunction
-    : public UIThreadExtensionFunction {
+    : public ExtensionFunction {
  public:
   EnterpriseDeviceAttributesGetDeviceAnnotatedLocationFunction();
 
@@ -69,6 +69,21 @@ class EnterpriseDeviceAttributesGetDeviceAnnotatedLocationFunction
   DECLARE_EXTENSION_FUNCTION(
       "enterprise.deviceAttributes.getDeviceAnnotatedLocation",
       ENTERPRISE_DEVICEATTRIBUTES_GETDEVICEANNOTATEDLOCATION)
+};
+
+class EnterpriseDeviceAttributesGetDeviceHostnameFunction
+    : public ExtensionFunction {
+ public:
+  EnterpriseDeviceAttributesGetDeviceHostnameFunction();
+
+ protected:
+  ~EnterpriseDeviceAttributesGetDeviceHostnameFunction() override;
+
+  ResponseAction Run() override;
+
+ private:
+  DECLARE_EXTENSION_FUNCTION("enterprise.deviceAttributes.getDeviceHostname",
+                             ENTERPRISE_DEVICEATTRIBUTES_GETDEVICEHOSTNAME)
 };
 
 }  //  namespace extensions

@@ -55,7 +55,7 @@ class ProbeControllerTest : public ::testing::Test {
 
   std::vector<ProbeClusterConfig> SetNetworkAvailable(bool available) {
     NetworkAvailability msg;
-    msg.at_time = Timestamp::ms(NowMs());
+    msg.at_time = Timestamp::Millis(NowMs());
     msg.network_available = available;
     return probe_controller_->OnNetworkAvailability(msg);
   }
@@ -97,7 +97,6 @@ TEST_F(ProbeControllerTest, InitiatesProbingOnMaxBitrateIncrease) {
 }
 
 TEST_F(ProbeControllerTest, ProbesOnMaxBitrateIncreaseOnlyWhenInAlr) {
-  test::ScopedFieldTrials trials("WebRTC-BweAllocProbingOnlyInAlr/Enabled/");
   probe_controller_.reset(
       new ProbeController(&field_trial_config_, &mock_rtc_event_log));
   auto probes = probe_controller_->SetBitrates(kMinBitrateBps, kStartBitrateBps,
@@ -364,6 +363,7 @@ TEST_F(ProbeControllerTest, ConfigurableProbingFieldTrial) {
   clock_.AdvanceTimeMilliseconds(5000);
   probes = probe_controller_->Process(NowMs());
 
+  probe_controller_->SetAlrStartTimeMs(NowMs());
   probes = probe_controller_->OnMaxTotalAllocatedBitrate(200000, NowMs());
   EXPECT_EQ(probes.size(), 1u);
   EXPECT_EQ(probes[0].target_data_rate.bps(), 400000);

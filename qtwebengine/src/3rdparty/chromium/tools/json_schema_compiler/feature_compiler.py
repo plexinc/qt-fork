@@ -2,6 +2,8 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+from __future__ import print_function
+
 import argparse
 import copy
 from datetime import datetime
@@ -153,6 +155,7 @@ FEATURE_GRAMMAR = (
           'lock_screen_extension': 'Feature::LOCK_SCREEN_EXTENSION_CONTEXT',
           'web_page': 'Feature::WEB_PAGE_CONTEXT',
           'webui': 'Feature::WEBUI_CONTEXT',
+          'webui_untrusted': 'Feature::WEBUI_UNTRUSTED_CONTEXT',
           'unblessed_extension': 'Feature::UNBLESSED_EXTENSION_CONTEXT',
         },
         'allow_all': True
@@ -192,6 +195,7 @@ FEATURE_GRAMMAR = (
           'component': 'SimpleFeature::COMPONENT_LOCATION',
           'external_component': 'SimpleFeature::EXTERNAL_COMPONENT_LOCATION',
           'policy': 'SimpleFeature::POLICY_LOCATION',
+          'unpacked': 'SimpleFeature::UNPACKED_LOCATION',
         }
       }
     },
@@ -676,7 +680,7 @@ class FeatureCompiler(object):
     else:
       no_parent = 'noparent' in feature_value
     sep = feature_name.rfind('.')
-    if sep is -1 or no_parent:
+    if sep == -1 or no_parent:
       return None
 
     parent_name = feature_name[:sep]

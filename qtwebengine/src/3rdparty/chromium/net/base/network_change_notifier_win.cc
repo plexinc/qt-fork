@@ -18,6 +18,7 @@
 #include "base/single_thread_task_runner.h"
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
+#include "base/task/thread_pool.h"
 #include "base/task_runner_util.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -39,11 +40,10 @@ NetworkChangeNotifierWin::NetworkChangeNotifierWin()
       is_watching_(false),
       sequential_failures_(0),
       blocking_task_runner_(
-          base::CreateSequencedTaskRunnerWithTraits({base::MayBlock()})),
+          base::ThreadPool::CreateSequencedTaskRunner({base::MayBlock()})),
       last_computed_connection_type_(RecomputeCurrentConnectionType()),
       last_announced_offline_(last_computed_connection_type_ ==
-                              CONNECTION_NONE),
-      weak_factory_(this) {
+                              CONNECTION_NONE) {
   memset(&addr_overlapped_, 0, sizeof addr_overlapped_);
   addr_overlapped_.hEvent = WSACreateEvent();
 }
@@ -120,8 +120,9 @@ NetworkChangeNotifierWin::NetworkChangeCalculatorParamsWin() {
 // experiments I ran... However none of them correctly returned "offline" when
 // executing 'ipconfig /release'.
 //
+// static
 NetworkChangeNotifier::ConnectionType
-NetworkChangeNotifierWin::RecomputeCurrentConnectionType() const {
+NetworkChangeNotifierWin::RecomputeCurrentConnectionType() {
   EnsureWinsockInit();
 
   // The following code was adapted from:
@@ -195,8 +196,7 @@ void NetworkChangeNotifierWin::RecomputeCurrentConnectionTypeOnBlockingSequence(
   // thread is stopped in this object's destructor.
   base::PostTaskAndReplyWithResult(
       blocking_task_runner_.get(), FROM_HERE,
-      base::BindOnce(&NetworkChangeNotifierWin::RecomputeCurrentConnectionType,
-                     base::Unretained(this)),
+      base::BindOnce(&NetworkChangeNotifierWin::RecomputeCurrentConnectionType),
       std::move(reply_callback));
 }
 
@@ -273,8 +273,8 @@ void NetworkChangeNotifierWin::WatchForAddressChange() {
   // that interval.
   if (sequential_failures_ > 0) {
     RecomputeCurrentConnectionTypeOnBlockingSequence(
-        base::Bind(&NetworkChangeNotifierWin::NotifyObservers,
-                   weak_factory_.GetWeakPtr()));
+        base::BindOnce(&NetworkChangeNotifierWin::NotifyObservers,
+                       weak_factory_.GetWeakPtr()));
   }
 
   if (sequential_failures_ < 2000) {

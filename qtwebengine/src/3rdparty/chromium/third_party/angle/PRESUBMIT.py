@@ -7,30 +7,66 @@ See http://dev.chromium.org/developers/how-tos/depottools/presubmit-scripts
 for more details on the presubmit API built into depot_tools.
 """
 
-from subprocess import call
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
 
-# Fragment of a regular expression that matches C++ and Objective-C++ implementation files.
-_IMPLEMENTATION_EXTENSIONS = r'\.(cc|cpp|cxx|mm)$'
+# Fragment of a regular expression that matches C++ and Objective-C++ implementation files and headers.
+_IMPLEMENTATION_AND_HEADER_EXTENSIONS = r'\.(cc|cpp|cxx|mm|h|hpp|hxx)$'
 
 # Fragment of a regular expression that matches C++ and Objective-C++ header files.
 _HEADER_EXTENSIONS = r'\.(h|hpp|hxx)$'
 
+_PRIMARY_EXPORT_TARGETS = [
+    '//:libEGL',
+    '//:libGLESv1_CM',
+    '//:libGLESv2',
+    '//:translator',
+]
+
 
 def _CheckChangeHasBugField(input_api, output_api):
-    """Requires that the changelist have a Bug: field."""
+    """Requires that the changelist have a Bug: field from a known project."""
     bugs = input_api.change.BugsFromDescription()
     if not bugs:
         return [
-            output_api.PresubmitError(
-                'If this change has an associated bug, add Bug: angleproject:[bug number].')
+            output_api.PresubmitError('Please ensure that your description contains:\n'
+                                      '"Bug: angleproject:[bug number]"\n'
+                                      'directly above the Change-Id tag.')
         ]
-    elif not all([' ' not in bug for bug in bugs]):
-        return [
-            output_api.PresubmitError(
-                'Check bug tag formatting. Ensure there are no spaces after the colon.')
-        ]
-    else:
+
+    # The bug must be in the form of "project:number".  None is also accepted, which is used by
+    # rollers as well as in very minor changes.
+    if len(bugs) == 1 and bugs[0] == 'None':
         return []
+
+    projects = ['angleproject', 'chromium', 'dawn', 'fuchsia', 'skia', 'swiftshader', 'b']
+    bug_regex = re.compile(r"([a-z]+):(\d+)")
+    errors = []
+    extra_help = None
+
+    for bug in bugs:
+        if bug == 'None':
+            errors.append(
+                output_api.PresubmitError('Invalid bug tag "None" in presence of other bug tags.'))
+            continue
+
+        match = re.match(bug_regex, bug)
+        if match == None or bug != match.group(0) or match.group(1) not in projects:
+            errors.append(output_api.PresubmitError('Incorrect bug tag "' + bug + '".'))
+            if not extra_help:
+                extra_help = output_api.PresubmitError('Acceptable format is:\n\n'
+                                                       '    Bug: project:bugnumber\n\n'
+                                                       'Acceptable projects are:\n\n    ' +
+                                                       '\n    '.join(projects))
+
+    if extra_help:
+        errors.append(extra_help)
+
+    return errors
 
 
 def _CheckCodeGeneration(input_api, output_api):
@@ -41,10 +77,10 @@ def _CheckCodeGeneration(input_api, output_api):
         def __init__(self, message):
             super(output_api.PresubmitError, self).__init__(
                 message,
-                long_text='Please run scripts/run_code_generation.py to refresh generated hashes.\n'
-                '\n'
-                'If that fails, ensure your ANGLE repositiory is synced to tip-of-tree\n'
+                long_text='Please ensure your ANGLE repositiory is synced to tip-of-tree\n'
                 'and all ANGLE DEPS are fully up-to-date by running gclient sync.\n'
+                '\n'
+                'If that fails, run scripts/run_code_generation.py to refresh generated hashes.\n'
                 '\n'
                 'If you are building ANGLE inside Chromium you must bootstrap ANGLE\n'
                 'before gclient sync. See the DevSetup documentation for more details.\n')
@@ -102,12 +138,74 @@ def _CheckNewHeaderWithoutGnChange(input_api, output_api):
     return []
 
 
+def _CheckExportValidity(input_api, output_api):
+    outdir = tempfile.mkdtemp()
+    # shell=True is necessary on Windows, as otherwise subprocess fails to find
+    # either 'gn' or 'vpython3' even if they are findable via PATH.
+    use_shell = input_api.is_windows
+    try:
+        try:
+            subprocess.check_output(['gn', 'gen', outdir], shell=use_shell)
+        except subprocess.CalledProcessError as e:
+            return [
+                output_api.PresubmitError(
+                    'Unable to run gn gen for export_targets.py: %s' % e.output)
+            ]
+        export_target_script = os.path.join(input_api.PresubmitLocalPath(), 'scripts',
+                                            'export_targets.py')
+        try:
+            subprocess.check_output(
+                ['vpython3', export_target_script, outdir] + _PRIMARY_EXPORT_TARGETS,
+                stderr=subprocess.STDOUT,
+                shell=use_shell)
+        except subprocess.CalledProcessError as e:
+            if input_api.is_committing:
+                return [output_api.PresubmitError('export_targets.py failed: %s' % e.output)]
+            return [
+                output_api.PresubmitPromptWarning(
+                    'export_targets.py failed, this may just be due to your local checkout: %s' %
+                    e.output)
+            ]
+        return []
+    finally:
+        shutil.rmtree(outdir)
+
+
+def _CheckTabsInSourceFiles(input_api, output_api):
+    """Forbids tab characters in source files due to a WebKit repo requirement. """
+
+    def implementation_and_headers(f):
+        return input_api.FilterSourceFile(
+            f, white_list=(r'.+%s' % _IMPLEMENTATION_AND_HEADER_EXTENSIONS,))
+
+    files_with_tabs = []
+    for f in input_api.AffectedSourceFiles(implementation_and_headers):
+        for (num, line) in f.ChangedContents():
+            if '\t' in line:
+                files_with_tabs.append(f)
+                break
+
+    if files_with_tabs:
+        return [
+            output_api.PresubmitError(
+                'Tab characters in source files.',
+                items=sorted(files_with_tabs),
+                long_text=
+                'Tab characters are forbidden in ANGLE source files because WebKit\'s Subversion\n'
+                'repository does not allow tab characters in source files.\n'
+                'Please remove tab characters from these files.')
+        ]
+    return []
+
+
 def CheckChangeOnUpload(input_api, output_api):
     results = []
+    results.extend(_CheckTabsInSourceFiles(input_api, output_api))
     results.extend(_CheckCodeGeneration(input_api, output_api))
     results.extend(_CheckChangeHasBugField(input_api, output_api))
     results.extend(input_api.canned_checks.CheckChangeHasDescription(input_api, output_api))
     results.extend(_CheckNewHeaderWithoutGnChange(input_api, output_api))
+    results.extend(_CheckExportValidity(input_api, output_api))
     results.extend(
         input_api.canned_checks.CheckPatchFormatted(
             input_api, output_api, result_factory=output_api.PresubmitError))
@@ -121,5 +219,6 @@ def CheckChangeOnCommit(input_api, output_api):
         input_api.canned_checks.CheckPatchFormatted(
             input_api, output_api, result_factory=output_api.PresubmitError))
     results.extend(_CheckChangeHasBugField(input_api, output_api))
+    results.extend(_CheckExportValidity(input_api, output_api))
     results.extend(input_api.canned_checks.CheckChangeHasDescription(input_api, output_api))
     return results

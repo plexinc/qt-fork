@@ -48,19 +48,27 @@ const char* alphatype_name(SkAlphaType at) {
 
 const char* colortype_name(SkColorType ct) {
     switch (ct) {
-        case kUnknown_SkColorType:      return "Unknown";
-        case kAlpha_8_SkColorType:      return "Alpha_8";
-        case kRGB_565_SkColorType:      return "RGB_565";
-        case kARGB_4444_SkColorType:    return "ARGB_4444";
-        case kRGBA_8888_SkColorType:    return "RGBA_8888";
-        case kRGB_888x_SkColorType:     return "RGB_888x";
-        case kBGRA_8888_SkColorType:    return "BGRA_8888";
-        case kRGBA_1010102_SkColorType: return "RGBA_1010102";
-        case kRGB_101010x_SkColorType:  return "RGB_101010x";
-        case kGray_8_SkColorType:       return "Gray_8";
-        case kRGBA_F16Norm_SkColorType: return "RGBA_F16Norm";
-        case kRGBA_F16_SkColorType:     return "RGBA_F16";
-        case kRGBA_F32_SkColorType:     return "RGBA_F32";
+        case kUnknown_SkColorType:            return "Unknown";
+        case kAlpha_8_SkColorType:            return "Alpha_8";
+        case kA16_unorm_SkColorType:          return "Alpha_16";
+        case kA16_float_SkColorType:          return "A16_float";
+        case kRGB_565_SkColorType:            return "RGB_565";
+        case kARGB_4444_SkColorType:          return "ARGB_4444";
+        case kRGBA_8888_SkColorType:          return "RGBA_8888";
+        case kRGB_888x_SkColorType:           return "RGB_888x";
+        case kBGRA_8888_SkColorType:          return "BGRA_8888";
+        case kRGBA_1010102_SkColorType:       return "RGBA_1010102";
+        case kBGRA_1010102_SkColorType:       return "BGRA_1010102";
+        case kRGB_101010x_SkColorType:        return "RGB_101010x";
+        case kBGR_101010x_SkColorType:        return "BGR_101010x";
+        case kGray_8_SkColorType:             return "Gray_8";
+        case kRGBA_F16Norm_SkColorType:       return "RGBA_F16Norm";
+        case kRGBA_F16_SkColorType:           return "RGBA_F16";
+        case kRGBA_F32_SkColorType:           return "RGBA_F32";
+        case kR8G8_unorm_SkColorType:         return "R8G8_unorm";
+        case kR16G16_unorm_SkColorType:       return "R16G16_unorm";
+        case kR16G16_float_SkColorType:       return "R16G16_float";
+        case kR16G16B16A16_unorm_SkColorType: return "R16G16B16A16_unorm";
     }
     SkASSERT(false);
     return "unexpected colortype";
@@ -68,24 +76,42 @@ const char* colortype_name(SkColorType ct) {
 
 const char* colortype_depth(SkColorType ct) {
     switch (ct) {
-        case kUnknown_SkColorType:      return "Unknown";
-        case kAlpha_8_SkColorType:      return "A8";
-        case kRGB_565_SkColorType:      return "565";
-        case kARGB_4444_SkColorType:    return "4444";
-        case kRGBA_8888_SkColorType:    return "8888";
-        case kRGB_888x_SkColorType:     return "888";
-        case kBGRA_8888_SkColorType:    return "8888";
-        case kRGBA_1010102_SkColorType: return "1010102";
-        case kRGB_101010x_SkColorType:  return "101010";
-        case kGray_8_SkColorType:       return "G8";
-        case kRGBA_F16Norm_SkColorType: return "F16Norm";  // TODO: "F16"?
-        case kRGBA_F16_SkColorType:     return "F16";
-        case kRGBA_F32_SkColorType:     return "F32";
+        case kUnknown_SkColorType:            return "Unknown";
+        case kAlpha_8_SkColorType:            return "A8";
+        case kA16_unorm_SkColorType:          return "A16";
+        case kA16_float_SkColorType:          return "AF16";
+        case kRGB_565_SkColorType:            return "565";
+        case kARGB_4444_SkColorType:          return "4444";
+        case kRGBA_8888_SkColorType:          return "8888";
+        case kRGB_888x_SkColorType:           return "888";
+        case kBGRA_8888_SkColorType:          return "8888";
+        case kRGBA_1010102_SkColorType:       return "1010102";
+        case kBGRA_1010102_SkColorType:       return "1010102";
+        case kRGB_101010x_SkColorType:        return "101010";
+        case kBGR_101010x_SkColorType:        return "101010";
+        case kGray_8_SkColorType:             return "G8";
+        case kRGBA_F16Norm_SkColorType:       return "F16Norm";  // TODO: "F16"?
+        case kRGBA_F16_SkColorType:           return "F16";
+        case kRGBA_F32_SkColorType:           return "F32";
+        case kR8G8_unorm_SkColorType:         return "88";
+        case kR16G16_unorm_SkColorType:       return "1616";
+        case kR16G16_float_SkColorType:       return "F16F16";
+        case kR16G16B16A16_unorm_SkColorType: return "16161616";
     }
     SkASSERT(false);
     return "unexpected colortype";
 }
 
+const char* tilemode_name(SkTileMode mode) {
+    switch (mode) {
+        case SkTileMode::kClamp:  return "clamp";
+        case SkTileMode::kRepeat: return "repeat";
+        case SkTileMode::kMirror: return "mirror";
+        case SkTileMode::kDecal:  return "decal";
+    }
+    SkASSERT(false);
+    return "unexpected tilemode";
+}
 
 SkColor color_to_565(SkColor color) {
     // Not a good idea to use this function for greyscale colors...
@@ -159,6 +185,9 @@ void add_to_text_blob_w_len(SkTextBlobBuilder* builder,
                             SkScalar           x,
                             SkScalar           y) {
     int  count = font.countText(text, len, encoding);
+    if (count < 1) {
+        return;
+    }
     auto run   = builder->allocRun(font, count, x, y);
     font.textToGlyphs(text, len, encoding, run.glyphs, count);
 }
@@ -207,7 +236,7 @@ void get_text_path(const SkFont&  font,
 SkPath make_star(const SkRect& bounds, int numPts, int step) {
     SkASSERT(numPts != step);
     SkPath path;
-    path.setFillType(SkPath::kEvenOdd_FillType);
+    path.setFillType(SkPathFillType::kEvenOdd);
     path.moveTo(0, -1);
     for (int i = 1; i < numPts; ++i) {
         int      idx   = i * step % numPts;
@@ -335,6 +364,77 @@ void create_tetra_normal_map(SkBitmap* bm, const SkIRect& dst) {
 #endif
 void make_big_path(SkPath& path) {
 #include "BigPathBench.inc"  // IWYU pragma: keep
+}
+
+void set_path_pt(int index, const SkPoint& pt, SkPath* path) {
+    SkPath result;
+    SkPoint pts[4];
+    SkPath::Verb verb;
+    SkPath::RawIter iter(*path);
+    int startIndex = 0;
+    int endIndex = 0;
+    while ((verb = iter.next(pts)) != SkPath::kDone_Verb) {
+        switch (verb) {
+            case SkPath::kMove_Verb:
+                endIndex += 1;
+                break;
+            case SkPath::kLine_Verb:
+                endIndex += 1;
+                break;
+            case SkPath::kQuad_Verb:
+            case SkPath::kConic_Verb:
+                endIndex += 2;
+                break;
+            case SkPath::kCubic_Verb:
+                endIndex += 3;
+                break;
+            case SkPath::kClose_Verb:
+                break;
+            case SkPath::kDone_Verb:
+                break;
+            default:
+                SkASSERT(0);
+        }
+        if (startIndex <= index && index < endIndex) {
+            pts[index - startIndex] = pt;
+        }
+        switch (verb) {
+            case SkPath::kMove_Verb:
+                result.moveTo(pts[0]);
+                break;
+            case SkPath::kLine_Verb:
+                result.lineTo(pts[1]);
+                startIndex += 1;
+                break;
+            case SkPath::kQuad_Verb:
+                result.quadTo(pts[1], pts[2]);
+                startIndex += 2;
+                break;
+            case SkPath::kConic_Verb:
+                result.conicTo(pts[1], pts[2], iter.conicWeight());
+                startIndex += 2;
+                break;
+            case SkPath::kCubic_Verb:
+                result.cubicTo(pts[1], pts[2], pts[3]);
+                startIndex += 3;
+                break;
+            case SkPath::kClose_Verb:
+                result.close();
+                startIndex += 1;
+                break;
+            case SkPath::kDone_Verb:
+                break;
+            default:
+                SkASSERT(0);
+        }
+    }
+#if 0
+    SkDebugf("\n\noriginal\n");
+    path->dump();
+    SkDebugf("\nedited\n");
+    result.dump();
+#endif
+    *path = result;
 }
 
 bool copy_to(SkBitmap* dst, SkColorType dstColorType, const SkBitmap& src) {

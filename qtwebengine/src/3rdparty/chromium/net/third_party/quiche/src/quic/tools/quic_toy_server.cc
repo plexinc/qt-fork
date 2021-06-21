@@ -4,12 +4,12 @@
 
 #include "net/third_party/quiche/src/quic/tools/quic_toy_server.h"
 
+#include <utility>
 #include <vector>
 
 #include "net/third_party/quiche/src/quic/core/quic_versions.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_default_proof_providers.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_ptr_util.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_socket_address.h"
 #include "net/third_party/quiche/src/quic/tools/quic_memory_cache_backend.h"
 
@@ -27,17 +27,33 @@ DEFINE_QUIC_COMMAND_LINE_FLAG(
     "generated using `wget -p --save-headers <url>`");
 
 DEFINE_QUIC_COMMAND_LINE_FLAG(
-    int32_t,
-    quic_ietf_draft,
-    0,
-    "QUIC IETF draft number to use over the wire, e.g. 18. "
-    "This also enables required internal QUIC flags.");
+    bool,
+    generate_dynamic_responses,
+    false,
+    "If true, then URLs which have a numeric path will send a dynamically "
+    "generated response of that many bytes.");
+
+DEFINE_QUIC_COMMAND_LINE_FLAG(bool,
+                              quic_ietf_draft,
+                              false,
+                              "Only enable IETF draft versions. This also "
+                              "enables required internal QUIC flags.");
+
+DEFINE_QUIC_COMMAND_LINE_FLAG(
+    std::string,
+    quic_versions,
+    "",
+    "QUIC versions to enable, e.g. \"h3-25,h3-27\". If not set, then all "
+    "available versions are enabled.");
 
 namespace quic {
 
 std::unique_ptr<quic::QuicSimpleServerBackend>
 QuicToyServer::MemoryCacheBackendFactory::CreateBackend() {
-  auto memory_cache_backend = QuicMakeUnique<QuicMemoryCacheBackend>();
+  auto memory_cache_backend = std::make_unique<QuicMemoryCacheBackend>();
+  if (GetQuicFlag(FLAGS_generate_dynamic_responses)) {
+    memory_cache_backend->GenerateDynamicResponses();
+  }
   if (!GetQuicFlag(FLAGS_quic_response_cache_dir).empty()) {
     memory_cache_backend->InitializeBackend(
         GetQuicFlag(FLAGS_quic_response_cache_dir));
@@ -50,16 +66,33 @@ QuicToyServer::QuicToyServer(BackendFactory* backend_factory,
     : backend_factory_(backend_factory), server_factory_(server_factory) {}
 
 int QuicToyServer::Start() {
-  const int32_t quic_ietf_draft = GetQuicFlag(FLAGS_quic_ietf_draft);
-  if (quic_ietf_draft > 0) {
-    quic::QuicVersionInitializeSupportForIetfDraft(quic_ietf_draft);
-    quic::QuicEnableVersion(
-        quic::ParsedQuicVersion(quic::PROTOCOL_TLS1_3, quic::QUIC_VERSION_99));
+  ParsedQuicVersionVector supported_versions;
+  if (GetQuicFlag(FLAGS_quic_ietf_draft)) {
+    QuicVersionInitializeSupportForIetfDraft();
+    for (const ParsedQuicVersion& version : AllSupportedVersions()) {
+      // Add all versions that supports IETF QUIC.
+      if (version.HasIetfQuicFrames() &&
+          version.handshake_protocol == quic::PROTOCOL_TLS1_3) {
+        supported_versions.push_back(version);
+      }
+    }
+  } else {
+    supported_versions = AllSupportedVersions();
+  }
+  std::string versions_string = GetQuicFlag(FLAGS_quic_versions);
+  if (!versions_string.empty()) {
+    supported_versions = ParseQuicVersionVectorString(versions_string);
+  }
+  if (supported_versions.empty()) {
+    return 1;
+  }
+  for (const auto& version : supported_versions) {
+    QuicEnableVersion(version);
   }
   auto proof_source = quic::CreateDefaultProofSource();
   auto backend = backend_factory_->CreateBackend();
-  auto server =
-      server_factory_->CreateServer(backend.get(), std::move(proof_source));
+  auto server = server_factory_->CreateServer(
+      backend.get(), std::move(proof_source), supported_versions);
 
   if (!server->CreateUDPSocketAndListen(quic::QuicSocketAddress(
           quic::QuicIpAddress::Any6(), GetQuicFlag(FLAGS_port)))) {

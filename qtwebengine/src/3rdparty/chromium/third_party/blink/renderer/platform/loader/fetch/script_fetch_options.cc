@@ -23,8 +23,10 @@ FetchParameters ScriptFetchOptions::CreateFetchParameters(
   // Step 1. ... "script", ... [spec text]
   ResourceLoaderOptions resource_loader_options;
   resource_loader_options.initiator_info.name = "script";
-  FetchParameters params(resource_request, resource_loader_options);
+  resource_loader_options.reject_coep_unsafe_none = reject_coep_unsafe_none_;
+  FetchParameters params(std::move(resource_request), resource_loader_options);
   params.SetRequestContext(mojom::RequestContextType::SCRIPT);
+  params.SetRequestDestination(network::mojom::RequestDestination::kScript);
 
   // Step 1. ... and CORS setting. [spec text]
   if (cross_origin != kCrossOriginAttributeNotSet)
@@ -55,9 +57,7 @@ FetchParameters ScriptFetchOptions::CreateFetchParameters(
   params.MutableResourceRequest().SetFetchImportanceMode(importance_);
 
   // its referrer policy to options's referrer policy. [spec text]
-  params.MutableResourceRequest().SetReferrerPolicy(
-      referrer_policy_,
-      ResourceRequest::SetReferrerPolicyLocation::kSFOCreateFetchParameters);
+  params.MutableResourceRequest().SetReferrerPolicy(referrer_policy_);
 
   params.SetCharset(encoding);
 

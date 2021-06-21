@@ -16,7 +16,7 @@ class FakeTaskRunner;
 }  // namespace scheduler
 
 class BytesConsumerTestReader final
-    : public GarbageCollectedFinalized<BytesConsumerTestReader>,
+    : public GarbageCollected<BytesConsumerTestReader>,
       public BytesConsumer::Client {
   USING_GARBAGE_COLLECTED_MIXIN(BytesConsumerTestReader);
 
@@ -30,7 +30,7 @@ class BytesConsumerTestReader final
   std::pair<BytesConsumer::Result, Vector<char>> Run(
       scheduler::FakeTaskRunner*);
 
-  void Trace(blink::Visitor* visitor) override {
+  void Trace(Visitor* visitor) override {
     visitor->Trace(consumer_);
     BytesConsumer::Client::Trace(visitor);
   }

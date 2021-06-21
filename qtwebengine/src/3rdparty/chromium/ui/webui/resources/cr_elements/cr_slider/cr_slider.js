@@ -6,24 +6,21 @@
  * @fileoverview 'cr-slider' is a slider component used to select a number from
  * a continuous or discrete range of numbers.
  */
+cr.define('cr_slider', function() {
+  /**
+   * The |value| is the corresponding value that the current slider tick is
+   * associated with. The string |label| is shown in the UI as the label for the
+   * current slider value. The |ariaValue| number is used for aria-valuemin,
+   * aria-valuemax, and aria-valuenow, and is optional. If missing, |value| will
+   * be used instead.
+   * @typedef {{
+   *   value: number,
+   *   label: string,
+   *   ariaValue: (number|undefined),
+   * }}
+   */
+  /* #export */ let SliderTick;
 
-cr.exportPath('cr_slider');
-
-/**
- * The |value| is the corresponding value that the current slider tick is
- * associated with. The string |label| is shown in the UI as the label for the
- * current slider value. The |ariaValue| number is used for aria-valuemin,
- * aria-valuemax, and aria-valuenow, and is optional. If missing, |value| will
- * be used instead.
- * @typedef {{
- *   value: number,
- *   label: string,
- *   ariaValue: (number|undefined),
- * }}
- */
-cr_slider.SliderTick;
-
-(() => {
   /**
    * @param {number} min
    * @param {number} max
@@ -41,7 +38,7 @@ cr_slider.SliderTick;
   function getAriaValue(tick) {
     if (Number.isFinite(/** @type {number} */ (tick))) {
       return /** @type {number} */ (tick);
-    } else if (tick.ariaValue != undefined) {
+    } else if (tick.ariaValue !== undefined) {
       return /** @type {number} */ (tick.ariaValue);
     } else {
       return tick.value;
@@ -190,12 +187,11 @@ cr_slider.SliderTick;
     /** @private {Map<string, number>} */
     deltaKeyMap_: null,
 
-
     /** @private {EventTracker} */
     draggingEventTracker_: null,
 
     /** @override */
-    attached: function() {
+    attached() {
       this.isRtl_ = window.getComputedStyle(this)['direction'] === 'rtl';
       this.deltaKeyMap_ = new Map([
         ['ArrowDown', -1],
@@ -212,8 +208,8 @@ cr_slider.SliderTick;
      * @return {boolean}
      * @private
      */
-    computeDisabled_: function() {
-      return this.disabled || this.ticks.length == 1;
+    computeDisabled_() {
+      return this.disabled || this.ticks.length === 1;
     },
 
     /**
@@ -225,7 +221,7 @@ cr_slider.SliderTick;
      *     create |markerCount| number of markers.
      * @private
      */
-    getMarkers_: function() {
+    getMarkers_() {
       return new Array(Math.max(0, this.markerCount - 1));
     },
 
@@ -234,7 +230,7 @@ cr_slider.SliderTick;
      * @return {string}
      * @private
      */
-    getMarkerClass_: function(index) {
+    getMarkerClass_(index) {
       const currentStep = (this.markerCount - 1) * this.getRatio();
       return index < currentStep ? 'active-marker' : 'inactive-marker';
     },
@@ -246,7 +242,7 @@ cr_slider.SliderTick;
      * and label location.
      * @return {number}
      */
-    getRatio: function() {
+    getRatio() {
       return (this.value - this.min) / (this.max - this.min);
     },
 
@@ -255,7 +251,7 @@ cr_slider.SliderTick;
      * @param {number} pointerId
      * @private
      */
-    stopDragging_: function(pointerId) {
+    stopDragging_(pointerId) {
       this.draggingEventTracker_.removeAll();
       this.releasePointerCapture(pointerId);
       this.dragging = false;
@@ -263,19 +259,19 @@ cr_slider.SliderTick;
     },
 
     /** @private */
-    hideRipple_: function() {
+    hideRipple_() {
       this.getRipple().clear();
       this.showLabel_ = false;
     },
 
     /** @private */
-    showRipple_: function() {
+    showRipple_() {
       this.getRipple().showAndHoldDown();
       this.showLabel_ = true;
     },
 
     /** @private */
-    onDisabledChanged_: function() {
+    onDisabledChanged_() {
       this.setAttribute('tabindex', this.disabled_ ? -1 : 0);
       this.blur();
     },
@@ -284,7 +280,7 @@ cr_slider.SliderTick;
      * @param {!Event} event
      * @private
      */
-    onKeyDown_: function(event) {
+    onKeyDown_(event) {
       if (this.disabled_ || this.noKeybindings) {
         return;
       }
@@ -295,15 +291,15 @@ cr_slider.SliderTick;
 
       /** @type {number|undefined} */
       let newValue;
-      if (event.key == 'Home') {
+      if (event.key === 'Home') {
         newValue = this.min;
-      } else if (event.key == 'End') {
+      } else if (event.key === 'End') {
         newValue = this.max;
       } else if (this.deltaKeyMap_.has(event.key)) {
         newValue = this.value + this.deltaKeyMap_.get(event.key);
       }
 
-      if (newValue == undefined) {
+      if (newValue === undefined) {
         return;
       }
 
@@ -320,8 +316,8 @@ cr_slider.SliderTick;
      * @param {!Event} event
      * @private
      */
-    onKeyUp_: function(event) {
-      if (event.key == 'Home' || event.key == 'End' ||
+    onKeyUp_(event) {
+      if (event.key === 'Home' || event.key === 'End' ||
           this.deltaKeyMap_.has(event.key)) {
         setTimeout(() => {
           this.updatingFromKey = false;
@@ -335,9 +331,9 @@ cr_slider.SliderTick;
      * @param {!PointerEvent} event
      * @private
      */
-    onPointerDown_: function(event) {
+    onPointerDown_(event) {
       if (this.disabled_ ||
-          event.buttons != 1 && event.pointerType == 'mouse') {
+          event.buttons !== 1 && event.pointerType === 'mouse') {
         return;
       }
 
@@ -357,7 +353,7 @@ cr_slider.SliderTick;
         // If the left-button on the mouse is pressed by itself, then update.
         // Otherwise stop capturing the mouse events because the drag operation
         // is complete.
-        if (e.buttons != 1 && e.pointerType == 'mouse') {
+        if (e.buttons !== 1 && e.pointerType === 'mouse') {
           stopDragging();
           return;
         }
@@ -367,15 +363,15 @@ cr_slider.SliderTick;
       this.draggingEventTracker_.add(this, 'pointerdown', stopDragging);
       this.draggingEventTracker_.add(this, 'pointerup', stopDragging);
       this.draggingEventTracker_.add(this, 'keydown', e => {
-        if (e.key == 'Escape' || e.key == 'Tab' || e.key == 'Home' ||
-            e.key == 'End' || this.deltaKeyMap_.has(e.key)) {
+        if (e.key === 'Escape' || e.key === 'Tab' || e.key === 'Home' ||
+            e.key === 'End' || this.deltaKeyMap_.has(e.key)) {
           stopDragging();
         }
       });
     },
 
     /** @private */
-    onTicksChanged_: function() {
+    onTicksChanged_() {
       if (this.ticks.length > 1) {
         this.snaps = true;
         this.max = this.ticks.length - 1;
@@ -387,21 +383,21 @@ cr_slider.SliderTick;
     },
 
     /** @private */
-    onTransitionEnd_: function() {
+    onTransitionEnd_() {
       this.transiting_ = false;
     },
 
     /** @private */
-    onValueMinMaxChange_: function() {
-      if (this.value == undefined || this.min == undefined ||
-          this.max == undefined) {
+    onValueMinMaxChange_() {
+      if (this.value === undefined || this.min === undefined ||
+          this.max === undefined) {
         return;
       }
       this.updateValue_(this.value);
     },
 
     /** @private */
-    updateUi_: function() {
+    updateUi_() {
       const percent = `${this.getRatio() * 100}%`;
       this.$.bar.style.width = percent;
       this.$.knobAndLabel.style.marginInlineStart = percent;
@@ -430,7 +426,7 @@ cr_slider.SliderTick;
      * @return {boolean}
      * @private
      */
-    updateValue_: function(value) {
+    updateValue_(value) {
       this.$.container.hidden = false;
       if (this.snaps) {
         // Skip update if |value| has not passed the next value .8 units away.
@@ -441,7 +437,7 @@ cr_slider.SliderTick;
         value = Math.round(value);
       }
       value = clamp(this.min, this.max, value);
-      if (this.value == value) {
+      if (this.value === value) {
         return false;
       }
       this.value = value;
@@ -452,7 +448,7 @@ cr_slider.SliderTick;
      * @param {number} clientX
      * @private
      */
-    updateValueFromClientX_: function(clientX) {
+    updateValueFromClientX_(clientX) {
       const rect = this.$.container.getBoundingClientRect();
       let ratio = (clientX - rect.left) / rect.width;
       if (this.isRtl_) {
@@ -463,7 +459,7 @@ cr_slider.SliderTick;
       }
     },
 
-    _createRipple: function() {
+    _createRipple() {
       this._rippleContainer = this.$.knob;
       const ripple = Polymer.PaperRippleBehavior._createRipple();
       ripple.id = 'ink';
@@ -472,4 +468,9 @@ cr_slider.SliderTick;
       return ripple;
     },
   });
-})();
+
+  // #cr_define_end
+  return {
+    SliderTick: SliderTick,
+  };
+});

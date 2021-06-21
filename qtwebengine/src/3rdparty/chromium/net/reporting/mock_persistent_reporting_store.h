@@ -10,6 +10,7 @@
 
 #include "base/callback.h"
 #include "base/macros.h"
+#include "net/base/network_isolation_key.h"
 #include "net/reporting/reporting_cache.h"
 #include "net/reporting/reporting_endpoint.h"
 #include "url/origin.h"
@@ -40,12 +41,22 @@ class MockPersistentReportingStore
 
     // Constructor for LOAD_REPORTING_CLIENTS commands.
     Command(Type type, ReportingClientsLoadedCallback loaded_callback);
-    // Constructor for endpoint commands.
+    // Constructors for endpoint commands. |type| must be one of
+    // ADD_REPORTING_ENDPOINT, UPDATE_REPORTING_ENDPOINT_DETAILS, or
+    // DELETE_REPORTING_ENDPOINT
     Command(Type type, const ReportingEndpoint& endpoint);
-    // Constructor for endpoint group commands.
+    Command(Type type,
+            const ReportingEndpointGroupKey& group_key,
+            const GURL& endpoint_url);
+    // Constructors for endpoint group commands. |type| must be one of
+    // ADD_REPORTING_ENDPOINT_GROUP,
+    // UPDATE_REPORTING_ENDPOINT_GROUP_ACCESS_TIME,
+    // UPDATE_REPORTING_ENDPOINT_GROUP_DETAILS, or
+    // DELETE_REPORTING_ENDPOINT_GROUP
     Command(Type type, const CachedReportingEndpointGroup& group);
-    // Constructor for FLUSH commands.
-    Command(Type type);
+    Command(Type type, const ReportingEndpointGroupKey& group_key);
+    // |type| must be LOAD_REPORTING_CLIENTS or FLUSH.
+    explicit Command(Type type);
 
     Command(const Command& other);
     Command(Command&& other);
@@ -57,8 +68,7 @@ class MockPersistentReportingStore
 
     // Identifies the group to which the command pertains. (Applies to endpoint
     // and endpoint group commands.)
-    ReportingEndpointGroupKey group_key =
-        ReportingEndpointGroupKey(url::Origin(), "");
+    ReportingEndpointGroupKey group_key = ReportingEndpointGroupKey();
 
     // Identifies the endpoint to which the command pertains. (Applies to
     // endpoint commands only.)
@@ -147,6 +157,8 @@ bool operator==(const MockPersistentReportingStore::Command& lhs,
                 const MockPersistentReportingStore::Command& rhs);
 bool operator!=(const MockPersistentReportingStore::Command& lhs,
                 const MockPersistentReportingStore::Command& rhs);
+std::ostream& operator<<(std::ostream& out,
+                         const MockPersistentReportingStore::Command& cmd);
 
 }  // namespace net
 

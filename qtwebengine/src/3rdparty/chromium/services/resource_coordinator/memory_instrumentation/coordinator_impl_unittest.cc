@@ -7,24 +7,19 @@
 #include "base/bind.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/gmock_callback_support.h"
+#include "base/test/task_environment.h"
 #include "base/test/trace_event_analyzer.h"
 #include "base/threading/platform_thread.h"
 #include "base/time/time.h"
-#include "base/time/time_override.h"
 #include "base/trace_event/memory_dump_request_args.h"
 #include "build/build_config.h"
-#include "mojo/public/cpp/bindings/binding.h"
 #include "mojo/public/cpp/bindings/interface_request.h"
-#include "services/resource_coordinator/memory_instrumentation/process_map.h"
 #include "services/resource_coordinator/public/mojom/memory_instrumentation/memory_instrumentation.mojom.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-ACTION_P(RunClosure, closure) {
-  closure.Run();
-}
-
+using base::test::RunOnceClosure;
 using ::testing::_;
 using ::testing::AllOf;
 using ::testing::Contains;
@@ -63,63 +58,48 @@ namespace memory_instrumentation {
 
 class FakeCoordinatorImpl : public CoordinatorImpl {
  public:
-  FakeCoordinatorImpl() : CoordinatorImpl(nullptr) {}
-  ~FakeCoordinatorImpl() override {}
+  FakeCoordinatorImpl() = default;
+  ~FakeCoordinatorImpl() override = default;
 
-  MOCK_CONST_METHOD0(GetClientIdentityForCurrentRequest,
-                     service_manager::Identity());
-  MOCK_CONST_METHOD1(GetProcessIdForClientIdentity,
-                     base::ProcessId(service_manager::Identity));
   MOCK_CONST_METHOD0(ComputePidToServiceNamesMap,
                      std::map<base::ProcessId, std::vector<std::string>>());
 };
 
 class CoordinatorImplTest : public testing::Test {
  public:
-  CoordinatorImplTest() {}
+  CoordinatorImplTest() = default;
+
   void SetUp() override {
     coordinator_.reset(new NiceMock<FakeCoordinatorImpl>);
   }
 
   void TearDown() override { coordinator_.reset(); }
 
-  void RegisterClientProcess(mojom::ClientProcessPtr client_process,
-                             base::ProcessId pid,
-                             mojom::ProcessType process_type) {
-    service_manager::Identity identity(base::NumberToString(pid),
-                                       base::Token{1, 1}, base::Token{},
-                                       base::Token{1, 1});
-
-    ON_CALL(*coordinator_, GetClientIdentityForCurrentRequest())
-        .WillByDefault(Return(identity));
-
-    ON_CALL(*coordinator_, GetProcessIdForClientIdentity(identity))
-        .WillByDefault(Return(pid));
-
-    ON_CALL(*coordinator_, ComputePidToServiceNamesMap())
-        .WillByDefault(
-            Return(std::map<base::ProcessId, std::vector<std::string>>(
-                {{1, {"bootup_helper", "1"}},
-                 {2, {"bootup_helper", "2"}},
-                 {3, {"bootup_helper", "3"}}})));
-
-    coordinator_->RegisterClientProcess(std::move(client_process),
-                                        process_type);
+  void RegisterClientProcess(
+      mojo::PendingReceiver<mojom::Coordinator> receiver,
+      mojo::PendingRemote<mojom::ClientProcess> client_process,
+      mojom::ProcessType process_type,
+      base::ProcessId pid) {
+    coordinator_->RegisterClientProcess(
+        std::move(receiver), std::move(client_process), process_type, pid,
+        /*service_name=*/base::nullopt);
   }
 
   void RequestGlobalMemoryDump(RequestGlobalMemoryDumpCallback callback) {
-    RequestGlobalMemoryDump(MemoryDumpType::SUMMARY_ONLY,
-                            MemoryDumpLevelOfDetail::BACKGROUND, {},
-                            std::move(callback));
+    RequestGlobalMemoryDump(
+        MemoryDumpType::SUMMARY_ONLY, MemoryDumpLevelOfDetail::BACKGROUND,
+        MemoryDumpDeterminism::NONE, {}, std::move(callback));
   }
 
   void RequestGlobalMemoryDump(
       MemoryDumpType dump_type,
       MemoryDumpLevelOfDetail level_of_detail,
+      MemoryDumpDeterminism determinism,
       const std::vector<std::string>& allocator_dump_names,
       RequestGlobalMemoryDumpCallback callback) {
-    coordinator_->RequestGlobalMemoryDump(
-        dump_type, level_of_detail, allocator_dump_names, std::move(callback));
+    coordinator_->RequestGlobalMemoryDump(dump_type, level_of_detail,
+                                          determinism, allocator_dump_names,
+                                          std::move(callback));
   }
 
   void RequestGlobalMemoryDumpForPid(
@@ -134,7 +114,7 @@ class CoordinatorImplTest : public testing::Test {
       RequestGlobalMemoryDumpAndAppendToTraceCallback callback) {
     coordinator_->RequestGlobalMemoryDumpAndAppendToTrace(
         MemoryDumpType::EXPLICITLY_TRIGGERED, MemoryDumpLevelOfDetail::DETAILED,
-        std::move(callback));
+        MemoryDumpDeterminism::NONE, std::move(callback));
   }
 
   void GetVmRegionsForHeapProfiler(
@@ -148,13 +128,11 @@ class CoordinatorImplTest : public testing::Test {
         base::TimeDelta::FromMilliseconds(5));
   }
 
- private:
+ protected:
   std::unique_ptr<NiceMock<FakeCoordinatorImpl>> coordinator_;
-  // Do not start a ThreadPool as we are overriding global time with
-  // ScopedTimeClockOverrides and that might lead to races (as worker threads
-  // try to access base::TimeTicks::Now())
-  base::test::ScopedTaskEnvironment scoped_task_environment_{
-      base::test::ScopedTaskEnvironment::ThreadingMode::MAIN_THREAD_ONLY};
+
+  base::test::SingleThreadTaskEnvironment task_environment_{
+      base::test::SingleThreadTaskEnvironment::TimeSource::MOCK_TIME};
 };
 
 class MockClientProcess : public mojom::ClientProcess {
@@ -166,13 +144,14 @@ class MockClientProcess : public mojom::ClientProcess {
 
   MockClientProcess(CoordinatorImplTest* test_coordinator,
                     base::ProcessId pid,
-                    mojom::ProcessType process_type)
-      : binding_(this) {
+                    mojom::ProcessType process_type) {
     // Register to the coordinator.
-    mojom::ClientProcessPtr client_process;
-    binding_.Bind(mojo::MakeRequest(&client_process));
-    test_coordinator->RegisterClientProcess(std::move(client_process), pid,
-                                            process_type);
+    mojo::Remote<mojom::Coordinator> remote_coordinator;
+    mojo::PendingRemote<mojom::ClientProcess> client_process;
+    receiver_.Bind(client_process.InitWithNewPipeAndPassReceiver());
+    test_coordinator->RegisterClientProcess(
+        remote_coordinator.BindNewPipeAndPassReceiver(),
+        std::move(client_process), process_type, pid);
 
     ON_CALL(*this, RequestChromeMemoryDumpMock(_, _))
         .WillByDefault(Invoke([pid](const MemoryDumpRequestArgs& args,
@@ -196,7 +175,7 @@ class MockClientProcess : public mojom::ClientProcess {
         }));
   }
 
-  ~MockClientProcess() override {}
+  ~MockClientProcess() override = default;
 
   // TODO(crbug.com/729950): Remove non const reference here once GMock is
   // updated to support move-only types.
@@ -220,7 +199,7 @@ class MockClientProcess : public mojom::ClientProcess {
   }
 
  private:
-  mojo::Binding<mojom::ClientProcess> binding_;
+  mojo::Receiver<mojom::ClientProcess> receiver_{this};
 };
 
 class MockGlobalMemoryDumpCallback {
@@ -312,7 +291,7 @@ TEST_F(CoordinatorImplTest, SeveralClients) {
 
   MockGlobalMemoryDumpCallback callback;
   EXPECT_CALL(callback, OnCall(true, NotNull()))
-      .WillOnce(RunClosure(run_loop.QuitClosure()));
+      .WillOnce(RunOnceClosure(run_loop.QuitClosure()));
   RequestGlobalMemoryDump(callback.Get());
   run_loop.Run();
 }
@@ -321,16 +300,10 @@ TEST_F(CoordinatorImplTest, SeveralClients) {
 TEST_F(CoordinatorImplTest, QueuedRequest) {
   base::RunLoop run_loop;
 
-  // Override TimeTicks::Now with a timer that has extra_time added.
   // This variable to be static as the lambda below has to convert to a function
   // pointer rather than a functor.
-  static base::TimeDelta extra_time;
-  base::subtle::ScopedTimeClockOverrides time_override(
-      nullptr,
-      []() {
-        return base::subtle::TimeTicksNowIgnoringOverride() + extra_time;
-      },
-      nullptr);
+  static base::test::SingleThreadTaskEnvironment* task_environment = nullptr;
+  task_environment = &task_environment_;
 
   NiceMock<MockClientProcess> client_process_1(this, 1,
                                                mojom::ProcessType::BROWSER);
@@ -345,7 +318,8 @@ TEST_F(CoordinatorImplTest, QueuedRequest) {
              MockClientProcess::RequestChromeMemoryDumpCallback& callback) {
             // Skip the wall clock time-ticks forward to make sure start_time
             // is strictly increasing.
-            extra_time += base::TimeDelta::FromMilliseconds(10);
+            task_environment->FastForwardBy(
+                base::TimeDelta::FromMilliseconds(10));
             MemoryDumpArgs dump_args{MemoryDumpLevelOfDetail::DETAILED};
             auto pmd = std::make_unique<ProcessMemoryDump>(dump_args);
             std::move(callback).Run(true, args.dump_guid, std::move(pmd));
@@ -360,7 +334,7 @@ TEST_F(CoordinatorImplTest, QueuedRequest) {
   base::TimeTicks first_dump_time;
   EXPECT_CALL(callback1, OnCall(true, NotNull()))
       .WillOnce(Invoke([&](bool success, GlobalMemoryDump* global_dump) {
-        EXPECT_LT(before, global_dump->start_time);
+        EXPECT_LE(before, global_dump->start_time);
         first_dump_time = global_dump->start_time;
       }));
   EXPECT_CALL(callback2, OnCall(true, NotNull()))
@@ -394,7 +368,7 @@ TEST_F(CoordinatorImplTest, MissingChromeDump) {
       callback,
       OnCall(true, Pointee(Field(&mojom::GlobalMemoryDump::process_dumps,
                                  IsEmpty()))))
-      .WillOnce(RunClosure(run_loop.QuitClosure()));
+      .WillOnce(RunOnceClosure(run_loop.QuitClosure()));
   RequestGlobalMemoryDump(callback.Get());
   run_loop.Run();
 }
@@ -418,7 +392,7 @@ TEST_F(CoordinatorImplTest, MissingOsDump) {
       callback,
       OnCall(true, Pointee(Field(&mojom::GlobalMemoryDump::process_dumps,
                                  IsEmpty()))))
-      .WillOnce(RunClosure(run_loop.QuitClosure()));
+      .WillOnce(RunOnceClosure(run_loop.QuitClosure()));
   RequestGlobalMemoryDump(callback.Get());
   run_loop.Run();
 }
@@ -447,7 +421,7 @@ TEST_F(CoordinatorImplTest, TimeOutStuckChild) {
       callback,
       OnCall(false, Pointee(Field(&mojom::GlobalMemoryDump::process_dumps,
                                   IsEmpty()))))
-      .WillOnce(RunClosure(run_loop.QuitClosure()));
+      .WillOnce(RunOnceClosure(run_loop.QuitClosure()));
   ReduceCoordinatorClientProcessTimeout();
   RequestGlobalMemoryDump(callback.Get());
   run_loop.Run();
@@ -558,7 +532,7 @@ TEST_F(CoordinatorImplTest, ClientCrashDuringGlobalDump) {
 
   MockGlobalMemoryDumpCallback callback;
   EXPECT_CALL(callback, OnCall(false, NotNull()))
-      .WillOnce(RunClosure(run_loop.QuitClosure()));
+      .WillOnce(RunOnceClosure(run_loop.QuitClosure()));
   RequestGlobalMemoryDump(callback.Get());
   run_loop.Run();
 }
@@ -584,7 +558,7 @@ TEST_F(CoordinatorImplTest, SingleClientCrashDuringGlobalDump) {
 
   MockGlobalMemoryDumpCallback callback;
   EXPECT_CALL(callback, OnCall(false, NotNull()))
-      .WillOnce(RunClosure(run_loop.QuitClosure()));
+      .WillOnce(RunOnceClosure(run_loop.QuitClosure()));
   RequestGlobalMemoryDump(callback.Get());
   run_loop.Run();
 }
@@ -699,11 +673,6 @@ TEST_F(CoordinatorImplTest, GlobalMemoryDumpStruct) {
         mojom::ProcessMemoryDumpPtr browser_dump = nullptr;
         mojom::ProcessMemoryDumpPtr renderer_dump = nullptr;
         for (mojom::ProcessMemoryDumpPtr& dump : global_dump->process_dumps) {
-          // Service names should match what ComputePidToServiceNamesMap
-          // provides.
-          EXPECT_THAT(dump->service_names,
-                      UnorderedElementsAre("bootup_helper",
-                                           base::NumberToString(dump->pid)));
           if (dump->process_type == mojom::ProcessType::BROWSER) {
             browser_dump = std::move(dump);
           } else if (dump->process_type == mojom::ProcessType::RENDERER) {
@@ -831,12 +800,12 @@ TEST_F(CoordinatorImplTest, DumpsArentAddedToTraceUnlessRequested) {
       callback,
       OnCall(true, Pointee(Field(&mojom::GlobalMemoryDump::process_dumps,
                                  IsEmpty()))))
-      .WillOnce(RunClosure(run_loop.QuitClosure()));
+      .WillOnce(RunOnceClosure(run_loop.QuitClosure()));
 
   trace_analyzer::Start(MemoryDumpManager::kTraceCategory);
   RequestGlobalMemoryDump(MemoryDumpType::EXPLICITLY_TRIGGERED,
-                          MemoryDumpLevelOfDetail::DETAILED, {},
-                          callback.Get());
+                          MemoryDumpLevelOfDetail::DETAILED,
+                          MemoryDumpDeterminism::NONE, {}, callback.Get());
   run_loop.Run();
   auto analyzer = trace_analyzer::Stop();
 
@@ -866,7 +835,7 @@ TEST_F(CoordinatorImplTest, DumpsAreAddedToTraceWhenRequested) {
 
   MockGlobalMemoryDumpAndAppendToTraceCallback callback;
   EXPECT_CALL(callback, OnCall(true, Ne(0ul)))
-      .WillOnce(RunClosure(run_loop.QuitClosure()));
+      .WillOnce(RunOnceClosure(run_loop.QuitClosure()));
 
   trace_analyzer::Start(MemoryDumpManager::kTraceCategory);
   RequestGlobalMemoryDumpAndAppendToTrace(callback.Get());
@@ -956,24 +925,15 @@ TEST_F(CoordinatorImplTest, DumpByPidSuccess) {
       .WillOnce(Invoke([](bool success, GlobalMemoryDump* global_dump) {
         EXPECT_EQ(1U, global_dump->process_dumps.size());
         EXPECT_EQ(global_dump->process_dumps[0]->pid, kBrowserPid);
-        EXPECT_THAT(global_dump->process_dumps[0]->service_names,
-                    UnorderedElementsAre("bootup_helper",
-                                         base::NumberToString(kBrowserPid)));
       }))
       .WillOnce(Invoke([](bool success, GlobalMemoryDump* global_dump) {
         EXPECT_EQ(1U, global_dump->process_dumps.size());
         EXPECT_EQ(global_dump->process_dumps[0]->pid, kRendererPid);
-        EXPECT_THAT(global_dump->process_dumps[0]->service_names,
-                    UnorderedElementsAre("bootup_helper",
-                                         base::NumberToString(kRendererPid)));
       }))
       .WillOnce(
           Invoke([&run_loop](bool success, GlobalMemoryDump* global_dump) {
             EXPECT_EQ(1U, global_dump->process_dumps.size());
             EXPECT_EQ(global_dump->process_dumps[0]->pid, kGpuPid);
-            EXPECT_THAT(global_dump->process_dumps[0]->service_names,
-                        UnorderedElementsAre("bootup_helper",
-                                             base::NumberToString(kGpuPid)));
             run_loop.Quit();
           }));
 
@@ -991,7 +951,7 @@ TEST_F(CoordinatorImplTest, DumpByPidFailure) {
 
   MockGlobalMemoryDumpCallback callback;
   EXPECT_CALL(callback, OnCall(false, nullptr))
-      .WillOnce(RunClosure(run_loop.QuitClosure()));
+      .WillOnce(RunOnceClosure(run_loop.QuitClosure()));
 
   RequestGlobalMemoryDumpForPid(2, {}, callback.Get());
   run_loop.Run();

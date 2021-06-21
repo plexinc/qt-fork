@@ -19,7 +19,7 @@ Are you a Google employee? See
 * You must have Git and Python installed already.
 
 Most development is done on Ubuntu. Other distros may or may not work;
-see the [Linux instructions](linux_build_instructions.md) for some suggestions.
+see the [Linux instructions](linux/build_instructions.md) for some suggestions.
 
 Building the Android client on Windows or Mac is not supported and doesn't work.
 
@@ -134,7 +134,7 @@ $ gn gen --args='target_os="android" is_chromecast=true' out/Default
   The default will be a debug component build matching the current host
   operating system and CPU.
 * For more info on GN, run `gn help` on the command line or read the
-  [quick start guide](../tools/gn/docs/quick_start.md).
+  [quick start guide](https://gn.googlesource.com/gn/+/master/docs/quick_start.md).
 
 Also be aware that some scripts (e.g. `tombstones.py`, `adb_gdb.py`)
 require you to set `CHROMIUM_OUTPUT_DIR=out/Default`.

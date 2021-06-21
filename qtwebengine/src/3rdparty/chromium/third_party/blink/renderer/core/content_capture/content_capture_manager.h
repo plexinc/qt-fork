@@ -19,16 +19,13 @@ class SentNodes;
 // This class is used to create the NodeHolder, and start the ContentCaptureTask
 // when necessary. The ContentCaptureManager is owned by main frame.
 class CORE_EXPORT ContentCaptureManager
-    : public GarbageCollectedFinalized<ContentCaptureManager> {
+    : public GarbageCollected<ContentCaptureManager> {
  public:
   explicit ContentCaptureManager(LocalFrame& local_frame_root);
   virtual ~ContentCaptureManager();
 
-  // Creates and returns NodeHolder for the given |node|, and schedules
-  // ContentCaptureTask if it isn't already scheduled.
-  // Can't use const Node& for parameter, because |node| is passed to
-  // DOMNodeIds::IdForNode(Node*).
-  DOMNodeId GetNodeId(Node& node);
+  // Schedules ContentCaptureTask if it isn't already scheduled.
+  void ScheduleTaskIfNeeded();
 
   // Invokes when the |node_holder| asscociated LayoutText will be destroyed.
   void OnLayoutTextWillBeDestroyed(const Node& node);
@@ -42,21 +39,21 @@ class CORE_EXPORT ContentCaptureManager
   // Invokes when the local_frame_root shutdown.
   void Shutdown();
 
-  virtual void Trace(blink::Visitor*);
+  virtual void Trace(Visitor*);
 
   ContentCaptureTask* GetContentCaptureTaskForTesting() const {
-    return content_capture_idle_task_.get();
+    return content_capture_idle_task_;
   }
 
  protected:
-  virtual scoped_refptr<ContentCaptureTask> CreateContentCaptureTask();
+  virtual ContentCaptureTask* CreateContentCaptureTask();
   TaskSession& GetTaskSessionForTesting() const { return *task_session_; }
 
  private:
   void NotifyNodeDetached(const Node& node);
   void ScheduleTask(ContentCaptureTask::ScheduleReason reason);
 
-  scoped_refptr<ContentCaptureTask> content_capture_idle_task_;
+  Member<ContentCaptureTask> content_capture_idle_task_;
 
   Member<LocalFrame> local_frame_root_;
 

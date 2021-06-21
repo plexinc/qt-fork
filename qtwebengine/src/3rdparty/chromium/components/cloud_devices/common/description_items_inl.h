@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef COMPONENTS_CLOUD_DEVICES_COMMON_DESCRIPTION_DESCRIPTION_ITEMS_INL_H_
-#define COMPONENTS_CLOUD_DEVICES_COMMON_DESCRIPTION_DESCRIPTION_ITEMS_INL_H_
+#ifndef COMPONENTS_CLOUD_DEVICES_COMMON_DESCRIPTION_ITEMS_INL_H_
+#define COMPONENTS_CLOUD_DEVICES_COMMON_DESCRIPTION_ITEMS_INL_H_
 
 #include <stddef.h>
 
@@ -27,8 +27,11 @@ ListCapability<Option, Traits>::ListCapability() {
 }
 
 template <class Option, class Traits>
-ListCapability<Option, Traits>::~ListCapability() {
-}
+ListCapability<Option, Traits>::ListCapability(ListCapability&& other) =
+    default;
+
+template <class Option, class Traits>
+ListCapability<Option, Traits>::~ListCapability() = default;
 
 template <class Option, class Traits>
 bool ListCapability<Option, Traits>::IsValid() const {
@@ -49,8 +52,7 @@ bool ListCapability<Option, Traits>::LoadFrom(
       description.GetItem(Traits::GetCapabilityPath(), base::Value::Type::LIST);
   if (!options_value)
     return false;
-  const base::Value::ListStorage& options = options_value->GetList();
-  for (const base::Value& option_value : options) {
+  for (const base::Value& option_value : options_value->GetList()) {
     Option option;
     if (!option_value.is_dict() || !Traits::Load(option_value, &option))
       return false;
@@ -68,7 +70,7 @@ void ListCapability<Option, Traits>::SaveTo(
   for (const Option& option : options_) {
     base::Value option_value(base::Value::Type::DICTIONARY);
     Traits::Save(option, &option_value);
-    options_list->GetList().emplace_back(std::move(option_value));
+    options_list->Append(std::move(option_value));
   }
 }
 
@@ -133,8 +135,7 @@ bool SelectionCapability<Option, Traits>::LoadFrom(const base::Value& dict) {
       dict.FindKeyOfType(json::kKeyOption, base::Value::Type::LIST);
   if (!options_value)
     return false;
-  const base::Value::ListStorage& options = options_value->GetList();
-  for (const base::Value& option_value : options) {
+  for (const base::Value& option_value : options_value->GetList()) {
     Option option;
     if (!option_value.is_dict() || !Traits::Load(option_value, &option))
       return false;
@@ -157,7 +158,7 @@ void SelectionCapability<Option, Traits>::SaveTo(base::Value* dict) const {
     if (base::checked_cast<int>(i) == default_idx_)
       option_value.SetKey(json::kKeyIsDefault, base::Value(true));
     Traits::Save(options_[i], &option_value);
-    options_list.GetList().emplace_back(std::move(option_value));
+    options_list.Append(std::move(option_value));
   }
   dict->SetKey(json::kKeyOption, std::move(options_list));
 }
@@ -283,4 +284,4 @@ void TicketItem<Option, Traits>::SaveTo(
 
 }  // namespace cloud_devices
 
-#endif  // COMPONENTS_CLOUD_DEVICES_COMMON_DESCRIPTION_DESCRIPTION_ITEMS_INL_H_
+#endif  // COMPONENTS_CLOUD_DEVICES_COMMON_DESCRIPTION_ITEMS_INL_H_

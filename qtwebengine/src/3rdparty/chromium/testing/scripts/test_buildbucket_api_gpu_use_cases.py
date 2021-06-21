@@ -32,7 +32,7 @@ class BuildBucketApiGpuUseCaseTests:
     # Verify we can get power measurement test data from latest successful
     # build, including the swarming bot that runs the test, and actual test
     # results.
-    bot = 'Win10 FYI Release (Intel HD 630)'
+    bot = 'Win10 FYI x64 Release (Intel HD 630)'
     step = 'power_measurement_test'
     build_id = gather_power_measurement_results.GetLatestGreenBuild(bot)
     build_json = gather_power_measurement_results.GetJsonForBuildSteps(
@@ -58,7 +58,7 @@ class BuildBucketApiGpuUseCaseTests:
     extracted_times, _ = gather_swarming_json_results.GatherResults(
         bot='Linux FYI Release (NVIDIA)',
         build=None, # Use the latest green build
-        step='webgl2_conformance_tests')
+        step='webgl2_conformance_validating_tests')
 
     if 'times' not in extracted_times:
       return '"times" is missing from the extracted dict'

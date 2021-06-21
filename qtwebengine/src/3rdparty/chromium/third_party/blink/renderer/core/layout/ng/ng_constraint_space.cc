@@ -12,6 +12,7 @@
 #include "third_party/blink/renderer/core/layout/layout_view.h"
 #include "third_party/blink/renderer/core/layout/ng/layout_box_utils.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_constraint_space_builder.h"
+#include "third_party/blink/renderer/core/layout/ng/ng_layout_result.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_length_utils.h"
 
 namespace blink {
@@ -76,28 +77,51 @@ NGConstraintSpace NGConstraintSpace::CreateFromLayoutObject(
                                    !parallel_containing_block);
 
   if (!block.IsWritingModeRoot() || block.IsGridItem()) {
-    // Add all types because we don't know which baselines will be requested.
-    FontBaseline baseline_type = style.GetFontBaseline();
-    bool synthesize_inline_block_baseline =
-        block.UseLogicalBottomMarginEdgeForInlineBlockBaseline();
-    if (!synthesize_inline_block_baseline) {
-      builder.AddBaselineRequest(
-          {NGBaselineAlgorithmType::kAtomicInline, baseline_type});
-    }
-    builder.AddBaselineRequest(
-        {NGBaselineAlgorithmType::kFirstLine, baseline_type});
+    // We don't know if the parent layout will require our baseline, so always
+    // request it.
+    builder.SetNeedsBaseline(true);
+    builder.SetBaselineAlgorithmType(block.IsInline() &&
+                                             block.IsAtomicInlineLevel()
+                                         ? NGBaselineAlgorithmType::kInlineBlock
+                                         : NGBaselineAlgorithmType::kFirstLine);
   }
 
-  return builder.SetAvailableSize(available_size)
-      .SetPercentageResolutionSize(percentage_size)
-      .SetIsFixedSizeInline(fixed_inline)
-      .SetIsFixedSizeBlock(fixed_block)
-      .SetFixedSizeBlockIsDefinite(fixed_block_is_definite)
-      .SetIsShrinkToFit(
-          style.LogicalWidth().IsAuto() &&
-          block.SizesLogicalWidthToFitContent(style.LogicalWidth()))
-      .SetTextDirection(style.Direction())
-      .ToConstraintSpace();
+  if (block.IsTableCell()) {
+    const LayoutNGTableCellInterface& cell =
+        ToInterface<LayoutNGTableCellInterface>(block);
+    const ComputedStyle& cell_style = cell.ToLayoutObject()->StyleRef();
+    const ComputedStyle& table_style =
+        cell.TableInterface()->ToLayoutObject()->StyleRef();
+    builder.SetIsTableCell(true);
+    builder.SetIsRestrictedBlockSizeTableCell(
+        !cell_style.LogicalHeight().IsAuto() ||
+        !table_style.LogicalHeight().IsAuto());
+    const LayoutBlock& cell_block = To<LayoutBlock>(*cell.ToLayoutObject());
+    builder.SetTableCellBorders(
+        {cell_block.BorderStart(), cell_block.BorderEnd(),
+         cell_block.BorderBefore(), cell_block.BorderAfter()});
+    builder.SetTableCellIntrinsicPadding(
+        {LayoutUnit(), LayoutUnit(), LayoutUnit(cell.IntrinsicPaddingBefore()),
+         LayoutUnit(cell.IntrinsicPaddingAfter())});
+    builder.SetHideTableCellIfEmpty(
+        cell_style.EmptyCells() == EEmptyCells::kHide &&
+        table_style.BorderCollapse() == EBorderCollapse::kSeparate);
+  }
+
+  if (block.IsAtomicInlineLevel() || block.IsFlexItem() || block.IsGridItem() ||
+      block.IsFloating())
+    builder.SetIsPaintedAtomically(true);
+
+  builder.SetAvailableSize(available_size);
+  builder.SetPercentageResolutionSize(percentage_size);
+  builder.SetIsFixedInlineSize(fixed_inline);
+  builder.SetIsFixedBlockSize(fixed_block);
+  builder.SetIsFixedBlockSizeIndefinite(!fixed_block_is_definite);
+  builder.SetIsShrinkToFit(
+      style.LogicalWidth().IsAuto() &&
+      block.SizesLogicalWidthToFitContent(style.LogicalWidth()));
+  builder.SetTextDirection(style.Direction());
+  return builder.ToConstraintSpace();
 }
 
 String NGConstraintSpace::ToString() const {

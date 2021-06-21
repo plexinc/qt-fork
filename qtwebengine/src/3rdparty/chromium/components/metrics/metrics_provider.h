@@ -7,6 +7,7 @@
 
 #include "base/callback.h"
 #include "base/macros.h"
+#include "base/time/time.h"
 
 namespace base {
 class HistogramSnapshotManager;
@@ -30,7 +31,7 @@ class MetricsProvider {
   // Called during service initialization to allow the provider to start any
   // async initialization tasks.  The service will wait for the provider to
   // call |done_callback| before generating logs for the current session.
-  virtual void AsyncInit(const base::Closure& done_callback);
+  virtual void AsyncInit(base::OnceClosure done_callback);
 
   // Called when a new MetricsLog is created.
   virtual void OnDidCreateMetricsLog();
@@ -64,8 +65,17 @@ class MetricsProvider {
       ChromeUserMetricsExtension* uma_proto,
       base::HistogramSnapshotManager* snapshot_manager);
 
-  // Provides additional metrics into the system profile.
+  // Provides additional metrics into the system profile. This is a convenience
+  // method over ProvideSystemProfileMetricsWithLogCreationTime() without the
+  // |log_creation_time| param. Should not be called directly by services.
   virtual void ProvideSystemProfileMetrics(
+      SystemProfileProto* system_profile_proto);
+
+  // Provides additional metrics into the system profile. The log creation
+  // time param provides a timestamp of when the log was opened, which is needed
+  // for some metrics providers.
+  virtual void ProvideSystemProfileMetricsWithLogCreationTime(
+      base::TimeTicks log_creation_time,
       SystemProfileProto* system_profile_proto);
 
   // Called once at startup to see whether this provider has critical data

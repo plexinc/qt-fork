@@ -30,10 +30,8 @@ extern const char kAlwaysTrue[];
 extern const char kNone[];
 }  // namespace reader_mode_heuristics
 
-namespace reader_mode_feedback {
-extern const char kOn[];
-extern const char kOff[];
-}  // namespace reader_mode_feedback
+extern const char kReaderModeDiscoverabilityParamName[];
+extern const char kReaderModeOfferInSettings[];
 
 }  // namespace switches
 

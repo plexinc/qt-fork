@@ -1,7 +1,10 @@
 #! [0]
 cmake_minimum_required(VERSION 3.1.0)
 
-project(helloworld)
+project(helloworld VERSION 1.0.0 LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
@@ -23,12 +26,6 @@ add_executable(helloworld
 target_link_libraries(helloworld Qt5::Widgets)
 #! [0]
 
-#! [1]
-find_package(Qt5 COMPONENTS Core REQUIRED)
-
-get_target_property(QtCore_location Qt5::Core LOCATION)
-#! [1]
-
 #! [2]
 find_package(Qt5 COMPONENTS Core REQUIRED)
 
@@ -38,11 +35,3 @@ set(CMAKE_CXX_FLAGS_COVERAGE "${CMAKE_CXX_FLAGS_RELEASE} -fprofile-arcs -ftest-c
 # used in the COVERAGE CMake configuration.
 set_target_properties(Qt5::Core PROPERTIES MAP_IMPORTED_CONFIG_COVERAGE "RELEASE")
 #! [2]
-
-#! [5]
-foreach(plugin ${Qt5Network_PLUGINS})
-  get_target_property(_loc ${plugin} LOCATION)
-  message("Plugin ${plugin} is at location ${_loc}")
-endforeach()
-#! [5]
-

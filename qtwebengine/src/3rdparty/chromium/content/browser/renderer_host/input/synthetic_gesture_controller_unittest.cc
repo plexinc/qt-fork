@@ -12,7 +12,7 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/time/time.h"
 #include "content/browser/renderer_host/input/synthetic_gesture.h"
 #include "content/browser/renderer_host/input/synthetic_gesture_target.h"
@@ -33,7 +33,7 @@
 #include "content/public/test/test_browser_context.h"
 #include "content/test/test_render_view_host.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/blink/public/platform/web_input_event.h"
+#include "third_party/blink/public/common/input/web_input_event.h"
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/point_f.h"
 #include "ui/gfx/geometry/vector2d.h"
@@ -205,8 +205,7 @@ class MockMoveGestureTarget : public MockSyntheticGestureTarget {
  public:
   MockMoveGestureTarget()
       : total_abs_move_distance_length_(0),
-        precise_scrolling_deltas_(false),
-        scroll_by_page_(false) {}
+        granularity_(ui::ScrollGranularity::kScrollByPixel) {}
   ~MockMoveGestureTarget() override {}
 
   gfx::Vector2dF start_to_end_distance() const {
@@ -215,14 +214,13 @@ class MockMoveGestureTarget : public MockSyntheticGestureTarget {
   float total_abs_move_distance_length() const {
     return total_abs_move_distance_length_;
   }
-  bool precise_scrolling_deltas() const { return precise_scrolling_deltas_; }
-  bool scroll_by_page() const { return scroll_by_page_; }
+
+  ui::ScrollGranularity granularity() const { return granularity_; }
 
  protected:
   gfx::Vector2dF start_to_end_distance_;
   float total_abs_move_distance_length_;
-  bool precise_scrolling_deltas_;
-  bool scroll_by_page_;
+  ui::ScrollGranularity granularity_;
 };
 
 class MockScrollMouseTarget : public MockMoveGestureTarget {
@@ -237,8 +235,7 @@ class MockScrollMouseTarget : public MockMoveGestureTarget {
     gfx::Vector2dF delta(mouse_wheel_event.delta_x, mouse_wheel_event.delta_y);
     start_to_end_distance_ += delta;
     total_abs_move_distance_length_ += delta.Length();
-    precise_scrolling_deltas_ = mouse_wheel_event.has_precise_scrolling_deltas;
-    scroll_by_page_ = mouse_wheel_event.scroll_by_page;
+    granularity_ = mouse_wheel_event.delta_units;
   }
 };
 
@@ -254,28 +251,26 @@ class MockMoveTouchTarget : public MockMoveGestureTarget {
 
     if (!started_) {
       ASSERT_EQ(touch_event.GetType(), WebInputEvent::kTouchStart);
-      start_.SetPoint(touch_event.touches[0].PositionInWidget().x,
-                      touch_event.touches[0].PositionInWidget().y);
-      last_touch_point_ = gfx::PointF(start_);
+      start_ = touch_event.touches[0].PositionInWidget();
+      last_touch_point_ = start_;
       started_ = true;
     } else {
       ASSERT_NE(touch_event.GetType(), WebInputEvent::kTouchStart);
       ASSERT_NE(touch_event.GetType(), WebInputEvent::kTouchCancel);
 
-      gfx::PointF touch_point(touch_event.touches[0].PositionInWidget().x,
-                              touch_event.touches[0].PositionInWidget().y);
+      gfx::PointF touch_point(touch_event.touches[0].PositionInWidget());
       gfx::Vector2dF delta = touch_point - last_touch_point_;
       total_abs_move_distance_length_ += delta.Length();
 
       if (touch_event.GetType() == WebInputEvent::kTouchEnd)
-        start_to_end_distance_ = touch_point - gfx::PointF(start_);
+        start_to_end_distance_ = touch_point - start_;
 
       last_touch_point_ = touch_point;
     }
   }
 
  protected:
-  gfx::Point start_;
+  gfx::PointF start_;
   gfx::PointF last_touch_point_;
   bool started_;
 };
@@ -314,8 +309,7 @@ class MockDragMouseTarget : public MockMoveGestureTarget {
       EXPECT_EQ(mouse_event.button, WebMouseEvent::Button::kLeft);
       EXPECT_EQ(mouse_event.click_count, 1);
       EXPECT_EQ(mouse_event.GetType(), WebInputEvent::kMouseDown);
-      start_.SetPoint(mouse_event.PositionInWidget().x,
-                      mouse_event.PositionInWidget().y);
+      start_ = mouse_event.PositionInWidget();
       last_mouse_point_ = start_;
       started_ = true;
     } else {
@@ -810,7 +804,7 @@ class SyntheticGestureControllerTestBase {
 
   base::TimeDelta GetTotalTime() const { return time_ - start_time_; }
 
-  base::test::ScopedTaskEnvironment env_;
+  base::test::TaskEnvironment env_;
   MockSyntheticGestureTarget* target_;
   DummySyntheticGestureControllerDelegate delegate_;
   std::unique_ptr<SyntheticGestureController> controller_;
@@ -1284,7 +1278,7 @@ TEST_F(SyntheticGestureControllerTest, SingleScrollGestureMousePreciseScroll) {
   params.input_type = SyntheticSmoothMoveGestureParams::MOUSE_WHEEL_INPUT;
   params.start_point.SetPoint(39, 86);
   params.distances.push_back(gfx::Vector2d(0, -132));
-  params.precise_scrolling_deltas = true;
+  params.granularity = ui::ScrollGranularity::kScrollByPrecisePixel;
 
   std::unique_ptr<SyntheticSmoothMoveGesture> gesture(
       new SyntheticSmoothMoveGesture(params));
@@ -1295,8 +1289,7 @@ TEST_F(SyntheticGestureControllerTest, SingleScrollGestureMousePreciseScroll) {
       static_cast<MockMoveGestureTarget*>(target_);
   EXPECT_EQ(1, num_success_);
   EXPECT_EQ(0, num_failure_);
-  EXPECT_EQ(params.precise_scrolling_deltas,
-            scroll_target->precise_scrolling_deltas());
+  EXPECT_EQ(params.granularity, scroll_target->granularity());
 }
 
 TEST_F(SyntheticGestureControllerTest, SingleScrollGestureMouseScrollByPage) {
@@ -1306,7 +1299,7 @@ TEST_F(SyntheticGestureControllerTest, SingleScrollGestureMouseScrollByPage) {
   params.input_type = SyntheticSmoothMoveGestureParams::MOUSE_WHEEL_INPUT;
   params.start_point.SetPoint(39, 86);
   params.distances.push_back(gfx::Vector2d(0, -132));
-  params.scroll_by_page = true;
+  params.granularity = ui::ScrollGranularity::kScrollByPage;
 
   std::unique_ptr<SyntheticSmoothMoveGesture> gesture(
       new SyntheticSmoothMoveGesture(params));
@@ -1317,7 +1310,7 @@ TEST_F(SyntheticGestureControllerTest, SingleScrollGestureMouseScrollByPage) {
       static_cast<MockMoveGestureTarget*>(target_);
   EXPECT_EQ(1, num_success_);
   EXPECT_EQ(0, num_failure_);
-  EXPECT_EQ(params.scroll_by_page, scroll_target->scroll_by_page());
+  EXPECT_EQ(params.granularity, scroll_target->granularity());
 }
 
 void CheckIsWithinRangeMulti(float scroll_distance,

@@ -19,10 +19,12 @@
 
 #include "common/Serial.h"
 #include "dawn_native/Device.h"
+#include "dawn_native/metal/CommandRecordingContext.h"
 #include "dawn_native/metal/Forward.h"
 
+#import <IOSurface/IOSurfaceRef.h>
 #import <Metal/Metal.h>
-#import <QuartzCore/CAMetalLayer.h>
+#import <QuartzCore/QuartzCore.h>
 
 #include <atomic>
 #include <memory>
@@ -37,22 +39,23 @@ namespace dawn_native { namespace metal {
         Device(AdapterBase* adapter, id<MTLDevice> mtlDevice, const DeviceDescriptor* descriptor);
         ~Device();
 
-        CommandBufferBase* CreateCommandBuffer(CommandEncoderBase* encoder,
+        CommandBufferBase* CreateCommandBuffer(CommandEncoder* encoder,
                                                const CommandBufferDescriptor* descriptor) override;
 
         Serial GetCompletedCommandSerial() const final override;
         Serial GetLastSubmittedCommandSerial() const final override;
-        void TickImpl() override;
+        MaybeError TickImpl() override;
 
         id<MTLDevice> GetMTLDevice();
+        id<MTLCommandQueue> GetMTLQueue();
 
-        id<MTLCommandBuffer> GetPendingCommandBuffer();
+        CommandRecordingContext* GetPendingCommandContext();
         Serial GetPendingCommandSerial() const override;
         void SubmitPendingCommandBuffer();
 
         MapRequestTracker* GetMapTracker() const;
 
-        TextureBase* CreateTextureWrappingIOSurface(const TextureDescriptor* descriptor,
+        TextureBase* CreateTextureWrappingIOSurface(const ExternalImageDescriptor* descriptor,
                                                     IOSurfaceRef ioSurface,
                                                     uint32_t plane);
         void WaitForCommandsToBeScheduled();
@@ -82,19 +85,25 @@ namespace dawn_native { namespace metal {
             const ShaderModuleDescriptor* descriptor) override;
         ResultOrError<SwapChainBase*> CreateSwapChainImpl(
             const SwapChainDescriptor* descriptor) override;
+        ResultOrError<NewSwapChainBase*> CreateSwapChainImpl(
+            Surface* surface,
+            NewSwapChainBase* previousSwapChain,
+            const SwapChainDescriptor* descriptor) override;
         ResultOrError<TextureBase*> CreateTextureImpl(const TextureDescriptor* descriptor) override;
         ResultOrError<TextureViewBase*> CreateTextureViewImpl(
             TextureBase* texture,
             const TextureViewDescriptor* descriptor) override;
 
         void InitTogglesFromDriver();
+        void Destroy() override;
+        MaybeError WaitForIdleForDestruction() override;
 
         id<MTLDevice> mMtlDevice = nil;
         id<MTLCommandQueue> mCommandQueue = nil;
         std::unique_ptr<MapRequestTracker> mMapTracker;
 
         Serial mLastSubmittedSerial = 0;
-        id<MTLCommandBuffer> mPendingCommands = nil;
+        CommandRecordingContext mCommandContext;
 
         // The completed serial is updated in a Metal completion handler that can be fired on a
         // different thread, so it needs to be atomic.

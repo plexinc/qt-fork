@@ -4,6 +4,9 @@
 
 #include "ui/views/controls/button/label_button.h"
 
+#include <algorithm>
+#include <utility>
+
 #include "base/command_line.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
@@ -11,8 +14,6 @@
 #include "build/build_config.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/accessibility/ax_node_data.h"
-#include "ui/base/material_design/material_design_controller.h"
-#include "ui/base/test/material_design_controller_test_api.h"
 #include "ui/base/ui_base_switches.h"
 #include "ui/events/test/event_generator.h"
 #include "ui/gfx/canvas.h"
@@ -22,9 +23,11 @@
 #include "ui/gfx/geometry/vector2d.h"
 #include "ui/gfx/text_utils.h"
 #include "ui/native_theme/native_theme.h"
+#include "ui/native_theme/native_theme_base.h"
 #include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/animation/test/ink_drop_host_view_test_api.h"
 #include "ui/views/animation/test/test_ink_drop.h"
+#include "ui/views/buildflags.h"
 #include "ui/views/layout/layout_provider.h"
 #include "ui/views/style/platform_style.h"
 #include "ui/views/test/views_test_base.h"
@@ -42,6 +45,24 @@ gfx::ImageSkia CreateTestImage(int width, int height) {
   return gfx::ImageSkia::CreateFrom1xBitmap(bitmap);
 }
 
+// A test theme that always returns a fixed color.
+class TestNativeTheme : public ui::NativeThemeBase {
+ public:
+  static constexpr SkColor kSystemColor = SK_ColorRED;
+
+  TestNativeTheme() = default;
+  TestNativeTheme(const TestNativeTheme&) = delete;
+  TestNativeTheme& operator=(const TestNativeTheme&) = delete;
+
+  // NativeThemeBase:
+  SkColor GetSystemColor(ColorId color_id,
+                         ColorScheme color_scheme) const override {
+    return kSystemColor;
+  }
+};
+
+constexpr SkColor TestNativeTheme::kSystemColor;
+
 }  // namespace
 
 namespace views {
@@ -53,9 +74,9 @@ class TestLabelButton : public LabelButton {
                            int button_context = style::CONTEXT_BUTTON)
       : LabelButton(nullptr, text, button_context) {}
 
-  using LabelButton::label;
   using LabelButton::image;
-  using LabelButton::ResetColorsFromNativeTheme;
+  using LabelButton::label;
+  using LabelButton::OnThemeChanged;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(TestLabelButton);
@@ -72,6 +93,9 @@ class LabelButtonTest : public test::WidgetTest {
     // used (which could be derived from the Widget's NativeTheme).
     test_widget_ = CreateTopLevelPlatformWidget();
 
+    // The test code below is not prepared to handle dark mode.
+    test_widget_->GetNativeTheme()->set_use_dark_colors(false);
+
     button_ = new TestLabelButton;
     test_widget_->GetContentsView()->AddChildView(button_);
 
@@ -83,7 +107,7 @@ class LabelButtonTest : public test::WidgetTest {
     // NativeTheme and use a hardcoded black or (on Mac) have a NativeTheme that
     // reliably returns black.
     styled_normal_text_color_ = SK_ColorBLACK;
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+#if defined(OS_LINUX) && BUILDFLAG(ENABLE_DESKTOP_AURA)
     // The Linux theme provides a non-black highlight text color, but it's not
     // used for styled buttons.
     styled_highlight_text_color_ = styled_normal_text_color_ =
@@ -167,6 +191,92 @@ TEST_F(LabelButtonTest, Label) {
   button_->SetMinSize(gfx::Size(long_text_width, font_list.GetHeight() * 2));
   EXPECT_EQ(button_->GetPreferredSize(),
             gfx::Size(long_text_width, font_list.GetHeight() * 2));
+}
+
+TEST_F(LabelButtonTest, LabelShrinkDown) {
+  ASSERT_TRUE(button_->GetText().empty());
+
+  const gfx::FontList font_list = button_->label()->font_list();
+  const base::string16 text(ASCIIToUTF16("abcdefghijklm"));
+  const int text_width = gfx::GetStringWidth(text, font_list);
+
+  ASSERT_LT(button_->GetPreferredSize().width(), text_width);
+  button_->SetText(text);
+  EXPECT_GT(button_->GetPreferredSize().width(), text_width);
+  button_->SetSize(button_->GetPreferredSize());
+
+  // When shrinking, the button should report again the size with no label
+  // (while keeping the label).
+  button_->ShrinkDownThenClearText();
+  EXPECT_EQ(button_->GetText(), text);
+  EXPECT_LT(button_->GetPreferredSize().width(), text_width);
+
+  // After the layout manager resizes the button to it's desired size, it's text
+  // should be empty again.
+  button_->SetSize(button_->GetPreferredSize());
+  EXPECT_TRUE(button_->GetText().empty());
+}
+
+TEST_F(LabelButtonTest, LabelShrinksDownOnManualSetBounds) {
+  ASSERT_TRUE(button_->GetText().empty());
+  ASSERT_GT(button_->GetPreferredSize().width(), 1);
+
+  const base::string16 text(ASCIIToUTF16("abcdefghijklm"));
+
+  button_->SetText(text);
+  EXPECT_EQ(button_->GetText(), text);
+  button_->SetSize(button_->GetPreferredSize());
+  button_->SetBoundsRect(gfx::Rect(button_->GetPreferredSize()));
+
+  button_->ShrinkDownThenClearText();
+
+  // Manually setting a smaller size should also clear text.
+  button_->SetBoundsRect(gfx::Rect(1, 1));
+  EXPECT_TRUE(button_->GetText().empty());
+}
+
+TEST_F(LabelButtonTest, LabelShrinksDownCanceledBySettingText) {
+  ASSERT_TRUE(button_->GetText().empty());
+
+  const gfx::FontList font_list = button_->label()->font_list();
+  const base::string16 text(ASCIIToUTF16("abcdefghijklm"));
+  const int text_width = gfx::GetStringWidth(text, font_list);
+
+  ASSERT_LT(button_->GetPreferredSize().width(), text_width);
+  button_->SetText(text);
+  EXPECT_GT(button_->GetPreferredSize().width(), text_width);
+  button_->SetBoundsRect(gfx::Rect(button_->GetPreferredSize()));
+
+  // When shrinking, the button should report again the size with no label
+  // (while keeping the label).
+  button_->ShrinkDownThenClearText();
+  EXPECT_EQ(button_->GetText(), text);
+  gfx::Size shrinking_size = button_->GetPreferredSize();
+  EXPECT_LT(shrinking_size.width(), text_width);
+
+  // When we SetText() again, the shrinking gets canceled.
+  button_->SetText(text);
+  EXPECT_GT(button_->GetPreferredSize().width(), text_width);
+
+  // Even if the layout manager resizes the button to it's size desired for
+  // shrinking, it's text does not get cleared and it still prefers having space
+  // for its label.
+  button_->SetSize(shrinking_size);
+  EXPECT_FALSE(button_->GetText().empty());
+  EXPECT_GT(button_->GetPreferredSize().width(), text_width);
+}
+
+TEST_F(
+    LabelButtonTest,
+    LabelShrinksDownImmediatelyIfAlreadySmallerThanPreferredSizeWithoutLabel) {
+  button_->SetBoundsRect(gfx::Rect(1, 1));
+  button_->SetText(ASCIIToUTF16("abcdefghijklm"));
+
+  // Shrinking the text down when it's already shrunk down (its size is smaller
+  // than preferred without label) should clear the text immediately.
+  EXPECT_FALSE(button_->GetText().empty());
+  button_->ShrinkDownThenClearText();
+  EXPECT_TRUE(button_->GetText().empty());
 }
 
 // Test behavior of View::GetAccessibleNodeData() for buttons when setting a
@@ -255,6 +365,31 @@ TEST_F(LabelButtonTest, Image) {
   EXPECT_EQ(button_->GetPreferredSize(), gfx::Size(large_size, large_size));
 }
 
+TEST_F(LabelButtonTest, ImageAlignmentWithMultilineLabel) {
+  const base::string16 text(
+      ASCIIToUTF16("Some long text that would result in multiline label"));
+  button_->SetText(text);
+
+  const int max_label_width = 40;
+  button_->label()->SetMultiLine(true);
+  button_->label()->SetMaximumWidth(max_label_width);
+
+  const int image_size = 16;
+  const gfx::ImageSkia image = CreateTestImage(image_size, image_size);
+  button_->SetImage(Button::STATE_NORMAL, image);
+
+  button_->SetBoundsRect(gfx::Rect(button_->GetPreferredSize()));
+  button_->Layout();
+  int y_origin_centered = button_->image()->origin().y();
+
+  button_->SetBoundsRect(gfx::Rect(button_->GetPreferredSize()));
+  button_->SetImageCentered(false);
+  button_->Layout();
+  int y_origin_not_centered = button_->image()->origin().y();
+
+  EXPECT_LT(y_origin_not_centered, y_origin_centered);
+}
+
 TEST_F(LabelButtonTest, LabelAndImage) {
   const gfx::FontList font_list = button_->label()->font_list();
   const base::string16 text(ASCIIToUTF16("abcdefghijklm"));
@@ -332,6 +467,7 @@ TEST_F(LabelButtonTest, LabelWrapAndImageAlignment) {
   ASSERT_EQ(font_list.GetHeight(), image.width());
 
   button_->SetImage(Button::STATE_NORMAL, image);
+  button_->SetImageCentered(false);
   button_->SetMaxSize(
       gfx::Size(image.width() + image_spacing + text_wrap_width, 0));
 
@@ -346,7 +482,7 @@ TEST_F(LabelButtonTest, LabelWrapAndImageAlignment) {
   EXPECT_EQ(preferred_size.height(),
             font_list.GetHeight() * 2 + button_insets.height());
 
-  // The image should be centered on the first line of the multi-line label.
+  // The image should be centered on the first line of the multi-line label
   EXPECT_EQ(button_->image()->y(),
             (font_list.GetHeight() - button_->image()->height()) / 2 +
                 button_insets.top());
@@ -399,13 +535,15 @@ TEST_F(LabelButtonTest, TextSizeFromContext) {
   constexpr style::TextContext kAlternateContext = style::CONTEXT_DIALOG_TITLE;
 
   // First sanity that the TextConstants used in the test give different sizes.
-  int default_delta, alternate_delta;
-  gfx::Font::Weight default_weight, alternate_weight;
-  DefaultTypographyProvider::GetDefaultFont(
-      kDefaultContext, style::STYLE_PRIMARY, &default_delta, &default_weight);
-  DefaultTypographyProvider::GetDefaultFont(
-      kAlternateContext, style::STYLE_PRIMARY, &alternate_delta,
-      &alternate_weight);
+  const auto get_delta = [](auto context) {
+    return TypographyProvider()
+               .GetFont(context, style::STYLE_PRIMARY)
+               .GetFontSize() -
+           gfx::FontList().GetFontSize();
+  };
+  TypographyProvider typography_provider;
+  int default_delta = get_delta(kDefaultContext);
+  int alternate_delta = get_delta(kAlternateContext);
   EXPECT_LT(default_delta, alternate_delta);
 
   const base::string16 text(ASCIIToUTF16("abcdefghijklm"));
@@ -486,10 +624,11 @@ TEST_F(LabelButtonTest, HighlightedButtonStyle) {
   EXPECT_EQ(themed_normal_text_color_, button_->label()->GetEnabledColor());
 }
 
-// Ensure the label gets the correct enabled color after
-// LabelButton::ResetColorsFromNativeTheme() is invoked.
-TEST_F(LabelButtonTest, ResetColorsFromNativeTheme) {
-  ASSERT_FALSE(color_utils::IsInvertedColorScheme());
+// Ensure the label resets the enabled color after LabelButton::OnThemeChanged()
+// is invoked.
+TEST_F(LabelButtonTest, OnThemeChanged) {
+  ASSERT_NE(button_->GetNativeTheme()->GetHighContrastColorScheme(),
+            ui::NativeTheme::HighContrastColorScheme::kDark);
   ASSERT_NE(button_->label()->GetBackgroundColor(), SK_ColorBLACK);
   EXPECT_EQ(themed_normal_text_color_, button_->label()->GetEnabledColor());
 
@@ -497,8 +636,35 @@ TEST_F(LabelButtonTest, ResetColorsFromNativeTheme) {
   button_->label()->SetAutoColorReadabilityEnabled(true);
   EXPECT_NE(themed_normal_text_color_, button_->label()->GetEnabledColor());
 
-  button_->ResetColorsFromNativeTheme();
+  button_->OnThemeChanged();
   EXPECT_EQ(themed_normal_text_color_, button_->label()->GetEnabledColor());
+}
+
+TEST_F(LabelButtonTest, SetEnabledTextColorsResetsToThemeColors) {
+  constexpr SkColor kReplacementColor = SK_ColorCYAN;
+
+  // This test doesn't make sense if any used colors are equal.
+  EXPECT_NE(themed_normal_text_color_, kReplacementColor);
+  EXPECT_NE(themed_normal_text_color_, TestNativeTheme::kSystemColor);
+  EXPECT_NE(kReplacementColor, TestNativeTheme::kSystemColor);
+
+  // Initially the test should have the normal colors.
+  EXPECT_EQ(themed_normal_text_color_, button_->label()->GetEnabledColor());
+
+  // Setting the enabled text colors should replace the label's enabled color.
+  button_->SetEnabledTextColors(kReplacementColor);
+  EXPECT_EQ(kReplacementColor, button_->label()->GetEnabledColor());
+
+  // Replace the theme. This should not replace the enabled text color as it's
+  // been manually overridden above.
+  TestNativeTheme test_theme;
+  button_->SetNativeThemeForTesting(&test_theme);
+  EXPECT_EQ(kReplacementColor, button_->label()->GetEnabledColor());
+
+  // Removing the enabled text color restore colors from the new theme, not
+  // the original colors used before the theme changed.
+  button_->SetEnabledTextColors(base::nullopt);
+  EXPECT_EQ(TestNativeTheme::kSystemColor, button_->label()->GetEnabledColor());
 }
 
 // Test fixture for a LabelButton that has an ink drop configured.
@@ -516,7 +682,7 @@ class InkDropLabelButtonTest : public ViewsTestBase {
     Widget::InitParams params = CreateParams(Widget::InitParams::TYPE_POPUP);
     params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
     params.bounds = gfx::Rect(0, 0, 20, 20);
-    widget_->Init(params);
+    widget_->Init(std::move(params));
     widget_->Show();
 
     button_ = new LabelButton(nullptr, base::string16());

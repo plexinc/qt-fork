@@ -14,17 +14,16 @@
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
 #include "osp/public/message_demuxer.h"
-#include "platform/api/logging.h"
 #include "platform/api/time.h"
 #include "platform/base/error.h"
 #include "platform/base/ip_address.h"
 #include "platform/base/macros.h"
+#include "util/logging.h"
 
 namespace openscreen {
+namespace osp {
 
 class ProtocolConnection;
-
-namespace presentation {
 
 enum class TerminationReason {
   kReceiverTerminateCalled = 0,
@@ -197,7 +196,7 @@ class ConnectionManager final : public MessageDemuxer::MessageCallback {
                                   msgs::Type message_type,
                                   const uint8_t* buffer,
                                   size_t buffer_size,
-                                  platform::Clock::time_point now) override;
+                                  Clock::time_point now) override;
 
   Connection* GetConnection(uint64_t connection_id);
 
@@ -214,7 +213,7 @@ class ConnectionManager final : public MessageDemuxer::MessageCallback {
   OSP_DISALLOW_COPY_AND_ASSIGN(ConnectionManager);
 };
 
-}  // namespace presentation
+}  // namespace osp
 }  // namespace openscreen
 
 #endif  // OSP_PUBLIC_PRESENTATION_PRESENTATION_CONNECTION_H_

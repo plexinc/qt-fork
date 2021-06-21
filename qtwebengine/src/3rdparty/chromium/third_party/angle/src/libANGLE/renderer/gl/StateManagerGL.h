@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2015 The ANGLE Project Authors. All rights reserved.
+// Copyright 2015 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -122,6 +122,7 @@ class StateManagerGL final : angle::NonCopyable
     void setLineWidth(float width);
 
     void setPrimitiveRestartEnabled(bool enabled);
+    void setPrimitiveRestartIndex(GLuint index);
 
     void setClearColor(const gl::ColorF &clearColor);
     void setClearDepth(float clearDepth);
@@ -136,6 +137,11 @@ class StateManagerGL final : angle::NonCopyable
     void setFramebufferSRGBEnabledForFramebuffer(const gl::Context *context,
                                                  bool enabled,
                                                  const FramebufferGL *framebuffer);
+    void setColorMaskForFramebuffer(bool red,
+                                    bool green,
+                                    bool blue,
+                                    bool alpha,
+                                    const FramebufferGL *framebuffer);
 
     void setDitherEnabled(bool enabled);
 
@@ -143,10 +149,6 @@ class StateManagerGL final : angle::NonCopyable
     void setSampleAlphaToOneStateEnabled(bool enabled);
 
     void setCoverageModulation(GLenum components);
-
-    void setPathRenderingModelViewMatrix(const GLfloat *m);
-    void setPathRenderingProjectionMatrix(const GLfloat *m);
-    void setPathRenderingStencilState(GLenum func, GLint ref, GLuint mask);
 
     void setProvokingVertex(GLenum mode);
 
@@ -177,6 +179,9 @@ class StateManagerGL final : angle::NonCopyable
     {
         return mFramebuffers[binding];
     }
+    GLuint getBufferID(gl::BufferBinding binding) const { return mBuffers[binding]; }
+
+    void validateState() const;
 
   private:
     void setTextureCubemapSeamlessEnabled(bool enabled);
@@ -320,6 +325,7 @@ class StateManagerGL final : angle::NonCopyable
     float mLineWidth;
 
     bool mPrimitiveRestartEnabled;
+    GLuint mPrimitiveRestartIndex;
 
     gl::ColorF mClearColor;
     float mClearDepth;
@@ -333,12 +339,6 @@ class StateManagerGL final : angle::NonCopyable
     bool mSampleAlphaToOneEnabled;
 
     GLenum mCoverageModulation;
-
-    GLfloat mPathMatrixMV[16];
-    GLfloat mPathMatrixProj[16];
-    GLenum mPathStencilFunc;
-    GLint mPathStencilRef;
-    GLuint mPathStencilMask;
 
     const bool mIsMultiviewEnabled;
 

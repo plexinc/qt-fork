@@ -11,7 +11,7 @@
 #include "base/command_line.h"
 #include "base/run_loop.h"
 #include "base/stl_util.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "chromeos/constants/chromeos_switches.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/display/fake/fake_display_snapshot.h"
@@ -59,18 +59,24 @@ class TestObserver : public DisplayConfigurator::Observer {
 
   int num_changes() const { return num_changes_; }
   int num_failures() const { return num_failures_; }
+  int num_power_state_changes() const { return num_power_state_changes_; }
   const DisplayConfigurator::DisplayStateList& latest_outputs() const {
     return latest_outputs_;
   }
   MultipleDisplayState latest_failed_state() const {
     return latest_failed_state_;
   }
+  chromeos::DisplayPowerState latest_power_state() const {
+    return latest_power_state_;
+  }
 
   void Reset() {
     num_changes_ = 0;
     num_failures_ = 0;
+    num_power_state_changes_ = 0;
     latest_outputs_.clear();
     latest_failed_state_ = MULTIPLE_DISPLAY_STATE_INVALID;
+    latest_power_state_ = chromeos::DISPLAY_POWER_ALL_OFF;
   }
 
   // DisplayConfigurator::Observer overrides:
@@ -87,16 +93,25 @@ class TestObserver : public DisplayConfigurator::Observer {
     latest_failed_state_ = failed_new_state;
   }
 
+  void OnPowerStateChanged(chromeos::DisplayPowerState power_state) override {
+    num_power_state_changes_++;
+    latest_power_state_ = power_state;
+  }
+
  private:
   DisplayConfigurator* configurator_;  // Not owned.
 
   // Number of times that OnDisplayMode*() has been called.
   int num_changes_;
   int num_failures_;
+  // Number of times that OnPowerStateChanged() has been called.
+  int num_power_state_changes_;
 
   // Parameters most recently passed to OnDisplayMode*().
   DisplayConfigurator::DisplayStateList latest_outputs_;
   MultipleDisplayState latest_failed_state_;
+  // Value most recently passed to OnPowerStateChanged().
+  chromeos::DisplayPowerState latest_power_state_;
 
   DISALLOW_COPY_AND_ASSIGN(TestObserver);
 };
@@ -152,16 +167,13 @@ class TestMirroringController
 class ConfigurationWaiter {
  public:
   explicit ConfigurationWaiter(DisplayConfigurator::TestApi* test_api)
-      : on_configured_callback_(base::Bind(&ConfigurationWaiter::OnConfigured,
-                                           base::Unretained(this))),
-        test_api_(test_api),
-        callback_result_(CALLBACK_NOT_CALLED) {}
+      : test_api_(test_api), callback_result_(CALLBACK_NOT_CALLED) {}
 
   ~ConfigurationWaiter() = default;
 
-  const DisplayConfigurator::ConfigurationCallback& on_configuration_callback()
-      const {
-    return on_configured_callback_;
+  DisplayConfigurator::ConfigurationCallback on_configuration_callback() {
+    return base::BindOnce(&ConfigurationWaiter::OnConfigured,
+                          base::Unretained(this));
   }
 
   CallbackResult callback_result() const { return callback_result_; }
@@ -190,9 +202,6 @@ class ConfigurationWaiter {
     callback_result_ = status ? CALLBACK_SUCCESS : CALLBACK_FAILURE;
   }
 
-  // Passed with configuration requests to run OnConfigured().
-  const DisplayConfigurator::ConfigurationCallback on_configured_callback_;
-
   DisplayConfigurator::TestApi* test_api_;  // Not owned.
 
   // The status of the display configuration.
@@ -207,7 +216,7 @@ class DisplayConfiguratorTest : public testing::Test {
   ~DisplayConfiguratorTest() override = default;
 
   void SetUp() override {
-    log_.reset(new ActionLogger());
+    log_ = std::make_unique<ActionLogger>();
 
     // Force system compositor mode to simulate on-device configurator behavior.
     base::CommandLine::ForCurrentProcess()->AppendSwitch(
@@ -312,7 +321,7 @@ class DisplayConfiguratorTest : public testing::Test {
     return result;
   }
 
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::SingleThreadTaskEnvironment task_environment_;
   TestStateController state_controller_;
   TestMirroringController mirroring_controller_;
   DisplayConfigurator configurator_;
@@ -1365,6 +1374,118 @@ TEST_F(DisplayConfiguratorTest, SuspendResumeWithMultipleDisplays) {
             configurator_.current_power_state());
   EXPECT_EQ(MULTIPLE_DISPLAY_STATE_MULTI_EXTENDED,
             configurator_.display_state());
+}
+
+TEST_F(DisplayConfiguratorTest, PowerStateChange) {
+  InitWithOutputs(&small_mode_);
+
+  native_display_delegate_->set_run_async(true);
+
+  // Set the initial power state and verify that it is restored on resume.
+  config_waiter_.Reset();
+  configurator_.SetDisplayPower(chromeos::DISPLAY_POWER_ALL_ON,
+                                DisplayConfigurator::kSetDisplayPowerNoFlags,
+                                config_waiter_.on_configuration_callback());
+
+  // SuspendDisplays causes notifying the DISPLAY_POWER_ALL_OFF state to the
+  // observer.
+  config_waiter_.Reset();
+  observer_.Reset();
+  configurator_.SuspendDisplays(config_waiter_.on_configuration_callback());
+  EXPECT_EQ(kNoDelay, config_waiter_.Wait());
+  EXPECT_EQ(CALLBACK_SUCCESS, config_waiter_.callback_result());
+  EXPECT_EQ(1, observer_.num_power_state_changes());
+  EXPECT_EQ(chromeos::DISPLAY_POWER_ALL_OFF, observer_.latest_power_state());
+
+  // ResumeDisplays causes notifying the DISPLAY_POWER_ALL_ON state to the
+  // observer.
+  config_waiter_.Reset();
+  configurator_.ResumeDisplays();
+  EXPECT_EQ(base::TimeDelta::Max(), config_waiter_.Wait());
+  EXPECT_EQ(CALLBACK_NOT_CALLED, config_waiter_.callback_result());
+  EXPECT_EQ(2, observer_.num_power_state_changes());
+  EXPECT_EQ(chromeos::DISPLAY_POWER_ALL_ON, observer_.latest_power_state());
+
+  // SuspendDisplays and ResumeDisplays before running the configuration task
+  // causes notifying only one power state change to the observer.
+  config_waiter_.Reset();
+  observer_.Reset();
+  configurator_.SuspendDisplays(config_waiter_.on_configuration_callback());
+  EXPECT_EQ(0, observer_.num_power_state_changes());
+  configurator_.ResumeDisplays();
+  // Run the task posted by TestNativeDisplayDelegate::GetDisplays() which is
+  // called by SuspendDisplays().
+  EXPECT_EQ(kNoDelay, config_waiter_.Wait());
+  EXPECT_EQ(CALLBACK_SUCCESS, config_waiter_.callback_result());
+  config_waiter_.Reset();
+  // Run the task posted by OnConfigured().
+  EXPECT_EQ(
+      base::TimeDelta::FromMilliseconds(DisplayConfigurator::kConfigureDelayMs),
+      config_waiter_.Wait());
+  EXPECT_EQ(CALLBACK_NOT_CALLED, config_waiter_.callback_result());
+  config_waiter_.Reset();
+  // Run the task posted by TestNativeDisplayDelegate::GetDisplays().
+  EXPECT_EQ(base::TimeDelta::Max(), config_waiter_.Wait());
+  EXPECT_EQ(CALLBACK_NOT_CALLED, config_waiter_.callback_result());
+  EXPECT_EQ(1, observer_.num_power_state_changes());
+  EXPECT_EQ(chromeos::DISPLAY_POWER_ALL_ON, observer_.latest_power_state());
+}
+
+TEST_F(DisplayConfiguratorTest, EnablePrivacyScreenOnSupportedEmbeddedDisplay) {
+  outputs_[0] = FakeDisplaySnapshot::Builder()
+                    .SetId(kDisplayIds[0])
+                    .SetNativeMode(small_mode_.Clone())
+                    .SetCurrentMode(small_mode_.Clone())
+                    .AddMode(big_mode_.Clone())
+                    .SetType(DISPLAY_CONNECTION_TYPE_INTERNAL)
+                    .SetIsAspectPerservingScaling(true)
+                    .SetPrivacyScreen(kDisabled)
+                    .Build();
+
+  state_controller_.set_state(MULTIPLE_DISPLAY_STATE_SINGLE);
+  InitWithOutputs(&small_mode_);
+  observer_.Reset();
+
+  EXPECT_TRUE(configurator_.SetPrivacyScreenOnInternalDisplay(true));
+  EXPECT_EQ(SetPrivacyScreenAction(kDisplayIds[0], true),
+            log_->GetActionsAndClear());
+}
+
+TEST_F(DisplayConfiguratorTest,
+       EnablePrivacyScreenOnUnsupportedEmbeddedDisplay) {
+  outputs_[0] = FakeDisplaySnapshot::Builder()
+                    .SetId(kDisplayIds[0])
+                    .SetNativeMode(big_mode_.Clone())
+                    .SetCurrentMode(big_mode_.Clone())
+                    .AddMode(small_mode_.Clone())
+                    .SetType(DISPLAY_CONNECTION_TYPE_INTERNAL)
+                    .SetIsAspectPerservingScaling(true)
+                    .SetPrivacyScreen(kNotSupported)
+                    .Build();
+  state_controller_.set_state(MULTIPLE_DISPLAY_STATE_SINGLE);
+  InitWithOutputs(&big_mode_);
+  observer_.Reset();
+
+  EXPECT_FALSE(configurator_.SetPrivacyScreenOnInternalDisplay(true));
+  EXPECT_EQ(kNoActions, log_->GetActionsAndClear());
+}
+
+TEST_F(DisplayConfiguratorTest, EnablePrivacyScreenOnExternalDisplay) {
+  outputs_[0] = FakeDisplaySnapshot::Builder()
+                    .SetId(kDisplayIds[0])
+                    .SetNativeMode(small_mode_.Clone())
+                    .SetCurrentMode(small_mode_.Clone())
+                    .SetType(DISPLAY_CONNECTION_TYPE_DISPLAYPORT)
+                    .SetIsAspectPerservingScaling(true)
+                    .SetPrivacyScreen(kNotSupported)
+                    .Build();
+
+  state_controller_.set_state(MULTIPLE_DISPLAY_STATE_SINGLE);
+  InitWithOutputs(&small_mode_);
+  observer_.Reset();
+
+  EXPECT_FALSE(configurator_.SetPrivacyScreenOnInternalDisplay(true));
+  EXPECT_EQ(kNoActions, log_->GetActionsAndClear());
 }
 
 class DisplayConfiguratorMultiMirroringTest : public DisplayConfiguratorTest {

@@ -21,10 +21,12 @@ export interface Data extends TrackData {
   starts: Float64Array;
   ends: Float64Array;
   state: Uint16Array;  // Index into |strings|.
+  cpu: Uint8Array;
+  summarisedStateBreakdowns: Map<number, StatePercent>;
 }
 
-export interface Config { utid: number; }
+export type StatePercent = Map<string, number>;
 
-export function groupBusyStates(resolution: number) {
-  return resolution >= 0.0001;
+export interface Config {
+  utid: number;
 }

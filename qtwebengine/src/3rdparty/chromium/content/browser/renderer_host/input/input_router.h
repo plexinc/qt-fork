@@ -14,7 +14,7 @@
 #include "content/public/browser/native_web_keyboard_event.h"
 #include "content/public/common/input_event_ack_state.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
-#include "third_party/blink/public/platform/web_input_event.h"
+#include "third_party/blink/public/common/input/web_input_event.h"
 
 namespace content {
 
@@ -114,6 +114,10 @@ class InputRouter {
   // OOPIF hit-testing will need to wait until updated CompositorFrames have
   // been submitted to the browser.
   virtual void WaitForInputProcessed(base::OnceClosure callback) = 0;
+
+  // Acks any pending touch events that are waiting for acks from the renderer.
+  // Any future acks for those events from the renderer will be ignored.
+  virtual void FlushTouchEventQueue() = 0;
 };
 
 }  // namespace content

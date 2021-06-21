@@ -36,7 +36,6 @@
 #include "third_party/blink/renderer/core/clipboard/system_clipboard.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
-#include "third_party/blink/renderer/core/dom/user_gesture_indicator.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
@@ -55,7 +54,7 @@
 #include "third_party/blink/renderer/platform/loader/fetch/resource_fetcher.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_request.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_response.h"
-#include "third_party/blink/renderer/platform/shared_buffer.h"
+#include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 
 namespace blink {
@@ -70,7 +69,7 @@ class FrontendMenuProvider final : public ContextMenuProvider {
     DCHECK(!devtools_host_);
   }
 
-  void Trace(blink::Visitor* visitor) override {
+  void Trace(Visitor* visitor) override {
     visitor->Trace(devtools_host_);
     ContextMenuProvider::Trace(visitor);
   }
@@ -110,7 +109,7 @@ DevToolsHost::DevToolsHost(InspectorFrontendClient* client,
 
 DevToolsHost::~DevToolsHost() = default;
 
-void DevToolsHost::Trace(blink::Visitor* visitor) {
+void DevToolsHost::Trace(Visitor* visitor) {
   visitor->Trace(client_);
   visitor->Trace(frontend_frame_);
   visitor->Trace(menu_provider_);
@@ -126,8 +125,6 @@ void DevToolsHost::EvaluateScript(const String& expression) {
   if (!script_state)
     return;
   ScriptState::Scope scope(script_state);
-  std::unique_ptr<UserGestureIndicator> gesture_indicator =
-      LocalFrame::NotifyUserActivation(frontend_frame_);
   v8::MicrotasksScope microtasks(script_state->GetIsolate(),
                                  v8::MicrotasksScope::kRunMicrotasks);
   ScriptSourceCode source_code(expression, ScriptSourceLocationType::kInternal,
@@ -153,13 +150,14 @@ float DevToolsHost::zoomFactor() {
   // use-zoom-for-dsf mode.
   const ChromeClient* client =
       frontend_frame_->View()->GetChromeClient();
-  float window_to_viewport_ratio = client->WindowToViewportScalar(1.0f);
+  float window_to_viewport_ratio =
+      client->WindowToViewportScalar(frontend_frame_, 1.0f);
   return zoom_factor / window_to_viewport_ratio;
 }
 
 void DevToolsHost::copyText(const String& text) {
-  SystemClipboard::GetInstance().WritePlainText(text);
-  SystemClipboard::GetInstance().CommitWrite();
+  frontend_frame_->GetSystemClipboard()->WritePlainText(text);
+  frontend_frame_->GetSystemClipboard()->CommitWrite();
 }
 
 static String EscapeUnicodeNonCharacters(const String& str) {

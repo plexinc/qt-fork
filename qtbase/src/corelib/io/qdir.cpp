@@ -867,8 +867,8 @@ QString QDir::relativeFilePath(const QString &fileName) const
 #endif
 
     QString result;
-    QVector<QStringRef> dirElts = dir.splitRef(QLatin1Char('/'), QString::SkipEmptyParts);
-    QVector<QStringRef> fileElts = file.splitRef(QLatin1Char('/'), QString::SkipEmptyParts);
+    QVector<QStringRef> dirElts = dir.splitRef(QLatin1Char('/'), Qt::SkipEmptyParts);
+    QVector<QStringRef> fileElts = file.splitRef(QLatin1Char('/'), Qt::SkipEmptyParts);
 
     int i = 0;
     while (i < dirElts.size() && i < fileElts.size() &&
@@ -1718,7 +1718,11 @@ bool QDir::isRoot() const
     Returns \c true if \a path is absolute; returns \c false if it is
     relative.
 
-    \sa isAbsolute(), isRelativePath(), makeAbsolute(), cleanPath()
+    \note If \a path starts with ':', this function will return \c true
+    because paths starting with ':' are treated specially as they denote
+    a QResource.
+
+    \sa isAbsolute(), isRelativePath(), makeAbsolute(), cleanPath(), QResource
 */
 
 /*!

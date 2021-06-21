@@ -8,18 +8,25 @@
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "base/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/rand_util.h"
+#include "base/run_loop.h"
+#include "base/strings/stringprintf.h"
 #include "net/base/ip_address.h"
+#include "net/base/mock_network_change_notifier.h"
+#include "net/base/net_errors.h"
 #include "net/dns/dns_socket_pool.h"
 #include "net/dns/public/dns_protocol.h"
+#include "net/dns/resolve_context.h"
 #include "net/log/net_log_source.h"
 #include "net/socket/socket_performance_watcher.h"
 #include "net/socket/socket_test_util.h"
 #include "net/socket/ssl_client_socket.h"
 #include "net/socket/stream_socket.h"
+#include "net/test/test_with_task_environment.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace net {
@@ -74,19 +81,19 @@ class TestClientSocketFactory : public ClientSocketFactory {
 
 struct PoolEvent {
   enum { ALLOCATE, FREE } action;
-  unsigned server_index;
+  size_t server_index;
 };
 
-class DnsSessionTest : public testing::Test {
+class DnsSessionTest : public TestWithTaskEnvironment {
  public:
-  void OnSocketAllocated(unsigned server_index);
-  void OnSocketFreed(unsigned server_index);
+  void OnSocketAllocated(size_t server_index);
+  void OnSocketFreed(size_t server_index);
 
  protected:
-  void Initialize(unsigned num_servers);
-  std::unique_ptr<DnsSession::SocketLease> Allocate(unsigned server_index);
-  bool DidAllocate(unsigned server_index);
-  bool DidFree(unsigned server_index);
+  void Initialize(size_t num_servers);
+  std::unique_ptr<DnsSession::SocketLease> Allocate(size_t server_index);
+  bool DidAllocate(size_t server_index);
+  bool DidFree(size_t server_index);
   bool NoMoreEvents();
 
   DnsConfig config_;
@@ -112,12 +119,12 @@ class MockDnsSocketPool : public DnsSocketPool {
   }
 
   std::unique_ptr<DatagramClientSocket> AllocateSocket(
-      unsigned server_index) override {
+      size_t server_index) override {
     test_->OnSocketAllocated(server_index);
     return CreateConnectedSocket(server_index);
   }
 
-  void FreeSocket(unsigned server_index,
+  void FreeSocket(size_t server_index,
                   std::unique_ptr<DatagramClientSocket> socket) override {
     test_->OnSocketFreed(server_index);
   }
@@ -126,9 +133,10 @@ class MockDnsSocketPool : public DnsSocketPool {
   DnsSessionTest* test_;
 };
 
-void DnsSessionTest::Initialize(unsigned num_servers) {
-  CHECK(num_servers < 256u);
+void DnsSessionTest::Initialize(size_t num_servers) {
+  CHECK_LT(num_servers, 256u);
   config_.nameservers.clear();
+  config_.dns_over_https_servers.clear();
   for (unsigned char i = 0; i < num_servers; ++i) {
     IPEndPoint dns_endpoint(IPAddress(192, 168, 1, i),
                             dns_protocol::kDefaultPort);
@@ -148,16 +156,16 @@ void DnsSessionTest::Initialize(unsigned num_servers) {
 }
 
 std::unique_ptr<DnsSession::SocketLease> DnsSessionTest::Allocate(
-    unsigned server_index) {
+    size_t server_index) {
   return session_->AllocateSocket(server_index, source_);
 }
 
-bool DnsSessionTest::DidAllocate(unsigned server_index) {
+bool DnsSessionTest::DidAllocate(size_t server_index) {
   PoolEvent expected_event = { PoolEvent::ALLOCATE, server_index };
   return ExpectEvent(expected_event);
 }
 
-bool DnsSessionTest::DidFree(unsigned server_index) {
+bool DnsSessionTest::DidFree(size_t server_index) {
   PoolEvent expected_event = { PoolEvent::FREE, server_index };
   return ExpectEvent(expected_event);
 }
@@ -166,12 +174,12 @@ bool DnsSessionTest::NoMoreEvents() {
   return events_.empty();
 }
 
-void DnsSessionTest::OnSocketAllocated(unsigned server_index) {
+void DnsSessionTest::OnSocketAllocated(size_t server_index) {
   PoolEvent event = { PoolEvent::ALLOCATE, server_index };
   events_.push_back(event);
 }
 
-void DnsSessionTest::OnSocketFreed(unsigned server_index) {
+void DnsSessionTest::OnSocketFreed(size_t server_index) {
   PoolEvent event = { PoolEvent::FREE, server_index };
   events_.push_back(event);
 }
@@ -210,7 +218,7 @@ TestClientSocketFactory::~TestClientSocketFactory() = default;
 TEST_F(DnsSessionTest, AllocateFree) {
   std::unique_ptr<DnsSession::SocketLease> lease1, lease2;
 
-  Initialize(2);
+  Initialize(2 /* num_servers */);
   EXPECT_TRUE(NoMoreEvents());
 
   lease1 = Allocate(0);
@@ -230,38 +238,6 @@ TEST_F(DnsSessionTest, AllocateFree) {
   EXPECT_TRUE(NoMoreEvents());
 }
 
-// Expect default calculated timeout to be within 10ms of one in DnsConfig.
-TEST_F(DnsSessionTest, HistogramTimeoutNormal) {
-  Initialize(2);
-  base::TimeDelta delta = session_->NextTimeout(0, 0) - config_.timeout;
-  EXPECT_LE(delta.InMilliseconds(), 10);
-}
-
-// Expect short calculated timeout to be within 10ms of one in DnsConfig.
-TEST_F(DnsSessionTest, HistogramTimeoutShort) {
-  config_.timeout = base::TimeDelta::FromMilliseconds(15);
-  Initialize(2);
-  base::TimeDelta delta = session_->NextTimeout(0, 0) - config_.timeout;
-  EXPECT_LE(delta.InMilliseconds(), 10);
-}
-
-// Expect long calculated timeout to be equal to one in DnsConfig.
-// (Default max timeout is 5 seconds, so NextTimeout should return exactly
-// the config timeout.)
-TEST_F(DnsSessionTest, HistogramTimeoutLong) {
-  config_.timeout = base::TimeDelta::FromSeconds(15);
-  Initialize(2);
-  base::TimeDelta timeout = session_->NextTimeout(0, 0);
-  EXPECT_EQ(timeout.InMilliseconds(), config_.timeout.InMilliseconds());
-}
-
-// Ensures that reported negative RTT values don't cause a crash. Regression
-// test for https://crbug.com/753568.
-TEST_F(DnsSessionTest, NegativeRtt) {
-  Initialize(2);
-  session_->RecordRTT(0, base::TimeDelta::FromMilliseconds(-1));
-}
-
 }  // namespace
 
-} // namespace net
+}  // namespace net

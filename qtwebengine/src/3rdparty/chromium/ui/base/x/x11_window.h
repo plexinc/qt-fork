@@ -12,7 +12,6 @@
 #include "base/cancelable_callback.h"
 #include "base/component_export.h"
 #include "base/containers/flat_set.h"
-#include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/optional.h"
 #include "base/strings/string16.h"
@@ -23,25 +22,25 @@
 #include "ui/gfx/x/x11.h"
 #include "ui/gfx/x/x11_types.h"
 
+class SkPath;
+
 namespace gfx {
 class ImageSkia;
+class Transform;
 }  // namespace gfx
 
 namespace ui {
 
-class KeyEvent;
-class MouseEvent;
-class TouchEvent;
-class ScrollEvent;
+class Event;
 class XScopedEventSelector;
 
 ////////////////////////////////////////////////////////////////////////////////
 // XWindow class
 //
-// Encapsulates a full featured Xlib-based X11 Window, intended mainly to be
-// used in Linux desktop. Abstracts away most of X11 API interaction and
-// communicates events (and ask some required information) through
-// |XWindow::Delegate| interface.
+// Base class that encapsulates a full featured Xlib-based X11 Window, meant
+// to be used mainly in Linux desktop. Abstracts away most of X11 API
+// interaction and assumes event handling and some required getters are
+// implemented in subclasses.
 //
 // |XWindow::Configuration| holds parameters used in window initialization.
 // Fields are equivalent and a sub-set of Widget::InitParams.
@@ -49,7 +48,7 @@ class XScopedEventSelector;
 // All bounds and size values are assumed to be expressed in pixels.
 class COMPONENT_EXPORT(UI_BASE_X) XWindow {
  public:
-  class Delegate;
+  using NativeShapeRects = std::vector<gfx::Rect>;
 
   enum class WindowType {
     kWindow,
@@ -82,13 +81,16 @@ class COMPONENT_EXPORT(UI_BASE_X) XWindow {
     bool visible_on_all_workspaces;
     bool remove_standard_frame;
     bool prefer_dark_theme;
+    bool override_redirect;
     std::string workspace;
     std::string wm_class_name;
     std::string wm_class_class;
     std::string wm_role_name;
   };
 
-  explicit XWindow(Delegate* delegate);
+  XWindow();
+  XWindow(const XWindow&) = delete;
+  XWindow& operator=(const XWindow&) = delete;
   virtual ~XWindow();
 
   void Init(const Configuration& config);
@@ -105,13 +107,15 @@ class COMPONENT_EXPORT(UI_BASE_X) XWindow {
   bool IsActive() const;
   void GrabPointer();
   void ReleasePointerGrab();
-  void StackAtTop();
+  void StackXWindowAbove(::Window window);
+  void StackXWindowAtTop();
   bool IsTargetedBy(const XEvent& xev) const;
+  void WmMoveResize(int hittest, const gfx::Point& location) const;
   void ProcessEvent(XEvent* xev);
 
   void SetSize(const gfx::Size& size_in_pixels);
   void SetBounds(const gfx::Rect& requested_bounds);
-  bool IsVisible() const;
+  bool IsXWindowVisible() const;
   bool IsMinimized() const;
   bool IsMaximized() const;
   bool IsFullscreen() const;
@@ -119,23 +123,33 @@ class COMPONENT_EXPORT(UI_BASE_X) XWindow {
 
   void SetCursor(::Cursor cursor);
   bool SetTitle(base::string16 title);
-  void SetOpacity(float opacity);
-  void SetAspectRatio(const gfx::SizeF& aspect_ratio);
-  void SetWindowIcons(const gfx::ImageSkia& window_icon,
-                      const gfx::ImageSkia& app_icon);
-  void SetVisibleOnAllWorkspaces(bool visible);
-  bool IsVisibleOnAllWorkspaces() const;
+  void SetXWindowOpacity(float opacity);
+  void SetXWindowAspectRatio(const gfx::SizeF& aspect_ratio);
+  void SetXWindowIcons(const gfx::ImageSkia& window_icon,
+                       const gfx::ImageSkia& app_icon);
+  void SetXWindowVisibleOnAllWorkspaces(bool visible);
+  bool IsXWindowVisibleOnAllWorkspaces() const;
   void MoveCursorTo(const gfx::Point& location);
   void SetAlwaysOnTop(bool always_on_top);
-  void FlashFrame(bool flash_frame);
+  void SetFlashFrameHint(bool flash_frame);
   void UpdateMinAndMaxSize();
   void SetUseNativeFrame(bool use_native_frame);
-  void SetShape(_XRegion* xregion);
-  void UpdateWindowRegion(_XRegion* xregion);
   void DispatchResize();
   void CancelResize();
   void NotifySwapAfterResize();
   void ConfineCursorTo(const gfx::Rect& bounds);
+  void LowerWindow();
+  void SetOverrideRedirect(bool override_redirect);
+
+  // Returns if the point is within XWindow shape. If shape is not set, always
+  // returns true.
+  bool ContainsPointInRegion(const gfx::Point& point) const;
+
+  void SetXWindowShape(std::unique_ptr<NativeShapeRects> native_shape,
+                       const gfx::Transform& transform);
+
+  // Resets the window region for the current window bounds if necessary.
+  void ResetWindowRegion();
 
   gfx::Rect bounds() const { return bounds_in_pixels_; }
   gfx::Rect previous_bounds() const { return previous_bounds_in_pixels_; }
@@ -147,7 +161,6 @@ class COMPONENT_EXPORT(UI_BASE_X) XWindow {
   bool use_custom_shape() const { return custom_window_shape_; }
   bool was_minimized() const { return was_minimized_; }
   bool has_alpha() const { return visual_has_alpha_; }
-  void set_visual_id(VisualID visual_id) { visual_id_ = visual_id; }
   base::Optional<int> workspace() const { return workspace_; }
 
   XDisplay* display() const { return xdisplay_; }
@@ -156,6 +169,10 @@ class COMPONENT_EXPORT(UI_BASE_X) XWindow {
   ::Region shape() const { return window_shape_.get(); }
   XID update_counter() const { return update_counter_; }
   XID extended_update_counter() const { return extended_update_counter_; }
+
+ protected:
+  // Updates |xwindow_|'s _NET_WM_USER_TIME if |xwindow_| is active.
+  void UpdateWMUserTime(ui::Event* event);
 
  private:
   // Called on an XFocusInEvent, XFocusOutEvent, XIFocusInEvent, or an
@@ -187,10 +204,7 @@ class COMPONENT_EXPORT(UI_BASE_X) XWindow {
   // Handle the state change since BeforeActivationStateChanged().
   void AfterActivationStateChanged();
 
-  void DelayedResize(const gfx::Size& size_in_pixels);
-
-  // Updates |xwindow_|'s _NET_WM_USER_TIME if |xwindow_| is active.
-  void UpdateWMUserTime(XEvent* event);
+  void DelayedResize(const gfx::Rect& bounds_in_pixels);
 
   // If mapped, sends a message to the window manager to enable or disable the
   // states |state1| and |state2|.  Otherwise, the states will be enabled or
@@ -208,7 +222,30 @@ class COMPONENT_EXPORT(UI_BASE_X) XWindow {
 
   void UnconfineCursor();
 
-  Delegate* delegate_;
+  void UpdateWindowRegion(XRegion* xregion);
+
+  void NotifyBoundsChanged(const gfx::Rect& new_bounds_in_px);
+
+  // Initializes as a status icon window.
+  bool InitializeAsStatusIcon();
+
+  // Interface that must be used by a class that inherits the XWindow to receive
+  // different messages from X Server.
+  virtual void OnXWindowCreated() = 0;
+  virtual void OnXWindowStateChanged() = 0;
+  virtual void OnXWindowDamageEvent(const gfx::Rect& damage_rect) = 0;
+  virtual void OnXWindowBoundsChanged(const gfx::Rect& size) = 0;
+  virtual void OnXWindowCloseRequested() = 0;
+  virtual void OnXWindowIsActiveChanged(bool active) = 0;
+  virtual void OnXWindowWorkspaceChanged() = 0;
+  virtual void OnXWindowLostPointerGrab() = 0;
+  virtual void OnXWindowLostCapture() = 0;
+  virtual void OnXWindowSelectionEvent(XEvent* xev) = 0;
+  virtual void OnXWindowDragDropEvent(XEvent* xev) = 0;
+  virtual base::Optional<gfx::Size> GetMinimumSizeForXWindow() = 0;
+  virtual base::Optional<gfx::Size> GetMaximumSizeForXWindow() = 0;
+  virtual void GetWindowMaskForXWindow(const gfx::Size& size,
+                                       SkPath* window_mask) = 0;
 
   // The display and the native X window hosting the root window.
   XDisplay* xdisplay_ = nullptr;
@@ -315,7 +352,7 @@ class COMPONENT_EXPORT(UI_BASE_X) XWindow {
   gfx::Size max_size_in_pixels_;
 
   // The window shape if the window is non-rectangular.
-  gfx::XScopedPtr<_XRegion, gfx::XObjectDeleter<_XRegion, int, XDestroyRegion>>
+  gfx::XScopedPtr<XRegion, gfx::XObjectDeleter<XRegion, int, XDestroyRegion>>
       window_shape_;
 
   // Whether |window_shape_| was set via SetShape().
@@ -335,53 +372,13 @@ class COMPONENT_EXPORT(UI_BASE_X) XWindow {
   bool pending_counter_value_is_extended_ = false;
   bool configure_counter_value_is_extended_ = false;
 
-  base::CancelableOnceCallback<void()> delayed_resize_task_;
+  base::CancelableOnceClosure delayed_resize_task_;
 
   // Keep track of barriers to confine cursor.
   bool has_pointer_barriers_ = false;
   std::array<XID, 4> pointer_barriers_;
 
-  base::WeakPtrFactory<XWindow> weak_factory_{this};
-
-  DISALLOW_COPY_AND_ASSIGN(XWindow);
-};
-
-// Delegate interface used to communicate the XWindow API client about events
-// of interest and request information which depends on external components.
-class COMPONENT_EXPORT(UI_BASE_X) XWindow::Delegate {
- public:
-  virtual void OnXWindowCreated() = 0;
-  virtual void OnXWindowStateChanged() = 0;
-  virtual void OnXWindowDamageEvent(const gfx::Rect& damage_rect) = 0;
-  virtual void OnXWindowSizeChanged(const gfx::Size& size) = 0;
-  virtual void OnXWindowCloseRequested() = 0;
-  virtual void OnXWindowIsActiveChanged(bool active) = 0;
-
-  // Optional Hooks
-  virtual void OnXWindowMapped();
-  virtual void OnXWindowUnmapped();
-  virtual void OnXWindowMoved(const gfx::Point& window_origin);
-  virtual void OnXWindowWorkspaceChanged();
-  virtual void OnXWindowLostPointerGrab();
-  virtual void OnXWindowLostCapture();
-
-  // TODO(crbug.com/981606): Consider unifying event handling functions
-  virtual void OnXWindowKeyEvent(ui::KeyEvent* key_event);
-  virtual void OnXWindowMouseEvent(ui::MouseEvent* event);
-  virtual void OnXWindowTouchEvent(ui::TouchEvent* event);
-  virtual void OnXWindowScrollEvent(ui::ScrollEvent* event);
-
-  virtual void OnXWindowSelectionEvent(XEvent* xev);
-  virtual void OnXWindowDragDropEvent(XEvent* xev);
-  virtual void OnXWindowChildCrossingEvent(XEvent* xev);
-
-  // TODO(crbug.com/981606): DesktopWindowTreeHostX11 forward raw |XEvent|s to
-  // ATK components that currently live in views layer.  Remove once ATK code
-  // is reworked to be reusable.
-  virtual void OnXWindowRawKeyEvent(XEvent* xev);
-
-  virtual gfx::Size GetMinimumSizeForXWindow();
-  virtual gfx::Size GetMaximumSizeForXWindow();
+  base::WeakPtrFactory<XWindow> resize_weak_factory_{this};
 };
 
 }  // namespace ui

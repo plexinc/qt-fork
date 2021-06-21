@@ -51,11 +51,10 @@ bool VirtualU2fDevice::IsTransportSupported(FidoTransportProtocol transport) {
                         transport);
 }
 
-VirtualU2fDevice::VirtualU2fDevice()
-    : VirtualFidoDevice(), weak_factory_(this) {}
+VirtualU2fDevice::VirtualU2fDevice() : VirtualFidoDevice() {}
 
 VirtualU2fDevice::VirtualU2fDevice(scoped_refptr<State> state)
-    : VirtualFidoDevice(std::move(state)), weak_factory_(this) {
+    : VirtualFidoDevice(std::move(state)) {
   DCHECK(IsTransportSupported(mutable_state()->transport));
 }
 
@@ -131,9 +130,8 @@ base::Optional<std::vector<uint8_t>> VirtualU2fDevice::DoRegister(
     return ErrorStatus(apdu::ApduResponse::Status::SW_WRONG_LENGTH);
   }
 
-  if (mutable_state()->simulate_press_callback) {
-    if (!mutable_state()->simulate_press_callback.Run(this))
-      return base::nullopt;
+  if (!SimulatePress()) {
+    return base::nullopt;
   }
 
   auto challenge_param = data.first<32>();
@@ -212,9 +210,8 @@ base::Optional<std::vector<uint8_t>> VirtualU2fDevice::DoSign(
     return ErrorStatus(apdu::ApduResponse::Status::SW_WRONG_DATA);
   }
 
-  if (mutable_state()->simulate_press_callback) {
-    if (!mutable_state()->simulate_press_callback.Run(this))
-      return base::nullopt;
+  if (!SimulatePress()) {
+    return base::nullopt;
   }
 
   if (data.size() < 32 + 32 + 1)

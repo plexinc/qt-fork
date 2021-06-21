@@ -25,7 +25,7 @@ SequenceManager::Settings::Builder::~Builder() = default;
 
 SequenceManager::Settings::Builder&
 SequenceManager::Settings::Builder::SetMessagePumpType(
-    MessagePump::Type message_loop_type_val) {
+    MessagePumpType message_loop_type_val) {
   settings_.message_loop_type = message_loop_type_val;
   return *this;
 }
@@ -47,14 +47,6 @@ SequenceManager::Settings::Builder&
 SequenceManager::Settings::Builder::SetAddQueueTimeToTasks(
     bool add_queue_time_to_tasks_val) {
   settings_.add_queue_time_to_tasks = add_queue_time_to_tasks_val;
-  return *this;
-}
-
-SequenceManager::Settings::Builder&
-SequenceManager::Settings::Builder::SetAntiStarvationLogicForPrioritiesDisabled(
-    bool anti_starvation_logic_for_priorities_disabled_val) {
-  settings_.anti_starvation_logic_for_priorities_disabled =
-      anti_starvation_logic_for_priorities_disabled_val;
   return *this;
 }
 

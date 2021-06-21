@@ -10,6 +10,9 @@
 
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/shared_memory_mapping.h"
+#include "base/optional.h"
+#include "base/util/type_safety/pass_key.h"
+#include "build/build_config.h"
 #include "components/viz/common/gpu/vulkan_context_provider.h"
 #include "gpu/command_buffer/common/shared_image_usage.h"
 #include "gpu/command_buffer/service/shared_context_state.h"
@@ -22,8 +25,14 @@
 namespace gpu {
 
 class VulkanCommandPool;
+class VulkanImage;
 
-class ExternalVkImageBacking : public SharedImageBacking {
+struct VulkanImageUsageCache {
+  // Maximal usage flags for VK_IMAGE_TILING_OPTIMAL each ResourceFormat.
+  VkImageUsageFlags optimal_tiling_usage[viz::RESOURCE_FORMAT_MAX + 1];
+};
+
+class ExternalVkImageBacking final : public ClearTrackingSharedImageBacking {
  public:
   static std::unique_ptr<ExternalVkImageBacking> Create(
       SharedContextState* context_state,
@@ -33,6 +42,7 @@ class ExternalVkImageBacking : public SharedImageBacking {
       const gfx::Size& size,
       const gfx::ColorSpace& color_space,
       uint32_t usage,
+      const VulkanImageUsageCache* image_usage_cache,
       base::span<const uint8_t> pixel_data,
       bool using_gmb = false);
 
@@ -44,12 +54,28 @@ class ExternalVkImageBacking : public SharedImageBacking {
       gfx::BufferFormat buffer_format,
       const gfx::Size& size,
       const gfx::ColorSpace& color_space,
-      uint32_t usage);
+      uint32_t usage,
+      const VulkanImageUsageCache* image_usage_cache);
+
+  ExternalVkImageBacking(util::PassKey<ExternalVkImageBacking>,
+                         const Mailbox& mailbox,
+                         viz::ResourceFormat format,
+                         const gfx::Size& size,
+                         const gfx::ColorSpace& color_space,
+                         uint32_t usage,
+                         SharedContextState* context_state,
+                         std::unique_ptr<VulkanImage> image,
+                         VulkanCommandPool* command_pool);
 
   ~ExternalVkImageBacking() override;
 
   SharedContextState* context_state() const { return context_state_; }
   const GrBackendTexture& backend_texture() const { return backend_texture_; }
+  VulkanImage* image() const { return image_.get(); }
+  const scoped_refptr<gles2::TexturePassthrough>& GetTexturePassthrough()
+      const {
+    return texture_passthrough_;
+  }
   VulkanImplementation* vulkan_implementation() const {
     return context_state()->vk_context_provider()->GetVulkanImplementation();
   }
@@ -60,9 +86,14 @@ class ExternalVkImageBacking : public SharedImageBacking {
         ->GetVulkanDevice();
   }
   bool need_sychronization() const {
-    if (use_separate_gl_texture())
-      return false;
-    return usage() & SHARED_IMAGE_USAGE_GLES2;
+    if (usage() & SHARED_IMAGE_USAGE_WEBGPU) {
+      return true;
+    }
+
+    if (usage() & SHARED_IMAGE_USAGE_GLES2) {
+      return !use_separate_gl_texture();
+    }
+    return false;
   }
   bool use_separate_gl_texture() const {
     return !context_state()->support_vulkan_external_object();
@@ -81,19 +112,32 @@ class ExternalVkImageBacking : public SharedImageBacking {
   void EndAccess(bool readonly, SemaphoreHandle semaphore_handle, bool is_gl);
 
   // SharedImageBacking implementation.
-  bool IsCleared() const override;
-  void SetCleared() override;
   void Update(std::unique_ptr<gfx::GpuFence> in_fence) override;
-  void Destroy() override;
   bool ProduceLegacyMailbox(MailboxManager* mailbox_manager) override;
 
  protected:
+  static std::unique_ptr<ExternalVkImageBacking> CreateInternal(
+      SharedContextState* context_state,
+      VulkanCommandPool* command_pool,
+      const Mailbox& mailbox,
+      viz::ResourceFormat format,
+      const gfx::Size& size,
+      const gfx::ColorSpace& color_space,
+      uint32_t usage,
+      const VulkanImageUsageCache* image_usage_cache,
+      base::span<const uint8_t> pixel_data,
+      bool using_gmb);
+
   void UpdateContent(uint32_t content_flags);
   bool BeginAccessInternal(bool readonly,
                            std::vector<SemaphoreHandle>* semaphore_handles);
   void EndAccessInternal(bool readonly, SemaphoreHandle semaphore_handle);
 
   // SharedImageBacking implementation.
+  std::unique_ptr<SharedImageRepresentationDawn> ProduceDawn(
+      SharedImageManager* manager,
+      MemoryTypeTracker* tracker,
+      WGPUDevice dawnDevice) override;
   std::unique_ptr<SharedImageRepresentationGLTexture> ProduceGLTexture(
       SharedImageManager* manager,
       MemoryTypeTracker* tracker) override;
@@ -106,41 +150,39 @@ class ExternalVkImageBacking : public SharedImageBacking {
       scoped_refptr<SharedContextState> context_state) override;
 
  private:
-  ExternalVkImageBacking(const Mailbox& mailbox,
-                         viz::ResourceFormat format,
-                         const gfx::Size& size,
-                         const gfx::ColorSpace& color_space,
-                         uint32_t usage,
-                         SharedContextState* context_state,
-                         VkImage image,
-                         VkDeviceMemory memory,
-                         size_t memory_size,
-                         VkFormat vk_format,
-                         VulkanCommandPool* command_pool);
+
+#if defined(OS_LINUX) || defined(OS_ANDROID)
+  // Extract file descriptor from image
+  int GetMemoryFd(const GrVkImageInfo& image_info);
+#endif
 
   // Install a shared memory GMB to the backing.
   void InstallSharedMemory(
       base::WritableSharedMemoryMapping shared_memory_mapping,
       size_t stride,
       size_t memory_offset);
+  // Returns texture_service_id for ProduceGLTexture and GLTexturePassthrough.
+  GLuint ProduceGLTextureInternal();
 
   using FillBufferCallback = base::OnceCallback<void(void* buffer)>;
   bool WritePixels(size_t data_size,
                    size_t stride,
                    FillBufferCallback callback);
-  void CopyPixelsFromGLTexture();
+  void CopyPixelsFromGLTextureToVkImage();
+  void CopyPixelsFromShmToGLTexture();
 
   SharedContextState* const context_state_;
+  std::unique_ptr<VulkanImage> image_;
   GrBackendTexture backend_texture_;
   VulkanCommandPool* const command_pool_;
 
   SemaphoreHandle write_semaphore_handle_;
   std::vector<SemaphoreHandle> read_semaphore_handles_;
-  bool is_cleared_ = false;
 
   bool is_write_in_progress_ = false;
   uint32_t reads_in_progress_ = 0;
   gles2::Texture* texture_ = nullptr;
+  scoped_refptr<gles2::TexturePassthrough> texture_passthrough_;
 
   // GMB related stuff.
   base::WritableSharedMemoryMapping shared_memory_mapping_;

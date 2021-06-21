@@ -41,7 +41,6 @@ class LayoutEmbeddedContent;
 class Page;
 class Scrollbar;
 class ScrollingCoordinator;
-class VisualViewport;
 
 enum CompositingUpdateType {
   kCompositingUpdateNone,
@@ -96,13 +95,6 @@ class CORE_EXPORT PaintLayerCompositor {
   // to the native view/window system.
   void SetCompositingModeEnabled(bool);
 
-  // Returns true if the accelerated compositing is enabled
-  bool HasAcceleratedCompositing() const {
-    return has_accelerated_compositing_;
-  }
-
-  bool PreferCompositingToLCDTextEnabled() const;
-
   bool RootShouldAlwaysComposite() const;
 
   // Notifies about changes to PreferCompositingToLCDText or
@@ -112,10 +104,6 @@ class CORE_EXPORT PaintLayerCompositor {
   // Used to indicate that a compositing update will be needed for the next
   // frame that gets drawn.
   void SetNeedsCompositingUpdate(CompositingUpdateType);
-
-  // Whether layer's compositedLayerMapping needs a GraphicsLayer to clip
-  // z-order children of the given Layer.
-  bool ClipsCompositingDescendants(const PaintLayer*) const;
 
   // Whether the given layer needs an extra 'contents' layer.
   bool NeedsContentsCompositingLayer(const PaintLayer*) const;
@@ -133,11 +121,8 @@ class CORE_EXPORT PaintLayerCompositor {
 
   // Returns the GraphicsLayer we should start painting from. This can differ
   // from above in some cases, e.g.  when the RootGraphicsLayer is detached and
-  // swapped out for an overlay video layer.
+  // swapped out for an overlay video or immersive-ar DOM overlay layer.
   GraphicsLayer* PaintRootGraphicsLayer() const;
-
-  // The LayoutView's scroll layer.
-  GraphicsLayer* ScrollLayer() const;
 
   static PaintLayerCompositor* FrameContentsCompositor(LayoutEmbeddedContent&);
   // Return true if the layers changed.
@@ -158,10 +143,6 @@ class CORE_EXPORT PaintLayerCompositor {
   bool AllocateOrClearCompositedLayerMapping(
       PaintLayer*,
       CompositingStateTransitionType composited_layer_update);
-
-  bool IsRootScrollerAncestor() const;
-
-  void AttachRootLayerViaChromeClient();
 
   PaintLayer* GetCompositingInputsRoot() {
     return compositing_inputs_root_.Get();
@@ -198,9 +179,7 @@ class CORE_EXPORT PaintLayerCompositor {
 
   void EnableCompositingModeIfNeeded();
 
-  void ApplyOverlayFullscreenVideoAdjustmentIfNeeded();
-  void AdjustOverlayFullscreenVideoPosition(GraphicsLayer*);
-  GraphicsLayer* OverlayFullscreenVideoGraphicsLayer();
+  GraphicsLayer* OverlayFullscreenVideoGraphicsLayer() const;
 
   // Checks the given graphics layer against the compositor's horizontal and
   // vertical scrollbar graphics layers, returning the associated Scrollbar
@@ -208,12 +187,10 @@ class CORE_EXPORT PaintLayerCompositor {
   Scrollbar* GraphicsLayerToScrollbar(const GraphicsLayer*) const;
 
   bool IsMainFrame() const;
-  VisualViewport& GetVisualViewport() const;
-  GraphicsLayer* ParentForContentLayers(
-      GraphicsLayer* child_frame_parent_candidate = nullptr) const;
+
+  GraphicsLayer* GetXrOverlayLayer() const;
 
   LayoutView& layout_view_;
-  const bool has_accelerated_compositing_ = true;
 
   bool compositing_ = false;
 
@@ -232,9 +209,8 @@ class CORE_EXPORT PaintLayerCompositor {
 
   enum RootLayerAttachment {
     kRootLayerUnattached,
-    kRootLayerPendingAttachViaChromeClient,
-    kRootLayerAttachedViaChromeClient,
-    kRootLayerAttachedViaEnclosingFrame
+    kRootLayerAttachedViaEnclosingFrame,
+    kRootLayerOfLocalFrameRoot  // which doesn't need to attach to anything.
   };
   RootLayerAttachment root_layer_attachment_ = kRootLayerUnattached;
 

@@ -10,21 +10,15 @@
 
 #include "base/bind.h"
 #include "base/logging.h"
+#include "base/no_destructor.h"
 #include "base/stl_util.h"
 #include "base/strings/string_split.h"
 #include "base/supports_user_data.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/values.h"
 #include "build/build_config.h"
-#if defined (TOOLKIT_QT)
-#include "service_qt.h"
-#else
-#include "chrome/browser/chrome_service.h"
-#include "chrome/common/constants.mojom.h"
-#endif
 #include "chrome/browser/spellchecker/spellcheck_factory.h"
 #include "chrome/browser/spellchecker/spellcheck_hunspell_dictionary.h"
-#include "chrome/common/pref_names.h"
 #include "components/language/core/browser/pref_names.h"
 #include "components/prefs/pref_member.h"
 #include "components/prefs/pref_service.h"
@@ -43,9 +37,25 @@
 #include "content/public/browser/notification_types.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/storage_partition.h"
-#include "services/service_manager/public/cpp/connector.h"
+#include "mojo/public/cpp/bindings/remote.h"
+
+#if defined(OS_WIN) && BUILDFLAG(USE_BROWSER_SPELLCHECKER)
+#include "base/task/post_task.h"
+#include "base/task/task_traits.h"
+#include "base/task/thread_pool.h"
+#include "components/spellcheck/browser/windows_spell_checker.h"
+#endif  // defined(OS_WIN) && BUILDFLAG(USE_BROWSER_SPELLCHECKER)
 
 using content::BrowserThread;
+
+namespace {
+
+SpellcheckService::SpellCheckerBinder& GetSpellCheckerBinderOverride() {
+  static base::NoDestructor<SpellcheckService::SpellCheckerBinder> binder;
+  return *binder;
+}
+
+}  // namespace
 
 // TODO(rlp): I do not like globals, but keeping these for now during
 // transition.
@@ -58,6 +68,16 @@ SpellcheckService::EventType g_status_type =
 SpellcheckService::SpellcheckService(content::BrowserContext* context)
     : context_(context) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
+
+#if defined(OS_WIN) && BUILDFLAG(USE_BROWSER_SPELLCHECKER)
+  // The Windows spell checker must be created before the dictionaries are
+  // initialized.
+  if (spellcheck::WindowsVersionSupportsSpellchecker()) {
+    platform_spell_checker_ = std::make_unique<WindowsSpellChecker>(
+        base::ThreadPool::CreateCOMSTATaskRunner({base::MayBlock()}));
+  }
+#endif  // defined(OS_WIN) && BUILDFLAG(USE_BROWSER_SPELLCHECKER)
+
   PrefService* prefs = user_prefs::UserPrefs::Get(context);
   pref_change_registrar_.Init(prefs);
   StringListPrefMember dictionaries_pref;
@@ -186,18 +206,15 @@ void SpellcheckService::StartRecordingMetrics(bool spellcheck_enabled) {
   OnUseSpellingServiceChanged();
 
 #if defined(OS_WIN)
-  RecordMissingLanguagePacksCount();
-  RecordHunspellUnsupportedLanguageCount(GetNormalizedAcceptLanguages());
+  RecordChromeLocalesStats();
+  RecordSpellcheckLocalesStats();
 #endif  // defined(OS_WIN)
 }
 
-void SpellcheckService::InitForRenderer(
-    const service_manager::Identity& renderer_identity) {
+void SpellcheckService::InitForRenderer(content::RenderProcessHost* host) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
-  content::BrowserContext* context =
-      content::BrowserContext::GetBrowserContextForServiceInstanceGroup(
-          renderer_identity.instance_group());
+  content::BrowserContext* context = host->GetBrowserContext();
   if (SpellcheckServiceFactory::GetForContext(context) != this)
     return;
 
@@ -219,21 +236,8 @@ void SpellcheckService::InitForRenderer(
                         custom_dictionary_->GetWords().end());
   }
 
-  spellcheck::mojom::SpellCheckerPtr spellchecker;
-#if defined (TOOLKIT_QT)
-  ServiceQt::GetInstance()->connector()->BindInterface(
-      service_manager::ServiceFilter::ByNameWithIdInGroup(
-          "qtwebengine_renderer", renderer_identity.instance_id(),
-          renderer_identity.instance_group()),
-      &spellchecker);
-#else
-  ChromeService::GetInstance()->connector()->BindInterface(
-      service_manager::ServiceFilter::ByNameWithIdInGroup(
-          chrome::mojom::kRendererServiceName, renderer_identity.instance_id(),
-          renderer_identity.instance_group()),
-      &spellchecker);
-#endif
-  spellchecker->Initialize(std::move(dictionaries), custom_words, enable);
+  GetSpellCheckerForProcess(host)->Initialize(std::move(dictionaries),
+                                              custom_words, enable);
 }
 
 SpellCheckHostMetrics* SpellcheckService::GetMetrics() const {
@@ -283,7 +287,7 @@ void SpellcheckService::LoadHunspellDictionaries() {
   }
 
 #if defined(OS_WIN)
-  RecordMissingLanguagePacksCount();
+  RecordSpellcheckLocalesStats();
 #endif  // defined(OS_WIN)
 }
 
@@ -308,9 +312,7 @@ void SpellcheckService::Observe(int type,
                                 const content::NotificationSource& source,
                                 const content::NotificationDetails& details) {
   DCHECK_EQ(content::NOTIFICATION_RENDERER_PROCESS_CREATED, type);
-  InitForRenderer(content::Source<content::RenderProcessHost>(source)
-                      .ptr()
-                      ->GetChildIdentity());
+  InitForRenderer(content::Source<content::RenderProcessHost>(source).ptr());
 }
 
 void SpellcheckService::OnCustomDictionaryLoaded() {
@@ -331,25 +333,8 @@ void SpellcheckService::OnCustomDictionaryChanged(
     content::RenderProcessHost* process = it.GetCurrentValue();
     if (!process->IsInitializedAndNotDead())
       continue;
-
-    service_manager::Identity renderer_identity = process->GetChildIdentity();
-    spellcheck::mojom::SpellCheckerPtr spellchecker;
-#if defined (TOOLKIT_QT)
-    ServiceQt::GetInstance()->connector()->BindInterface(
-        service_manager::ServiceFilter::ByNameWithIdInGroup(
-            "qtwebengine_renderer",
-            renderer_identity.instance_id(),
-            renderer_identity.instance_group()),
-        &spellchecker);
-#else
-    ChromeService::GetInstance()->connector()->BindInterface(
-        service_manager::ServiceFilter::ByNameWithIdInGroup(
-            chrome::mojom::kRendererServiceName,
-            renderer_identity.instance_id(),
-            renderer_identity.instance_group()),
-        &spellchecker);
-#endif
-    spellchecker->CustomDictionaryChanged(additions, deletions);
+    GetSpellCheckerForProcess(process)->CustomDictionaryChanged(additions,
+                                                                deletions);
   }
 }
 
@@ -375,6 +360,11 @@ void SpellcheckService::OnHunspellDictionaryDownloadFailure(
 }
 
 // static
+void SpellcheckService::OverrideBinderForTesting(SpellCheckerBinder binder) {
+  GetSpellCheckerBinderOverride() = std::move(binder);
+}
+
+// static
 void SpellcheckService::AttachStatusEvent(base::WaitableEvent* status_event) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
@@ -387,6 +377,18 @@ SpellcheckService::EventType SpellcheckService::GetStatusEvent() {
   return g_status_type;
 }
 
+mojo::Remote<spellcheck::mojom::SpellChecker>
+SpellcheckService::GetSpellCheckerForProcess(content::RenderProcessHost* host) {
+  mojo::Remote<spellcheck::mojom::SpellChecker> spellchecker;
+  auto receiver = spellchecker.BindNewPipeAndPassReceiver();
+  auto binder = GetSpellCheckerBinderOverride();
+  if (binder)
+    binder.Run(std::move(receiver));
+  else
+    host->BindReceiver(std::move(receiver));
+  return spellchecker;
+}
+
 void SpellcheckService::InitForAllRenderers() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   for (content::RenderProcessHost::iterator i(
@@ -394,7 +396,7 @@ void SpellcheckService::InitForAllRenderers() {
        !i.IsAtEnd(); i.Advance()) {
     content::RenderProcessHost* process = i.GetCurrentValue();
     if (process && process->GetProcess().Handle())
-      InitForRenderer(process->GetChildIdentity());
+      InitForRenderer(process);
   }
 }
 
@@ -434,44 +436,46 @@ void SpellcheckService::OnAcceptLanguagesChanged() {
   dictionaries_pref.SetValue(filtered_dictionaries);
 
 #if defined(OS_WIN)
-  RecordHunspellUnsupportedLanguageCount(accept_languages);
+  RecordChromeLocalesStats();
 #endif  // defined(OS_WIN)
 }
 
-std::vector<std::string> SpellcheckService::GetNormalizedAcceptLanguages()
-    const {
+std::vector<std::string> SpellcheckService::GetNormalizedAcceptLanguages(
+    bool normalize_for_spellcheck) const {
   PrefService* prefs = user_prefs::UserPrefs::Get(context_);
   std::vector<std::string> accept_languages =
       base::SplitString(prefs->GetString(language::prefs::kAcceptLanguages),
                         ",", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
-  std::transform(accept_languages.begin(), accept_languages.end(),
-                 accept_languages.begin(),
-                 &spellcheck::GetCorrespondingSpellCheckLanguage);
+
+  if (normalize_for_spellcheck) {
+    std::transform(accept_languages.begin(), accept_languages.end(),
+                   accept_languages.begin(),
+                   &spellcheck::GetCorrespondingSpellCheckLanguage);
+  }
+
   return accept_languages;
 }
 
 #if defined(OS_WIN)
-void SpellcheckService::RecordMissingLanguagePacksCount() {
+void SpellcheckService::RecordSpellcheckLocalesStats() {
   if (spellcheck::WindowsVersionSupportsSpellchecker() && metrics_ &&
-      !hunspell_dictionaries_.empty()) {
+      platform_spell_checker() && !hunspell_dictionaries_.empty()) {
     std::vector<std::string> hunspell_locales;
     for (auto& dict : hunspell_dictionaries_) {
       hunspell_locales.push_back(dict->GetLanguage());
     }
-    spellcheck_platform::RecordMissingLanguagePacksCount(
-        std::move(hunspell_locales), metrics_.get());
+    spellcheck_platform::RecordSpellcheckLocalesStats(
+        platform_spell_checker(), std::move(hunspell_locales), metrics_.get());
   }
 }
 
-void SpellcheckService::RecordHunspellUnsupportedLanguageCount(
-    const std::vector<std::string>& accept_languages) {
+void SpellcheckService::RecordChromeLocalesStats() {
+  const auto& accept_languages =
+      GetNormalizedAcceptLanguages(/* normalize_for_spellcheck */ false);
   if (spellcheck::WindowsVersionSupportsSpellchecker() && metrics_ &&
-      !accept_languages.empty()) {
-    metrics_->RecordHunspellUnsupportedLanguageCount(std::count_if(
-        accept_languages.begin(), accept_languages.end(),
-        [](const std::string& s) {
-          return spellcheck::GetCorrespondingSpellCheckLanguage(s).empty();
-        }));
+      platform_spell_checker() && !accept_languages.empty()) {
+    spellcheck_platform::RecordChromeLocalesStats(
+        platform_spell_checker(), std::move(accept_languages), metrics_.get());
   }
 }
 #endif  // defined(OS_WIN)

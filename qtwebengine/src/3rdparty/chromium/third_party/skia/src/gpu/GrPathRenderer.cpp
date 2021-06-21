@@ -45,7 +45,7 @@ bool GrPathRenderer::drawPath(const DrawPathArgs& args) {
     args.validate();
     CanDrawPathArgs canArgs;
     canArgs.fCaps = args.fContext->priv().caps();
-    canArgs.fProxy = args.fRenderTargetContext->proxy();
+    canArgs.fProxy = args.fRenderTargetContext->asRenderTargetProxy();
     canArgs.fClipConservativeBounds = args.fClipConservativeBounds;
     canArgs.fViewMatrix = args.fViewMatrix;
     canArgs.fShape = args.fShape;
@@ -81,13 +81,12 @@ bool GrPathRenderer::IsStrokeHairlineOrEquivalent(const GrStyle& style, const Sk
            SkDrawTreatAAStrokeAsHairline(stroke.getWidth(), matrix, outCoverage);
 }
 
-
 void GrPathRenderer::GetPathDevBounds(const SkPath& path,
-                                      int devW, int devH,
+                                      SkISize devSize,
                                       const SkMatrix& matrix,
                                       SkRect* bounds) {
     if (path.isInverseFillType()) {
-        *bounds = SkRect::MakeWH(SkIntToScalar(devW), SkIntToScalar(devH));
+        *bounds = SkRect::Make(devSize);
         return;
     }
     *bounds = path.getBounds();

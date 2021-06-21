@@ -21,16 +21,15 @@ using SquashingDisallowedReasons = unsigned;
   V(FilterMismatch)                             \
   V(WouldBreakPaintOrder)                       \
   V(SquashingVideoIsDisallowed)                 \
-  V(SquashedLayerClipsCompositingDescendants)   \
   V(SquashingLayoutEmbeddedContentIsDisallowed) \
   V(SquashingBlendingIsDisallowed)              \
   V(NearestFixedPositionMismatch)               \
-  V(ScrollChildWithCompositedDescendants)       \
   V(SquashingLayerIsAnimating)                  \
   V(RenderingContextMismatch)                   \
   V(FragmentedContent)                          \
   V(ClipPathMismatch)                           \
-  V(MaskMismatch)
+  V(MaskMismatch)                               \
+  V(CrossesLayoutContainmentBoundary)
 
 class PLATFORM_EXPORT SquashingDisallowedReason {
   DISALLOW_NEW();

@@ -15,9 +15,9 @@
 #include "base/strings/string_piece.h"
 #include "base/sync_socket.h"
 #include "base/timer/timer.h"
-#include "media/mojo/interfaces/audio_data_pipe.mojom.h"
-#include "media/mojo/interfaces/audio_logging.mojom.h"
-#include "media/mojo/interfaces/audio_output_stream.mojom.h"
+#include "media/mojo/mojom/audio_data_pipe.mojom.h"
+#include "media/mojo/mojom/audio_logging.mojom.h"
+#include "media/mojo/mojom/audio_output_stream.mojom.h"
 #include "mojo/public/cpp/bindings/associated_remote.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
@@ -85,6 +85,16 @@ class OutputStream final : public media::mojom::AudioOutputStream,
   void PollAudioLevel();
   bool IsAudible();
 
+  // Internal helper method for sending logs related  to this class to clients
+  // registered to receive these logs. Prepends each log with "audio::OS" to
+  // point out its origin. Compare with OutputController::EventHandler::OnLog()
+  // which only will be called by the |controller_| object. These logs are
+  // prepended with "AOC::" where AOC corresponds to AudioOutputController.
+  void SendLogMessage(const char* format, ...) PRINTF_FORMAT(2, 3);
+  base::UnguessableToken processing_id() const {
+    return controller_.processing_id();
+  }
+
   SEQUENCE_CHECKER(owning_sequence_);
 
   base::CancelableSyncSocket foreign_socket_;
@@ -107,7 +117,7 @@ class OutputStream final : public media::mojom::AudioOutputStream,
   base::RepeatingTimer poll_timer_;
   bool is_audible_ = false;
 
-  base::WeakPtrFactory<OutputStream> weak_factory_;
+  base::WeakPtrFactory<OutputStream> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(OutputStream);
 };

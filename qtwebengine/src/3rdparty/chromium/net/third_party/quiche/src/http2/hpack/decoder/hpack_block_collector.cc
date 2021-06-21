@@ -77,14 +77,14 @@ void HpackBlockCollector::ExpectNameIndexAndLiteralValue(
     HpackEntryType type,
     size_t index,
     bool value_huffman,
-    const Http2String& value) {
+    const std::string& value) {
   entries_.push_back(HpackEntryCollector(type, index, value_huffman, value));
 }
 void HpackBlockCollector::ExpectLiteralNameAndValue(HpackEntryType type,
                                                     bool name_huffman,
-                                                    const Http2String& name,
+                                                    const std::string& name,
                                                     bool value_huffman,
-                                                    const Http2String& value) {
+                                                    const std::string& value) {
   entries_.push_back(
       HpackEntryCollector(type, name_huffman, name, value_huffman, value));
 }
@@ -112,7 +112,7 @@ AssertionResult HpackBlockCollector::ValidateSoleLiteralValueHeader(
     HpackEntryType expected_type,
     size_t expected_index,
     bool expected_value_huffman,
-    Http2StringPiece expected_value) const {
+    quiche::QuicheStringPiece expected_value) const {
   VERIFY_TRUE(pending_entry_.IsClear());
   VERIFY_EQ(1u, entries_.size());
   VERIFY_TRUE(entries_.front().ValidateLiteralValueHeader(
@@ -122,9 +122,9 @@ AssertionResult HpackBlockCollector::ValidateSoleLiteralValueHeader(
 AssertionResult HpackBlockCollector::ValidateSoleLiteralNameValueHeader(
     HpackEntryType expected_type,
     bool expected_name_huffman,
-    Http2StringPiece expected_name,
+    quiche::QuicheStringPiece expected_name,
     bool expected_value_huffman,
-    Http2StringPiece expected_value) const {
+    quiche::QuicheStringPiece expected_value) const {
   VERIFY_TRUE(pending_entry_.IsClear());
   VERIFY_EQ(1u, entries_.size());
   VERIFY_TRUE(entries_.front().ValidateLiteralNameValueHeader(

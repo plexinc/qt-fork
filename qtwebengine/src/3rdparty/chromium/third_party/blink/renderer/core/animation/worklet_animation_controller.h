@@ -33,7 +33,7 @@ class WorkletAnimationBase;
 // For more details on AnimationWorklet, see the spec:
 // https://wicg.github.io/animation-worklet
 class CORE_EXPORT WorkletAnimationController
-    : public GarbageCollectedFinalized<WorkletAnimationController>,
+    : public GarbageCollected<WorkletAnimationController>,
       public MutatorClient {
  public:
   WorkletAnimationController(Document*);
@@ -64,7 +64,7 @@ class CORE_EXPORT WorkletAnimationController
   // AnimationWorkletGlobalScope.
   bool IsAnimatorRegistered(const String& animator_name) const;
 
-  void Trace(blink::Visitor*);
+  void Trace(Visitor*);
 
  private:
   void MutateAnimations();

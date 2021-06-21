@@ -23,13 +23,13 @@ class SK_API SkOverdrawColorFilter : public SkColorFilter {
 public:
     static constexpr int kNumColors = 6;
 
-    static sk_sp<SkOverdrawColorFilter> Make(const SkPMColor colors[kNumColors]) {
-        return sk_sp<SkOverdrawColorFilter>(new SkOverdrawColorFilter(colors));
+    static sk_sp<SkColorFilter> MakeWithSkColors(const SkColor colors[kNumColors]) {
+        return sk_sp<SkColorFilter>(new SkOverdrawColorFilter(colors));
     }
 
 #if SK_SUPPORT_GPU
-    std::unique_ptr<GrFragmentProcessor> asFragmentProcessor(
-            GrRecordingContext*, const GrColorSpaceInfo&) const override;
+    std::unique_ptr<GrFragmentProcessor> asFragmentProcessor(GrRecordingContext*,
+                                                             const GrColorInfo&) const override;
 #endif
 
     static void RegisterFlattenables();
@@ -40,13 +40,15 @@ protected:
 private:
     SK_FLATTENABLE_HOOKS(SkOverdrawColorFilter)
 
-    SkOverdrawColorFilter(const SkPMColor colors[kNumColors]) {
-        memcpy(fColors, colors, kNumColors * sizeof(SkPMColor));
+    SkOverdrawColorFilter(const SkColor colors[kNumColors]) {
+        memcpy(fColors, colors, kNumColors * sizeof(SkColor));
     }
 
     bool onAppendStages(const SkStageRec&, bool) const override;
+    skvm::Color onProgram(skvm::Builder*, skvm::Color, SkColorSpace*, skvm::Uniforms*,
+                          SkArenaAlloc*) const override;
 
-    SkPMColor fColors[kNumColors];
+    SkColor fColors[kNumColors];
 
     typedef SkColorFilter INHERITED;
 };

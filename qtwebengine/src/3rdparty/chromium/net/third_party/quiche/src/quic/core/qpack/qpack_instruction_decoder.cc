@@ -9,6 +9,7 @@
 
 #include "net/third_party/quiche/src/quic/platform/api/quic_bug_tracker.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 
@@ -32,81 +33,88 @@ QpackInstructionDecoder::QpackInstructionDecoder(const QpackLanguage* language,
       error_detected_(false),
       state_(State::kStartInstruction) {}
 
-void QpackInstructionDecoder::Decode(QuicStringPiece data) {
+bool QpackInstructionDecoder::Decode(quiche::QuicheStringPiece data) {
   DCHECK(!data.empty());
   DCHECK(!error_detected_);
 
   while (true) {
+    bool success = true;
     size_t bytes_consumed = 0;
 
     switch (state_) {
       case State::kStartInstruction:
-        DoStartInstruction(data);
+        success = DoStartInstruction(data);
         break;
       case State::kStartField:
-        DoStartField();
+        success = DoStartField();
         break;
       case State::kReadBit:
-        DoReadBit(data);
+        success = DoReadBit(data);
         break;
       case State::kVarintStart:
-        bytes_consumed = DoVarintStart(data);
+        success = DoVarintStart(data, &bytes_consumed);
         break;
       case State::kVarintResume:
-        bytes_consumed = DoVarintResume(data);
+        success = DoVarintResume(data, &bytes_consumed);
         break;
       case State::kVarintDone:
-        DoVarintDone();
+        success = DoVarintDone();
         break;
       case State::kReadString:
-        bytes_consumed = DoReadString(data);
+        success = DoReadString(data, &bytes_consumed);
         break;
       case State::kReadStringDone:
-        DoReadStringDone();
+        success = DoReadStringDone();
         break;
     }
 
-    if (error_detected_) {
-      return;
+    if (!success) {
+      return false;
     }
+
+    // |success| must be false if an error is detected.
+    DCHECK(!error_detected_);
 
     DCHECK_LE(bytes_consumed, data.size());
 
-    data = QuicStringPiece(data.data() + bytes_consumed,
-                           data.size() - bytes_consumed);
+    data = quiche::QuicheStringPiece(data.data() + bytes_consumed,
+                                     data.size() - bytes_consumed);
 
     // Stop processing if no more data but next state would require it.
     if (data.empty() && (state_ != State::kStartField) &&
         (state_ != State::kVarintDone) && (state_ != State::kReadStringDone)) {
-      return;
+      return true;
     }
   }
+
+  return true;
 }
 
 bool QpackInstructionDecoder::AtInstructionBoundary() const {
   return state_ == State::kStartInstruction;
 }
 
-void QpackInstructionDecoder::DoStartInstruction(QuicStringPiece data) {
+bool QpackInstructionDecoder::DoStartInstruction(
+    quiche::QuicheStringPiece data) {
   DCHECK(!data.empty());
 
   instruction_ = LookupOpcode(data[0]);
   field_ = instruction_->fields.begin();
 
   state_ = State::kStartField;
+  return true;
 }
 
-void QpackInstructionDecoder::DoStartField() {
+bool QpackInstructionDecoder::DoStartField() {
   if (field_ == instruction_->fields.end()) {
     // Completed decoding this instruction.
 
     if (!delegate_->OnInstructionDecoded(instruction_)) {
-      error_detected_ = true;
-      return;
+      return false;
     }
 
     state_ = State::kStartInstruction;
-    return;
+    return true;
   }
 
   switch (field_->type) {
@@ -114,15 +122,18 @@ void QpackInstructionDecoder::DoStartField() {
     case QpackInstructionFieldType::kName:
     case QpackInstructionFieldType::kValue:
       state_ = State::kReadBit;
-      return;
+      return true;
     case QpackInstructionFieldType::kVarint:
     case QpackInstructionFieldType::kVarint2:
       state_ = State::kVarintStart;
-      return;
+      return true;
+    default:
+      QUIC_BUG << "Invalid field type.";
+      return false;
   }
 }
 
-void QpackInstructionDecoder::DoReadBit(QuicStringPiece data) {
+bool QpackInstructionDecoder::DoReadBit(quiche::QuicheStringPiece data) {
   DCHECK(!data.empty());
 
   switch (field_->type) {
@@ -133,7 +144,7 @@ void QpackInstructionDecoder::DoReadBit(QuicStringPiece data) {
       ++field_;
       state_ = State::kStartField;
 
-      return;
+      return true;
     }
     case QpackInstructionFieldType::kName:
     case QpackInstructionFieldType::kValue: {
@@ -144,14 +155,16 @@ void QpackInstructionDecoder::DoReadBit(QuicStringPiece data) {
 
       state_ = State::kVarintStart;
 
-      return;
+      return true;
     }
     default:
-      DCHECK(false);
+      QUIC_BUG << "Invalid field type.";
+      return false;
   }
 }
 
-size_t QpackInstructionDecoder::DoVarintStart(QuicStringPiece data) {
+bool QpackInstructionDecoder::DoVarintStart(quiche::QuicheStringPiece data,
+                                            size_t* bytes_consumed) {
   DCHECK(!data.empty());
   DCHECK(field_->type == QpackInstructionFieldType::kVarint ||
          field_->type == QpackInstructionFieldType::kVarint2 ||
@@ -162,24 +175,25 @@ size_t QpackInstructionDecoder::DoVarintStart(QuicStringPiece data) {
   http2::DecodeStatus status =
       varint_decoder_.Start(data[0], field_->param, &buffer);
 
-  size_t bytes_consumed = 1 + buffer.Offset();
+  *bytes_consumed = 1 + buffer.Offset();
   switch (status) {
     case http2::DecodeStatus::kDecodeDone:
       state_ = State::kVarintDone;
-      return bytes_consumed;
+      return true;
     case http2::DecodeStatus::kDecodeInProgress:
       state_ = State::kVarintResume;
-      return bytes_consumed;
+      return true;
     case http2::DecodeStatus::kDecodeError:
       OnError("Encoded integer too large.");
-      return bytes_consumed;
+      return false;
     default:
       QUIC_BUG << "Unknown decode status " << status;
-      return bytes_consumed;
+      return false;
   }
 }
 
-size_t QpackInstructionDecoder::DoVarintResume(QuicStringPiece data) {
+bool QpackInstructionDecoder::DoVarintResume(quiche::QuicheStringPiece data,
+                                             size_t* bytes_consumed) {
   DCHECK(!data.empty());
   DCHECK(field_->type == QpackInstructionFieldType::kVarint ||
          field_->type == QpackInstructionFieldType::kVarint2 ||
@@ -189,25 +203,25 @@ size_t QpackInstructionDecoder::DoVarintResume(QuicStringPiece data) {
   http2::DecodeBuffer buffer(data);
   http2::DecodeStatus status = varint_decoder_.Resume(&buffer);
 
-  size_t bytes_consumed = buffer.Offset();
+  *bytes_consumed = buffer.Offset();
   switch (status) {
     case http2::DecodeStatus::kDecodeDone:
       state_ = State::kVarintDone;
-      return bytes_consumed;
+      return true;
     case http2::DecodeStatus::kDecodeInProgress:
-      DCHECK_EQ(bytes_consumed, data.size());
+      DCHECK_EQ(*bytes_consumed, data.size());
       DCHECK(buffer.Empty());
-      return bytes_consumed;
+      return true;
     case http2::DecodeStatus::kDecodeError:
       OnError("Encoded integer too large.");
-      return bytes_consumed;
+      return false;
     default:
       QUIC_BUG << "Unknown decode status " << status;
-      return bytes_consumed;
+      return false;
   }
 }
 
-void QpackInstructionDecoder::DoVarintDone() {
+bool QpackInstructionDecoder::DoVarintDone() {
   DCHECK(field_->type == QpackInstructionFieldType::kVarint ||
          field_->type == QpackInstructionFieldType::kVarint2 ||
          field_->type == QpackInstructionFieldType::kName ||
@@ -218,7 +232,7 @@ void QpackInstructionDecoder::DoVarintDone() {
 
     ++field_;
     state_ = State::kStartField;
-    return;
+    return true;
   }
 
   if (field_->type == QpackInstructionFieldType::kVarint2) {
@@ -226,13 +240,13 @@ void QpackInstructionDecoder::DoVarintDone() {
 
     ++field_;
     state_ = State::kStartField;
-    return;
+    return true;
   }
 
   string_length_ = varint_decoder_.value();
   if (string_length_ > kStringLiteralLengthLimit) {
     OnError("String literal too long.");
-    return;
+    return false;
   }
 
   std::string* const string =
@@ -242,15 +256,17 @@ void QpackInstructionDecoder::DoVarintDone() {
   if (string_length_ == 0) {
     ++field_;
     state_ = State::kStartField;
-    return;
+    return true;
   }
 
   string->reserve(string_length_);
 
   state_ = State::kReadString;
+  return true;
 }
 
-size_t QpackInstructionDecoder::DoReadString(QuicStringPiece data) {
+bool QpackInstructionDecoder::DoReadString(quiche::QuicheStringPiece data,
+                                           size_t* bytes_consumed) {
   DCHECK(!data.empty());
   DCHECK(field_->type == QpackInstructionFieldType::kName ||
          field_->type == QpackInstructionFieldType::kValue);
@@ -259,18 +275,17 @@ size_t QpackInstructionDecoder::DoReadString(QuicStringPiece data) {
       (field_->type == QpackInstructionFieldType::kName) ? &name_ : &value_;
   DCHECK_LT(string->size(), string_length_);
 
-  size_t bytes_consumed =
-      std::min(string_length_ - string->size(), data.size());
-  string->append(data.data(), bytes_consumed);
+  *bytes_consumed = std::min(string_length_ - string->size(), data.size());
+  string->append(data.data(), *bytes_consumed);
 
   DCHECK_LE(string->size(), string_length_);
   if (string->size() == string_length_) {
     state_ = State::kReadStringDone;
   }
-  return bytes_consumed;
+  return true;
 }
 
-void QpackInstructionDecoder::DoReadStringDone() {
+bool QpackInstructionDecoder::DoReadStringDone() {
   DCHECK(field_->type == QpackInstructionFieldType::kName ||
          field_->type == QpackInstructionFieldType::kValue);
 
@@ -285,13 +300,14 @@ void QpackInstructionDecoder::DoReadStringDone() {
     huffman_decoder_.Decode(*string, &decoded_value);
     if (!huffman_decoder_.InputProperlyTerminated()) {
       OnError("Error in Huffman-encoded string.");
-      return;
+      return false;
     }
     *string = std::move(decoded_value);
   }
 
   ++field_;
   state_ = State::kStartField;
+  return true;
 }
 
 const QpackInstruction* QpackInstructionDecoder::LookupOpcode(
@@ -307,7 +323,7 @@ const QpackInstruction* QpackInstructionDecoder::LookupOpcode(
   return nullptr;
 }
 
-void QpackInstructionDecoder::OnError(QuicStringPiece error_message) {
+void QpackInstructionDecoder::OnError(quiche::QuicheStringPiece error_message) {
   DCHECK(!error_detected_);
 
   error_detected_ = true;

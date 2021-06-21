@@ -194,8 +194,7 @@ void LogFileCleanupStatus(FileCleanupReason reason,
                           int external_cleanups);
 
 // Logs the file life time for successfully completed download.
-void LogFileLifeTime(const base::TimeDelta& file_life_time,
-                     int num_cleanup_attempts);
+void LogFileLifeTime(const base::TimeDelta& file_life_time);
 
 // Logs the total disk space utilized by download files.
 // This includes the total size of all the files in |file_dir|.
@@ -211,17 +210,11 @@ void LogFilePathRenamed(bool renamed);
 // Logs an action the Controller takes on an active download.
 void LogEntryEvent(DownloadEvent event);
 
-// At the time of a resumption, logs which resumption attempt count this is.
-void LogEntryResumptionCount(uint32_t resume_count);
-
 // At the time of a retry, logs which retry attempt count this is.
 void LogEntryRetryCount(uint32_t retry_count);
 
 // Records whether the entry was an upload.
 void LogHasUploadData(DownloadClient client, bool has_upload_data);
-
-// Records whether or not a completed entry has a hash value.
-void LogHashPresence(bool hash_exists);
 
 // Records count of reduced mode to full browser transitions requested by each
 // client.

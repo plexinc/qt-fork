@@ -10,8 +10,11 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/callback.h"
 #include "base/memory/read_only_shared_memory_region.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/stl_util.h"
+#include "base/strings/stringprintf.h"
 #include "base/time/default_tick_clock.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
@@ -23,13 +26,21 @@
 #include "media/base/limits.h"
 #include "media/base/video_util.h"
 #include "media/capture/mojom/video_capture_types.mojom.h"
-#include "mojo/public/cpp/bindings/strong_binding.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
+#include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "ui/gfx/color_space.h"
 #include "ui/gfx/geometry/size.h"
 
 using media::VideoCaptureOracle;
 using media::VideoFrame;
 using media::VideoFrameMetadata;
+
+#define UMA_HISTOGRAM_CAPTURE_DURATION_CUSTOM_TIMES(name, sample)         \
+  UMA_HISTOGRAM_CUSTOM_TIMES(                                             \
+      base::StringPrintf("Viz.FrameSinkVideoCapturer.%s.CaptureDuration", \
+                         name),                                           \
+      sample, base::TimeDelta::FromMilliseconds(1),                       \
+      base::TimeDelta::FromSeconds(1), 50)
 
 namespace viz {
 
@@ -52,24 +63,28 @@ constexpr gfx::ColorSpace FrameSinkVideoCapturerImpl::kDefaultColorSpace;
 
 FrameSinkVideoCapturerImpl::FrameSinkVideoCapturerImpl(
     FrameSinkVideoCapturerManager* frame_sink_manager,
-    mojom::FrameSinkVideoCapturerRequest request,
-    std::unique_ptr<media::VideoCaptureOracle> oracle)
+    mojo::PendingReceiver<mojom::FrameSinkVideoCapturer> receiver,
+    std::unique_ptr<media::VideoCaptureOracle> oracle,
+    bool log_to_webrtc)
     : frame_sink_manager_(frame_sink_manager),
-      binding_(this),
       copy_request_source_(base::UnguessableToken::Create()),
       clock_(base::DefaultTickClock::GetInstance()),
       oracle_(std::move(oracle)),
       frame_pool_(kDesignLimitMaxFrames),
-      feedback_weak_factory_(oracle_.get()) {
+      feedback_weak_factory_(oracle_.get()),
+      log_to_webrtc_(log_to_webrtc) {
   DCHECK(frame_sink_manager_);
   DCHECK(oracle_);
-
+  if (log_to_webrtc_) {
+    oracle_->SetLogCallback(base::BindRepeating(
+        &FrameSinkVideoCapturerImpl::OnLog, base::Unretained(this)));
+  }
   // Instantiate a default base::OneShotTimer instance.
   refresh_frame_retry_timer_.emplace();
 
-  if (request.is_pending()) {
-    binding_.Bind(std::move(request));
-    binding_.set_connection_error_handler(
+  if (receiver.is_valid()) {
+    receiver_.Bind(std::move(receiver));
+    receiver_.set_disconnect_handler(
         base::BindOnce(&FrameSinkVideoCapturerManager::OnCapturerConnectionLost,
                        base::Unretained(frame_sink_manager_), this));
   }
@@ -224,15 +239,15 @@ void FrameSinkVideoCapturerImpl::ChangeTarget(
 }
 
 void FrameSinkVideoCapturerImpl::Start(
-    mojom::FrameSinkVideoConsumerPtr consumer) {
+    mojo::PendingRemote<mojom::FrameSinkVideoConsumer> consumer) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(consumer);
 
   Stop();
-  consumer_ = std::move(consumer);
+  consumer_.Bind(std::move(consumer));
   // In the future, if the connection to the consumer is lost before a call to
   // Stop(), make that call on its behalf.
-  consumer_.set_connection_error_handler(base::BindOnce(
+  consumer_.set_disconnect_handler(base::BindOnce(
       &FrameSinkVideoCapturerImpl::Stop, base::Unretained(this)));
   RefreshEntireSourceSoon();
 }
@@ -266,13 +281,13 @@ void FrameSinkVideoCapturerImpl::RequestRefreshFrame() {
 
 void FrameSinkVideoCapturerImpl::CreateOverlay(
     int32_t stacking_index,
-    mojom::FrameSinkVideoCaptureOverlayRequest request) {
+    mojo::PendingReceiver<mojom::FrameSinkVideoCaptureOverlay> receiver) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   // This will cause an existing overlay with the same stacking index to be
   // dropped, per mojom-documented behavior.
   overlays_.emplace(stacking_index, std::make_unique<VideoCaptureOverlay>(
-                                        this, std::move(request)));
+                                        this, std::move(receiver)));
 }
 
 void FrameSinkVideoCapturerImpl::ScheduleRefreshFrame() {
@@ -328,6 +343,11 @@ void FrameSinkVideoCapturerImpl::RefreshSoon() {
   if (source_size != oracle_->source_size()) {
     oracle_->SetSourceSize(source_size);
     InvalidateEntireSource();
+    if (log_to_webrtc_) {
+      consumer_->OnLog(
+          base::StringPrintf("VFC: RefreshSoon() changed active frame size: %s",
+                             source_size.ToString().c_str()));
+    }
   }
 
   MaybeCaptureFrame(VideoCaptureOracle::kRefreshRequest, gfx::Rect(),
@@ -351,6 +371,11 @@ void FrameSinkVideoCapturerImpl::OnFrameDamaged(
   } else {
     oracle_->SetSourceSize(frame_size);
     InvalidateEntireSource();
+    if (log_to_webrtc_ && consumer_) {
+      consumer_->OnLog(
+          base::StringPrintf("VFC: OnFramedamaged() changed frame size: %s",
+                             frame_size.ToString().c_str()));
+    }
   }
 
   MaybeCaptureFrame(VideoCaptureOracle::kCompositorUpdate, damage_rect,
@@ -513,10 +538,12 @@ void FrameSinkVideoCapturerImpl::MaybeCaptureFrame(
                       frame_metadata.root_scroll_offset.x());
   metadata->SetDouble(VideoFrameMetadata::ROOT_SCROLL_OFFSET_Y,
                       frame_metadata.root_scroll_offset.y());
-  metadata->SetDouble(VideoFrameMetadata::TOP_CONTROLS_HEIGHT,
-                      frame_metadata.top_controls_height);
-  metadata->SetDouble(VideoFrameMetadata::TOP_CONTROLS_SHOWN_RATIO,
-                      frame_metadata.top_controls_shown_ratio);
+  if (frame_metadata.top_controls_visible_height.has_value()) {
+    last_top_controls_visible_height_ =
+        *frame_metadata.top_controls_visible_height;
+  }
+  metadata->SetDouble(VideoFrameMetadata::TOP_CONTROLS_VISIBLE_HEIGHT,
+                      last_top_controls_visible_height_);
 
   oracle_->RecordCapture(utilization);
   TRACE_EVENT_ASYNC_BEGIN2("gpu.capture", "Capture", oracle_frame_number,
@@ -572,6 +599,30 @@ void FrameSinkVideoCapturerImpl::MaybeCaptureFrame(
   // If the frame is a resurrected one, just deliver it since it already
   // contains the most up-to-date capture of the source content.
   if (can_resurrect_content) {
+    if (log_to_webrtc_) {
+      std::string strides = "";
+      switch (frame->format()) {
+        case media::PIXEL_FORMAT_I420:
+          strides = base::StringPrintf("strideY:%d StrideU:%d StrideV:%d",
+                                       frame->stride(VideoFrame::kYPlane),
+                                       frame->stride(VideoFrame::kUPlane),
+                                       frame->stride(VideoFrame::kVPlane));
+          break;
+        case media::PIXEL_FORMAT_ARGB:
+          strides = base::StringPrintf("strideRGBA:%d",
+                                       frame->stride(VideoFrame::kARGBPlane));
+          break;
+        default:
+          strides = "strides:???";
+      }
+      consumer_->OnLog(base::StringPrintf(
+          "VFC: Ressurecting frame format=%s frame_coded_size: %s "
+          "frame_visible_rect: %s frame_natural_size: %s %s",
+          VideoPixelFormatToString(frame->format()).c_str(),
+          frame->coded_size().ToString().c_str(),
+          frame->visible_rect().ToString().c_str(),
+          frame->natural_size().ToString().c_str(), strides.c_str()));
+    }
     OnFrameReadyForDelivery(capture_frame_number, oracle_frame_number,
                             content_rect, std::move(frame));
     return;
@@ -587,7 +638,7 @@ void FrameSinkVideoCapturerImpl::MaybeCaptureFrame(
                      oracle_frame_number, content_version_, content_rect,
                      VideoCaptureOverlay::MakeCombinedRenderer(
                          GetOverlaysInOrder(), content_rect, frame->format()),
-                     std::move(frame))));
+                     std::move(frame), base::TimeTicks::Now())));
   request->set_source(copy_request_source_);
   request->set_area(gfx::Rect(source_size));
   request->SetScaleRatio(
@@ -602,6 +653,20 @@ void FrameSinkVideoCapturerImpl::MaybeCaptureFrame(
   // being captured.
   dirty_rect_ = gfx::Rect();
 
+  if (log_to_webrtc_) {
+    std::string format =
+        pixel_format_ == media::PIXEL_FORMAT_I420 ? "I420" : "RGBA_bitmap";
+    consumer_->OnLog(base::StringPrintf(
+        "VFC: Sending CopyRequest: "
+        "format=%s area:%s "
+        "scale_from: %s "
+        "scale_to: %s "
+        "frame pool utilization: %f",
+        format.c_str(), request->area().ToString().c_str(),
+        request->scale_from().ToString().c_str(),
+        request->scale_to().ToString().c_str(), utilization));
+  }
+
   resolved_target_->RequestCopyOfOutput(LocalSurfaceId(), std::move(request));
 }
 
@@ -612,11 +677,44 @@ void FrameSinkVideoCapturerImpl::DidCopyFrame(
     const gfx::Rect& content_rect,
     VideoCaptureOverlay::OnceRenderer overlay_renderer,
     scoped_refptr<VideoFrame> frame,
+    base::TimeTicks request_time,
     std::unique_ptr<CopyOutputResult> result) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK_GE(capture_frame_number, next_delivery_frame_number_);
   DCHECK(frame);
   DCHECK(result);
+
+  if (log_to_webrtc_ && consumer_) {
+    std::string format = "";
+    std::string strides = "";
+    switch (result->format()) {
+      case CopyOutputResult::Format::I420_PLANES:
+        format = "I420";
+        strides = base::StringPrintf("strideY:%d StrideU:%d StrideV:%d",
+                                     frame->stride(VideoFrame::kYPlane),
+                                     frame->stride(VideoFrame::kUPlane),
+                                     frame->stride(VideoFrame::kVPlane));
+        break;
+      case CopyOutputResult::Format::RGBA_BITMAP:
+        format = "RGBA_Bitmap";
+        strides = base::StringPrintf("strideRGBA:%d",
+                                     frame->stride(VideoFrame::kARGBPlane));
+        break;
+      case CopyOutputResult::Format::RGBA_TEXTURE:
+        format = "RGBA_Texture";
+        strides = base::StringPrintf("strideRGBA:%d",
+                                     frame->stride(VideoFrame::kARGBPlane));
+        break;
+    }
+    consumer_->OnLog(base::StringPrintf(
+        "VFC: got CopyOutputResult: format=%s size:%s frame_coded_size: %s "
+        "frame_visible_rect: %s frame_natural_size: %s content_rect: %s %s",
+        format.c_str(), result->size().ToString().c_str(),
+        frame->coded_size().ToString().c_str(),
+        frame->visible_rect().ToString().c_str(),
+        frame->natural_size().ToString().c_str(),
+        content_rect.ToString().c_str(), strides.c_str()));
+  }
 
   // Stop() should have canceled any outstanding copy requests. So, by reaching
   // this point, |consumer_| should be bound.
@@ -639,23 +737,34 @@ void FrameSinkVideoCapturerImpl::DidCopyFrame(
     uint8_t* const v = frame->visible_data(VideoFrame::kVPlane) +
                        (content_rect.y() / 2) * v_stride +
                        (content_rect.x() / 2);
-    if (result->ReadI420Planes(y, y_stride, u, u_stride, v, v_stride)) {
+    bool success =
+        result->ReadI420Planes(y, y_stride, u, u_stride, v, v_stride);
+    if (success) {
       // Per CopyOutputResult header comments, I420_PLANES results are always in
       // the Rec.709 color space.
       frame->set_color_space(gfx::ColorSpace::CreateREC709());
+      UMA_HISTOGRAM_CAPTURE_DURATION_CUSTOM_TIMES(
+          "I420", base::TimeTicks::Now() - request_time);
     } else {
       frame = nullptr;
     }
+    UMA_HISTOGRAM_BOOLEAN("Viz.FrameSinkVideoCapturer.I420.CaptureSucceeded",
+                          success);
   } else {
     int stride = frame->stride(VideoFrame::kARGBPlane);
     DCHECK_EQ(media::PIXEL_FORMAT_ARGB, pixel_format_);
     uint8_t* const pixels = frame->visible_data(VideoFrame::kARGBPlane) +
                             content_rect.y() * stride + content_rect.x() * 4;
-    if (result->ReadRGBAPlane(pixels, stride)) {
+    bool success = result->ReadRGBAPlane(pixels, stride);
+    if (success) {
       frame->set_color_space(result->GetRGBAColorSpace());
+      UMA_HISTOGRAM_CAPTURE_DURATION_CUSTOM_TIMES(
+          "RGBA", base::TimeTicks::Now() - request_time);
     } else {
       frame = nullptr;
     }
+    UMA_HISTOGRAM_BOOLEAN("Viz.FrameSinkVideoCapturer.RGBA.CaptureSucceeded",
+                          success);
   }
 
   if (frame) {
@@ -673,8 +782,11 @@ void FrameSinkVideoCapturerImpl::DidCopyFrame(
         frame.get(), gfx::Rect(content_rect.origin(),
                                AdjustSizeForPixelFormat(result->size())));
 
-    if (content_version > content_version_in_marked_frame_) {
+    if (content_version > content_version_in_marked_frame_ ||
+        (content_version == content_version_in_marked_frame_ &&
+         frame->coded_size() != marked_frame_size_)) {
       frame_pool_.MarkFrame(*frame);
+      marked_frame_size_ = frame->coded_size();
       content_version_in_marked_frame_ = content_version;
     }
   }
@@ -766,12 +878,12 @@ void FrameSinkVideoCapturerImpl::MaybeDeliverFrame(
   DCHECK(frame->ColorSpace().IsValid());  // Ensure it was set by this point.
   info->color_space = frame->ColorSpace();
 
-  // Create an InFlightFrameDelivery for this frame, owned by its mojo binding.
+  // Create an InFlightFrameDelivery for this frame, owned by its mojo receiver.
   // It responds to the consumer's Done() notification by returning the video
   // frame to the |frame_pool_|. It responds to the optional ProvideFeedback()
   // by forwarding the measurement to the |oracle_|.
-  mojom::FrameSinkVideoConsumerFrameCallbacksPtr callbacks;
-  mojo::MakeStrongBinding(
+  mojo::PendingRemote<mojom::FrameSinkVideoConsumerFrameCallbacks> callbacks;
+  mojo::MakeSelfOwnedReceiver(
       std::make_unique<InFlightFrameDelivery>(
           base::BindOnce(
               [](scoped_refptr<VideoFrame> frame) {
@@ -781,7 +893,7 @@ void FrameSinkVideoCapturerImpl::MaybeDeliverFrame(
           base::BindOnce(&VideoCaptureOracle::RecordConsumerFeedback,
                          feedback_weak_factory_.GetWeakPtr(),
                          oracle_frame_number)),
-      mojo::MakeRequest(&callbacks));
+      callbacks.InitWithNewPipeAndPassReceiver());
 
   // Send the frame to the consumer.
   consumer_->OnFrameCaptured(std::move(handle), std::move(info), content_rect,
@@ -815,6 +927,12 @@ gfx::Rect FrameSinkVideoCapturerImpl::ExpandRectToI420SubsampleBoundaries(
   const int r = rect.right() + (rect.right() & 1);
   const int b = rect.bottom() + (rect.bottom() & 1);
   return gfx::Rect(x, y, r - x, b - y);
+}
+
+void FrameSinkVideoCapturerImpl::OnLog(const std::string& message) {
+  if (log_to_webrtc_ && consumer_) {
+    consumer_->OnLog(message);
+  }
 }
 
 FrameSinkVideoCapturerImpl::CapturedFrame::CapturedFrame(

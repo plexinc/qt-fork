@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2013 The ANGLE Project Authors. All rights reserved.
+// Copyright 2013 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -27,6 +27,12 @@ RasterizerState::RasterizerState()
     polygonOffsetUnits  = 0.0f;
     pointDrawMode       = false;
     multiSample         = false;
+    dither              = true;
+}
+
+RasterizerState::RasterizerState(const RasterizerState &other)
+{
+    memcpy(this, &other, sizeof(RasterizerState));
 }
 
 bool operator==(const RasterizerState &a, const RasterizerState &b)
@@ -43,25 +49,22 @@ BlendState::BlendState()
 {
     memset(this, 0, sizeof(BlendState));
 
-    blend                 = false;
-    sourceBlendRGB        = GL_ONE;
-    sourceBlendAlpha      = GL_ONE;
-    destBlendRGB          = GL_ZERO;
-    destBlendAlpha        = GL_ZERO;
-    blendEquationRGB      = GL_FUNC_ADD;
-    blendEquationAlpha    = GL_FUNC_ADD;
-    sampleAlphaToCoverage = false;
-    dither                = true;
+    blend              = false;
+    sourceBlendRGB     = GL_ONE;
+    sourceBlendAlpha   = GL_ONE;
+    destBlendRGB       = GL_ZERO;
+    destBlendAlpha     = GL_ZERO;
+    blendEquationRGB   = GL_FUNC_ADD;
+    blendEquationAlpha = GL_FUNC_ADD;
+    colorMaskRed       = true;
+    colorMaskGreen     = true;
+    colorMaskBlue      = true;
+    colorMaskAlpha     = true;
 }
 
 BlendState::BlendState(const BlendState &other)
 {
     memcpy(this, &other, sizeof(BlendState));
-}
-
-bool BlendState::allChannelsMasked() const
-{
-    return !colorMaskRed && !colorMaskGreen && !colorMaskBlue && !colorMaskAlpha;
 }
 
 bool operator==(const BlendState &a, const BlendState &b)

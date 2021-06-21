@@ -59,19 +59,17 @@ enum TableTypes {
   ICON_AND_TEXT,
 };
 
-class VIEWS_EXPORT TableView
-    : public views::View,
-      public ui::TableModelObserver {
+class VIEWS_EXPORT TableView : public views::View,
+                               public ui::TableModelObserver {
  public:
-  // Internal class name.
-  static const char kViewClassName[];
+  METADATA_HEADER(TableView);
 
   // Used by AdvanceActiveVisibleColumn(), AdvanceSelection() and
   // ResizeColumnViaKeyboard() to determine the direction to change the
   // selection.
-  enum AdvanceDirection {
-    ADVANCE_DECREMENT,
-    ADVANCE_INCREMENT,
+  enum class AdvanceDirection {
+    kDecrement,
+    kIncrement,
   };
 
   // Used to track a visible column. Useful only for the header.
@@ -93,8 +91,7 @@ class VIEWS_EXPORT TableView
   struct VIEWS_EXPORT SortDescriptor {
     SortDescriptor() = default;
     SortDescriptor(int column_id, bool ascending)
-        : column_id(column_id),
-          ascending(ascending) {}
+        : column_id(column_id), ascending(ascending) {}
 
     // ID of the sorted column.
     int column_id = -1;
@@ -130,13 +127,13 @@ class VIEWS_EXPORT TableView
   void SetGrouper(TableGrouper* grouper);
 
   // Returns the number of rows in the TableView.
-  int RowCount() const;
+  int GetRowCount() const;
 
   // Selects the specified item, making sure it's visible.
   void Select(int model_row);
 
   // Returns the first selected row in terms of the model.
-  int FirstSelectedRow();
+  int GetFirstSelectedRow() const;
 
   const ui::ListSelectionModel& selection_model() const {
     return selection_model_;
@@ -154,11 +151,7 @@ class VIEWS_EXPORT TableView
   bool HasColumn(int id) const;
 
   // Returns whether an active row and column have been set.
-  bool HasFocusIndicator() const;
-
-  // Moves the focus ring to its new location if the active cell has changed, or
-  // hides the focus ring if the table is not focused.
-  void ResetFocusIndicator();
+  bool GetHasFocusIndicator() const;
 
   void set_observer(TableViewObserver* observer) { observer_ = observer; }
   TableViewObserver* observer() const { return observer_; }
@@ -187,7 +180,7 @@ class VIEWS_EXPORT TableView
 
   const SortDescriptors& sort_descriptors() const { return sort_descriptors_; }
   void SetSortDescriptors(const SortDescriptors& descriptors);
-  bool is_sorted() const { return !sort_descriptors_.empty(); }
+  bool GetIsSorted() const { return !sort_descriptors_.empty(); }
 
   // Maps from the index in terms of the model to that of the view.
   int ModelToView(int model_index) const;
@@ -195,11 +188,10 @@ class VIEWS_EXPORT TableView
   // Maps from the index in terms of the view to that of the model.
   int ViewToModel(int view_index) const;
 
-  int row_height() const { return row_height_; }
+  int GetRowHeight() const { return row_height_; }
 
-  void set_select_on_remove(bool select_on_remove) {
-    select_on_remove_ = select_on_remove;
-  }
+  bool GetSelectOnRemove() const;
+  void SetSelectOnRemove(bool select_on_remove);
 
   // WARNING: this function forces a sort on every paint, and is therefore
   // expensive! It assumes you are calling SchedulePaint() at intervals for
@@ -208,12 +200,23 @@ class VIEWS_EXPORT TableView
   // time the SchedulePaint() is called and the paint is processed, the
   // underlying data may change. Also, this only works if the number of rows
   // remains the same.
-  void set_sort_on_paint(bool sort_on_paint) { sort_on_paint_ = sort_on_paint; }
+  bool GetSortOnPaint() const;
+  void SetSortOnPaint(bool sort_on_paint);
+
+  TableTypes GetTableType() const;
+
+  // Updates the relative bounds of the virtual accessibility children created
+  // in UpdateVirtualAccessibilityChildren(). This function is public so that
+  // the table's |header_| can trigger an update when its visible bounds are
+  // changed, because its accessibility information is also contained in the
+  // table's virtual accessibility children.
+  void UpdateVirtualAccessibilityChildrenBounds();
 
   // View overrides:
   void Layout() override;
-  const char* GetClassName() const override;
   gfx::Size CalculatePreferredSize() const override;
+  bool GetNeedsNotificationWhenVisibleBoundsChange() const override;
+  void OnVisibleBoundsChanged() override;
   bool OnKeyPressed(const ui::KeyEvent& event) override;
   bool OnMousePressed(const ui::MouseEvent& event) override;
   void OnGestureEvent(ui::GestureEvent* event) override;
@@ -231,12 +234,14 @@ class VIEWS_EXPORT TableView
  protected:
   // View overrides:
   gfx::Point GetKeyboardContextMenuLocation() override;
-  void OnPaint(gfx::Canvas* canvas) override;
   void OnFocus() override;
   void OnBlur() override;
+  void OnPaint(gfx::Canvas* canvas) override;
 
  private:
   friend class TableViewTestHelper;
+
+  class HighlightPathGenerator;
   struct GroupSortHelper;
   struct SortHelper;
 
@@ -253,6 +258,8 @@ class VIEWS_EXPORT TableView
     int min_column = 0;
     int max_column = 0;
   };
+
+  void OnPaintImpl(gfx::Canvas* canvas);
 
   // Returns the horizontal margin between the bounds of a cell and its
   // contents.
@@ -282,6 +289,9 @@ class VIEWS_EXPORT TableView
   // Returns the bounds of the specified cell. |visible_column_index| indexes
   // into |visible_columns_|.
   gfx::Rect GetCellBounds(int row, int visible_column_index) const;
+
+  // Returns the bounds of the active cell.
+  gfx::Rect GetActiveCellBounds() const;
 
   // Adjusts |bounds| based on where the text should be painted. |bounds| comes
   // from GetCellBounds() and |visible_column_index| is the corresponding column
@@ -342,6 +352,23 @@ class VIEWS_EXPORT TableView
   // to assistive software.
   void UpdateVirtualAccessibilityChildren();
 
+  // Clears the set of accessibility views set up in
+  // UpdateVirtualAccessibilityChildren(). Useful when the model is in the
+  // process of changing but the virtual accessibility children haven't been
+  // updated yet, e.g. showing or hiding a column via SetColumnVisibility().
+  void ClearVirtualAccessibilityChildren();
+
+  // Helper functions used in UpdateVirtualAccessibilityChildrenBounds() for
+  // calculating the accessibility bounds for the header and table rows and
+  // cells.
+  gfx::Rect CalculateHeaderRowAccessibilityBounds() const;
+  gfx::Rect CalculateHeaderCellAccessibilityBounds(
+      const int visible_column_index) const;
+  gfx::Rect CalculateTableRowAccessibilityBounds(const int row_index) const;
+  gfx::Rect CalculateTableCellAccessibilityBounds(
+      const int row_index,
+      const int visible_column_index) const;
+
   // Updates the internal accessibility state and fires the required
   // accessibility events to indicate to assistive software which row is active
   // and which cell is focused, if any.
@@ -356,6 +383,11 @@ class VIEWS_EXPORT TableView
   // |visible_column_index| indexes into |visible_columns_|.
   AXVirtualView* GetVirtualAccessibilityCell(int row, int visible_column_index);
 
+  // Returns |rect|, adjusted for use in AXRelativeBounds by translating it into
+  // screen coordinates. The result must be converted to gfx::RectF when setting
+  // into AXRelativeBounds.
+  gfx::Rect AdjustRectForAXRelativeBounds(const gfx::Rect& rect) const;
+
   ui::TableModel* model_ = nullptr;
 
   std::vector<ui::TableColumn> columns_;
@@ -369,7 +401,7 @@ class VIEWS_EXPORT TableView
   int active_visible_column_index_ = -1;
 
   // Used to draw a focus indicator around the active cell.
-  std::unique_ptr<FocusRing> focus_ring_;
+  std::unique_ptr<FocusRing> focus_ring_ = FocusRing::Install(this);
 
   // The header. This is only created if more than one column is specified or
   // the first column has a non-empty title.
@@ -415,6 +447,14 @@ class VIEWS_EXPORT TableView
 
   // True if in SetVisibleColumnWidth().
   bool in_set_visible_column_width_ = false;
+
+  // Keeps track whether a focus change has occurred so that the accessibility
+  // focus would be updated after all the virtual accessibility children. Some
+  // screen readers don't process the accessibility focus event right away and
+  // by the time they do the focused virtual accessibility child is no longer
+  // there. We need to fire the accessibility focus event after the virtual
+  // accessibility children have been updated.
+  bool needs_update_accessibility_focus_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(TableView);
 };

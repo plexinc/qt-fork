@@ -33,7 +33,7 @@ struct DragCanvas {
             aspect = h / w;
         }
 
-        float availWidth = SkTMax(ImGui::GetContentRegionAvailWidth(), 1.0f);
+        float availWidth = std::max(ImGui::GetContentRegionAvailWidth(), 1.0f);
         fPos = ImGui::GetCursorScreenPos();
         fSize = ImVec2(availWidth, availWidth * aspect);
 
@@ -123,10 +123,10 @@ public:
     void onAttach(sk_app::Window* window) override;
     void onPrePaint() override;
     void onPaint(SkSurface*) override;
-    bool onMouse(int x, int y, InputState state, ModifierKey modifiers) override;
-    bool onMouseWheel(float delta, ModifierKey modifiers) override;
-    bool onKey(sk_app::Window::Key key, InputState state, ModifierKey modifiers) override;
-    bool onChar(SkUnichar c, ModifierKey modifiers) override;
+    bool onMouse(int x, int y, skui::InputState state, skui::ModifierKey modifiers) override;
+    bool onMouseWheel(float delta, skui::ModifierKey modifiers) override;
+    bool onKey(skui::Key key, skui::InputState state, skui::ModifierKey modifiers) override;
+    bool onChar(SkUnichar c, skui::ModifierKey modifiers) override;
 
 private:
     sk_app::Window* fWindow;

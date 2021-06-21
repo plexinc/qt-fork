@@ -10,7 +10,6 @@
 #include "content/browser/devtools/service_worker_devtools_agent_host.h"
 #include "content/browser/frame_host/frame_tree.h"
 #include "content/browser/frame_host/frame_tree_node.h"
-#include "content/browser/frame_host/navigation_handle_impl.h"
 #include "content/browser/frame_host/navigation_request.h"
 #include "content/browser/frame_host/render_frame_host_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
@@ -120,11 +119,9 @@ base::flat_set<GURL> GetFrameUrls(RenderFrameHostImpl* render_frame_host) {
 }  // namespace
 
 TargetAutoAttacher::TargetAutoAttacher(
-    AttachCallback attach_callback,
-    DetachCallback detach_callback,
+    Delegate* delegate,
     DevToolsRendererChannel* renderer_channel)
-    : attach_callback_(attach_callback),
-      detach_callback_(detach_callback),
+    : delegate_(delegate),
       renderer_channel_(renderer_channel),
       render_frame_host_(nullptr),
       auto_attach_(false),
@@ -153,6 +150,9 @@ void TargetAutoAttacher::UpdatePortals() {
          outer_web_contents->GetInnerWebContents()) {
       WebContentsImpl* web_contents_impl =
           static_cast<WebContentsImpl*>(web_contents);
+      if (!web_contents_impl->IsPortal())
+        continue;
+
       scoped_refptr<DevToolsAgentHost> new_host =
           RenderFrameDevToolsAgentHost::GetOrCreateFor(
               web_contents_impl->GetFrameTree()->root());
@@ -200,17 +200,24 @@ void TargetAutoAttacher::AgentHostClosed(DevToolsAgentHost* host) {
   auto_attached_hosts_.erase(base::WrapRefCounted(host));
 }
 
-bool TargetAutoAttacher::ShouldThrottleFramesNavigation() {
+bool TargetAutoAttacher::ShouldThrottleFramesNavigation() const {
   return auto_attach_;
 }
 
+void TargetAutoAttacher::AttachToAgentHost(DevToolsAgentHost* host) {
+  scoped_refptr<DevToolsAgentHost> agent_host(host);
+  DCHECK(auto_attached_hosts_.find(agent_host) == auto_attached_hosts_.end());
+  delegate_->AutoAttach(agent_host.get(), wait_for_debugger_on_start_);
+  auto_attached_hosts_.insert(agent_host);
+}
+
 DevToolsAgentHost* TargetAutoAttacher::AutoAttachToFrame(
-    NavigationHandleImpl* navigation_handle) {
+    NavigationRequest* navigation_request) {
   if (!ShouldThrottleFramesNavigation())
     return nullptr;
 
-  FrameTreeNode* frame_tree_node = navigation_handle->frame_tree_node();
-  RenderFrameHostImpl* new_host = navigation_handle->GetRenderFrameHost();
+  FrameTreeNode* frame_tree_node = navigation_request->frame_tree_node();
+  RenderFrameHostImpl* new_host = navigation_request->GetRenderFrameHost();
 
   // |new_host| can be nullptr for navigation that doesn't commmit
   // (e.g. download). Skip possibly detaching the old agent host so the DevTools
@@ -233,11 +240,9 @@ DevToolsAgentHost* TargetAutoAttacher::AutoAttachToFrame(
     return nullptr;
 
   if (new_cross_process) {
-    agent_host =
-        RenderFrameDevToolsAgentHost::GetOrCreateForDangling(frame_tree_node);
-    DCHECK(auto_attached_hosts_.find(agent_host) == auto_attached_hosts_.end());
-    attach_callback_.Run(agent_host.get(), wait_for_debugger_on_start_);
-    auto_attached_hosts_.insert(agent_host);
+    agent_host = RenderFrameDevToolsAgentHost::CreateForCrossProcessNavigation(
+        navigation_request);
+    AttachToAgentHost(agent_host.get());
     return wait_for_debugger_on_start_ ? agent_host.get() : nullptr;
   }
 
@@ -248,7 +253,7 @@ DevToolsAgentHost* TargetAutoAttacher::AutoAttachToFrame(
   if (it == auto_attached_hosts_.end())
     return nullptr;
   auto_attached_hosts_.erase(it);
-  detach_callback_.Run(agent_host.get());
+  delegate_->AutoDetach(agent_host.get());
   return nullptr;
 }
 
@@ -256,15 +261,21 @@ void TargetAutoAttacher::ReattachServiceWorkers(bool waiting_for_debugger) {
   if (!auto_attaching_service_workers_)
     return;
 
-  BrowserContext* browser_context = nullptr;
-  if (render_frame_host_)
-    browser_context = render_frame_host_->GetProcess()->GetBrowserContext();
-
-  auto matching = GetMatchingServiceWorkers(browser_context,
-                                            GetFrameUrls(render_frame_host_));
   Hosts new_hosts;
-  for (const auto& pair : matching)
-    new_hosts.insert(pair.second);
+  if (is_browser_mode()) {
+    ServiceWorkerDevToolsAgentHost::List agent_hosts;
+    ServiceWorkerDevToolsManager::GetInstance()->AddAllAgentHosts(&agent_hosts);
+    new_hosts.insert(agent_hosts.begin(), agent_hosts.end());
+  } else {
+    BrowserContext* browser_context = nullptr;
+    if (render_frame_host_)
+      browser_context = render_frame_host_->GetProcess()->GetBrowserContext();
+
+    auto matching = GetMatchingServiceWorkers(browser_context,
+                                              GetFrameUrls(render_frame_host_));
+    for (const auto& pair : matching)
+      new_hosts.insert(pair.second);
+  }
   ReattachTargetsOfType(new_hosts, DevToolsAgentHost::kTypeServiceWorker,
                         waiting_for_debugger);
 }
@@ -276,12 +287,12 @@ void TargetAutoAttacher::ReattachTargetsOfType(const Hosts& new_hosts,
   for (auto& host : old_hosts) {
     if (host->GetType() == type && new_hosts.find(host) == new_hosts.end()) {
       auto_attached_hosts_.erase(host);
-      detach_callback_.Run(host.get());
+      delegate_->AutoDetach(host.get());
     }
   }
   for (auto& host : new_hosts) {
     if (old_hosts.find(host) == old_hosts.end()) {
-      attach_callback_.Run(host.get(), waiting_for_debugger);
+      delegate_->AutoAttach(host.get(), waiting_for_debugger);
       auto_attached_hosts_.insert(host);
     }
   }
@@ -294,7 +305,8 @@ void TargetAutoAttacher::SetAutoAttach(bool auto_attach,
   if (auto_attach && !auto_attach_) {
     auto_attach_ = true;
     auto_attaching_service_workers_ =
-        render_frame_host_ && !render_frame_host_->GetParent();
+        is_browser_mode() ||
+        (render_frame_host_ && !render_frame_host_->GetParent());
     if (auto_attaching_service_workers_) {
       ServiceWorkerDevToolsManager::GetInstance()->AddObserver(this);
       ReattachServiceWorkers(false);
@@ -316,27 +328,37 @@ void TargetAutoAttacher::SetAutoAttach(bool auto_attach,
                           false);
     DCHECK(auto_attached_hosts_.empty());
   }
-  renderer_channel_->SetReportChildWorkers(
-      this, auto_attach, wait_for_debugger_on_start, std::move(callback));
+  if (renderer_channel_) {
+    renderer_channel_->SetReportChildWorkers(
+        this, auto_attach, wait_for_debugger_on_start, std::move(callback));
+  } else {
+    std::move(callback).Run();
+  }
 }
 
 // -------- ServiceWorkerDevToolsManager::Observer ----------
 
 void TargetAutoAttacher::WorkerCreated(ServiceWorkerDevToolsAgentHost* host,
                                        bool* should_pause_on_start) {
-  BrowserContext* browser_context = nullptr;
-  if (render_frame_host_)
-    browser_context = render_frame_host_->GetProcess()->GetBrowserContext();
-
-  auto hosts = GetMatchingServiceWorkers(browser_context,
-                                         GetFrameUrls(render_frame_host_));
-  if (hosts.find(host->GetId()) != hosts.end()) {
+  if (is_browser_mode()) {
     *should_pause_on_start = wait_for_debugger_on_start_;
-    Hosts new_hosts;
-    for (const auto& pair : hosts)
-      new_hosts.insert(pair.second);
-    ReattachTargetsOfType(new_hosts, DevToolsAgentHost::kTypeServiceWorker,
-                          wait_for_debugger_on_start_);
+    delegate_->AutoAttach(host, wait_for_debugger_on_start_);
+    auto_attached_hosts_.insert(host);
+  } else {
+    BrowserContext* browser_context = nullptr;
+    if (render_frame_host_)
+      browser_context = render_frame_host_->GetProcess()->GetBrowserContext();
+
+    auto hosts = GetMatchingServiceWorkers(browser_context,
+                                           GetFrameUrls(render_frame_host_));
+    if (hosts.find(host->GetId()) != hosts.end()) {
+      *should_pause_on_start = wait_for_debugger_on_start_;
+      Hosts new_hosts;
+      for (const auto& pair : hosts)
+        new_hosts.insert(pair.second);
+      ReattachTargetsOfType(new_hosts, DevToolsAgentHost::kTypeServiceWorker,
+                            wait_for_debugger_on_start_);
+    }
   }
 }
 
@@ -351,12 +373,17 @@ void TargetAutoAttacher::WorkerVersionDoomed(
 }
 
 void TargetAutoAttacher::WorkerDestroyed(ServiceWorkerDevToolsAgentHost* host) {
-  ReattachServiceWorkers(false);
+  if (is_browser_mode()) {
+    auto_attached_hosts_.erase(base::WrapRefCounted(host));
+    delegate_->AutoDetach(host);
+  } else {
+    ReattachServiceWorkers(false);
+  }
 }
 
 void TargetAutoAttacher::ChildWorkerCreated(DevToolsAgentHostImpl* agent_host,
                                             bool waiting_for_debugger) {
-  attach_callback_.Run(agent_host, waiting_for_debugger);
+  delegate_->AutoAttach(agent_host, waiting_for_debugger);
   auto_attached_hosts_.insert(scoped_refptr<DevToolsAgentHost>(agent_host));
 }
 

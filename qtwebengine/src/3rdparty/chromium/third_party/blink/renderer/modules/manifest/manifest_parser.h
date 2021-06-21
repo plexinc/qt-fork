@@ -16,8 +16,13 @@
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/graphics/color.h"
 #include "third_party/blink/renderer/platform/json/json_values.h"
+#include "third_party/blink/renderer/platform/wtf/hash_map.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
+
+namespace gfx {
+class Size;
+}  // namespace gfx
 
 namespace blink {
 
@@ -66,6 +71,19 @@ class MODULES_EXPORT ManifestParser {
                                      const String& key,
                                      TrimType trim);
 
+  // Helper function to parse strings present in a member that itself is
+  // a dictionary like 'shortcut' as defined in:
+  // https://w3c.github.io/manifest/#shortcutitem-and-its-members Each strings
+  // will identifiable by its |key|. This helper includes the member_name in any
+  // ManifestError added while parsing. This helps disambiguate member property
+  // names from top level member names. Returns the parsed string if any, a null
+  // optional if the parsing failed.
+  base::Optional<String> ParseStringForMember(const JSONObject* object,
+                                              const String& member_name,
+                                              const String& key,
+                                              bool required,
+                                              TrimType trim);
+
   // Helper function to parse colors present on a given |dictionary| in a given
   // field identified by its |key|. Returns a null optional if the value is not
   // present or is not a valid color.
@@ -106,9 +124,9 @@ class MODULES_EXPORT ManifestParser {
 
   // Parses the 'display' field of the manifest, as defined in:
   // https://w3c.github.io/manifest/#dfn-steps-for-processing-the-display-member
-  // Returns the parsed DisplayMode if any, WebDisplayModeUndefined if the
+  // Returns the parsed DisplayMode if any, DisplayMode::kUndefined if the
   // parsing failed.
-  WebDisplayMode ParseDisplay(const JSONObject* object);
+  blink::mojom::DisplayMode ParseDisplay(const JSONObject* object);
 
   // Parses the 'orientation' field of the manifest, as defined in:
   // https://w3c.github.io/manifest/#dfn-steps-for-processing-the-orientation-member
@@ -130,8 +148,8 @@ class MODULES_EXPORT ManifestParser {
   // https://w3c.github.io/manifest/#dfn-steps-for-processing-a-sizes-member-of-an-image
   // Returns a vector of WebSize with the successfully parsed sizes, if any.
   // An empty vector if the field was not present or empty. "Any" is represented
-  // by WebSize(0, 0).
-  Vector<WebSize> ParseIconSizes(const JSONObject* icon);
+  // by gfx::Size(0, 0).
+  Vector<gfx::Size> ParseIconSizes(const JSONObject* icon);
 
   // Parses the 'purpose' field of an icon, as defined in:
   // https://w3c.github.io/manifest/#dfn-steps-for-processing-a-purpose-member-of-an-image
@@ -147,8 +165,35 @@ class MODULES_EXPORT ManifestParser {
   Vector<mojom::blink::ManifestImageResourcePtr> ParseIcons(
       const JSONObject* object);
 
+  // Parses the 'name' field of a shortcut, as defined in:
+  // https://w3c.github.io/manifest/#shortcuts-member
+  // Returns the parsed string if any, a null string if the parsing failed.
+  String ParseShortcutName(const JSONObject* shortcut);
+
+  // Parses the 'short_name' field of a shortcut, as defined in:
+  // https://w3c.github.io/manifest/#shortcuts-member
+  // Returns the parsed string if any, a null string if the parsing failed.
+  String ParseShortcutShortName(const JSONObject* shortcut);
+
+  // Parses the 'description' field of a shortcut, as defined in:
+  // https://w3c.github.io/manifest/#shortcuts-member
+  // Returns the parsed string if any, a null string if the parsing failed.
+  String ParseShortcutDescription(const JSONObject* shortcut);
+
+  // Parses the 'url' field of an icon, as defined in:
+  // https://w3c.github.io/manifest/#shortcuts-member
+  // Returns the parsed KURL if any, an empty KURL if the parsing failed.
+  KURL ParseShortcutUrl(const JSONObject* shortcut);
+
+  // Parses the 'shortcuts' field of a Manifest, as defined in:
+  // https://w3c.github.io/manifest/#shortcuts-member
+  // Returns a vector of ManifestShortcutPtr with the successfully parsed
+  // shortcuts, if any. An empty vector if the field was not present or empty.
+  Vector<mojom::blink::ManifestShortcutItemPtr> ParseShortcuts(
+      const JSONObject* object);
+
   // Parses the name field of a share target file, as defined in:
-  // https://github.com/WICG/web-share-target/blob/master/docs/interface.md
+  // https://wicg.github.io/web-share-target/level-2/#sharetargetfiles-and-its-members
   // Returns the parsed string if any, an empty string if the parsing failed.
   String ParseFileFilterName(const JSONObject* file);
 
@@ -171,37 +216,58 @@ class MODULES_EXPORT ManifestParser {
                        Vector<mojom::blink::ManifestFileFilterPtr>* files);
 
   // Parses the method field of a Share Target, as defined in:
-  // https://github.com/WICG/web-share-target/blob/master/docs/interface.md
+  // https://wicg.github.io/web-share-target/#sharetarget-and-its-members
   // Returns an optional share target method enum object.
   base::Optional<mojom::blink::ManifestShareTarget::Method>
   ParseShareTargetMethod(const JSONObject* share_target_dict);
 
   // Parses the enctype field of a Share Target, as defined in:
-  // https://github.com/WICG/web-share-target/blob/master/docs/interface.md
+  // https://wicg.github.io/web-share-target/#sharetarget-and-its-members
   // Returns an optional share target enctype enum object.
   base::Optional<mojom::blink::ManifestShareTarget::Enctype>
   ParseShareTargetEnctype(const JSONObject* share_target_dict);
 
   // Parses the 'params' field of a Share Target, as defined in:
-  // https://wicg.github.io/web-share-target/level-2/#sharetargetparams-and-its-members
+  // https://wicg.github.io/web-share-target/#sharetarget-and-its-members
   // Returns a parsed mojom::blink:ManifestShareTargetParamsPtr, not all fields
   // need to be populated.
   mojom::blink::ManifestShareTargetParamsPtr ParseShareTargetParams(
       const JSONObject* share_target_params);
 
   // Parses the 'share_target' field of a Manifest, as defined in:
-  // https://github.com/WICG/web-share-target/blob/master/docs/interface.md
+  // https://wicg.github.io/web-share-target/#share_target-member
   // Returns the parsed Web Share target. The returned Share Target is null if
   // the field didn't exist, parsing failed, or it was empty.
   base::Optional<mojom::blink::ManifestShareTargetPtr> ParseShareTarget(
       const JSONObject* object);
 
-  // Parses the 'file_handler' field of a Manifest, as defined in:
+  // Parses the 'file_handlers' field of a Manifest, as defined in:
   // https://github.com/WICG/file-handling/blob/master/explainer.md
-  // Returns the parsed file handler information. The returned FileHandler is
-  // null if the field didn't exist, parsing failed, or it was empty.
-  base::Optional<mojom::blink::ManifestFileHandlerPtr> ParseFileHandler(
+  // Returns the parsed list of FileHandlers. The returned FileHandlers are
+  // empty if the field didn't exist, parsing failed, or the input list was
+  // empty.
+  Vector<mojom::blink::ManifestFileHandlerPtr> ParseFileHandlers(
       const JSONObject* object);
+
+  // Parses a FileHandler from an entry in the 'file_handlers' list, as
+  // defined in: https://github.com/WICG/file-handling/blob/master/explainer.md.
+  // Returns |base::nullopt| if the FileHandler was invalid, or a
+  // FileHandler, if parsing succeeded.
+  base::Optional<mojom::blink::ManifestFileHandlerPtr> ParseFileHandler(
+      const JSONObject* file_handler_entry);
+
+  // Parses the 'accept' field of a FileHandler, as defined in:
+  // https://github.com/WICG/file-handling/blob/master/explainer.md.
+  // Returns the parsed accept map. Invalid accept entries are ignored.
+  HashMap<String, Vector<String>> ParseFileHandlerAccept(
+      const JSONObject* accept);
+
+  // Parses an extension in the 'accept' field of a FileHandler, as defined in:
+  // https://github.com/WICG/file-handling/blob/master/explainer.md. Returns
+  // whether the parsing was successful and, if so, populates |output| with the
+  // parsed extension.
+  bool ParseFileHandlerAcceptExtension(const JSONValue* extension,
+                                       String* ouput);
 
   // Parses the 'platform' field of a related application, as defined in:
   // https://w3c.github.io/manifest/#dfn-steps-for-processing-the-platform-member-of-an-application

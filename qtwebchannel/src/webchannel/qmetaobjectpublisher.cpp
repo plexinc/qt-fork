@@ -754,14 +754,21 @@ QJsonValue QMetaObjectPublisher::wrapResult(const QVariant &result, QWebChannelA
             wrappedObjects.insert(id, oi);
 
             initializePropertyUpdates(object, classInfo);
-        } else if (wrappedObjects.contains(id)) {
-            Q_ASSERT(object == wrappedObjects.value(id).object);
-            // check if this transport is already assigned to the object
-            if (transport && !wrappedObjects.value(id).transports.contains(transport)) {
-                wrappedObjects[id].transports.append(transport);
-                transportedWrappedObjects.insert(transport, id);
+        } else {
+            auto oi = wrappedObjects.find(id);
+            if (oi != wrappedObjects.end() && !oi->isBeingWrapped) {
+                Q_ASSERT(object == oi->object);
+                // check if this transport is already assigned to the object
+                if (transport && !oi->transports.contains(transport)) {
+                    oi->transports.append(transport);
+                    transportedWrappedObjects.insert(transport, id);
+                }
+                // QTBUG-84007: Block infinite recursion for self-contained objects
+                // which have already been wrapped
+                oi->isBeingWrapped = true;
+                classInfo = classInfoForObject(object, transport);
+                oi->isBeingWrapped = false;
             }
-            classInfo = classInfoForObject(object, transport);
         }
 
         QJsonObject objectInfo;
@@ -788,10 +795,19 @@ QJsonValue QMetaObjectPublisher::wrapResult(const QVariant &result, QWebChannelA
         // *don't* use result.toList() as that *only* works for QVariantList and QStringList!
         // Also, don't use QSequentialIterable (yet), since that seems to trigger QTBUG-42016
         // in certain cases.
-        return wrapList(result.value<QVariantList>(), transport);
+        // additionally, when there's a direct converter to QVariantList, use that one via convert
+        // but recover when conversion fails and fall back to the .value<QVariantList> conversion
+        // see also: https://bugreports.qt.io/browse/QTBUG-80751
+        auto list = result;
+        if (!list.convert(qMetaTypeId<QVariantList>()))
+            list = result;
+        return wrapList(list.value<QVariantList>(), transport);
     } else if (result.canConvert<QVariantMap>()) {
         // recurse and potentially wrap contents of the map
-        return wrapMap(result.toMap(), transport);
+        auto map = result;
+        if (!map.convert(qMetaTypeId<QVariantMap>()))
+            map = result;
+        return wrapMap(map.value<QVariantMap>(), transport);
     }
 
     return QJsonValue::fromVariant(result);
@@ -860,7 +876,7 @@ void QMetaObjectPublisher::handleMessage(const QJsonObject &message, QWebChannel
         transport->sendMessage(createResponse(message.value(KEY_ID), initializeClient(transport)));
     } else if (type == TypeDebug) {
         static QTextStream out(stdout);
-        out << "DEBUG: " << message.value(KEY_DATA).toString() << endl;
+        out << "DEBUG: " << message.value(KEY_DATA).toString() << Qt::endl;
     } else if (message.contains(KEY_OBJECT)) {
         const QString &objectName = message.value(KEY_OBJECT).toString();
         QObject *object = registeredObjects.value(objectName);

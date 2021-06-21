@@ -20,7 +20,6 @@
 #include "third_party/blink/renderer/core/svg/graphics/svg_image_for_container.h"
 
 #include "base/memory/scoped_refptr.h"
-#include "third_party/blink/renderer/core/svg/graphics/dark_mode_svg_image_classifier.h"
 #include "third_party/blink/renderer/platform/geometry/float_rect.h"
 #include "third_party/blink/renderer/platform/geometry/float_size.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -29,9 +28,15 @@
 namespace blink {
 
 IntSize SVGImageForContainer::Size() const {
+  // The image orientation is irrelevant because there is not concept of
+  // orientation for SVG images.
+  return RoundedIntSize(SizeAsFloat(kRespectImageOrientation));
+}
+
+FloatSize SVGImageForContainer::SizeAsFloat(RespectImageOrientationEnum) const {
   FloatSize scaled_container_size(container_size_);
   scaled_container_size.Scale(zoom_);
-  return RoundedIntSize(scaled_container_size);
+  return scaled_container_size;
 }
 
 void SVGImageForContainer::Draw(cc::PaintCanvas* canvas,
@@ -51,7 +56,8 @@ void SVGImageForContainer::DrawPattern(GraphicsContext& context,
                                        const FloatPoint& phase,
                                        SkBlendMode op,
                                        const FloatRect& dst_rect,
-                                       const FloatSize& repeat_spacing) {
+                                       const FloatSize& repeat_spacing,
+                                       RespectImageOrientationEnum) {
   image_->DrawPatternForContainer(context, container_size_, zoom_, src_rect,
                                   scale, phase, op, dst_rect, repeat_spacing,
                                   url_);
@@ -68,12 +74,6 @@ PaintImage SVGImageForContainer::PaintImageForCurrentFrame() {
       image_->completion_state());
   image_->PopulatePaintRecordForCurrentFrameForContainer(builder, url_, Size());
   return builder.TakePaintImage();
-}
-
-DarkModeClassification SVGImageForContainer::ClassifyImageForDarkMode(
-    const FloatRect& src_rect) {
-  DarkModeSVGImageClassifier dark_mode_svg_image_classifier;
-  return dark_mode_svg_image_classifier.Classify(image_, src_rect);
 }
 
 }  // namespace blink

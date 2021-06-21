@@ -10,14 +10,18 @@
 #include "base/scoped_observer.h"
 #include "ui/gfx/animation/animation_container_observer.h"
 #include "ui/gfx/animation/animation_delegate.h"
+#include "ui/views/view.h"
 #include "ui/views/view_observer.h"
 #include "ui/views/views_export.h"
 
+namespace ui {
+class AnimationMetricsReporter;
+}
+
 namespace views {
+class CompositorAnimationRunner;
 
-class View;
-
-// Provides default implementaton to adapt CompositorAnimationRunner for
+// Provides default implementation to adapt CompositorAnimationRunner for
 // Animation. Falls back to the default animation runner when |view| is nullptr.
 class VIEWS_EXPORT AnimationDelegateViews
     : public gfx::AnimationDelegate,
@@ -42,6 +46,14 @@ class VIEWS_EXPORT AnimationDelegateViews
   void AnimationContainerShuttingDown(
       gfx::AnimationContainer* container) override;
 
+  // Returns the expected animation duration for metrics reporting purposes.
+  // Should be overriden to provide a non-zero value and used with
+  // |set_animation_metrics_reporter()|.
+  virtual base::TimeDelta GetAnimationDurationForReporting() const;
+
+  void SetAnimationMetricsReporter(
+      ui::AnimationMetricsReporter* animation_metrics_reporter);
+
   gfx::AnimationContainer* container() { return container_; }
 
  private:
@@ -52,7 +64,12 @@ class VIEWS_EXPORT AnimationDelegateViews
   View* view_;
   gfx::AnimationContainer* container_ = nullptr;
 
-  ScopedObserver<View, AnimationDelegateViews> scoped_observer_{this};
+  ui::AnimationMetricsReporter* animation_metrics_reporter_ = nullptr;
+
+  // The animation runner that |container_| uses.
+  CompositorAnimationRunner* compositor_animation_runner_ = nullptr;
+
+  ScopedObserver<View, ViewObserver> scoped_observer_{this};
 };
 
 }  // namespace views

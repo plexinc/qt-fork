@@ -2,16 +2,16 @@ include_rules = [
   "+ash",
   "+cc",
   "+chromeos/audio/chromeos_sounds.h",
+  "+chromeos/constants/chromeos_features.h",
   "+components/viz/common",
   "+components/viz/host",
-  "+components/viz/service",
   "+device/gamepad",
   "+gpu",
   "+mojo/core/embedder/embedder.h",
   "+mojo/public/cpp",
   "+net/base",
   "+services/data_decoder/public/cpp",
-  "+services/viz/privileged/interfaces/compositing/vsync_parameter_observer.mojom.h",
+  "+services/viz/privileged/mojom/compositing/vsync_parameter_observer.mojom.h",
   "+third_party/blink/public/common",
   "+third_party/khronos",
   "+third_party/skia",
@@ -21,5 +21,9 @@ include_rules = [
 specific_include_rules = {
   "surface_unittest\.cc": [
     "+components/viz/test",
+  ],
+  ".*test.*\.cc": [
+    "+components/viz/service/frame_sinks",
+    "+components/viz/service/surfaces",
   ],
 }

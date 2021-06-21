@@ -30,16 +30,17 @@ SoftwareRenderer::SoftwareRenderer(
     const gfx::Size& size)
     : RendererBase(widget, size),
       window_surface_(std::move(window_surface)),
-      vsync_period_(base::TimeDelta::FromMilliseconds(kFrameDelayMilliseconds)),
-      weak_ptr_factory_(this) {}
+      vsync_period_(
+          base::TimeDelta::FromMilliseconds(kFrameDelayMilliseconds)) {}
 
-SoftwareRenderer::~SoftwareRenderer() {
-}
+SoftwareRenderer::~SoftwareRenderer() {}
 
 bool SoftwareRenderer::Initialize() {
-  software_surface_ = ui::OzonePlatform::GetInstance()
-                          ->GetSurfaceFactoryOzone()
-                          ->CreateCanvasForWidget(widget_);
+  software_surface_ =
+      ui::OzonePlatform::GetInstance()
+          ->GetSurfaceFactoryOzone()
+          ->CreateCanvasForWidget(widget_,
+                                  base::ThreadTaskRunnerHandle::Get().get());
   if (!software_surface_) {
     LOG(ERROR) << "Failed to create software surface";
     return false;
@@ -56,12 +57,12 @@ void SoftwareRenderer::RenderFrame() {
 
   float fraction = NextFraction();
 
-  sk_sp<SkSurface> surface = software_surface_->GetSurface();
+  SkCanvas* canvas = software_surface_->GetCanvas();
 
   SkColor color =
       SkColorSetARGB(0xff, 0, 0xff * fraction, 0xff * (1 - fraction));
 
-  surface->getCanvas()->clear(color);
+  canvas->clear(color);
 
   software_surface_->PresentCanvas(gfx::Rect(size_));
 

@@ -17,10 +17,6 @@
 #include "device/fido/fido_request_handler_base.h"
 #include "device/fido/fido_transport_protocol.h"
 
-namespace service_manager {
-class Connector;
-}  // namespace service_manager
-
 namespace device {
 
 class FidoAuthenticator;
@@ -46,7 +42,6 @@ class COMPONENT_EXPORT(DEVICE_FIDO) ResetRequestHandler
   using FinishedCallback = base::OnceCallback<void(CtapDeviceResponseCode)>;
 
   ResetRequestHandler(
-      service_manager::Connector* connector,
       const base::flat_set<FidoTransportProtocol>& supported_transports,
       ResetSentCallback reset_sent_callback,
       FinishedCallback finished_callback,
@@ -67,7 +62,7 @@ class COMPONENT_EXPORT(DEVICE_FIDO) ResetRequestHandler
   bool processed_touch_ = false;
   std::unique_ptr<FidoDiscoveryFactory> fido_discovery_factory_;
   SEQUENCE_CHECKER(my_sequence_checker_);
-  base::WeakPtrFactory<ResetRequestHandler> weak_factory_;
+  base::WeakPtrFactory<ResetRequestHandler> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(ResetRequestHandler);
 };

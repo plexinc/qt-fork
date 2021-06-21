@@ -5,6 +5,7 @@
 #include "ui/views/controls/resize_area.h"
 
 #include <memory>
+#include <utility>
 
 #include "base/bind.h"
 #include "build/build_config.h"
@@ -28,7 +29,7 @@ const int kGestureScrollDistance = 100;
 const int kGestureScrollSteps = 4;
 const int kDistancePerGestureScrollUpdate =
     kGestureScrollDistance / kGestureScrollSteps;
-}
+}  // namespace
 
 namespace views {
 
@@ -131,7 +132,7 @@ void ResizeAreaTest::SetUp() {
   init_params.bounds = gfx::Rect(size);
 
   widget_ = new views::Widget();
-  widget_->Init(init_params);
+  widget_->Init(std::move(init_params));
   widget_->SetContentsView(resize_area_);
   widget_->Show();
 

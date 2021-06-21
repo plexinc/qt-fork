@@ -21,10 +21,12 @@
 
 #include "third_party/blink/renderer/core/layout/table_layout_algorithm_fixed.h"
 
+#include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/layout/layout_table.h"
 #include "third_party/blink/renderer/core/layout/layout_table_cell.h"
 #include "third_party/blink/renderer/core/layout/layout_table_col.h"
 #include "third_party/blink/renderer/core/layout/layout_table_section.h"
+#include "third_party/blink/renderer/platform/geometry/calculation_value.h"
 #include "third_party/blink/renderer/platform/geometry/layout_unit.h"
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 
@@ -89,9 +91,9 @@ int TableLayoutAlgorithmFixed::CalcWidthArray() {
        col = col->NextColumn()) {
     // LayoutTableCols don't have the concept of preferred logical width, but we
     // need to clear their dirty bits so that if we call
-    // setPreferredWidthsDirty(true) on a col or one of its descendants, we'll
+    // SetPreferredWidthsDirty(true) on a col or one of its descendants, we'll
     // mark it's ancestors as dirty.
-    col->ClearPreferredLogicalWidthsDirtyBits();
+    col->ClearIntrinsicLogicalWidthsDirtyBits();
 
     // Width specified by column-groups that have column child does not affect
     // column width in fixed layout tables
@@ -146,10 +148,16 @@ int TableLayoutAlgorithmFixed::CalcWidthArray() {
        cell = cell->NextCell()) {
     Length logical_width = cell->StyleOrColLogicalWidth();
 
-    // FIXME: calc() on tables should be handled consistently with other
-    // lengths. See bug: https://crbug.com/382725
-    if (logical_width.IsCalculated())
-      logical_width = Length();  // Make it Auto
+    if (logical_width.IsCalculated()) {
+      // A calculated width that mixes lengths and percentages in fixed table
+      // layout must be treated as 'auto'.
+      // https://drafts.csswg.org/css-values-4/#calc-computed-value
+      const CalculationValue& calc = logical_width.GetCalculationValue();
+      if (calc.IsExpression() || calc.Pixels())
+        logical_width = Length();
+      else
+        logical_width = Length::Percent(calc.Percent());
+    }
 
     unsigned span = cell->ColSpan();
     int fixed_border_box_logical_width = 0;
@@ -176,12 +184,12 @@ int TableLayoutAlgorithmFixed::CalcWidthArray() {
       ++current_column;
     }
 
-    // TableLayoutAlgorithmFixed doesn't use min/maxPreferredLogicalWidths, but
-    // we need to clear the dirty bit on the cell so that we'll correctly mark
-    // its ancestors dirty in case we later call
-    // setPreferredLogicalWidthsDirty() on it later.
-    if (cell->PreferredLogicalWidthsDirty())
-      cell->ClearPreferredLogicalWidthsDirty();
+    // TableLayoutAlgorithmFixed doesn't use PreferredLogicalWidths, but we
+    // need to clear the dirty bit on the cell so that we'll correctly mark its
+    // ancestors dirty in case we later call SetIntrinsicLogicalWidthsDirty()
+    // on it later.
+    if (cell->IntrinsicLogicalWidthsDirty())
+      cell->ClearIntrinsicLogicalWidthsDirty();
   }
 
   return used_width;

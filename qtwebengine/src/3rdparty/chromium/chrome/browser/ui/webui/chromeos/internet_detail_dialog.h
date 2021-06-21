@@ -7,7 +7,8 @@
 
 #include "base/macros.h"
 #include "chrome/browser/ui/webui/chromeos/system_web_dialog_delegate.h"
-#include "chromeos/services/network_config/public/mojom/cros_network_config.mojom.h"  // nogncheck
+#include "chromeos/services/network_config/public/mojom/cros_network_config.mojom-forward.h"  // nogncheck
+#include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "ui/web_dialogs/web_dialog_ui.h"
 
 namespace chromeos {
@@ -49,9 +50,14 @@ class InternetDetailDialogUI : public ui::MojoWebDialogUI {
   explicit InternetDetailDialogUI(content::WebUI* web_ui);
   ~InternetDetailDialogUI() override;
 
+  // Instantiates implementor of the mojom::CrosNetworkConfig mojo interface
+  // passing the pending receiver that will be internally bound.
+  void BindInterface(
+      mojo::PendingReceiver<chromeos::network_config::mojom::CrosNetworkConfig>
+          receiver);
+
  private:
-  void BindCrosNetworkConfig(
-      chromeos::network_config::mojom::CrosNetworkConfigRequest request);
+  WEB_UI_CONTROLLER_TYPE_DECL();
 
   DISALLOW_COPY_AND_ASSIGN(InternetDetailDialogUI);
 };

@@ -6,6 +6,7 @@
 
 #include <vector>
 
+#include "base/debug/dump_without_crashing.h"
 #include "base/logging.h"
 #include "mojo/public/cpp/base/file_mojom_traits.h"
 #include "mojo/public/cpp/base/file_path_mojom_traits.h"
@@ -14,6 +15,7 @@
 #include "services/network/public/cpp/http_request_headers_mojom_traits.h"
 #include "services/network/public/cpp/network_ipc_param_traits.h"
 #include "services/network/public/cpp/resource_request_body.h"
+#include "services/network/public/mojom/trust_tokens.mojom.h"
 #include "services/network/public/mojom/url_loader.mojom-shared.h"
 #include "url/mojom/origin_mojom_traits.h"
 #include "url/mojom/url_gurl_mojom_traits.h"
@@ -150,17 +152,28 @@ bool EnumTraits<network::mojom::URLRequestReferrerPolicy,
   return false;
 }
 
+bool StructTraits<network::mojom::TrustedUrlRequestParamsDataView,
+                  network::ResourceRequest::TrustedParams>::
+    Read(network::mojom::TrustedUrlRequestParamsDataView data,
+         network::ResourceRequest::TrustedParams* out) {
+  if (!data.ReadNetworkIsolationKey(&out->network_isolation_key))
+    return false;
+  out->update_network_isolation_key_on_redirect =
+      data.update_network_isolation_key_on_redirect();
+  out->disable_secure_dns = data.disable_secure_dns();
+  out->has_user_activation = data.has_user_activation();
+  return true;
+}
+
 bool StructTraits<
     network::mojom::URLRequestDataView,
     network::ResourceRequest>::Read(network::mojom::URLRequestDataView data,
                                     network::ResourceRequest* out) {
   if (!data.ReadMethod(&out->method) || !data.ReadUrl(&out->url) ||
       !data.ReadSiteForCookies(&out->site_for_cookies) ||
-      !data.ReadFirstPartyUrl(&out->first_party_url) ||
-      !data.ReadTopFrameOrigin(&out->top_frame_origin) ||
-      !data.ReadTrustedNetworkIsolationKey(
-          &out->trusted_network_isolation_key) ||
+      !data.ReadTrustedParams(&out->trusted_params) ||
       !data.ReadRequestInitiator(&out->request_initiator) ||
+      !data.ReadIsolatedWorldOrigin(&out->isolated_world_origin) ||
       !data.ReadReferrer(&out->referrer) ||
       !data.ReadReferrerPolicy(&out->referrer_policy) ||
       !data.ReadHeaders(&out->headers) ||
@@ -173,25 +186,25 @@ bool StructTraits<
       !data.ReadFetchIntegrity(&out->fetch_integrity) ||
       !data.ReadRequestBody(&out->request_body) ||
       !data.ReadThrottlingProfileId(&out->throttling_profile_id) ||
-      !data.ReadCustomProxyPreCacheHeaders(
-          &out->custom_proxy_pre_cache_headers) ||
-      !data.ReadCustomProxyPostCacheHeaders(
-          &out->custom_proxy_post_cache_headers) ||
       !data.ReadFetchWindowId(&out->fetch_window_id) ||
       !data.ReadDevtoolsRequestId(&out->devtools_request_id) ||
-      !data.ReadAppcacheHostId(&out->appcache_host_id)) {
+      !data.ReadRecursivePrefetchToken(&out->recursive_prefetch_token)) {
+    // Note that data.ReadTrustTokenParams is temporarily handled below.
     return false;
   }
 
-  out->update_network_isolation_key_on_redirect =
-      data.update_network_isolation_key_on_redirect();
+  // Temporarily separated from the remainder of the deserialization in order to
+  // help debug crbug.com/1062637.
+  if (!data.ReadTrustTokenParams(&out->trust_token_params.as_ptr())) {
+    // We don't return false here to avoid duplicate reports.
+    out->trust_token_params = base::nullopt;
+    base::debug::DumpWithoutCrashing();
+  }
+
   out->attach_same_site_cookies = data.attach_same_site_cookies();
   out->update_first_party_url_on_redirect =
       data.update_first_party_url_on_redirect();
-  out->is_prerendering = data.is_prerendering();
   out->load_flags = data.load_flags();
-  out->allow_credentials = data.allow_credentials();
-  out->plugin_child_id = data.plugin_child_id();
   out->resource_type = data.resource_type();
   out->should_reset_appcache = data.should_reset_appcache();
   out->is_external_request = data.is_external_request();
@@ -200,6 +213,7 @@ bool StructTraits<
   out->corb_detachable = data.corb_detachable();
   out->corb_excluded = data.corb_excluded();
   out->fetch_request_context_type = data.fetch_request_context_type();
+  out->destination = data.destination();
   out->keepalive = data.keepalive();
   out->has_user_gesture = data.has_user_gesture();
   out->enable_load_timing = data.enable_load_timing();
@@ -208,16 +222,13 @@ bool StructTraits<
   out->render_frame_id = data.render_frame_id();
   out->is_main_frame = data.is_main_frame();
   out->transition_type = data.transition_type();
-  out->allow_download = data.allow_download();
   out->report_raw_headers = data.report_raw_headers();
   out->previews_state = data.previews_state();
-  out->initiated_in_secure_context = data.initiated_in_secure_context();
   out->upgrade_if_insecure = data.upgrade_if_insecure();
   out->is_revalidating = data.is_revalidating();
-  out->should_also_use_factory_bound_origin_for_cors =
-      data.should_also_use_factory_bound_origin_for_cors();
   out->is_signed_exchange_prefetch_cache_enabled =
       data.is_signed_exchange_prefetch_cache_enabled();
+  out->obey_origin_policy = data.obey_origin_policy();
   return true;
 }
 
@@ -246,10 +257,10 @@ bool StructTraits<network::mojom::DataElementDataView, network::DataElement>::
       return false;
   }
   out->type_ = data.type();
-  out->data_pipe_getter_ =
-      data.TakeDataPipeGetter<network::mojom::DataPipeGetterPtrInfo>();
+  out->data_pipe_getter_ = data.TakeDataPipeGetter<
+      mojo::PendingRemote<network::mojom::DataPipeGetter>>();
   out->chunked_data_pipe_getter_ = data.TakeChunkedDataPipeGetter<
-      network::mojom::ChunkedDataPipeGetterPtrInfo>();
+      mojo::PendingRemote<network::mojom::ChunkedDataPipeGetter>>();
   out->offset_ = data.offset();
   out->length_ = data.length();
   return true;

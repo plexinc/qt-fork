@@ -50,6 +50,8 @@ class PeerConnectionDelegateAdapter : public PeerConnectionObserver {
 
   void OnIceCandidatesRemoved(const std::vector<cricket::Candidate> &candidates) override;
 
+  void OnIceSelectedCandidatePairChanged(const cricket::CandidatePairChangeEvent &event) override;
+
   void OnAddTrack(rtc::scoped_refptr<RtpReceiverInterface> receiver,
                   const std::vector<rtc::scoped_refptr<MediaStreamInterface>> &streams) override;
 
@@ -76,7 +78,17 @@ class PeerConnectionDelegateAdapter : public PeerConnectionObserver {
 - (instancetype)initWithFactory:(RTCPeerConnectionFactory *)factory
                   configuration:(RTCConfiguration *)configuration
                     constraints:(RTCMediaConstraints *)constraints
-                       delegate:(nullable id<RTCPeerConnectionDelegate>)delegate
+                       delegate:(nullable id<RTCPeerConnectionDelegate>)delegate;
+
+/** Initialize an RTCPeerConnection with a configuration, constraints,
+ *  delegate and PeerConnectionDependencies.
+ */
+- (instancetype)initWithDependencies:(RTCPeerConnectionFactory *)factory
+                       configuration:(RTCConfiguration *)configuration
+                         constraints:(RTCMediaConstraints *)constraints
+                        dependencies:
+                            (std::unique_ptr<webrtc::PeerConnectionDependencies>)dependencies
+                            delegate:(nullable id<RTCPeerConnectionDelegate>)delegate
     NS_DESIGNATED_INITIALIZER;
 
 + (webrtc::PeerConnectionInterface::SignalingState)nativeSignalingStateForState:

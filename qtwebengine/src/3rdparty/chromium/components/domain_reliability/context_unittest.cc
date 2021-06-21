@@ -98,12 +98,12 @@ class DomainReliabilityContextTest : public testing::Test {
       : last_network_change_time_(time_.NowTicks()),
         dispatcher_(&time_),
         params_(MakeTestSchedulerParams()),
-        uploader_(base::Bind(&DomainReliabilityContextTest::OnUploadRequest,
-                             base::Unretained(this))),
+        uploader_(base::BindOnce(&DomainReliabilityContextTest::OnUploadRequest,
+                                 base::Unretained(this))),
         upload_reporter_string_("test-reporter"),
-        upload_allowed_callback_(
-            base::Bind(&DomainReliabilityContextTest::UploadAllowedCallback,
-                       base::Unretained(this))),
+        upload_allowed_callback_(base::BindRepeating(
+            &DomainReliabilityContextTest::UploadAllowedCallback,
+            base::Unretained(this))),
         upload_pending_(false) {
     // Make sure that the last network change does not overlap requests
     // made in test cases, which start 250ms in the past (see |MakeBeacon|).
@@ -117,10 +117,14 @@ class DomainReliabilityContextTest : public testing::Test {
         upload_allowed_callback_, &dispatcher_, &uploader_, std::move(config)));
   }
 
-  TimeDelta min_delay() const { return params_.minimum_upload_delay; }
-  TimeDelta max_delay() const { return params_.maximum_upload_delay; }
-  TimeDelta retry_interval() const { return params_.upload_retry_interval; }
-  TimeDelta zero_delta() const { return TimeDelta::FromMicroseconds(0); }
+  base::TimeDelta min_delay() const { return params_.minimum_upload_delay; }
+  base::TimeDelta max_delay() const { return params_.maximum_upload_delay; }
+  base::TimeDelta retry_interval() const {
+    return params_.upload_retry_interval;
+  }
+  base::TimeDelta zero_delta() const {
+    return base::TimeDelta::FromMicroseconds(0);
+  }
 
   bool upload_allowed_callback_pending() const {
     return !upload_allowed_result_callback_.is_null();
@@ -145,7 +149,7 @@ class DomainReliabilityContextTest : public testing::Test {
 
   void CallUploadCallback(DomainReliabilityUploader::UploadResult result) {
     ASSERT_TRUE(upload_pending_);
-    upload_callback_.Run(result);
+    std::move(upload_callback_).Run(result);
     upload_pending_ = false;
   }
 
@@ -172,16 +176,15 @@ class DomainReliabilityContextTest : public testing::Test {
   std::unique_ptr<DomainReliabilityContext> context_;
 
  private:
-  void OnUploadRequest(
-      const std::string& report_json,
-      int max_upload_depth,
-      const GURL& upload_url,
-      const DomainReliabilityUploader::UploadCallback& callback) {
+  void OnUploadRequest(const std::string& report_json,
+                       int max_upload_depth,
+                       const GURL& upload_url,
+                       DomainReliabilityUploader::UploadCallback callback) {
     ASSERT_FALSE(upload_pending_);
     upload_report_ = report_json;
     upload_max_depth_ = max_upload_depth;
     upload_url_ = upload_url;
-    upload_callback_ = callback;
+    upload_callback_ = std::move(callback);
     upload_pending_ = true;
   }
 

@@ -47,9 +47,9 @@ void tst_QFlags::testFlag() const
     Qt::MouseButtons btn = Qt::LeftButton | Qt::RightButton;
 
     QVERIFY(btn.testFlag(Qt::LeftButton));
-    QVERIFY(!btn.testFlag(Qt::MidButton));
+    QVERIFY(!btn.testFlag(Qt::MiddleButton));
 
-    btn = 0;
+    btn = { };
     QVERIFY(!btn.testFlag(Qt::LeftButton));
 }
 
@@ -275,11 +275,11 @@ void tst_QFlags::testSetFlags()
 
     btn.setFlag(Qt::LeftButton);
     QVERIFY(btn.testFlag(Qt::LeftButton));
-    QVERIFY(!btn.testFlag(Qt::MidButton));
+    QVERIFY(!btn.testFlag(Qt::MiddleButton));
 
     btn.setFlag(Qt::LeftButton, false);
     QVERIFY(!btn.testFlag(Qt::LeftButton));
-    QVERIFY(!btn.testFlag(Qt::MidButton));
+    QVERIFY(!btn.testFlag(Qt::MiddleButton));
 
     MyStrictFlags flags;
     flags.setFlag(MyStrictEnum::StrictOne);

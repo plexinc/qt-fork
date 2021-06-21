@@ -17,6 +17,8 @@
 
 #include "absl/types/optional.h"
 #include "api/rtp_headers.h"
+#include "rtc_base/deprecation.h"
+#include "rtc_base/system/rtc_export.h"
 
 namespace webrtc {
 
@@ -25,10 +27,19 @@ namespace webrtc {
 // used to carry per-packet information from when a packet is received until
 // the information is passed to |SourceTracker|.
 //
-class RtpPacketInfo {
+class RTC_EXPORT RtpPacketInfo {
  public:
   RtpPacketInfo();
 
+  RtpPacketInfo(uint32_t ssrc,
+                std::vector<uint32_t> csrcs,
+                uint32_t rtp_timestamp,
+                absl::optional<uint8_t> audio_level,
+                absl::optional<AbsoluteCaptureTime> absolute_capture_time,
+                int64_t receive_time_ms);
+
+  // TODO(bugs.webrtc.org/10739): Will be removed sometime after 2019-09-19.
+  RTC_DEPRECATED
   RtpPacketInfo(uint32_t ssrc,
                 std::vector<uint32_t> csrcs,
                 uint32_t rtp_timestamp,
@@ -54,6 +65,14 @@ class RtpPacketInfo {
   absl::optional<uint8_t> audio_level() const { return audio_level_; }
   void set_audio_level(absl::optional<uint8_t> value) { audio_level_ = value; }
 
+  const absl::optional<AbsoluteCaptureTime>& absolute_capture_time() const {
+    return absolute_capture_time_;
+  }
+  void set_absolute_capture_time(
+      const absl::optional<AbsoluteCaptureTime>& value) {
+    absolute_capture_time_ = value;
+  }
+
   int64_t receive_time_ms() const { return receive_time_ms_; }
   void set_receive_time_ms(int64_t value) { receive_time_ms_ = value; }
 
@@ -67,6 +86,10 @@ class RtpPacketInfo {
   // Fields from the Audio Level header extension:
   // https://tools.ietf.org/html/rfc6464#section-3
   absl::optional<uint8_t> audio_level_;
+
+  // Fields from the Absolute Capture Time header extension:
+  // http://www.webrtc.org/experiments/rtp-hdrext/abs-capture-time
+  absl::optional<AbsoluteCaptureTime> absolute_capture_time_;
 
   // Local |webrtc::Clock|-based timestamp of when the packet was received.
   int64_t receive_time_ms_;

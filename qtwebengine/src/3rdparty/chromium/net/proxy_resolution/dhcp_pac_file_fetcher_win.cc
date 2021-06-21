@@ -13,6 +13,7 @@
 #include "base/memory/free_deleter.h"
 #include "base/synchronization/lock.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/task_runner.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "base/values.h"
@@ -41,8 +42,8 @@ bool IsDhcpCapableAdapter(IP_ADAPTER_ADDRESSES* adapter) {
   // dhcpsvc!DhcpRequestParams on interfaces that aren't ready yet blocks for
   // a long time.
   //
-  // Since ProxyResolutionService restarts WPAD probes in response to other
-  // network level changes, this will likely get called again once the
+  // Since ConfiguredProxyResolutionService restarts WPAD probes in response to
+  // other network level changes, this will likely get called again once the
   // interface is up.
   if (adapter->OperStatus != IfOperStatusUp)
     return false;
@@ -144,10 +145,6 @@ class TaskRunnerWithCap : public base::TaskRunner {
     return true;
   }
 
-  bool RunsTasksInCurrentSequence() const override {
-    return task_runner_->RunsTasksInCurrentSequence();
-  }
-
  private:
   struct LocationAndTask {
     LocationAndTask() = default;
@@ -186,7 +183,7 @@ class TaskRunnerWithCap : public base::TaskRunner {
   }
 
   const scoped_refptr<base::TaskRunner> task_runner_ =
-      base::CreateTaskRunnerWithTraits(
+      base::ThreadPool::CreateTaskRunner(
           {base::MayBlock(), base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN,
            base::TaskPriority::USER_VISIBLE});
 
@@ -223,7 +220,7 @@ base::Value NetLogGetAdaptersDoneParams(DhcpAdapterNamesLoggingInfo* info) {
     bool skipped = !IsDhcpCapableAdapter(adapter);
     adapter_value.SetKey("skipped", base::Value(skipped));
 
-    adapters_value.GetList().push_back(std::move(adapter_value));
+    adapters_value.Append(std::move(adapter_value));
   }
   result.SetKey("adapters", std::move(adapters_value));
 
@@ -302,10 +299,11 @@ int DhcpPacFileFetcherWin::Fetch(
 
   task_runner_->PostTaskAndReply(
       FROM_HERE,
-      base::Bind(&DhcpPacFileFetcherWin::AdapterQuery::GetCandidateAdapterNames,
-                 last_query_.get()),
-      base::Bind(&DhcpPacFileFetcherWin::OnGetCandidateAdapterNamesDone,
-                 AsWeakPtr(), last_query_, traffic_annotation));
+      base::BindOnce(
+          &DhcpPacFileFetcherWin::AdapterQuery::GetCandidateAdapterNames,
+          last_query_.get()),
+      base::BindOnce(&DhcpPacFileFetcherWin::OnGetCandidateAdapterNamesDone,
+                     AsWeakPtr(), last_query_, traffic_annotation));
 
   return ERR_IO_PENDING;
 }
@@ -383,8 +381,8 @@ void DhcpPacFileFetcherWin::OnGetCandidateAdapterNamesDone(
         ImplCreateAdapterFetcher());
     size_t fetcher_index = fetchers_.size();
     fetcher->Fetch(adapter_name,
-                   base::Bind(&DhcpPacFileFetcherWin::OnFetcherDone,
-                              base::Unretained(this), fetcher_index),
+                   base::BindOnce(&DhcpPacFileFetcherWin::OnFetcherDone,
+                                  base::Unretained(this), fetcher_index),
                    traffic_annotation);
     fetchers_.push_back(std::move(fetcher));
   }

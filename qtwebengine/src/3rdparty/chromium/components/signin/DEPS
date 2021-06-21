@@ -10,14 +10,12 @@ include_rules = [
   # Subdirectories of //components/signin must explicitly allow deps on each
   # other based on the conceptual deps structure.
   "-components/signin",
-  "+components/signin/public",
   "+components/user_manager",
   "+components/webdata/common",
   "+crypto",
   "+google_apis/gaia",
   "+grit",  # For generated headers
   "+net",
-  "+services/identity/public",
   "+services/network/public",
   "+services/network/test",
   "+sql",

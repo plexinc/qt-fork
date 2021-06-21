@@ -55,6 +55,7 @@ class SimpleThreadScheduler : public ThreadScheduler {
   scoped_refptr<base::SingleThreadTaskRunner> V8TaskRunner() override;
   scoped_refptr<base::SingleThreadTaskRunner> CompositorTaskRunner() override;
   scoped_refptr<base::SingleThreadTaskRunner> IPCTaskRunner() override;
+  scoped_refptr<base::SingleThreadTaskRunner> NonWakingTaskRunner() override;
   scoped_refptr<base::SingleThreadTaskRunner> DeprecatedDefaultTaskRunner()
       override;
 
@@ -70,8 +71,8 @@ class SimpleThreadScheduler : public ThreadScheduler {
 
   // Unsupported. The observer won't get called. May break some functionalities
   // that rely on the task observer.
-  void AddTaskObserver(base::MessageLoop::TaskObserver*) override;
-  void RemoveTaskObserver(base::MessageLoop::TaskObserver*) override;
+  void AddTaskObserver(base::TaskObserver*) override;
+  void RemoveTaskObserver(base::TaskObserver*) override;
 
   // Return nullptr.
   NonMainThreadSchedulerImpl* AsNonMainThreadScheduler() override;

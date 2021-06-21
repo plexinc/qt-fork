@@ -47,7 +47,7 @@
 #include "content/public/browser/web_contents.h"
 #include "skia/ext/platform_canvas.h"
 #include "skia/ext/skia_utils_mac.h"
-#include "third_party/blink/public/platform/web_input_event.h"
+#include "third_party/blink/public/common/input/web_input_event.h"
 #import "ui/base/clipboard/clipboard_util_mac.h"
 #include "ui/base/cocoa/animation_utils.h"
 #include "ui/base/cocoa/cocoa_base_utils.h"
@@ -82,13 +82,6 @@ SkColor RenderWidgetHostViewMac::BrowserCompositorMacGetGutterColor() const {
     return SK_ColorBLACK;
   }
   return last_frame_root_background_color_;
-}
-
-void RenderWidgetHostViewMac::BrowserCompositorMacOnBeginFrame(
-    base::TimeTicks frame_time) {
-  // ProgressFling must get called for middle click autoscroll fling on Mac.
-  if (host())
-    host()->ProgressFlingIfNeeded(frame_time);
 }
 
 void RenderWidgetHostViewMac::OnFrameTokenChanged(uint32_t frame_token) {
@@ -169,14 +162,11 @@ id RenderWidgetHostViewMac::GetAccessibilityFocusedUIElement() {
 ///////////////////////////////////////////////////////////////////////////////
 // RenderWidgetHostViewMac, public:
 
-RenderWidgetHostViewMac::RenderWidgetHostViewMac(RenderWidgetHost* widget,
-                                                 bool is_guest_view_hack)
+RenderWidgetHostViewMac::RenderWidgetHostViewMac(RenderWidgetHost* widget)
     : RenderWidgetHostViewBase(widget),
       page_at_minimum_scale_(true),
       mouse_wheel_phase_handler_(this),
-      remote_ns_view_client_binding_(this),
       is_loading_(false),
-      is_guest_view_hack_(is_guest_view_hack),
       popup_parent_host_view_(nullptr),
       popup_child_host_view_(nullptr),
       gesture_provider_(ui::GetGestureProviderConfig(
@@ -195,16 +185,13 @@ RenderWidgetHostViewMac::RenderWidgetHostViewMac(RenderWidgetHost* widget,
   display_ =
       display::Screen::GetScreen()->GetDisplayNearestWindow([NSApp keyWindow]);
 
-  viz::FrameSinkId frame_sink_id = is_guest_view_hack_
-                                       ? AllocateFrameSinkIdForGuestViewHack()
-                                       : host()->GetFrameSinkId();
+  viz::FrameSinkId frame_sink_id = host()->GetFrameSinkId();
 
   browser_compositor_.reset(new BrowserCompositorMac(
       this, this, host()->is_hidden(), display_, frame_sink_id));
   DCHECK(![GetInProcessNSView() window]);
 
-  if (!is_guest_view_hack_)
-    host()->SetView(this);
+  host()->SetView(this);
 
   // Let the page-level input event router know about our surface ID
   // namespace for surface-based hit testing.
@@ -248,10 +235,10 @@ void RenderWidgetHostViewMac::MigrateNSViewBridge(
   remote_window_accessible_.reset();
 
   // Disconnect from the previous bridge (this will have the effect of
-  // destroying the associated bridge), and close the binding (to allow it
+  // destroying the associated bridge), and close the receiver (to allow it
   // to be re-bound). Note that |in_process_ns_view_bridge_| remains valid.
-  remote_ns_view_client_binding_.Close();
-  remote_ns_view_ptr_.reset();
+  remote_ns_view_client_receiver_.reset();
+  remote_ns_view_.reset();
 
   // Enable accessibility focus overriding for remote NSViews.
   accessibility_focus_overrider_.SetAppIsRemote(remote_cocoa_application !=
@@ -263,26 +250,25 @@ void RenderWidgetHostViewMac::MigrateNSViewBridge(
     return;
   }
 
-  remote_cocoa::mojom::RenderWidgetHostNSViewHostAssociatedPtr client;
-  remote_ns_view_client_binding_.Bind(mojo::MakeRequest(&client));
-  remote_cocoa::mojom::RenderWidgetHostNSViewAssociatedRequest bridge_request =
-      mojo::MakeRequest(&remote_ns_view_ptr_);
+  mojo::PendingAssociatedRemote<remote_cocoa::mojom::RenderWidgetHostNSViewHost>
+      client = remote_ns_view_client_receiver_.BindNewEndpointAndPassRemote();
+  mojo::PendingAssociatedReceiver<remote_cocoa::mojom::RenderWidgetHostNSView>
+      view_receiver = remote_ns_view_.BindNewEndpointAndPassReceiver();
 
-  // Cast from mojom::RenderWidgetHostNSViewHostPtr and
-  // mojom::RenderWidgetHostNSViewBridgeRequest to the public interfaces
-  // accepted by the application.
+  // Cast from PendingAssociatedRemote<mojom::RenderWidgetHostNSViewHost> and
+  // mojo::PendingAssociatedReceiver<mojom::RenderWidgetHostNSView> to the
+  // public interfaces accepted by the application.
   // TODO(ccameron): Remove the need for this cast.
   // https://crbug.com/888290
-  mojo::AssociatedInterfacePtrInfo<remote_cocoa::mojom::StubInterface>
-      stub_client(client.PassInterface().PassHandle(), 0);
-  remote_cocoa::mojom::StubInterfaceAssociatedRequest stub_bridge_request(
-      bridge_request.PassHandle());
-
+  mojo::PendingAssociatedRemote<remote_cocoa::mojom::StubInterface> stub_client(
+      client.PassHandle(), 0);
+  mojo::PendingAssociatedReceiver<remote_cocoa::mojom::StubInterface>
+      stub_bridge_receiver(view_receiver.PassHandle());
   remote_cocoa_application->CreateRenderWidgetHostNSView(
-      std::move(stub_client), std::move(stub_bridge_request));
+      std::move(stub_client), std::move(stub_bridge_receiver));
 
-  ns_view_ = remote_ns_view_ptr_.get();
-  remote_ns_view_ptr_->SetParentWebContentsNSView(parent_ns_view_id);
+  ns_view_ = remote_ns_view_.get();
+  remote_ns_view_->SetParentWebContentsNSView(parent_ns_view_id);
 }
 
 void RenderWidgetHostViewMac::SetParentUiLayer(ui::Layer* parent_ui_layer) {
@@ -364,7 +350,10 @@ void RenderWidgetHostViewMac::InitAsPopup(
   popup_parent_host_view_->popup_child_host_view_ = this;
 
   // This path is used by the time/date picker.
-  ns_view_->InitAsPopup(pos);
+  // When FormControlsRefresh is enabled the popup window should use
+  // the native shadow.
+  bool has_shadow = features::IsFormControlsRefreshEnabled();
+  ns_view_->InitAsPopup(pos, has_shadow);
 }
 
 void RenderWidgetHostViewMac::InitAsFullscreen(
@@ -376,13 +365,8 @@ void RenderWidgetHostViewMac::InitAsFullscreen(
 RenderWidgetHostViewBase*
 RenderWidgetHostViewMac::GetFocusedViewForTextSelection() {
   // We obtain the TextSelection from focused RWH which is obtained from the
-  // frame tree. BrowserPlugin-based guests' RWH is not part of the frame tree
-  // and the focused RWH will be that of the embedder which is incorrect. In
-  // this case we should use TextSelection for |this| since RWHV for guest
-  // forwards text selection information to its platform view.
-  return is_guest_view_hack_
-             ? this
-             : GetFocusedWidget() ? GetFocusedWidget()->GetView() : nullptr;
+  // frame tree.
+  return GetFocusedWidget() ? GetFocusedWidget()->GetView() : nullptr;
 }
 
 RenderWidgetHostDelegate*
@@ -462,7 +446,7 @@ void RenderWidgetHostViewMac::WasUnOccluded() {
   bool has_saved_frame =
       browser_compositor_->has_saved_frame_before_state_transition();
 
-  auto tab_switch_start_state = TakeRecordTabSwitchTimeRequest();
+  auto tab_switch_start_state = TakeRecordContentToVisibleTimeRequest();
 
   const bool renderer_should_record_presentation_time = !has_saved_frame;
   host()->WasShown(renderer_should_record_presentation_time
@@ -508,6 +492,10 @@ gfx::NativeViewAccessible RenderWidgetHostViewMac::GetNativeViewAccessible() {
 }
 
 void RenderWidgetHostViewMac::Focus() {
+  // Ignore redundant calls, as they can cause unending loops of focus-setting.
+  // https://crbug.com/998123
+  if (is_first_responder_)
+    return;
   ns_view_->MakeFirstResponder();
 }
 
@@ -637,8 +625,8 @@ void RenderWidgetHostViewMac::OnSelectionBoundsChanged(
   // Create a rectangle for the edge of the selection focus, which will be
   // the same as the caret position if the selection is collapsed. That's
   // what we want to try to keep centered on-screen if possible.
-  gfx::Rect gfx_caret_rect(region->focus.edge_top_rounded().x(),
-                           region->focus.edge_top_rounded().y(), 1,
+  gfx::Rect gfx_caret_rect(region->focus.edge_start_rounded().x(),
+                           region->focus.edge_start_rounded().y(), 1,
                            region->focus.GetHeight());
   gfx_caret_rect += view_bounds_in_window_dip_.OffsetFromOrigin();
   gfx_caret_rect += window_frame_in_screen_dip_.OffsetFromOrigin();
@@ -701,8 +689,8 @@ void RenderWidgetHostViewMac::Destroy() {
   // the other side of |ns_view_| may outlive us due to other retains.
   ns_view_ = nullptr;
   in_process_ns_view_bridge_.reset();
-  remote_ns_view_client_binding_.Close();
-  remote_ns_view_ptr_.reset();
+  remote_ns_view_client_receiver_.reset();
+  remote_ns_view_.reset();
 
   // Delete the delegated frame state, which will reach back into
   // host().
@@ -858,28 +846,19 @@ void RenderWidgetHostViewMac::EnsureSurfaceSynchronizedForWebTest() {
   browser_compositor_->ForceNewSurfaceId();
 }
 
-void RenderWidgetHostViewMac::SetNeedsBeginFrames(bool needs_begin_frames) {
-  NOTREACHED();
-}
-
 void RenderWidgetHostViewMac::OnDidUpdateVisualPropertiesComplete(
     const cc::RenderFrameMetadata& metadata) {
   browser_compositor_->UpdateSurfaceFromChild(
-      metadata.device_scale_factor, metadata.viewport_size_in_pixels,
+      host()->auto_resize_enabled(), metadata.device_scale_factor,
+      metadata.viewport_size_in_pixels,
       metadata.local_surface_id_allocation.value_or(
           viz::LocalSurfaceIdAllocation()));
-}
-
-void RenderWidgetHostViewMac::SetWantsAnimateOnlyBeginFrames() {
-  browser_compositor_->SetWantsAnimateOnlyBeginFrames();
 }
 
 void RenderWidgetHostViewMac::TakeFallbackContentFrom(
     RenderWidgetHostView* view) {
   DCHECK(!static_cast<RenderWidgetHostViewBase*>(view)
               ->IsRenderWidgetHostViewChildFrame());
-  DCHECK(!static_cast<RenderWidgetHostViewBase*>(view)
-              ->IsRenderWidgetHostViewGuest());
   RenderWidgetHostViewMac* view_mac =
       static_cast<RenderWidgetHostViewMac*>(view);
   ScopedCAActionDisabler disabler;
@@ -1026,7 +1005,7 @@ bool RenderWidgetHostViewMac::GetCachedFirstRectForCharacterRange(
   const TextInputManager::CompositionRangeInfo* composition_info =
       GetCompositionRangeInfo();
   if (!composition_info || composition_info->range.is_empty()) {
-    if (!selection->range().Contains(requested_range))
+    if (!requested_range.IsBoundedBy(selection->range()))
       return false;
     DCHECK(GetFocusedWidget());
     if (actual_range)
@@ -1075,36 +1054,6 @@ void RenderWidgetHostViewMac::FocusedNodeChanged(
   }
 }
 
-void RenderWidgetHostViewMac::DidCreateNewRendererCompositorFrameSink(
-    viz::mojom::CompositorFrameSinkClient* renderer_compositor_frame_sink) {
-  browser_compositor_->DidCreateNewRendererCompositorFrameSink(
-      renderer_compositor_frame_sink);
-}
-
-void RenderWidgetHostViewMac::SubmitCompositorFrame(
-    const viz::LocalSurfaceId& local_surface_id,
-    viz::CompositorFrame frame,
-    base::Optional<viz::HitTestRegionList> hit_test_region_list) {
-  TRACE_EVENT0("browser", "RenderWidgetHostViewMac::OnSwapCompositorFrame");
-
-  page_at_minimum_scale_ =
-      frame.metadata.page_scale_factor == frame.metadata.min_page_scale_factor;
-
-  browser_compositor_->GetDelegatedFrameHost()->SubmitCompositorFrame(
-      local_surface_id, std::move(frame), std::move(hit_test_region_list));
-}
-
-void RenderWidgetHostViewMac::OnDidNotProduceFrame(
-    const viz::BeginFrameAck& ack) {
-  browser_compositor_->OnDidNotProduceFrame(ack);
-}
-
-void RenderWidgetHostViewMac::ClearCompositorFrame() {
-  // This method is only used for content rendering timeout when surface sync is
-  // off. However, surface sync is always on on Mac.
-  NOTREACHED();
-}
-
 void RenderWidgetHostViewMac::ResetFallbackToFirstNavigationSurface() {
   browser_compositor_->GetDelegatedFrameHost()
       ->ResetFallbackToFirstNavigationSurface();
@@ -1122,9 +1071,16 @@ gfx::Rect RenderWidgetHostViewMac::GetBoundsInRootWindow() {
   return window_frame_in_screen_dip_;
 }
 
-bool RenderWidgetHostViewMac::LockMouse() {
+blink::mojom::PointerLockResult RenderWidgetHostViewMac::LockMouse(
+    bool request_unadjusted_movement) {
   if (mouse_locked_)
-    return true;
+    return blink::mojom::PointerLockResult::kSuccess;
+
+  if (request_unadjusted_movement) {
+    // TODO(crbug/998688): implement pointerlock unadjusted movement on mac.
+    NOTIMPLEMENTED();
+    return blink::mojom::PointerLockResult::kUnsupportedOptions;
+  }
 
   mouse_locked_ = true;
 
@@ -1134,7 +1090,17 @@ bool RenderWidgetHostViewMac::LockMouse() {
   // Clear the tooltip window.
   ns_view_->SetTooltipText(base::string16());
 
-  return true;
+  return blink::mojom::PointerLockResult::kSuccess;
+}
+
+blink::mojom::PointerLockResult RenderWidgetHostViewMac::ChangeMouseLock(
+    bool request_unadjusted_movement) {
+  // Unadjusted movement is not supported on Mac. Which means that
+  // |mouse_locked_unadjusted_movement_| must not be set. Therefore,
+  // |request_unadjusted_movement| must be true so this request will always
+  // fail with kUnsupportedOptions.
+  NOTIMPLEMENTED();
+  return blink::mojom::PointerLockResult::kUnsupportedOptions;
 }
 
 void RenderWidgetHostViewMac::UnlockMouse() {
@@ -1396,14 +1362,6 @@ void RenderWidgetHostViewMac::SetTextInputActive(bool active) {
     password_input_enabler_.reset();
 }
 
-// static
-viz::FrameSinkId
-RenderWidgetHostViewMac::AllocateFrameSinkIdForGuestViewHack() {
-  return ImageTransportFactory::GetInstance()
-      ->GetContextFactoryPrivate()
-      ->AllocateFrameSinkId();
-}
-
 MouseWheelPhaseHandler* RenderWidgetHostViewMac::GetMouseWheelPhaseHandler() {
   return &mouse_wheel_phase_handler_;
 }
@@ -1622,6 +1580,8 @@ void RenderWidgetHostViewMac::GestureBegin(blink::WebGestureEvent begin_event,
   // If the page is at the minimum zoom level, require a threshold be reached
   // before the pinch has an effect. Synthetic pinches are not subject to this
   // threshold.
+  // TODO(crbug.com/1038683): |page_at_minimum_scale_| is always true, should it
+  // be removed or correctly set based on RenderFrameMetadata?
   if (page_at_minimum_scale_) {
     pinch_has_reached_zoom_threshold_ = is_synthetically_injected;
     pinch_unused_amount_ = 1;
@@ -1739,6 +1699,10 @@ void RenderWidgetHostViewMac::LookUpDictionaryOverlayAtPoint(
       host()->delegate()->GetInputEventRouter()->GetRenderWidgetHostAtPoint(
           this, root_point, &transformed_point);
   if (!widget_host)
+    return;
+
+  // For popups, do not support QuickLook.
+  if (popup_parent_host_view_)
     return;
 
   int32_t target_widget_process_id = widget_host->GetProcess()->GetID();

@@ -24,10 +24,10 @@
 #include "perfetto/base/task_runner.h"
 #include "perfetto/ext/base/scoped_file.h"
 
-#include "perfetto/config/android/packages_list_config.pbzero.h"
 #include "perfetto/ext/tracing/core/basic_types.h"
-#include "perfetto/trace/android/packages_list.pbzero.h"
 #include "perfetto/tracing/core/data_source_config.h"
+#include "protos/perfetto/config/android/packages_list_config.pbzero.h"
+#include "protos/perfetto/trace/android/packages_list.pbzero.h"
 
 #include "src/traced/probes/probes_data_source.h"
 
@@ -50,7 +50,8 @@ bool ParsePackagesListStream(protos::pbzero::PackagesList* packages_list,
 
 class PackagesListDataSource : public ProbesDataSource {
  public:
-  static constexpr int kTypeId = 7;
+  static const ProbesDataSource::Descriptor descriptor;
+
   PackagesListDataSource(const DataSourceConfig& ds_config,
                          TracingSessionID session_id,
                          std::unique_ptr<TraceWriter> writer);

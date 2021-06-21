@@ -13,6 +13,7 @@
 #include "net/base/ip_endpoint.h"
 #include "net/base/net_export.h"
 #include "net/dns/dns_hosts.h"
+#include "net/dns/public/dns_over_https_server_config.h"
 
 namespace base {
 class Value;
@@ -36,6 +37,7 @@ struct NET_EXPORT DnsConfig {
 
   bool Equals(const DnsConfig& d) const;
   bool operator==(const DnsConfig& d) const;
+  bool operator!=(const DnsConfig& d) const;
 
   bool EqualsIgnoreHosts(const DnsConfig& d) const;
 
@@ -45,16 +47,9 @@ struct NET_EXPORT DnsConfig {
   // Value only contains the number of hosts rather than the full list.
   std::unique_ptr<base::Value> ToValue() const;
 
-  bool IsValid() const { return !nameservers.empty(); }
-
-  struct NET_EXPORT DnsOverHttpsServerConfig {
-    DnsOverHttpsServerConfig(const std::string& server_template, bool use_post);
-
-    bool operator==(const DnsOverHttpsServerConfig& other) const;
-
-    std::string server_template;
-    bool use_post;
-  };
+  bool IsValid() const {
+    return !nameservers.empty() || !dns_over_https_servers.empty();
+  }
 
   // The SecureDnsMode specifies what types of lookups (secure/insecure) should
   // be performed and in what order when resolving a specific query. The int
@@ -71,6 +66,11 @@ struct NET_EXPORT DnsConfig {
 
   // List of name server addresses.
   std::vector<IPEndPoint> nameservers;
+
+  // Status of system DNS-over-TLS (DoT).
+  bool dns_over_tls_active;
+  std::string dns_over_tls_hostname;
+
   // Suffix search list; used on first lookup when number of dots in given name
   // is less than |ndots|.
   std::vector<std::string> search;
@@ -97,6 +97,9 @@ struct NET_EXPORT DnsConfig {
   base::TimeDelta timeout;
   // Maximum number of attempts, see res_state.retry.
   int attempts;
+  // Maximum number of times a DoH server is attempted per attempted per DNS
+  // transaction. This is separate from the global failure limit.
+  int doh_attempts;
   // Round robin entries in |nameservers| for subsequent requests.
   bool rotate;
 
@@ -114,6 +117,15 @@ struct NET_EXPORT DnsConfig {
   // server hostname) using |HostResolver::ResolveHostParameters::
   // secure_dns_mode_override|.
   SecureDnsMode secure_dns_mode;
+
+  // If set to |true|, we will attempt to upgrade the user's DNS configuration
+  // to use DoH server(s) operated by the same provider(s) when the user is
+  // in AUTOMATIC mode and has not pre-specified DoH servers.
+  bool allow_dns_over_https_upgrade;
+
+  // List of providers to exclude from upgrade mapping. See the
+  // mapping in net/dns/dns_util.cc for provider ids.
+  std::vector<std::string> disabled_upgrade_providers;
 };
 
 }  // namespace net

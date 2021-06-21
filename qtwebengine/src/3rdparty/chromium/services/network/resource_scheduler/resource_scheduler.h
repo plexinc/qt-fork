@@ -83,14 +83,13 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) ResourceScheduler {
     base::OnceClosure resume_callback_;
   };
 
-  explicit ResourceScheduler(bool enabled,
-                             const base::TickClock* tick_clock = nullptr);
-  ~ResourceScheduler();
+  explicit ResourceScheduler(const base::TickClock* tick_clock = nullptr);
+  virtual ~ResourceScheduler();
 
   // Requests that this ResourceScheduler schedule, and eventually loads, the
   // specified |url_request|. Caller should delete the returned ResourceThrottle
   // when the load completes or is canceled, before |url_request| is deleted.
-  std::unique_ptr<ScheduledResourceRequest> ScheduleRequest(
+  virtual std::unique_ptr<ScheduledResourceRequest> ScheduleRequest(
       int child_id,
       int route_id,
       bool is_async,
@@ -100,18 +99,23 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) ResourceScheduler {
 
   // Called when a renderer is created. |network_quality_estimator| is allowed
   // to be null.
-  void OnClientCreated(int child_id,
-                       int route_id,
-                       net::NetworkQualityEstimator* network_quality_estimator);
+  virtual void OnClientCreated(
+      int child_id,
+      int route_id,
+      net::NetworkQualityEstimator* network_quality_estimator);
 
   // Called when a renderer is destroyed.
-  void OnClientDeleted(int child_id, int route_id);
+  virtual void OnClientDeleted(int child_id, int route_id);
 
   // Counts the number of active resource scheduler clients.
   // A client is active when it has at least one request either in the pending
   // request queue owned by the client or in flight.
   // Note: the counter is expected to be 0 for the most of time.
-  size_t ActiveSchedulerClientsCounter() const;
+  virtual size_t ActiveSchedulerClientsCounter() const;
+
+  // Records the metrics related to number of in-flight requests that are
+  // observed by the global resource scheduler.
+  virtual void RecordGlobalRequestCountMetrics() const;
 
   // Client functions:
 
@@ -119,25 +123,23 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) ResourceScheduler {
   // start the request loading if it wasn't already started.
   // If the scheduler does not know about the request, |new_priority| is set but
   // |intra_priority_value| is ignored.
-  void ReprioritizeRequest(net::URLRequest* request,
-                           net::RequestPriority new_priority,
-                           int intra_priority_value);
+  virtual void ReprioritizeRequest(net::URLRequest* request,
+                                   net::RequestPriority new_priority,
+                                   int intra_priority_value);
   // Same as above, but keeps the existing intra priority value.
-  void ReprioritizeRequest(net::URLRequest* request,
-                           net::RequestPriority new_priority);
+  virtual void ReprioritizeRequest(net::URLRequest* request,
+                                   net::RequestPriority new_priority);
 
   // Returns true if the timer that dispatches long queued requests is running.
-  bool IsLongQueuedRequestsDispatchTimerRunning() const;
+  virtual bool IsLongQueuedRequestsDispatchTimerRunning() const;
 
-  base::SequencedTaskRunner* task_runner() { return task_runner_.get(); }
+  virtual base::SequencedTaskRunner* task_runner();
 
   // Testing setters
   void SetTaskRunnerForTesting(
       scoped_refptr<base::SequencedTaskRunner> sequenced_task_runner) {
     task_runner_ = std::move(sequenced_task_runner);
   }
-
-  bool enabled() const { return enabled_; }
 
   void SetResourceSchedulerParamsManagerForTests(
       const ResourceSchedulerParamsManager& resource_scheduler_params_manager);
@@ -183,11 +185,6 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) ResourceScheduler {
 
   // Timer to dispatch requests that may have been queued for too long.
   base::OneShotTimer long_queued_requests_dispatch_timer_;
-
-  // Whether or not to enable ResourceScheduling. This will almost always be
-  // enabled, except for some C++ headless embedders who may implement their own
-  // resource scheduling via protocol handlers.
-  const bool enabled_;
 
   // Duration after which the timer to dispatch queued requests should fire.
   const base::TimeDelta queued_requests_dispatch_periodicity_;

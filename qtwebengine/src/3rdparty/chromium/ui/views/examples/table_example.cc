@@ -4,6 +4,8 @@
 
 #include "ui/views/examples/table_example.h"
 
+#include <memory>
+#include <utility>
 #include <vector>
 
 #include "base/strings/string_util.h"
@@ -13,6 +15,7 @@
 #include "ui/gfx/image/image_skia.h"
 #include "ui/views/controls/button/checkbox.h"
 #include "ui/views/controls/scroll_view.h"
+#include "ui/views/examples/examples_window.h"
 #include "ui/views/layout/grid_layout.h"
 
 using base::ASCIIToUTF16;
@@ -70,14 +73,14 @@ void TableExample::CreateExampleView(View* container) {
   layout->AddView(TableView::CreateScrollViewWithTable(std::move(table)));
 
   column_set = layout->AddColumnSet(1);
-  column_set->AddColumn(GridLayout::FILL, GridLayout::FILL,
-                        0.5f, GridLayout::USE_PREF, 0, 0);
-  column_set->AddColumn(GridLayout::FILL, GridLayout::FILL,
-                        0.5f, GridLayout::USE_PREF, 0, 0);
-  column_set->AddColumn(GridLayout::FILL, GridLayout::FILL,
-                        0.5f, GridLayout::USE_PREF, 0, 0);
-  column_set->AddColumn(GridLayout::FILL, GridLayout::FILL,
-                        0.5f, GridLayout::USE_PREF, 0, 0);
+  column_set->AddColumn(GridLayout::FILL, GridLayout::FILL, 0.5f,
+                        GridLayout::USE_PREF, 0, 0);
+  column_set->AddColumn(GridLayout::FILL, GridLayout::FILL, 0.5f,
+                        GridLayout::USE_PREF, 0, 0);
+  column_set->AddColumn(GridLayout::FILL, GridLayout::FILL, 0.5f,
+                        GridLayout::USE_PREF, 0, 0);
+  column_set->AddColumn(GridLayout::FILL, GridLayout::FILL, 0.5f,
+                        GridLayout::USE_PREF, 0, 0);
 
   layout->StartRow(0 /* no expand */, 1);
 
@@ -107,11 +110,11 @@ base::string16 TableExample::GetText(int row, int column_id) {
     return base::string16();
 
   const char* const cells[5][4] = {
-    { "Orange", "Orange", "South america", "$5" },
-    { "Apple", "Green", "Canada", "$3" },
-    { "Blue berries", "Blue", "Mexico", "$10.3" },
-    { "Strawberries", "Red", "California", "$7" },
-    { "Cantaloupe", "Orange", "South america", "$5" },
+      {"Orange", "Orange", "South america", "$5"},
+      {"Apple", "Green", "Canada", "$3"},
+      {"Blue berries", "Blue", "Mexico", "$10.3"},
+      {"Strawberries", "Red", "California", "$7"},
+      {"Cantaloupe", "Orange", "South america", "$5"},
   };
   return ASCIIToUTF16(cells[row % 5][column_id]);
 }
@@ -119,6 +122,20 @@ base::string16 TableExample::GetText(int row, int column_id) {
 gfx::ImageSkia TableExample::GetIcon(int row) {
   SkBitmap row_icon = row % 2 ? icon1_ : icon2_;
   return gfx::ImageSkia::CreateFrom1xBitmap(row_icon);
+}
+
+base::string16 TableExample::GetTooltip(int row) {
+  if (row == -1)
+    return base::string16();
+
+  const char* const tooltips[5] = {
+      "Orange - Orange you glad I didn't say banana?",
+      "Apple - An apple a day keeps the doctor away",
+      "Blue berries - Bet you can't eat just one",
+      "Strawberries - Always better when homegrown",
+      "Cantaloupe - So nice when perfectly ripe"};
+
+  return ASCIIToUTF16(tooltips[row % 5]);
 }
 
 void TableExample::SetObserver(ui::TableModelObserver* observer) {}
@@ -138,14 +155,14 @@ void TableExample::GetGroupRange(int model_index, GroupRange* range) {
 
 void TableExample::OnSelectionChanged() {
   PrintStatus("Selected: %s",
-              base::UTF16ToASCII(GetText(table_->selection_model().active(),
-                                         0)).c_str());
+              base::UTF16ToASCII(GetText(table_->selection_model().active(), 0))
+                  .c_str());
 }
 
 void TableExample::OnDoubleClick() {
   PrintStatus("Double Click: %s",
-              base::UTF16ToASCII(GetText(table_->selection_model().active(),
-                                         0)).c_str());
+              base::UTF16ToASCII(GetText(table_->selection_model().active(), 0))
+                  .c_str());
 }
 
 void TableExample::OnMiddleClick() {}

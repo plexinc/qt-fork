@@ -93,12 +93,17 @@ public:
         kLast_MapBufferType = kChromium_MapBufferType,
     };
 
-    enum TransferBufferType {
-        kNone_TransferBufferType,
-        kPBO_TransferBufferType,          // ARB_pixel_buffer_object
-        kChromium_TransferBufferType,     // CHROMIUM_pixel_transfer_buffer_object
+    enum class TransferBufferType {
+        kNone,
+        kNV_PBO,    // NV__pixel_buffer_object
+        kARB_PBO,   // ARB_pixel_buffer_object
+        kChromium,  // CHROMIUM_pixel_transfer_buffer_object
+    };
 
-        kLast_TransferBufferType = kChromium_TransferBufferType,
+    enum class FenceType {
+        kNone,
+        kSyncObject,
+        kNVFence
     };
 
     /**
@@ -108,76 +113,78 @@ public:
     GrGLCaps(const GrContextOptions& contextOptions, const GrGLContextInfo& ctxInfo,
              const GrGLInterface* glInterface);
 
-    bool isFormatSRGB(const GrBackendFormat& format) const override;
+    bool isFormatSRGB(const GrBackendFormat&) const override;
+    SkImage::CompressionType compressionType(const GrBackendFormat&) const override;
 
-    bool isFormatTexturable(GrColorType, const GrBackendFormat&) const override;
+    bool isFormatTexturable(const GrBackendFormat&) const override;
+    bool isFormatTexturable(GrGLFormat) const;
 
-    bool isConfigTexturable(GrPixelConfig config) const override {
-        GrColorType ct = GrPixelConfigToColorType(config);
-        auto format = this->pixelConfigToFormat(config);
-        return this->isFormatTexturable(ct, format);
+    bool isFormatAsColorTypeRenderable(GrColorType ct, const GrBackendFormat& format,
+                                       int sampleCount = 1) const override;
+    bool isFormatRenderable(const GrBackendFormat& format, int sampleCount) const override;
+    bool isFormatRenderable(GrGLFormat format, int sampleCount) const {
+        return sampleCount <= this->maxRenderTargetSampleCount(format);
     }
 
-    int getRenderTargetSampleCount(int requestedCount, GrColorType ct,
+    int getRenderTargetSampleCount(int requestedCount,
                                    const GrBackendFormat& format) const override {
-        return this->getRenderTargetSampleCount(requestedCount, ct,
-                                                GrGLBackendFormatToGLFormat(format));
+        return this->getRenderTargetSampleCount(requestedCount, format.asGLFormat());
     }
-    int getRenderTargetSampleCount(int requestedCount, GrPixelConfig config) const override {
-        GrColorType ct = GrPixelConfigToColorType(config);
-        auto format = this->pixelConfigToFormat(config);
-        return this->getRenderTargetSampleCount(requestedCount, ct, format);
+    int getRenderTargetSampleCount(int requestedCount, GrGLFormat) const;
 
+    int maxRenderTargetSampleCount(const GrBackendFormat& format) const override {
+        return this->maxRenderTargetSampleCount(format.asGLFormat());
     }
+    int maxRenderTargetSampleCount(GrGLFormat) const;
 
-    int maxRenderTargetSampleCount(GrColorType ct, const GrBackendFormat& format) const override {
-        return this->maxRenderTargetSampleCount(ct, GrGLBackendFormatToGLFormat(format));
-    }
-    int maxRenderTargetSampleCount(GrPixelConfig config) const override {
-        GrColorType ct = GrPixelConfigToColorType(config);
-        auto format = this->pixelConfigToFormat(config);
-        return this->maxRenderTargetSampleCount(ct, format);
-    }
+    size_t bytesPerPixel(GrGLFormat) const;
+    size_t bytesPerPixel(const GrBackendFormat&) const override;
 
-    bool isFormatCopyable(GrColorType, const GrBackendFormat&) const override;
-    bool isConfigCopyable(GrPixelConfig config) const override {
-        // In GL we have three ways to be able to copy. CopyTexImage, blit, and draw. CopyTexImage
-        // requires the src to be an FBO attachment, blit requires both src and dst to be FBO
-        // attachments, and draw requires the dst to be an FBO attachment. Thus to copy from and to
-        // the same config, we need that config to be bindable to an FBO.
-        return this->canConfigBeFBOColorAttachment(config);
-    }
+    bool isFormatCopyable(const GrBackendFormat&) const override;
 
     bool canFormatBeFBOColorAttachment(GrGLFormat) const;
-
-    bool canConfigBeFBOColorAttachment(GrPixelConfig config) const {
-        auto format = this->pixelConfigToFormat(config);
-        return this->canFormatBeFBOColorAttachment(format);
-    }
-
-    bool configSupportsTexStorage(GrPixelConfig config) const {
-        auto format = this->pixelConfigToFormat(config);
-        return this->formatSupportsTexStorage(format);
-    }
 
     GrGLFormat getFormatFromColorType(GrColorType colorType) const {
         int idx = static_cast<int>(colorType);
         return fColorTypeToFormatTable[idx];
     }
 
-    GrGLenum configSizedInternalFormat(GrPixelConfig config) const {
-        return this->getSizedInternalFormat(this->pixelConfigToFormat(config));
+    /**
+     * Gets the internal format to use with glTexImage...() and glTexStorage...(). May be sized or
+     * base depending upon the GL. Not applicable to compressed textures.
+     */
+    GrGLenum getTexImageOrStorageInternalFormat(GrGLFormat format) const {
+        return this->getFormatInfo(format).fInternalFormatForTexImageOrStorage;
     }
 
-    bool getTexImageFormats(GrPixelConfig surfaceConfig, GrPixelConfig externalConfig,
-                            GrGLenum* internalFormat, GrGLenum* externalFormat,
-                            GrGLenum* externalType) const;
+    /**
+     * Gets the external format and type to pass to glTexImage2D with nullptr to create an
+     * uninitialized texture. See getTexImageOrStorageInternalFormat() for the internal format.
+     */
+    void getTexImageExternalFormatAndType(GrGLFormat surfaceFormat, GrGLenum* externalFormat,
+                                          GrGLenum* externalType) const;
 
-    bool getCompressedTexImageFormats(GrPixelConfig surfaceConfig, GrGLenum* internalFormat) const;
+    /**
+     * Given a src data color type and a color type interpretation for a texture of a given format
+     * this provides the external GL format and type to use with glTexSubImage2d. The color types
+     * should originate from supportedWritePixelsColorType().
+     */
+    void getTexSubImageExternalFormatAndType(GrGLFormat surfaceFormat, GrColorType surfaceColorType,
+                                             GrColorType memoryColorType, GrGLenum* externalFormat,
+                                             GrGLenum* externalType) const;
 
+    /**
+     * Gets the external format, type, and bytes per pixel to use when uploading solid color data
+     * via glTexSubImage...() to clear the texture at creation.
+     */
+    void getTexSubImageDefaultFormatTypeAndColorType(GrGLFormat format,
+                                                     GrGLenum* externalFormat,
+                                                     GrGLenum* externalType,
+                                                     GrColorType* colorType) const;
 
-    bool getReadPixelsFormat(GrPixelConfig surfaceConfig, GrPixelConfig externalConfig,
-                             GrGLenum* externalFormat, GrGLenum* externalType) const;
+    void getReadPixelsFormat(GrGLFormat surfaceFormat, GrColorType surfaceColorType,
+                             GrColorType memoryColorType, GrGLenum* externalFormat,
+                             GrGLenum* externalType) const;
 
     /**
     * Gets an array of legal stencil formats. These formats are not guaranteed
@@ -188,13 +195,21 @@ public:
         return fStencilFormats;
     }
 
+    bool formatSupportsTexStorage(GrGLFormat) const;
+
     /**
-     * Gets the internal format to use with glTexImage...() and glTexStorage...(). May be sized or
-     * base depending upon the GL. Not applicable to compressed textures.
+     * Would it be useful to check GL_IMPLEMENTATION_READ_FORMAT and _TYPE for this format to
+     * detect more efficient glReadPixels arguments?
      */
-    GrGLenum getTexImageInternalFormat(GrGLFormat format) const {
-        return this->getFormatInfo(format).fInternalFormatForTexImage;
-    }
+    bool shouldQueryImplementationReadSupport(GrGLFormat format) const;
+
+    /**
+     * Let caps know the result of GL_IMPLEMENTATION_READ_FORMAT and _TYPE query for a format
+     * to update supported glReadPixels arguments.
+     */
+    void didQueryImplementationReadSupport(GrGLFormat format,
+                                           GrGLenum readFormat,
+                                           GrGLenum readType) const;
 
     /**
      * Gets the internal format to use with glRenderbufferStorageMultisample...(). May be sized or
@@ -202,14 +217,6 @@ public:
      */
     GrGLenum getRenderbufferInternalFormat(GrGLFormat format) const {
         return this->getFormatInfo(format).fInternalFormatForRenderbuffer;
-    }
-
-    GrGLenum getSizedInternalFormat(GrGLFormat format) const {
-        return this->getFormatInfo(format).fSizedInternalFormat;
-    }
-
-    GrGLenum getBaseInternalFormat(GrGLFormat format) const {
-        return this->getFormatInfo(format).fBaseInternalFormat;
     }
 
     /**
@@ -242,21 +249,6 @@ public:
      * the format. If < 0 it records that the format has no supported stencil format index.
      */
     void setStencilFormatIndexForFormat(GrGLFormat, int index);
-
-    /**
-     * Call to note that a GrGLFormat has been verified as a valid color attachment. This may save
-     * future calls to glCheckFramebufferStatus using isFormatVerifiedColorAttachment().
-     */
-    void markFormatAsValidColorAttachment(GrGLFormat format) {
-        this->getFormatInfo(format).fVerifiedColorAttachment = true;
-    }
-
-    /**
-     * Call to check whether a format has been verified as a valid color attachment.
-     */
-    bool isFormatVerifiedColorAttachment(GrGLFormat format) const {
-        return this->getFormatInfo(format).fVerifiedColorAttachment;
-    }
 
     /**
      * Reports the type of MSAA FBO support.
@@ -294,24 +286,17 @@ public:
     /// What type of transfer buffer is supported?
     TransferBufferType transferBufferType() const { return fTransferBufferType; }
 
+    /// How are GrFences implemented?
+    FenceType fenceType() const { return fFenceType; }
+
     /// The maximum number of fragment uniform vectors (GLES has min. 16).
     int maxFragmentUniformVectors() const { return fMaxFragmentUniformVectors; }
-
-    /**
-     * Depending on the ES extensions present the BGRA external format may
-     * correspond to either a BGRA or RGBA internalFormat. On desktop GL it is
-     * RGBA.
-     */
-    bool bgraIsInternalFormat() const;
 
     /// Is there support for GL_PACK_REVERSE_ROW_ORDER
     bool packFlipYSupport() const { return fPackFlipYSupport; }
 
     /// Is there support for texture parameter GL_TEXTURE_USAGE
     bool textureUsageSupport() const { return fTextureUsageSupport; }
-
-    /// Is GL_ALPHA8 renderable
-    bool alpha8IsRenderable() const { return fAlpha8IsRenderable; }
 
     /// Is GL_ARB_IMAGING supported
     bool imagingSupport() const { return fImagingSupport; }
@@ -346,8 +331,10 @@ public:
     bool useNonVBOVertexAndIndexDynamicData() const { return fUseNonVBOVertexAndIndexDynamicData; }
 
     SurfaceReadPixelsSupport surfaceSupportsReadPixels(const GrSurface*) const override;
-    SupportedRead supportedReadPixelsColorType(GrColorType, const GrBackendFormat&,
-                                               GrColorType) const override;
+
+    SupportedWrite supportedWritePixelsColorType(GrColorType surfaceColorType,
+                                                 const GrBackendFormat& surfaceFormat,
+                                                 GrColorType srcColorType) const override;
 
     bool isCoreProfile() const { return fIsCoreProfile; }
 
@@ -423,72 +410,80 @@ public:
                 ? fMaxInstancesPerDrawWithoutCrashing : pendingInstanceCount;
     }
 
-    bool canCopyTexSubImage(GrPixelConfig dstConfig, bool dstHasMSAARenderBuffer,
+    bool canCopyTexSubImage(GrGLFormat dstFormat, bool dstHasMSAARenderBuffer,
                             const GrTextureType* dstTypeIfTexture,
-                            GrPixelConfig srcConfig, bool srcHasMSAARenderBuffer,
+                            GrGLFormat srcFormat, bool srcHasMSAARenderBuffer,
                             const GrTextureType* srcTypeIfTexture) const;
-    bool canCopyAsBlit(GrPixelConfig dstConfig, int dstSampleCnt,
+    bool canCopyAsBlit(GrGLFormat dstFormat, int dstSampleCnt,
                        const GrTextureType* dstTypeIfTexture,
-                       GrPixelConfig srcConfig, int srcSampleCnt,
-                        const GrTextureType* srcTypeIfTexture,
+                       GrGLFormat srcFormat, int srcSampleCnt,
+                       const GrTextureType* srcTypeIfTexture,
                        const SkRect& srcBounds, bool srcBoundsExact,
                        const SkIRect& srcRect, const SkIPoint& dstPoint) const;
-    bool canCopyAsDraw(GrPixelConfig dstConfig, bool srcIsTextureable) const;
+    bool canCopyAsDraw(GrGLFormat dstFormat, bool srcIsTexturable) const;
 
-    DstCopyRestrictions getDstCopyRestrictions(const GrRenderTargetProxy* src) const override;
+    DstCopyRestrictions getDstCopyRestrictions(const GrRenderTargetProxy* src,
+                                               GrColorType) const override;
 
     bool programBinarySupport() const { return fProgramBinarySupport; }
     bool programParameterSupport() const { return fProgramParameterSupport; }
 
     bool samplerObjectSupport() const { return fSamplerObjectSupport; }
 
+    bool tiledRenderingSupport() const { return fTiledRenderingSupport; }
+
     bool fbFetchRequiresEnablePerSample() const { return fFBFetchRequiresEnablePerSample; }
 
-    GrPixelConfig validateBackendRenderTarget(const GrBackendRenderTarget&,
-                                              GrColorType) const override;
+    /* Is there support for enabling/disabling sRGB writes for sRGB-capable color buffers? */
+    bool srgbWriteControl() const { return fSRGBWriteControl; }
 
-    GrPixelConfig getYUVAConfigFromBackendFormat(const GrBackendFormat&) const override;
-    GrColorType getYUVAColorTypeFromBackendFormat(const GrBackendFormat&) const override;
+    /** Skip checks for GL errors, shader compilation success, program link success. */
+    bool skipErrorChecks() const { return fSkipErrorChecks; }
 
-    GrBackendFormat getBackendFormatFromColorType(GrColorType ct) const override;
+    GrColorType getYUVAColorTypeFromBackendFormat(const GrBackendFormat&,
+                                                  bool isAlphaChannel) const override;
+
     GrBackendFormat getBackendFormatFromCompressionType(SkImage::CompressionType) const override;
 
-    bool canClearTextureOnCreation() const override;
+    GrSwizzle getReadSwizzle(const GrBackendFormat&, GrColorType) const override;
+    GrSwizzle getWriteSwizzle(const GrBackendFormat&, GrColorType) const override;
 
-    GrSwizzle getTextureSwizzle(const GrBackendFormat&, GrColorType) const override;
-    GrSwizzle getOutputSwizzle(const GrBackendFormat&, GrColorType) const override;
+    uint64_t computeFormatKey(const GrBackendFormat&) const override;
+
+    GrProgramDesc makeDesc(const GrRenderTarget*, const GrProgramInfo&) const override;
 
 #if GR_TEST_UTILS
     GrGLStandard standard() const { return fStandard; }
+
+    std::vector<TestFormatColorTypeCombination> getTestingCombinations() const override;
 #endif
 
 private:
     enum ExternalFormatUsage {
         kTexImage_ExternalFormatUsage,
         kReadPixels_ExternalFormatUsage,
-
-        kLast_ExternalFormatUsage = kReadPixels_ExternalFormatUsage
     };
-    static const int kExternalFormatUsageCnt = kLast_ExternalFormatUsage + 1;
-    bool getExternalFormat(GrPixelConfig surfaceConfig, GrPixelConfig memoryConfig,
-                           ExternalFormatUsage usage, GrGLenum* externalFormat,
-                           GrGLenum* externalType) const;
+    void getExternalFormat(GrGLFormat surfaceFormat, GrColorType surfaceColorType,
+                           GrColorType memoryColorType, ExternalFormatUsage usage,
+                           GrGLenum* externalFormat, GrGLenum* externalType) const;
 
     void init(const GrContextOptions&, const GrGLContextInfo&, const GrGLInterface*);
     void initGLSL(const GrGLContextInfo&, const GrGLInterface*);
     bool hasPathRenderingSupport(const GrGLContextInfo&, const GrGLInterface*);
 
     struct FormatWorkarounds {
-        bool fDisableTextureRedForMesa = false;
         bool fDisableSRGBRenderWithMSAAForMacAMD = false;
-        bool fDisablePerFormatTextureStorageForCommandBufferES2 = false;
-        bool fDisableNonRedSingleChannelTexStorageForANGLEGL = false;
+        bool fDisableRGBA16FTexStorageForCrBug1008003 = false;
         bool fDisableBGRATextureStorageForIntelWindowsES = false;
         bool fDisableRGB8ForMali400 = false;
         bool fDisableLuminance16F = false;
+        bool fDontDisableTexStorageOnAndroid = false;
+        bool fDisallowDirectRG8ReadPixels = false;
+        bool fDisallowBGRA8ReadPixels = false;
     };
 
     void applyDriverCorrectnessWorkarounds(const GrGLContextInfo&, const GrContextOptions&,
+                                           const GrGLInterface*,
                                            GrShaderCaps*, FormatWorkarounds*);
 
     void onApplyOptionsOverrides(const GrContextOptions& options) override;
@@ -500,39 +495,31 @@ private:
     void initBlendEqationSupport(const GrGLContextInfo&);
     void initStencilSupport(const GrGLContextInfo&);
     // This must be called after initFSAASupport().
-    void initConfigTable(const GrContextOptions&, const GrGLContextInfo&, const GrGLInterface*);
     void initFormatTable(const GrGLContextInfo&, const GrGLInterface*, const FormatWorkarounds&);
     void setupSampleCounts(const GrGLContextInfo&, const GrGLInterface*);
     bool onSurfaceSupportsWritePixels(const GrSurface*) const override;
     bool onCanCopySurface(const GrSurfaceProxy* dst, const GrSurfaceProxy* src,
                           const SkIRect& srcRect, const SkIPoint& dstPoint) const override;
-    size_t onTransferFromOffsetAlignment(GrColorType bufferColorType) const override;
-    GrPixelConfig onGetConfigFromBackendFormat(const GrBackendFormat&, GrColorType) const override;
+    GrBackendFormat onGetDefaultBackendFormat(GrColorType) const override;
     bool onAreColorTypeAndFormatCompatible(GrColorType, const GrBackendFormat&) const override;
 
-    bool isFormatTexturable(GrColorType, GrGLFormat) const;
-    bool formatSupportsTexStorage(GrGLFormat) const;
+    SupportedRead onSupportedReadPixelsColorType(GrColorType, const GrBackendFormat&,
+                                                 GrColorType) const override;
 
-    int getRenderTargetSampleCount(int requestedCount, GrColorType, GrGLFormat) const;
-    int maxRenderTargetSampleCount(GrColorType, GrGLFormat) const;
-
-    // TODO: Once pixel config is no longer used in the caps remove this helper function.
-    GrGLFormat pixelConfigToFormat(GrPixelConfig) const;
-
-    GrGLStandard fStandard;
+    GrGLStandard fStandard = kNone_GrGLStandard;
 
     SkTArray<StencilFormat, true> fStencilFormats;
 
-    int fMaxFragmentUniformVectors;
+    int fMaxFragmentUniformVectors = 0;
 
-    MSFBOType           fMSFBOType;
-    InvalidateFBType    fInvalidateFBType;
-    MapBufferType       fMapBufferType;
-    TransferBufferType  fTransferBufferType;
+    MSFBOType           fMSFBOType          = kNone_MSFBOType;
+    InvalidateFBType    fInvalidateFBType   = kNone_InvalidateFBType;
+    MapBufferType       fMapBufferType      = kNone_MapBufferType;
+    TransferBufferType  fTransferBufferType = TransferBufferType::kNone;
+    FenceType           fFenceType          = FenceType::kNone;
 
     bool fPackFlipYSupport : 1;
     bool fTextureUsageSupport : 1;
-    bool fAlpha8IsRenderable: 1;
     bool fImagingSupport  : 1;
     bool fVertexArrayObjectSupport : 1;
     bool fDebugSupport : 1;
@@ -556,7 +543,10 @@ private:
     bool fProgramBinarySupport : 1;
     bool fProgramParameterSupport : 1;
     bool fSamplerObjectSupport : 1;
+    bool fTiledRenderingSupport : 1;
     bool fFBFetchRequiresEnablePerSample : 1;
+    bool fSRGBWriteControl : 1;
+    bool fSkipErrorChecks : 1;
 
     // Driver workarounds
     bool fDoManualMipmapping : 1;
@@ -568,42 +558,15 @@ private:
     bool fDetachStencilFromMSAABuffersBeforeReadPixels : 1;
     bool fDontSetBaseOrMaxLevelForExternalTextures : 1;
     bool fNeverDisableColorWrites : 1;
-    int fMaxInstancesPerDrawWithoutCrashing;
+    int fMaxInstancesPerDrawWithoutCrashing = 0;
 
-    uint32_t fBlitFramebufferFlags;
+    uint32_t fBlitFramebufferFlags = kNoSupport_BlitFramebufferFlag;
 
     struct ReadPixelsFormat {
         ReadPixelsFormat() : fFormat(0), fType(0) {}
         GrGLenum fFormat;
         GrGLenum fType;
     };
-
-    struct ConfigFormats {
-        ConfigFormats() {
-            // Inits to known bad GL enum values.
-            memset(this, 0xAB, sizeof(ConfigFormats));
-        }
-
-        /** The external format and type are to be used when uploading/downloading data using this
-            config where both the CPU data and GrSurface are the same config. To get the external
-            format and type when converting between configs while copying to/from memory use
-            getExternalFormat().
-            The kTexImage external format is usually the same as kOther except for kSRGBA on some
-            GL contexts. */
-        GrGLenum fExternalFormat[kExternalFormatUsageCnt];
-        GrGLenum fExternalType;
-    };
-
-    struct ConfigInfo {
-        ConfigFormats fFormats;
-
-        // On ES contexts there are restrictions on type type/format that may be used for
-        // ReadPixels. One is implicitly specified by the current FBO's format. The other is
-        // queryable. This stores the queried option (lazily).
-        ReadPixelsFormat fSecondReadPixelsFormat;
-    };
-
-    ConfigInfo fConfigTable[kGrPixelConfigCnt];
 
     /** Number type of the components (with out considering number of bits.) */
     enum class FormatType {
@@ -614,33 +577,72 @@ private:
 
     // ColorTypeInfo for a specific format
     struct ColorTypeInfo {
-        ColorTypeInfo(GrColorType colorType, uint32_t flags)
-                : fColorType(colorType)
-                , fFlags(flags) {}
-
-        ColorTypeInfo(GrColorType colorType, uint32_t flags, GrSwizzle rgbaReadSwizzle)
-                : fColorType(colorType)
-                , fFlags(flags)
-                , fRGBAReadSwizzle(rgbaReadSwizzle) {}
-
-        GrColorType fColorType;
+        GrColorType fColorType = GrColorType::kUnknown;
         enum {
             kUploadData_Flag = 0x1,
             // Does Ganesh itself support rendering to this colorType & format pair. Renderability
             // still additionally depends on if the format can be an FBO color attachment.
             kRenderable_Flag = 0x2,
         };
-        uint32_t fFlags;
+        uint32_t fFlags = 0;
 
-        // If data from a surface of this colorType & format is read back to a GrColorType with all
-        // four color channels this indicates how each channel should be interpreted. May contain
-        // 0s and 1s.
-        GrSwizzle fRGBAReadSwizzle = GrSwizzle("rgba");
+        GrSwizzle fReadSwizzle;
+        GrSwizzle fWriteSwizzle;
+
+        struct ExternalIOFormats {
+            GrColorType fColorType = GrColorType::kUnknown;
+
+            /** The external format and type are to be used when uploading/downloading data using
+                data of fColorType and uploading to a texture of a given GrGLFormat and its
+                intended GrColorType. The fExternalTexImageFormat is the format to use for TexImage
+                calls. The fExternalReadFormat is used when calling ReadPixels. If either is zero
+                that signals that either TexImage or ReadPixels is not supported for the combination
+                of format and color types. */
+            GrGLenum fExternalType = 0;
+            GrGLenum fExternalTexImageFormat = 0;
+            GrGLenum fExternalReadFormat = 0;
+            /**
+             * Must check whether GL_IMPLEMENTATION_COLOR_READ_FORMAT and _TYPE match
+             * fExternalReadFormat and fExternalType before using with glReadPixels.
+             */
+            bool fRequiresImplementationReadQuery = false;
+        };
+
+        GrGLenum externalFormat(GrColorType externalColorType, ExternalFormatUsage usage,
+                                bool haveQueriedImplementationReadFormat) const {
+            for (int i = 0; i < fExternalIOFormatCount; ++i) {
+                if (fExternalIOFormats[i].fColorType == externalColorType) {
+                    if (usage == kTexImage_ExternalFormatUsage) {
+                        return fExternalIOFormats[i].fExternalTexImageFormat;
+                    } else {
+                        SkASSERT(usage == kReadPixels_ExternalFormatUsage);
+                        if (!haveQueriedImplementationReadFormat &&
+                            fExternalIOFormats[i].fRequiresImplementationReadQuery) {
+                            return 0;
+                        }
+                        return fExternalIOFormats[i].fExternalReadFormat;
+                    }
+                }
+            }
+            return 0;
+        }
+
+        GrGLenum externalType(GrColorType externalColorType) const {
+            for (int i = 0; i < fExternalIOFormatCount; ++i) {
+                if (fExternalIOFormats[i].fColorType == externalColorType) {
+                    return fExternalIOFormats[i].fExternalType;
+                }
+            }
+            return 0;
+        }
+
+        std::unique_ptr<ExternalIOFormats[]> fExternalIOFormats;
+        int fExternalIOFormatCount = 0;
     };
 
     struct FormatInfo {
         uint32_t colorTypeFlags(GrColorType colorType) const {
-            for (int i = 0; i < fColorTypeInfos.count(); ++i) {
+            for (int i = 0; i < fColorTypeInfoCount; ++i) {
                 if (fColorTypeInfos[i].fColorType == colorType) {
                     return fColorTypeInfos[i].fFlags;
                 }
@@ -648,49 +650,62 @@ private:
             return 0;
         }
 
-        GrSwizzle rgbaReadSwizzle(GrColorType colorType) const {
-            for (int i = 0; i < fColorTypeInfos.count(); ++i) {
-                if (fColorTypeInfos[i].fColorType == colorType) {
-                    return fColorTypeInfos[i].fRGBAReadSwizzle;
+        GrGLenum externalFormat(GrColorType surfaceColorType, GrColorType externalColorType,
+                                ExternalFormatUsage usage) const {
+            for (int i = 0; i < fColorTypeInfoCount; ++i) {
+                if (fColorTypeInfos[i].fColorType == surfaceColorType) {
+                    return fColorTypeInfos[i].externalFormat(externalColorType, usage,
+                                                             fHaveQueriedImplementationReadSupport);
                 }
             }
-            return GrSwizzle();
+            return 0;
+        }
+
+        GrGLenum externalType(GrColorType surfaceColorType, GrColorType externalColorType) const {
+            for (int i = 0; i < fColorTypeInfoCount; ++i) {
+                if (fColorTypeInfos[i].fColorType == surfaceColorType) {
+                    return fColorTypeInfos[i].externalType(externalColorType);
+                }
+            }
+            return 0;
         }
 
         enum {
-            kTextureable_Flag                = 0x1,
+            kTexturable_Flag                 = 0x1,
             /** kFBOColorAttachment means that even if the format cannot be a GrRenderTarget, we can
                 still attach it to a FBO for blitting or reading pixels. */
             kFBOColorAttachment_Flag         = 0x2,
             kFBOColorAttachmentWithMSAA_Flag = 0x4,
-            kCanUseTexStorage_Flag           = 0x8,
+            kUseTexStorage_Flag              = 0x8,
         };
         uint32_t fFlags = 0;
 
         FormatType fFormatType = FormatType::kUnknown;
 
-        // Both compressed and uncompressed formats have base internal formats.
-        GrGLenum fBaseInternalFormat = 0;
-
-        // Not defined for compressed formats.
-        GrGLenum fSizedInternalFormat = 0;
-
         // Not defined for uncompressed formats. Passed to glCompressedTexImage...
         GrGLenum fCompressedInternalFormat = 0;
 
-        // Value to uses as the "internalformat" argument to glTexImage... Usually one of
-        // fBaseInternalFormat or fSizedInternalFormat but may vary depending on the particular
-        // format, GL version, extensions.
-        GrGLenum fInternalFormatForTexImage = 0;
+        // Value to uses as the "internalformat" argument to glTexImage or glTexStorage. It is
+        // initialized in coordination with the presence/absence of the kUseTexStorage flag. In
+        // other words, it is only guaranteed to be compatible with glTexImage if the flag is not
+        // set and or with glTexStorage if the flag is set.
+        GrGLenum fInternalFormatForTexImageOrStorage = 0;
 
         // Value to uses as the "internalformat" argument to glRenderbufferStorageMultisample...
-        // Usually one of fBaseInternalFormat or fSizedInternalFormat but may vary depending on the
-        // particular format, GL version, extensions.
         GrGLenum fInternalFormatForRenderbuffer = 0;
 
-        // Default value to use along with fBaseInternalFormat for functions such as glTexImage2D
-        // when not input providing data (passing nullptr). Not defined for compressed formats.
+        // Default values to use along with fInternalFormatForTexImageOrStorage for function
+        // glTexImage2D when not input providing data (passing nullptr) or when clearing it by
+        // uploading a block of solid color data. Not defined for compressed formats.
+        GrGLenum fDefaultExternalFormat = 0;
         GrGLenum fDefaultExternalType = 0;
+        // When the above two values are used to initialize a texture by uploading cleared data to
+        // it the data should be of this color type.
+        GrColorType fDefaultColorType = GrColorType::kUnknown;
+        // This value is only valid for regular formats. Compressed formats will be 0.
+        GrGLenum fBytesPerPixel = 0;
+
+        bool fHaveQueriedImplementationReadSupport = false;
 
         enum {
             // This indicates that a stencil format has not yet been determined for the config.
@@ -704,11 +719,8 @@ private:
 
         SkTDArray<int> fColorSampleCounts;
 
-        // verification of color attachment validity is done while flushing. Although only ever
-        // used in the (sole) rendering thread it can cause races if it is glommed into fFlags.
-        bool fVerifiedColorAttachment = false;
-
-        SkSTArray<1, ColorTypeInfo> fColorTypeInfos;
+        std::unique_ptr<ColorTypeInfo[]> fColorTypeInfos;
+        int fColorTypeInfoCount = 0;
     };
 
     FormatInfo fFormatTable[kGrGLFormatCount];

@@ -15,7 +15,8 @@
 #include "base/sequence_checker.h"
 #include "base/timer/timer.h"
 #include "build/build_config.h"
-#include "google_apis/gaia/oauth2_token_service_observer.h"
+#include "components/signin/internal/identity_manager/profile_oauth2_token_service_observer.h"
+#include "components/signin/public/base/persistent_repeating_timer.h"
 
 class AccountInfoFetcher;
 class AccountTrackerService;
@@ -41,14 +42,11 @@ class ImageDecoder;
 class ImageFetcherImpl;
 }  // namespace image_fetcher
 
-class AccountFetcherService : public OAuth2TokenServiceObserver {
+class AccountFetcherService : public ProfileOAuth2TokenServiceObserver {
  public:
   // Name of the preference that tracks the int64_t representation of the last
   // time the AccountTrackerService was updated.
   static const char kLastUpdatePref[];
-
-  // Size used for downloading account pictures. Exposed for tests.
-  static const int kAccountImageDownloadSize;
 
   AccountFetcherService();
   ~AccountFetcherService() override;
@@ -94,7 +92,7 @@ class AccountFetcherService : public OAuth2TokenServiceObserver {
                          bool is_child_account);
 #endif
 
-  // OAuth2TokenServiceObserver implementation.
+  // ProfileOAuth2TokenServiceObserver implementation.
   void OnRefreshTokenAvailable(const CoreAccountId& account_id) override;
   void OnRefreshTokenRevoked(const CoreAccountId& account_id) override;
   void OnRefreshTokensLoaded() override;
@@ -103,8 +101,6 @@ class AccountFetcherService : public OAuth2TokenServiceObserver {
   friend class AccountInfoFetcher;
 
   void RefreshAllAccountInfo(bool only_fetch_if_invalid);
-  void RefreshAllAccountsAndScheduleNext();
-  void ScheduleNextRefresh();
 
 #if defined(OS_ANDROID)
   // Called on all account state changes. Decides whether to fetch new child
@@ -141,6 +137,7 @@ class AccountFetcherService : public OAuth2TokenServiceObserver {
   void FetchAccountImage(const CoreAccountId& account_id);
 
   void OnImageFetched(const CoreAccountId& account_id,
+                      const std::string& image_url_with_size,
                       const gfx::Image& image,
                       const image_fetcher::RequestMetadata& image_metadata);
 
@@ -152,8 +149,7 @@ class AccountFetcherService : public OAuth2TokenServiceObserver {
   bool refresh_tokens_loaded_ = false;
   bool shutdown_called_ = false;
   bool enable_account_removal_for_test_ = false;
-  base::Time last_updated_;
-  base::OneShotTimer timer_;
+  std::unique_ptr<signin::PersistentRepeatingTimer> repeating_timer_;
 
 #if defined(OS_ANDROID)
   CoreAccountId child_request_account_id_;

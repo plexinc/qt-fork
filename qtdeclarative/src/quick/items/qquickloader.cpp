@@ -45,6 +45,7 @@
 #include <private/qqmlglobal_p.h>
 
 #include <private/qqmlcomponent_p.h>
+#include <private/qqmlincubator_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -588,8 +589,15 @@ void QQuickLoader::setSource(QQmlV4Function *args)
     if (ipvError)
         return;
 
+    // 1. If setSource is called with a valid url, clear the old component and its corresponding url
+    // 2. If setSource is called with an invalid url(e.g. empty url), clear the old component but
+    // hold the url for old one.(we will compare it with new url later and may update status of loader to Loader.Null)
+    QUrl oldUrl = d->source;
     d->clear();
     QUrl sourceUrl = d->resolveSourceUrl(args);
+    if (!sourceUrl.isValid())
+        d->source = oldUrl;
+
     d->disposeInitialPropertyValues();
     if (!ipv->isUndefined()) {
         d->initialPropertyValues.set(args->v4engine(), ipv);
@@ -665,7 +673,8 @@ void QQuickLoaderPrivate::setInitialState(QObject *obj)
     QV4::Scope scope(v4);
     QV4::ScopedValue ipv(scope, initialPropertyValues.value());
     QV4::Scoped<QV4::QmlContext> qmlContext(scope, qmlCallingContext.value());
-    d->initializeObjectWithInitialProperties(qmlContext, ipv, obj);
+    auto incubatorPriv = QQmlIncubatorPrivate::get(incubator);
+    d->initializeObjectWithInitialProperties(qmlContext, ipv, obj, incubatorPriv->requiredProperties());
 }
 
 void QQuickLoaderIncubator::statusChanged(Status status)
@@ -821,8 +830,6 @@ void QQuickLoader::itemChange(QQuickItem::ItemChange change, const QQuickItem::I
 
     This signal is emitted when the \l status becomes \c Loader.Ready, or on successful
     initial load.
-
-    The corresponding handler is \c onLoaded.
 */
 
 
@@ -961,6 +968,8 @@ QUrl QQuickLoaderPrivate::resolveSourceUrl(QQmlV4Function *args)
 {
     QV4::Scope scope(args->v4engine());
     QV4::ScopedValue v(scope, (*args)[0]);
+    if (v->isUndefined())
+        return QUrl();
     QString arg = v->toQString();
     if (arg.isEmpty())
         return QUrl();

@@ -47,14 +47,8 @@ static bool check_msgtable() {
   // Exclude test and other non-browser files from consideration.  Do not
   // include message files used inside the actual chrome browser in this list.
   exemptions.push_back(TestMsgStart);
-  exemptions.push_back(BlinkTestMsgStart);
   exemptions.push_back(WebTestMsgStart);
-  exemptions.push_back(CastCryptoMsgStart);   // Reserved for chromecast.
-  exemptions.push_back(CastChannelMsgStart);  // Reserved for chromecast.
-  exemptions.push_back(CastMediaMsgStart);    // Reserved for chromecast.
-  exemptions.push_back(IPCTestMsgStart);
   exemptions.push_back(WorkerMsgStart);    // Now only used by tests.
-  exemptions.push_back(ResourceMsgStart);  // Cleanup underway.
   exemptions.push_back(ChromeUtilityPrintingMsgStart);  // BUILDFLAGS, sigh.
 
 #if !BUILDFLAG(ENABLE_NACL)
@@ -66,13 +60,10 @@ static bool check_msgtable() {
 #endif
 
 #if !defined(OS_ANDROID)
-  exemptions.push_back(MediaPlayerMsgStart);
   exemptions.push_back(EncryptedMediaMsgStart);
   exemptions.push_back(GinJavaBridgeMsgStart);
   exemptions.push_back(AndroidWebViewMsgStart);
-  exemptions.push_back(SyncCompositorMsgStart);
   exemptions.push_back(ExtensionWorkerMsgStart);
-  exemptions.push_back(SurfaceViewManagerMsgStart);
 #endif  // !defined(OS_ANDROID)
 
 #if !defined(USE_OZONE)

@@ -13,14 +13,13 @@
 #include "base/run_loop.h"
 #include "base/sequenced_task_runner.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "build/build_config.h"
 #include "chrome/browser/extensions/api/image_writer_private/operation.h"
 #include "chrome/services/removable_storage_writer/public/mojom/removable_storage_writer.mojom.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
-#include "content/public/browser/system_connector.h"
-#include "services/service_manager/public/cpp/connector.h"
 
 namespace extensions {
 namespace image_writer {
@@ -43,7 +42,7 @@ class ImageWriterUtilityClientTest : public InProcessBrowserTest {
     EXPECT_TRUE(base::CreateTemporaryFileInDir(temp_dir_.GetPath(), &image_));
 
     base::RunLoop run_loop;
-    base::PostTaskWithTraitsAndReply(
+    base::ThreadPool::PostTaskAndReply(
         FROM_HERE, {base::MayBlock()},
         base::BindOnce(&ImageWriterUtilityClientTest::FillFile, image_,
                        pattern),
@@ -56,7 +55,7 @@ class ImageWriterUtilityClientTest : public InProcessBrowserTest {
     device_ = image_.ReplaceExtension(FILE_PATH_LITERAL("out"));
 
     base::RunLoop run_loop;
-    base::PostTaskWithTraitsAndReply(
+    base::ThreadPool::PostTaskAndReply(
         FROM_HERE, {base::MayBlock()},
         base::BindOnce(&ImageWriterUtilityClientTest::FillFile, device_,
                        pattern),
@@ -102,16 +101,13 @@ class ImageWriterUtilityClientTest : public InProcessBrowserTest {
   const std::string& error() const { return error_; }
 
  private:
-  void SetUpOnMainThread() override {
-    connector_ = content::GetSystemConnector()->Clone();
-  }
-
   void StartWriteTest() {
     DCHECK(IsRunningInCorrectSequence());
 
-    if (!image_writer_utility_client_)
+    if (!image_writer_utility_client_) {
       image_writer_utility_client_ =
-          new ImageWriterUtilityClient(GetTaskRunner(), std::move(connector_));
+          new ImageWriterUtilityClient(GetTaskRunner());
+    }
     success_ = false;
     progress_ = 0;
 
@@ -156,9 +152,10 @@ class ImageWriterUtilityClientTest : public InProcessBrowserTest {
   void StartVerifyTest() {
     DCHECK(IsRunningInCorrectSequence());
 
-    if (!image_writer_utility_client_)
+    if (!image_writer_utility_client_) {
       image_writer_utility_client_ =
-          new ImageWriterUtilityClient(GetTaskRunner(), std::move(connector_));
+          new ImageWriterUtilityClient(GetTaskRunner());
+    }
     success_ = false;
     progress_ = 0;
 
@@ -203,8 +200,7 @@ class ImageWriterUtilityClientTest : public InProcessBrowserTest {
     success_ = cancel_;
 
     quit_called_ = true;
-    base::PostTaskWithTraits(FROM_HERE, {content::BrowserThread::UI},
-                             quit_closure_);
+    base::PostTask(FROM_HERE, {content::BrowserThread::UI}, quit_closure_);
   }
 
   void Shutdown() {
@@ -213,8 +209,7 @@ class ImageWriterUtilityClientTest : public InProcessBrowserTest {
     image_writer_utility_client_->Shutdown();
 
     quit_called_ = true;
-    base::PostTaskWithTraits(FROM_HERE, {content::BrowserThread::UI},
-                             quit_closure_);
+    base::PostTask(FROM_HERE, {content::BrowserThread::UI}, quit_closure_);
   }
 
   static void FillFile(const base::FilePath& path, char pattern) {
@@ -224,7 +219,7 @@ class ImageWriterUtilityClientTest : public InProcessBrowserTest {
 
   base::SequencedTaskRunner* CreateTaskRunner() {
     DCHECK(!task_runner_.get());
-    task_runner_ = base::CreateSequencedTaskRunnerWithTraits(
+    task_runner_ = base::ThreadPool::CreateSequencedTaskRunner(
         Operation::blocking_task_traits());
     return task_runner_.get();
   }
@@ -255,7 +250,6 @@ class ImageWriterUtilityClientTest : public InProcessBrowserTest {
   bool cancel_ = false;
   std::string error_;
   scoped_refptr<base::SequencedTaskRunner> task_runner_;
-  std::unique_ptr<service_manager::Connector> connector_;
 
   DISALLOW_COPY_AND_ASSIGN(ImageWriterUtilityClientTest);
 };

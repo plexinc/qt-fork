@@ -28,6 +28,11 @@ namespace webrtc {
 
 // An interface for signaling requests to limit or increase the resolution or
 // framerate of the captured video stream.
+// TODO(hbos): Can we remove AdaptationObserverInterface in favor of
+// ResourceUsageListener? If we need to adapt that is because of resource usage.
+// A multi-stream and multi-resource aware solution needs to sparate the notion
+// of being resource constrained from the decision to downgrade a specific
+// stream.
 class AdaptationObserverInterface {
  public:
   // Indicates if the adaptation is due to overuse of the CPU resources, or if
@@ -37,7 +42,9 @@ class AdaptationObserverInterface {
   // Called to signal that we can handle larger or more frequent frames.
   virtual void AdaptUp(AdaptReason reason) = 0;
   // Called to signal that the source should reduce the resolution or framerate.
-  virtual void AdaptDown(AdaptReason reason) = 0;
+  // Returns false if a downgrade was requested but the request did not result
+  // in a new limiting resolution or fps.
+  virtual bool AdaptDown(AdaptReason reason) = 0;
 
  protected:
   virtual ~AdaptationObserverInterface() {}
@@ -51,8 +58,7 @@ class QualityScaler {
   // Construct a QualityScaler with given |thresholds| and |observer|.
   // This starts the quality scaler periodically checking what the average QP
   // has been recently.
-  QualityScaler(rtc::TaskQueue* task_queue,
-                AdaptationObserverInterface* observer,
+  QualityScaler(AdaptationObserverInterface* observer,
                 VideoEncoder::QpThresholds thresholds);
   virtual ~QualityScaler();
   // Should be called each time a frame is dropped at encoding.
@@ -62,11 +68,11 @@ class QualityScaler {
   void ReportQp(int qp, int64_t time_sent_us);
 
   void SetQpThresholds(VideoEncoder::QpThresholds thresholds);
+  bool QpFastFilterLow() const;
 
   // The following members declared protected for testing purposes.
  protected:
-  QualityScaler(rtc::TaskQueue* task_queue,
-                AdaptationObserverInterface* observer,
+  QualityScaler(AdaptationObserverInterface* observer,
                 VideoEncoder::QpThresholds thresholds,
                 int64_t sampling_period_ms);
 
@@ -101,7 +107,8 @@ class QualityScaler {
   const size_t min_frames_needed_;
   const double initial_scale_factor_;
   const absl::optional<double> scale_factor_;
-  bool last_adapted_ RTC_GUARDED_BY(&task_checker_);
+  bool adapt_called_ RTC_GUARDED_BY(&task_checker_);
+  bool adapt_failed_ RTC_GUARDED_BY(&task_checker_);
 };
 }  // namespace webrtc
 

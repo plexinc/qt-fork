@@ -83,7 +83,19 @@ void MapperXboxOneS2016Firmware(const Gamepad& input, Gamepad* mapped) {
   mapped->buttons[BUTTON_INDEX_START] = input.buttons[11];
   mapped->buttons[BUTTON_INDEX_LEFT_THUMBSTICK] = input.buttons[13];
   mapped->buttons[BUTTON_INDEX_RIGHT_THUMBSTICK] = input.buttons[14];
-  mapped->buttons[BUTTON_INDEX_META] = input.buttons[15];
+
+  // Xbox Wireless Controller (045e:02fd) received a firmware update in 2019
+  // that changed which field is populated with the Xbox button state. Check
+  // both fields and combine the results.
+  auto& xbox_old = input.buttons[15];
+  auto& xbox_new = input.buttons[12];
+  mapped->buttons[BUTTON_INDEX_META].pressed =
+      (xbox_old.pressed || xbox_new.pressed);
+  mapped->buttons[BUTTON_INDEX_META].touched =
+      (xbox_old.touched || xbox_new.touched);
+  mapped->buttons[BUTTON_INDEX_META].value =
+      std::max(xbox_old.value, xbox_new.value);
+
   mapped->axes[AXIS_INDEX_RIGHT_STICK_Y] = input.axes[5];
   DpadFromAxis(mapped, input.axes[9]);
 
@@ -548,8 +560,7 @@ void MapperSwitchComposite(const Gamepad& input, Gamepad* mapped) {
   mapped->axes_length = AXIS_INDEX_COUNT;
 }
 
-void MapperXboxAdaptiveControllerBluetooth(const Gamepad& input,
-                                           Gamepad* mapped) {
+void MapperXboxOneBluetooth(const Gamepad& input, Gamepad* mapped) {
   *mapped = input;
 
   mapped->buttons[BUTTON_INDEX_PRIMARY] = input.buttons[0];
@@ -588,7 +599,7 @@ constexpr struct MappingData {
     {GamepadId::kMicrosoftProduct02dd, MapperXbox360Gamepad},
     // Xbox One S (Bluetooth)
     {GamepadId::kMicrosoftProduct02e0, MapperXboxOneS},
-    // Xbox One Elite Wired
+    // Xbox One Elite (USB)
     {GamepadId::kMicrosoftProduct02e3, MapperXbox360Gamepad},
     // Xbox One S (USB)
     {GamepadId::kMicrosoftProduct02ea, MapperXbox360Gamepad},
@@ -596,10 +607,14 @@ constexpr struct MappingData {
     {GamepadId::kMicrosoftProduct02fd, MapperXboxOneS2016Firmware},
     // Xbox 360 Wireless
     {GamepadId::kMicrosoftProduct0719, MapperXbox360Gamepad},
+    // Xbox One Elite 2 (USB)
+    {GamepadId::kMicrosoftProduct0b00, MapperXbox360Gamepad},
+    // Xbox One Elite 2 (Bluetooth)
+    {GamepadId::kMicrosoftProduct0b05, MapperXboxOneBluetooth},
     // Xbox Adaptive Controller (USB)
     {GamepadId::kMicrosoftProduct0b0a, MapperXbox360Gamepad},
     // Xbox Adaptive Controller (Bluetooth)
-    {GamepadId::kMicrosoftProduct0b0c, MapperXboxAdaptiveControllerBluetooth},
+    {GamepadId::kMicrosoftProduct0b0c, MapperXboxOneBluetooth},
     // Logitech F310, D mode
     {GamepadId::kLogitechProductc216, MapperDirectInputStyle},
     // Logitech F510, D mode
@@ -652,6 +667,8 @@ constexpr struct MappingData {
     {GamepadId::kVendor2378Product100a, MapperOnLiveWireless},
     // OUYA Controller
     {GamepadId::kVendor2836Product0001, MapperOUYA},
+    // SCUF Vantage, SCUF Vantage 2
+    {GamepadId::kVendor2e95Product7725, MapperDualshock4},
     // boom PSX+N64 USB Converter
     {GamepadId::kPrototypeVendorProduct0667, MapperBoomN64Psx},
     // Stadia Controller prototype

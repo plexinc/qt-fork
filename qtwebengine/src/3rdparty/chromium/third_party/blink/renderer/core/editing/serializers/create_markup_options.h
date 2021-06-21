@@ -34,7 +34,7 @@ class CORE_EXPORT CreateMarkupOptions final {
   bool IsForMarkupSanitization() const { return is_for_markup_sanitization_; }
 
  private:
-  Member<const Node> constraining_ancestor_;
+  const Node* constraining_ancestor_ = nullptr;
   AbsoluteURLs should_resolve_urls_ = kDoNotResolveURLs;
   bool should_annotate_for_interchange_ = false;
   bool should_convert_blocks_to_inlines_ = false;
@@ -63,4 +63,3 @@ class CORE_EXPORT CreateMarkupOptions::Builder final {
 }  // namespace blink
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_CORE_EDITING_SERIALIZERS_CREATE_MARKUP_OPTIONS_H_
-

@@ -9,12 +9,15 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "content/browser/web_contents/web_contents_impl.h"
+#include "content/public/browser/back_forward_cache.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/serial_chooser.h"
 #include "content/public/browser/serial_delegate.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/common/content_client.h"
 #include "mojo/public/cpp/bindings/interface_request.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
 #include "third_party/blink/public/mojom/feature_policy/feature_policy.mojom.h"
 
 namespace content {
@@ -40,18 +43,38 @@ SerialService::SerialService(RenderFrameHost* render_frame_host)
     : render_frame_host_(render_frame_host) {
   DCHECK(render_frame_host_->IsFeatureEnabled(
       blink::mojom::FeaturePolicyFeature::kSerial));
-  watchers_.set_connection_error_handler(base::BindRepeating(
+  // Serial API is not supported for back-forward cache for now because we
+  // don't have support for closing/freezing ports when the frame is added to
+  // the back-forward cache, so we mark frames that use this API as disabled
+  // for back-forward cache.
+  BackForwardCache::DisableForRenderFrameHost(render_frame_host, "Serial");
+
+  watchers_.set_disconnect_handler(base::BindRepeating(
       &SerialService::OnWatcherConnectionError, base::Unretained(this)));
+
+  SerialDelegate* delegate = GetContentClient()->browser()->GetSerialDelegate();
+  if (delegate)
+    delegate->AddObserver(render_frame_host_, this);
 }
 
 SerialService::~SerialService() {
+  SerialDelegate* delegate = GetContentClient()->browser()->GetSerialDelegate();
+  if (delegate)
+    delegate->RemoveObserver(render_frame_host_, this);
+
   // The remaining watchers will be closed from this end.
   if (!watchers_.empty())
     DecrementActiveFrameCount();
 }
 
-void SerialService::Bind(blink::mojom::SerialServiceRequest request) {
-  bindings_.AddBinding(this, std::move(request));
+void SerialService::Bind(
+    mojo::PendingReceiver<blink::mojom::SerialService> receiver) {
+  receivers_.Add(this, std::move(receiver));
+}
+
+void SerialService::SetClient(
+    mojo::PendingRemote<blink::mojom::SerialServiceClient> client) {
+  clients_.Add(std::move(client));
 }
 
 void SerialService::GetPorts(GetPortsCallback callback) {
@@ -87,8 +110,9 @@ void SerialService::RequestPort(
                      weak_factory_.GetWeakPtr(), std::move(callback)));
 }
 
-void SerialService::GetPort(const base::UnguessableToken& token,
-                            device::mojom::SerialPortRequest request) {
+void SerialService::GetPort(
+    const base::UnguessableToken& token,
+    mojo::PendingReceiver<device::mojom::SerialPort> receiver) {
   SerialDelegate* delegate = GetContentClient()->browser()->GetSerialDelegate();
   if (!delegate)
     return;
@@ -99,10 +123,42 @@ void SerialService::GetPort(const base::UnguessableToken& token,
     web_contents_impl->IncrementSerialActiveFrameCount();
   }
 
-  device::mojom::SerialPortConnectionWatcherPtr watcher;
-  watchers_.AddBinding(this, mojo::MakeRequest(&watcher));
+  mojo::PendingRemote<device::mojom::SerialPortConnectionWatcher> watcher;
+  watchers_.Add(this, watcher.InitWithNewPipeAndPassReceiver());
   delegate->GetPortManager(render_frame_host_)
-      ->GetPort(token, std::move(request), std::move(watcher));
+      ->GetPort(token, std::move(receiver), std::move(watcher));
+}
+
+void SerialService::OnPortAdded(const device::mojom::SerialPortInfo& port) {
+  SerialDelegate* delegate = GetContentClient()->browser()->GetSerialDelegate();
+  if (!delegate || !delegate->HasPortPermission(render_frame_host_, port))
+    return;
+
+  for (const auto& client : clients_)
+    client->OnPortAdded(ToBlinkType(port));
+}
+
+void SerialService::OnPortRemoved(const device::mojom::SerialPortInfo& port) {
+  SerialDelegate* delegate = GetContentClient()->browser()->GetSerialDelegate();
+  if (!delegate || !delegate->HasPortPermission(render_frame_host_, port))
+    return;
+
+  for (const auto& client : clients_)
+    client->OnPortRemoved(ToBlinkType(port));
+}
+
+void SerialService::OnPortManagerConnectionError() {
+  // Reflect the loss of the SerialPortManager connection into the renderer
+  // in order to force caches to be cleared and connections to be
+  // re-established.
+  receivers_.Clear();
+  clients_.Clear();
+  chooser_.reset();
+
+  if (!watchers_.empty()) {
+    watchers_.Clear();
+    DecrementActiveFrameCount();
+  }
 }
 
 void SerialService::FinishGetPorts(

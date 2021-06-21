@@ -35,8 +35,7 @@ class DOMAgentViz : public viz::SurfaceObserver,
 
   // viz::SurfaceObserver:
   void OnFirstSurfaceActivation(const viz::SurfaceInfo& surface_info) override;
-  void OnSurfaceActivated(const viz::SurfaceId& surface_id,
-                          base::Optional<base::TimeDelta> duration) override {}
+  void OnSurfaceActivated(const viz::SurfaceId& surface_id) override {}
   void OnSurfaceMarkedForDestruction(
       const viz::SurfaceId& surface_id) override {}
   bool OnSurfaceDamaged(const viz::SurfaceId& surface_id,
@@ -62,6 +61,10 @@ class DOMAgentViz : public viz::SurfaceObserver,
   void OnUnregisteredFrameSinkHierarchy(
       const viz::FrameSinkId& parent_frame_sink_id,
       const viz::FrameSinkId& child_frame_sink_id) override;
+  void OnFrameSinkDidBeginFrame(const viz::FrameSinkId& frame_sink_id,
+                                const viz::BeginFrameArgs& args) override {}
+  void OnFrameSinkDidFinishFrame(const viz::FrameSinkId& frame_sink_id,
+                                 const viz::BeginFrameArgs& args) override {}
 
   // DOM::Backend:
   protocol::Response enable() override;

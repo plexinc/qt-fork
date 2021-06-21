@@ -19,7 +19,7 @@ class CORE_EXPORT DisplayLockUtilities {
  public:
   // This class forces updates on display locks from the given node up the
   // ancestor chain until the local frame root.
-  class ScopedChainForcedUpdate {
+  class CORE_EXPORT ScopedChainForcedUpdate {
     DISALLOW_COPY_AND_ASSIGN(ScopedChainForcedUpdate);
 
    public:
@@ -39,12 +39,18 @@ class CORE_EXPORT DisplayLockUtilities {
   static bool ActivateFindInPageMatchRangeIfNeeded(
       const EphemeralRangeInFlatTree& range);
 
-  // Returns activatable-locked inclusive ancestors of |element|.
-  // Note that this function will have failing DCHECKs if |element| is inside a
+  // Activates all locked nodes in |range| that are activatable and doesn't
+  // have user-select:none. Returns true if we activated at least one node.
+  static bool ActivateSelectionRangeIfNeeded(
+      const EphemeralRangeInFlatTree& range);
+
+  // Returns activatable-locked inclusive ancestors of |node|.
+  // Note that this function will return an empty list if |node| is inside a
   // non-activatable locked subtree (e.g. at least one ancestor is not
   // activatable-locked).
   static const HeapVector<Member<Element>> ActivatableLockedInclusiveAncestors(
-      Element& element);
+      const Node& node,
+      DisplayLockActivationReason reason);
 
   // Returns the nearest inclusive ancestor of |node| that is display locked.
   static const Element* NearestLockedInclusiveAncestor(const Node& node);
@@ -60,9 +66,39 @@ class CORE_EXPORT DisplayLockUtilities {
   // Returns the highest exclusive ancestor of |node| that is display locked.
   static Element* HighestLockedExclusiveAncestor(const Node& node);
 
+  // LayoutObject versions of the NearestLocked* ancestor functions.
+  static Element* NearestLockedInclusiveAncestor(const LayoutObject& object);
+  static Element* NearestLockedExclusiveAncestor(const LayoutObject& object);
+
+  // Returns true if |node| is not in a locked subtree, or if it's possible to
+  // activate all of the locked ancestors for |activation_reason|.
+  static bool IsInUnlockedOrActivatableSubtree(
+      const Node& node,
+      DisplayLockActivationReason activation_reason =
+          DisplayLockActivationReason::kAny);
+
+  // Returns true if |node| is in a locked subtree, and at least one of its
+  // locked ancestors can't be activated with |activation_reason|. In other
+  // words, this node should be treated as if it's not in the tree for
+  // |activation_reason|.
+  static bool ShouldIgnoreNodeDueToDisplayLock(
+      const Node& node,
+      DisplayLockActivationReason activation_reason) {
+    return !IsInUnlockedOrActivatableSubtree(node, activation_reason);
+  }
+
   // Returns true if the element is in a locked subtree (or is self-locked with
   // no self-updates). This crosses frames while navigating the ancestor chain.
   static bool IsInLockedSubtreeCrossingFrames(const Node& node);
+
+  // Called when the focused element changes. These functions update locks to
+  // ensure that focused element ancestors remain unlocked for 'auto' state.
+  static void ElementLostFocus(Element*);
+  static void ElementGainedFocus(Element*);
+
+  static void SelectionChanged(const EphemeralRangeInFlatTree& old_selection,
+                               const EphemeralRangeInFlatTree& new_selection);
+  static void SelectionRemovedFromDocument(Document& document);
 };
 
 }  // namespace blink

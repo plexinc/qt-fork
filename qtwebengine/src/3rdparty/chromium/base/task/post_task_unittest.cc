@@ -5,11 +5,12 @@
 #include "base/task/post_task.h"
 
 #include "base/bind_helpers.h"
-#include "base/task/scoped_set_task_priority_for_current_thread.h"
+#include "base/run_loop.h"
 #include "base/task/task_executor.h"
 #include "base/task/test_task_traits_extension.h"
+#include "base/test/bind_test_util.h"
 #include "base/test/gtest_util.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/test/test_simple_task_runner.h"
 #include "build/build_config.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -17,6 +18,8 @@
 
 using ::testing::_;
 using ::testing::Invoke;
+using ::testing::IsNull;
+using ::testing::NotNull;
 using ::testing::Return;
 
 namespace base {
@@ -92,7 +95,7 @@ class PostTaskTestWithExecutor : public ::testing::Test {
 
  protected:
   testing::StrictMock<MockTaskExecutor> executor_;
-  test::ScopedTaskEnvironment scoped_task_environment_;
+  test::TaskEnvironment task_environment_;
 };
 
 TEST_F(PostTaskTestWithExecutor, PostTaskToThreadPool) {
@@ -114,7 +117,7 @@ TEST_F(PostTaskTestWithExecutor, PostTaskToThreadPool) {
   auto single_thread_task_runner = CreateSingleThreadTaskRunner({ThreadPool()});
   EXPECT_NE(executor_.runner(), single_thread_task_runner);
 #if defined(OS_WIN)
-  auto comsta_task_runner = CreateCOMSTATaskRunner({});
+  auto comsta_task_runner = CreateCOMSTATaskRunner({ThreadPool()});
   EXPECT_NE(executor_.runner(), comsta_task_runner);
 #endif  // defined(OS_WIN)
 
@@ -177,25 +180,115 @@ TEST_F(PostTaskTestWithExecutor, PostTaskToTaskExecutor) {
   }
 }
 
+TEST_F(PostTaskTestWithExecutor,
+       ThreadPoolTaskRunnerGetTaskExecutorForCurrentThread) {
+  auto task_runner = CreateTaskRunner({ThreadPool()});
+  RunLoop run_loop;
+
+  EXPECT_TRUE(task_runner->PostTask(
+      FROM_HERE, BindLambdaForTesting([&]() {
+        // We don't have an executor for a ThreadPool task runner becuse they
+        // are for one shot tasks.
+        EXPECT_THAT(GetTaskExecutorForCurrentThread(), IsNull());
+        run_loop.Quit();
+      })));
+
+  run_loop.Run();
+}
+
+TEST_F(PostTaskTestWithExecutor,
+       ThreadPoolSequencedTaskRunnerGetTaskExecutorForCurrentThread) {
+  auto sequenced_task_runner = CreateSequencedTaskRunner({ThreadPool()});
+  RunLoop run_loop;
+
+  EXPECT_TRUE(sequenced_task_runner->PostTask(
+      FROM_HERE, BindLambdaForTesting([&]() {
+        EXPECT_THAT(GetTaskExecutorForCurrentThread(), NotNull());
+        run_loop.Quit();
+      })));
+
+  run_loop.Run();
+}
+
+TEST_F(PostTaskTestWithExecutor,
+       ThreadPoolSingleThreadTaskRunnerGetTaskExecutorForCurrentThread) {
+  auto single_thread_task_runner = CreateSingleThreadTaskRunner({ThreadPool()});
+  RunLoop run_loop;
+
+  EXPECT_TRUE(single_thread_task_runner->PostTask(
+      FROM_HERE, BindLambdaForTesting([&]() {
+        EXPECT_THAT(GetTaskExecutorForCurrentThread(), NotNull());
+        run_loop.Quit();
+      })));
+
+  run_loop.Run();
+}
+
 TEST_F(PostTaskTestWithExecutor, RegisterExecutorTwice) {
   testing::FLAGS_gtest_death_test_style = "threadsafe";
   EXPECT_DCHECK_DEATH(
       RegisterTaskExecutor(TestTaskTraitsExtension::kExtensionId, &executor_));
 }
 
-TEST_F(PostTaskTestWithExecutor, PriorityInherited) {
-  internal::ScopedSetTaskPriorityForCurrentThread scoped_priority(
-      TaskPriority::BEST_EFFORT);
-  TaskTraits traits = {TestExtensionBoolTrait()};
-  TaskTraits traits_with_inherited_priority = traits;
-  traits_with_inherited_priority.InheritPriority(TaskPriority::BEST_EFFORT);
-  EXPECT_FALSE(traits_with_inherited_priority.priority_set_explicitly());
-  EXPECT_CALL(executor_,
-              PostDelayedTaskMock(_, traits_with_inherited_priority, _, _))
-      .Times(1);
-  EXPECT_TRUE(PostTask(FROM_HERE, traits, DoNothing()));
+namespace {
+
+class FlagOnDelete {
+ public:
+  FlagOnDelete(bool* deleted) : deleted_(deleted) {}
+
+  // Required for RefCountedData.
+  FlagOnDelete(FlagOnDelete&& other) : deleted_(other.deleted_) {
+    other.deleted_ = nullptr;
+  }
+
+  ~FlagOnDelete() {
+    if (deleted_) {
+      EXPECT_FALSE(*deleted_);
+      *deleted_ = true;
+    }
+  }
+
+ private:
+  bool* deleted_;
+  DISALLOW_COPY_AND_ASSIGN(FlagOnDelete);
+};
+
+}  // namespace
+
+TEST_F(PostTaskTestWithExecutor, DeleteSoon) {
+  constexpr TaskTraits traits = {TestExtensionBoolTrait(),
+                                 TaskPriority::BEST_EFFORT};
+
+  bool deleted = false;
+  auto flag_on_delete = std::make_unique<FlagOnDelete>(&deleted);
+
+  EXPECT_CALL(executor_, CreateSequencedTaskRunner(traits)).Times(1);
+  base::DeleteSoon(FROM_HERE, traits, std::move(flag_on_delete));
+
+  EXPECT_FALSE(deleted);
+
   EXPECT_TRUE(executor_.runner()->HasPendingTask());
-  executor_.runner()->ClearPendingTasks();
+  executor_.runner()->RunPendingTasks();
+
+  EXPECT_TRUE(deleted);
+}
+
+TEST_F(PostTaskTestWithExecutor, ReleaseSoon) {
+  constexpr TaskTraits traits = {TestExtensionBoolTrait(),
+                                 TaskPriority::BEST_EFFORT};
+
+  bool deleted = false;
+  auto flag_on_delete = MakeRefCounted<RefCountedData<FlagOnDelete>>(&deleted);
+
+  EXPECT_CALL(executor_, CreateSequencedTaskRunner(traits)).Times(1);
+  base::ReleaseSoon(FROM_HERE, traits, std::move(flag_on_delete));
+
+  EXPECT_FALSE(deleted);
+
+  EXPECT_TRUE(executor_.runner()->HasPendingTask());
+  executor_.runner()->RunPendingTasks();
+
+  EXPECT_TRUE(deleted);
 }
 
 }  // namespace base

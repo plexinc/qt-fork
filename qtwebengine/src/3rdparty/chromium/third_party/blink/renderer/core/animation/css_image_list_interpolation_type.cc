@@ -119,7 +119,8 @@ InterpolationValue CSSImageListInterpolationType::MaybeConvertValue(
 
   const wtf_size_t length = value_list.length();
   auto interpolable_list = std::make_unique<InterpolableList>(length);
-  Vector<scoped_refptr<NonInterpolableValue>> non_interpolable_values(length);
+  Vector<scoped_refptr<const NonInterpolableValue>> non_interpolable_values(
+      length);
   for (wtf_size_t i = 0; i < length; i++) {
     InterpolationValue component =
         CSSImageInterpolationType::MaybeConvertCSSValue(value_list.Item(i),
@@ -166,12 +167,11 @@ void CSSImageListInterpolationType::ApplyStandardPropertyValue(
     const InterpolableValue& interpolable_value,
     const NonInterpolableValue* non_interpolable_value,
     StyleResolverState& state) const {
-  const InterpolableList& interpolable_list =
-      ToInterpolableList(interpolable_value);
+  const auto& interpolable_list = To<InterpolableList>(interpolable_value);
   const wtf_size_t length = interpolable_list.length();
   DCHECK_GT(length, 0U);
-  const NonInterpolableList& non_interpolable_list =
-      ToNonInterpolableList(*non_interpolable_value);
+  const auto& non_interpolable_list =
+      To<NonInterpolableList>(*non_interpolable_value);
   DCHECK_EQ(non_interpolable_list.length(), length);
   StyleImageList* image_list = MakeGarbageCollected<StyleImageList>(length);
   for (wtf_size_t i = 0; i < length; i++) {

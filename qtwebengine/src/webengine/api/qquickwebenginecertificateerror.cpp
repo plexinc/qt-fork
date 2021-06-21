@@ -121,6 +121,9 @@ void QQuickWebEngineCertificateError::ignoreCertificateError()
 {
     Q_D(QQuickWebEngineCertificateError);
 
+    if (d->answered)
+        return;
+
     d->answered = true;
 
     QSharedPointer<CertificateErrorController> strongRefCert = d->weakRefCertErrorController.toStrongRef();
@@ -136,6 +139,9 @@ void QQuickWebEngineCertificateError::ignoreCertificateError()
 void QQuickWebEngineCertificateError::rejectCertificate()
 {
     Q_D(QQuickWebEngineCertificateError);
+
+    if (d->answered)
+        return;
 
     d->answered = true;
 
@@ -200,6 +206,10 @@ QUrl QQuickWebEngineCertificateError::url() const
     \value  WebEngineCertificateError.CertificateTransparencyRequired
             Certificate Transparency was required for this connection, but the server
             did not provide CT information that complied with the policy. (Added in 5.8)
+    \value  WebEngineCertificateError.CertificateKnownInterceptionBlocked
+            The certificate is known to be used for interception by an entity other
+            the device owner. (Added in 5.15)
+
 */
 QQuickWebEngineCertificateError::Error QQuickWebEngineCertificateError::error() const
 {

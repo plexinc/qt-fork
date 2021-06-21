@@ -1,13 +1,17 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # flake8: noqa
-
-from __future__ import print_function, division, absolute_import
 
 import io
 import sys
 
 if len (sys.argv) != 5:
-	print ("usage: ./gen-use-table.py IndicSyllabicCategory.txt IndicPositionalCategory.txt UnicodeData.txt Blocks.txt", file=sys.stderr)
+	print ("""usage: ./gen-use-table.py IndicSyllabicCategory.txt IndicPositionalCategory.txt UnicodeData.txt Blocks.txt
+
+Input file, as of Unicode 12:
+* https://unicode.org/Public/UCD/latest/ucd/IndicSyllabicCategory.txt
+* https://unicode.org/Public/UCD/latest/ucd/IndicPositionalCategory.txt
+* https://unicode.org/Public/UCD/latest/ucd/UnicodeData.txt
+* https://unicode.org/Public/UCD/latest/ucd/Blocks.txt""", file=sys.stderr)
 	sys.exit (1)
 
 BLACKLISTED_BLOCKS = ["Thai", "Lao"]
@@ -147,18 +151,13 @@ property_names = [
 	'Overstruck',
 ]
 
-try:
-	basestring
-except NameError:
-	basestring = str
-
 class PropertyValue(object):
 	def __init__(self, name_):
 		self.name = name_
 	def __str__(self):
 		return self.name
 	def __eq__(self, other):
-		return self.name == (other if isinstance(other, basestring) else other.name)
+		return self.name == (other if isinstance(other, str) else other.name)
 	def __ne__(self, other):
 		return not (self == other)
 	def __hash__(self):
@@ -382,6 +381,9 @@ def map_to_use(data):
 
 		# TODO: In USE's override list but not in Unicode 12.0
 		if U == 0x103C: UIPC = Left
+
+		# TODO: https://github.com/harfbuzz/harfbuzz/pull/2012
+		if U == 0x1C29: UIPC = Left
 
 		# TODO: These are not in USE's override list that we have, nor are they in Unicode 12.0
 		if 0xA926 <= U <= 0xA92A: UIPC = Top

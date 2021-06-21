@@ -5,18 +5,19 @@
 #include "content/public/browser/download_manager_delegate.h"
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "components/download/public/common/download_item.h"
 
 namespace content {
 
-void DownloadManagerDelegate::GetNextId(const DownloadIdCallback& callback) {
-  callback.Run(download::DownloadItem::kInvalidId);
+void DownloadManagerDelegate::GetNextId(DownloadIdCallback callback) {
+  std::move(callback).Run(download::DownloadItem::kInvalidId);
 }
 
 bool DownloadManagerDelegate::DetermineDownloadTarget(
     download::DownloadItem* item,
-    const DownloadTargetCallback& callback) {
+    DownloadTargetCallback* callback) {
   return false;
 }
 
@@ -27,13 +28,13 @@ bool DownloadManagerDelegate::ShouldOpenFileBasedOnExtension(
 
 bool DownloadManagerDelegate::ShouldCompleteDownload(
     download::DownloadItem* item,
-    const base::Closure& callback) {
+    base::OnceClosure callback) {
   return true;
 }
 
 bool DownloadManagerDelegate::ShouldOpenDownload(
     download::DownloadItem* item,
-    const DownloadOpenDelayedCallback& callback) {
+    DownloadOpenDelayedCallback callback) {
   return true;
 }
 
@@ -49,23 +50,28 @@ bool DownloadManagerDelegate::InterceptDownloadIfApplicable(
   return false;
 }
 
-bool DownloadManagerDelegate::IsMostRecentDownloadItemAtFilePath(
-    download::DownloadItem* download) {
-  return true;
-}
-
 std::string DownloadManagerDelegate::ApplicationClientIdForFileScanning() {
   return std::string();
 }
 
 void DownloadManagerDelegate::CheckDownloadAllowed(
-    const ResourceRequestInfo::WebContentsGetter& web_contents_getter,
+    const WebContents::Getter& web_contents_getter,
     const GURL& url,
     const std::string& request_method,
     base::Optional<url::Origin> request_initiator,
+    bool from_download_cross_origin_redirect,
+    bool content_initiated,
     CheckDownloadAllowedCallback check_download_allowed_cb) {
+  // TODO: once hook up delegate callback, make sure sync run of it doesn't
+  // crash and test it
+
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE, base::BindOnce(std::move(check_download_allowed_cb), true));
+}
+
+download::QuarantineConnectionCallback
+DownloadManagerDelegate::GetQuarantineConnectionCallback() {
+  return base::NullCallback();
 }
 
 DownloadManagerDelegate::~DownloadManagerDelegate() {}

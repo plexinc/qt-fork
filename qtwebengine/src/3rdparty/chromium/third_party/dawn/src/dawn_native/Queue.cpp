@@ -17,9 +17,13 @@
 #include "dawn_native/Buffer.h"
 #include "dawn_native/CommandBuffer.h"
 #include "dawn_native/Device.h"
+#include "dawn_native/ErrorScope.h"
+#include "dawn_native/ErrorScopeTracker.h"
 #include "dawn_native/Fence.h"
 #include "dawn_native/FenceSignalTracker.h"
 #include "dawn_native/Texture.h"
+#include "dawn_platform/DawnPlatform.h"
+#include "dawn_platform/tracing/TraceEvent.h"
 
 namespace dawn_native {
 
@@ -28,35 +32,64 @@ namespace dawn_native {
     QueueBase::QueueBase(DeviceBase* device) : ObjectBase(device) {
     }
 
+    QueueBase::QueueBase(DeviceBase* device, ObjectBase::ErrorTag tag) : ObjectBase(device, tag) {
+    }
+
+    // static
+    QueueBase* QueueBase::MakeError(DeviceBase* device) {
+        return new QueueBase(device, ObjectBase::kError);
+    }
+
+    MaybeError QueueBase::SubmitImpl(uint32_t commandCount, CommandBufferBase* const* commands) {
+        UNREACHABLE();
+        return {};
+    }
+
     void QueueBase::Submit(uint32_t commandCount, CommandBufferBase* const* commands) {
-        if (GetDevice()->ConsumedError(ValidateSubmit(commandCount, commands))) {
+        DeviceBase* device = GetDevice();
+        if (device->ConsumedError(device->ValidateIsAlive())) {
+            // If device is lost, don't let any commands be submitted
+            return;
+        }
+
+        TRACE_EVENT0(device->GetPlatform(), General, "Queue::Submit");
+        if (device->IsValidationEnabled() &&
+            device->ConsumedError(ValidateSubmit(commandCount, commands))) {
             return;
         }
         ASSERT(!IsError());
 
-        SubmitImpl(commandCount, commands);
+        if (device->ConsumedError(SubmitImpl(commandCount, commands))) {
+            return;
+        }
+        device->GetErrorScopeTracker()->TrackUntilLastSubmitComplete(
+            device->GetCurrentErrorScope());
     }
 
-    void QueueBase::Signal(FenceBase* fence, uint64_t signalValue) {
-        if (GetDevice()->ConsumedError(ValidateSignal(fence, signalValue))) {
+    void QueueBase::Signal(Fence* fence, uint64_t signalValue) {
+        DeviceBase* device = GetDevice();
+        if (device->ConsumedError(ValidateSignal(fence, signalValue))) {
             return;
         }
         ASSERT(!IsError());
 
         fence->SetSignaledValue(signalValue);
-        GetDevice()->GetFenceSignalTracker()->UpdateFenceOnComplete(fence, signalValue);
+        device->GetFenceSignalTracker()->UpdateFenceOnComplete(fence, signalValue);
+        device->GetErrorScopeTracker()->TrackUntilLastSubmitComplete(
+            device->GetCurrentErrorScope());
     }
 
-    FenceBase* QueueBase::CreateFence(const FenceDescriptor* descriptor) {
+    Fence* QueueBase::CreateFence(const FenceDescriptor* descriptor) {
         if (GetDevice()->ConsumedError(ValidateCreateFence(descriptor))) {
-            return FenceBase::MakeError(GetDevice());
+            return Fence::MakeError(GetDevice());
         }
 
-        return new FenceBase(this, descriptor);
+        return new Fence(this, descriptor);
     }
 
     MaybeError QueueBase::ValidateSubmit(uint32_t commandCount,
                                          CommandBufferBase* const* commands) {
+        TRACE_EVENT0(GetDevice()->GetPlatform(), Validation, "Queue::ValidateSubmit");
         DAWN_TRY(GetDevice()->ValidateObject(this));
 
         for (uint32_t i = 0; i < commandCount; ++i) {
@@ -84,7 +117,8 @@ namespace dawn_native {
         return {};
     }
 
-    MaybeError QueueBase::ValidateSignal(const FenceBase* fence, uint64_t signalValue) {
+    MaybeError QueueBase::ValidateSignal(const Fence* fence, uint64_t signalValue) {
+        DAWN_TRY(GetDevice()->ValidateIsAlive());
         DAWN_TRY(GetDevice()->ValidateObject(this));
         DAWN_TRY(GetDevice()->ValidateObject(fence));
 
@@ -99,6 +133,7 @@ namespace dawn_native {
     }
 
     MaybeError QueueBase::ValidateCreateFence(const FenceDescriptor* descriptor) {
+        DAWN_TRY(GetDevice()->ValidateIsAlive());
         DAWN_TRY(GetDevice()->ValidateObject(this));
         DAWN_TRY(ValidateFenceDescriptor(descriptor));
 

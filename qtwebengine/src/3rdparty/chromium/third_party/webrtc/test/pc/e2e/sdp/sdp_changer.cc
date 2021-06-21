@@ -23,6 +23,8 @@ namespace webrtc {
 namespace webrtc_pc_e2e {
 namespace {
 
+using VideoCodecConfig = PeerConnectionE2EQualityTestFixture::VideoCodecConfig;
+
 std::string CodecRequiredParamsToString(
     const std::map<std::string, std::string>& codec_required_params) {
   rtc::StringBuilder out;
@@ -35,39 +37,51 @@ std::string CodecRequiredParamsToString(
 }  // namespace
 
 std::vector<RtpCodecCapability> FilterVideoCodecCapabilities(
-    absl::string_view codec_name,
-    const std::map<std::string, std::string>& codec_required_params,
+    rtc::ArrayView<const VideoCodecConfig> video_codecs,
     bool use_rtx,
     bool use_ulpfec,
     bool use_flexfec,
-    std::vector<RtpCodecCapability> supported_codecs) {
-  std::vector<RtpCodecCapability> output_codecs;
-  // Find main requested codecs among supported and add them to output.
-  for (auto& codec : supported_codecs) {
-    if (codec.name != codec_name) {
-      continue;
-    }
-    bool parameters_matched = true;
-    for (auto item : codec_required_params) {
-      auto it = codec.parameters.find(item.first);
-      if (it == codec.parameters.end()) {
-        parameters_matched = false;
-        break;
+    rtc::ArrayView<const RtpCodecCapability> supported_codecs) {
+  RTC_LOG(INFO) << "Peer connection support these codecs:";
+  for (const auto& codec : supported_codecs) {
+    RTC_LOG(INFO) << "Codec: " << codec.name;
+    if (!codec.parameters.empty()) {
+      RTC_LOG(INFO) << "Params:";
+      for (auto param : codec.parameters) {
+        RTC_LOG(INFO) << "  " << param.first << "=" << param.second;
       }
-      if (item.second != it->second) {
-        parameters_matched = false;
-        break;
-      }
-    }
-    if (parameters_matched) {
-      output_codecs.push_back(codec);
     }
   }
-
-  RTC_CHECK_GT(output_codecs.size(), 0)
-      << "Codec with name=" << codec_name << " and params {"
-      << CodecRequiredParamsToString(codec_required_params)
-      << "} is unsupported for this peer connection";
+  std::vector<RtpCodecCapability> output_codecs;
+  // Find requested codecs among supported and add them to output in the order
+  // they were requested.
+  for (auto& codec_request : video_codecs) {
+    size_t size_before = output_codecs.size();
+    for (auto& codec : supported_codecs) {
+      if (codec.name != codec_request.name) {
+        continue;
+      }
+      bool parameters_matched = true;
+      for (auto item : codec_request.required_params) {
+        auto it = codec.parameters.find(item.first);
+        if (it == codec.parameters.end()) {
+          parameters_matched = false;
+          break;
+        }
+        if (item.second != it->second) {
+          parameters_matched = false;
+          break;
+        }
+      }
+      if (parameters_matched) {
+        output_codecs.push_back(codec);
+      }
+    }
+    RTC_CHECK_GT(output_codecs.size(), size_before)
+        << "Codec with name=" << codec_request.name << " and params {"
+        << CodecRequiredParamsToString(codec_request.required_params)
+        << "} is unsupported for this peer connection";
+  }
 
   // Add required FEC and RTX codecs to output.
   for (auto& codec : supported_codecs) {
@@ -161,12 +175,15 @@ LocalAndRemoteSdp SignalingInterceptor::PatchOffer(
     media_desc->set_conference_mode(params_.use_conference_mode);
   }
 
-  if (params_.video_codec_name == cricket::kVp8CodecName) {
-    return PatchVp8Offer(std::move(offer));
-  }
+  if (params_.stream_label_to_simulcast_streams_count.size() > 0) {
+    // Because simulcast enabled |params_.video_codecs| has only 1 element.
+    if (params_.video_codecs[0].name == cricket::kVp8CodecName) {
+      return PatchVp8Offer(std::move(offer));
+    }
 
-  if (params_.video_codec_name == cricket::kVp9CodecName) {
-    return PatchVp9Offer(std::move(offer));
+    if (params_.video_codecs[0].name == cricket::kVp9CodecName) {
+      return PatchVp9Offer(std::move(offer));
+    }
   }
 
   auto offer_for_remote = CloneSessionDescription(offer.get());
@@ -197,7 +214,7 @@ LocalAndRemoteSdp SignalingInterceptor::PatchVp8Offer(
     // single simulcast section will be converted. Do it before removing content
     // because otherwise description will be deleted.
     std::unique_ptr<cricket::MediaContentDescription> prototype_media_desc =
-        absl::WrapUnique(simulcast_content->media_description()->Copy());
+        simulcast_content->media_description()->Clone();
 
     // Remove simulcast video section from offer.
     RTC_CHECK(desc->RemoveContentByName(simulcast_content->mid()));
@@ -211,12 +228,12 @@ LocalAndRemoteSdp SignalingInterceptor::PatchVp8Offer(
     for (auto ext_it = extensions.begin(); ext_it != extensions.end();) {
       if (ext_it->uri == RtpExtension::kRidUri) {
         // We don't need rid extension for remote peer.
-        extensions.erase(ext_it);
+        ext_it = extensions.erase(ext_it);
         continue;
       }
       if (ext_it->uri == RtpExtension::kRepairedRidUri) {
         // We don't support RTX in simulcast.
-        extensions.erase(ext_it);
+        ext_it = extensions.erase(ext_it);
         continue;
       }
       if (ext_it->uri == RtpExtension::kMidUri) {
@@ -224,6 +241,7 @@ LocalAndRemoteSdp SignalingInterceptor::PatchVp8Offer(
       }
       ++ext_it;
     }
+
     prototype_media_desc->ClearRtpHeaderExtensions();
     prototype_media_desc->set_rtp_header_extensions(extensions);
 
@@ -256,16 +274,13 @@ LocalAndRemoteSdp SignalingInterceptor::PatchVp8Offer(
 
   // Update transport_infos to add TransportInfo for each new media section.
   std::vector<cricket::TransportInfo> transport_infos = desc->transport_infos();
-  for (auto info_it = transport_infos.begin();
-       info_it != transport_infos.end();) {
-    if (context_.simulcast_infos_by_mid.find(info_it->content_name) !=
-        context_.simulcast_infos_by_mid.end()) {
-      // Remove transport infos that correspond to simulcast video sections.
-      transport_infos.erase(info_it);
-    } else {
-      ++info_it;
-    }
-  }
+  transport_infos.erase(std::remove_if(
+      transport_infos.begin(), transport_infos.end(),
+      [this](const cricket::TransportInfo& ti) {
+        // Remove transport infos that correspond to simulcast video sections.
+        return context_.simulcast_infos_by_mid.find(ti.content_name) !=
+               context_.simulcast_infos_by_mid.end();
+      }));
   for (auto& info : context_.simulcast_infos) {
     for (auto& rid : info.rids) {
       transport_infos.emplace_back(rid, info.transport_description);
@@ -275,7 +290,7 @@ LocalAndRemoteSdp SignalingInterceptor::PatchVp8Offer(
 
   // Create patched offer.
   auto patched_offer =
-      absl::make_unique<JsepSessionDescription>(SdpType::kOffer);
+      std::make_unique<JsepSessionDescription>(SdpType::kOffer);
   patched_offer->Initialize(std::move(desc), offer->session_id(),
                             offer->session_version());
   return LocalAndRemoteSdp(std::move(offer), std::move(patched_offer));
@@ -307,9 +322,10 @@ LocalAndRemoteSdp SignalingInterceptor::PatchVp9Offer(
     RTC_CHECK_EQ(content.media_description()->streams().size(), 1);
     cricket::StreamParams& stream =
         content.media_description()->mutable_streams()[0];
-    RTC_CHECK_EQ(stream.stream_ids().size(), 1)
-        << "Too many stream ids in video stream";
-    std::string stream_label = stream.stream_ids()[0];
+    RTC_CHECK_EQ(stream.stream_ids().size(), 2)
+        << "Expected 2 stream ids in video stream: 1st - sync_group, 2nd - "
+           "unique label";
+    std::string stream_label = stream.stream_ids()[1];
 
     auto it =
         params_.stream_label_to_simulcast_streams_count.find(stream_label);
@@ -339,12 +355,27 @@ LocalAndRemoteSdp SignalingInterceptor::PatchVp9Offer(
 
 LocalAndRemoteSdp SignalingInterceptor::PatchAnswer(
     std::unique_ptr<SessionDescriptionInterface> answer) {
-  if (params_.video_codec_name == cricket::kVp8CodecName) {
-    return PatchVp8Answer(std::move(answer));
+  for (auto& content : answer->description()->contents()) {
+    cricket::MediaContentDescription* media_desc = content.media_description();
+    if (media_desc->type() != cricket::MediaType::MEDIA_TYPE_VIDEO) {
+      continue;
+    }
+    if (content.media_description()->direction() !=
+        RtpTransceiverDirection::kRecvOnly) {
+      continue;
+    }
+    media_desc->set_conference_mode(params_.use_conference_mode);
   }
 
-  if (params_.video_codec_name == cricket::kVp9CodecName) {
-    return PatchVp9Answer(std::move(answer));
+  if (params_.stream_label_to_simulcast_streams_count.size() > 0) {
+    // Because simulcast enabled |params_.video_codecs| has only 1 element.
+    if (params_.video_codecs[0].name == cricket::kVp8CodecName) {
+      return PatchVp8Answer(std::move(answer));
+    }
+
+    if (params_.video_codecs[0].name == cricket::kVp9CodecName) {
+      return PatchVp9Answer(std::move(answer));
+    }
   }
 
   auto answer_for_remote = CloneSessionDescription(answer.get());
@@ -383,15 +414,14 @@ LocalAndRemoteSdp SignalingInterceptor::PatchVp8Answer(
     std::vector<webrtc::RtpExtension> extensions =
         media_desc->rtp_header_extensions();
     // First remove existing rid/mid header extensions.
-    for (auto ext_it = extensions.begin(); ext_it != extensions.end();) {
-      if (ext_it->uri == RtpExtension::kMidUri ||
-          ext_it->uri == RtpExtension::kRidUri ||
-          ext_it->uri == RtpExtension::kRepairedRidUri) {
-        extensions.erase(ext_it);
-        continue;
-      }
-      ++ext_it;
-    }
+    extensions.erase(std::remove_if(extensions.begin(), extensions.end(),
+                                    [](const webrtc::RtpExtension& e) {
+                                      return e.uri == RtpExtension::kMidUri ||
+                                             e.uri == RtpExtension::kRidUri ||
+                                             e.uri ==
+                                                 RtpExtension::kRepairedRidUri;
+                                    }));
+
     // Then add right ones.
     extensions.push_back(info.mid_extension);
     extensions.push_back(info.rid_extension);
@@ -445,7 +475,7 @@ LocalAndRemoteSdp SignalingInterceptor::PatchVp8Answer(
       // This transport info correspond to some extra added media section.
       mid_to_transport_description.insert(
           {it->second->mid, info_it->description});
-      transport_infos.erase(info_it);
+      info_it = transport_infos.erase(info_it);
     } else {
       ++info_it;
     }
@@ -457,7 +487,7 @@ LocalAndRemoteSdp SignalingInterceptor::PatchVp8Answer(
   desc->set_transport_infos(transport_infos);
 
   auto patched_answer =
-      absl::make_unique<JsepSessionDescription>(SdpType::kAnswer);
+      std::make_unique<JsepSessionDescription>(SdpType::kAnswer);
   patched_answer->Initialize(std::move(desc), answer->session_id(),
                              answer->session_version());
   return LocalAndRemoteSdp(std::move(answer), std::move(patched_answer));

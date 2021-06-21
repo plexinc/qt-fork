@@ -14,6 +14,7 @@
 #include "platform/base/error.h"
 
 namespace openscreen {
+namespace osp {
 
 class QuicStream;
 
@@ -29,15 +30,15 @@ class MessageDemuxer {
 
     // |buffer| contains data for a message of type |message_type|.  However,
     // the data may be incomplete, in which case the callback should return an
-    // error code of Error::Code::kCborIncompleteMessage.  This way, the
-    // MessageDemuxer knows to neither consume the data nor discard it as bad.
-    virtual ErrorOr<size_t> OnStreamMessage(
-        uint64_t endpoint_id,
-        uint64_t connection_id,
-        msgs::Type message_type,
-        const uint8_t* buffer,
-        size_t buffer_size,
-        platform::Clock::time_point now) = 0;
+    // error code of Error::Code::kCborIncompleteMessage.  This way,
+    // the MessageDemuxer knows to neither consume the data nor discard it as
+    // bad.
+    virtual ErrorOr<size_t> OnStreamMessage(uint64_t endpoint_id,
+                                            uint64_t connection_id,
+                                            msgs::Type message_type,
+                                            const uint8_t* buffer,
+                                            size_t buffer_size,
+                                            Clock::time_point now) = 0;
   };
 
   class MessageWatch {
@@ -47,9 +48,9 @@ class MessageDemuxer {
                  bool is_default,
                  uint64_t endpoint_id,
                  msgs::Type message_type);
-    MessageWatch(MessageWatch&&);
+    MessageWatch(MessageWatch&&) noexcept;
     ~MessageWatch();
-    MessageWatch& operator=(MessageWatch&&);
+    MessageWatch& operator=(MessageWatch&&) noexcept;
 
     explicit operator bool() const { return parent_; }
 
@@ -62,8 +63,7 @@ class MessageDemuxer {
 
   static constexpr size_t kDefaultBufferLimit = 1 << 16;
 
-  MessageDemuxer(platform::ClockNowFunctionPtr now_function,
-                 size_t buffer_limit);
+  MessageDemuxer(ClockNowFunctionPtr now_function, size_t buffer_limit);
   ~MessageDemuxer();
 
   // Starts watching for messages of type |message_type| from the endpoint
@@ -108,10 +108,12 @@ class MessageDemuxer {
       std::map<msgs::Type, MessageCallback*>* message_callbacks,
       std::vector<uint8_t>* buffer);
 
-  const platform::ClockNowFunctionPtr now_function_;
+  const ClockNowFunctionPtr now_function_;
   const size_t buffer_limit_;
   std::map<uint64_t, std::map<msgs::Type, MessageCallback*>> message_callbacks_;
   std::map<msgs::Type, MessageCallback*> default_callbacks_;
+
+  // Map<endpoint_id, Map<connection_id, data_buffer>>
   std::map<uint64_t, std::map<uint64_t, std::vector<uint8_t>>> buffers_;
 };
 
@@ -129,6 +131,7 @@ class MessageTypeDecoder {
                                          size_t* num_bytes_decoded);
 };
 
+}  // namespace osp
 }  // namespace openscreen
 
 #endif  // OSP_PUBLIC_MESSAGE_DEMUXER_H_

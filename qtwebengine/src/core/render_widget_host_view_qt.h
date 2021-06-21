@@ -79,7 +79,6 @@ class TouchSelectionController;
 
 namespace QtWebEngineCore {
 
-class Compositor;
 class TouchHandleDrawableClient;
 class TouchSelectionControllerClientQt;
 class TouchSelectionMenuController;
@@ -132,6 +131,7 @@ public:
     gfx::NativeViewAccessible GetNativeViewAccessible() override;
     void Focus() override;
     bool HasFocus() override;
+    bool IsMouseLocked() override;
     bool IsSurfaceAvailableForCopy() override;
     void CopyFromSurface(const gfx::Rect &src_rect,
                          const gfx::Size &output_size,
@@ -141,7 +141,8 @@ public:
     bool IsShowing() override;
     gfx::Rect GetViewBounds() override;
     void UpdateBackgroundColor() override;
-    bool LockMouse() override;
+    blink::mojom::PointerLockResult LockMouse(bool) override;
+    blink::mojom::PointerLockResult ChangeMouseLock(bool) override;
     void UnlockMouse() override;
     void UpdateCursor(const content::WebCursor&) override;
     void DisplayCursor(const content::WebCursor&) override;
@@ -152,9 +153,8 @@ public:
     void Destroy() override;
     void SetTooltipText(const base::string16 &tooltip_text) override;
     void DisplayTooltipText(const base::string16& tooltip_text) override;
-    void DidCreateNewRendererCompositorFrameSink(viz::mojom::CompositorFrameSinkClient* renderer_compositor_frame_sink) override;
-    void SubmitCompositorFrame(const viz::LocalSurfaceId&, viz::CompositorFrame, base::Optional<viz::HitTestRegionList>) override;
     void WheelEventAck(const blink::WebMouseWheelEvent &event, content::InputEventAckState ack_result) override;
+    void GestureEventAck(const blink::WebGestureEvent &event, content::InputEventAckState ack_result) override;
     content::MouseWheelPhaseHandler *GetMouseWheelPhaseHandler() override;
     viz::ScopedSurfaceIdAllocator DidUpdateVisualProperties(const cc::RenderFrameMetadata &metadata) override;
     void OnDidUpdateVisualPropertiesComplete(const cc::RenderFrameMetadata &metadata);
@@ -162,9 +162,6 @@ public:
     void GetScreenInfo(content::ScreenInfo *results) override;
     gfx::Rect GetBoundsInRootWindow() override;
     void ProcessAckedTouchEvent(const content::TouchEventWithLatencyInfo &touch, content::InputEventAckState ack_result) override;
-    void ClearCompositorFrame() override;
-    void SetNeedsBeginFrames(bool needs_begin_frames) override;
-    void SetWantsAnimateOnlyBeginFrames() override;
     viz::SurfaceId GetCurrentSurfaceId() const override;
     const viz::FrameSinkId &GetFrameSinkId() const override;
     const viz::LocalSurfaceIdAllocation &GetLocalSurfaceIdAllocation() const override;
@@ -215,8 +212,6 @@ public:
     void SpeakSelection() override { QT_NOT_YET_IMPLEMENTED }
     void ShowDefinitionForSelection() override { QT_NOT_YET_IMPLEMENTED }
 #endif // defined(OS_MACOSX)
-
-    void UpdateNeedsBeginFramesInternal();
 
     // Overridden from content::BrowserAccessibilityDelegate
     content::BrowserAccessibilityManager* CreateBrowserAccessibilityManager(content::BrowserAccessibilityDelegate* delegate, bool for_root_frame) override;
@@ -270,15 +265,13 @@ private:
     QList<QTouchEvent::TouchPoint> m_previousTouchPoints;
     std::unique_ptr<RenderWidgetHostViewQtDelegate> m_delegate;
 
-    const bool m_enableViz;
     bool m_visible;
-    bool m_needsBeginFrames;
+    bool m_deferredShow = false;
     DelegatedFrameHostClientQt m_delegatedFrameHostClient{this};
     std::unique_ptr<content::DelegatedFrameHost> m_delegatedFrameHost;
     std::unique_ptr<ui::Layer> m_rootLayer;
     std::unique_ptr<ui::Compositor> m_uiCompositor;
     scoped_refptr<DisplayFrameSink> m_displayFrameSink;
-    std::unique_ptr<Compositor> m_compositor;
     LoadVisuallyCommittedState m_loadVisuallyCommittedState;
 
     QMetaObject::Connection m_adapterClientDestroyedConnection;
@@ -288,6 +281,7 @@ private:
     bool m_imeInProgress;
     bool m_receivedEmptyImeEvent;
     QPoint m_previousMousePosition;
+    bool m_isMouseLocked;
 
     gfx::Vector2dF m_lastScrollOffset;
     gfx::SizeF m_lastContentsSize;
@@ -316,6 +310,8 @@ private:
     gfx::SelectionBound m_selectionEnd;
 
     base::WeakPtrFactory<RenderWidgetHostViewQt> m_weakPtrFactory{this};
+
+    uint m_mouseButtonPressed = 0;
 };
 
 } // namespace QtWebEngineCore

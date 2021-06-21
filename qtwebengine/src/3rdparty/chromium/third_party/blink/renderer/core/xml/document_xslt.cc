@@ -11,6 +11,7 @@
 #include "third_party/blink/renderer/core/dom/node.h"
 #include "third_party/blink/renderer/core/dom/processing_instruction.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
+#include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/probe/core_probes.h"
 #include "third_party/blink/renderer/core/xml/xsl_style_sheet.h"
 #include "third_party/blink/renderer/core/xml/xslt_processor.h"
@@ -33,7 +34,7 @@ class DOMContentLoadedListener final
     DCHECK(RuntimeEnabledFeatures::XSLTEnabled());
     DCHECK_EQ(event->type(), "DOMContentLoaded");
 
-    Document& document = *To<Document>(execution_context);
+    Document& document = *Document::From(execution_context);
     DCHECK(!document.Parsing());
 
     // Processing instruction (XML documents only).
@@ -53,7 +54,7 @@ class DOMContentLoadedListener final
 
   EventListener* ToEventListener() override { return this; }
 
-  void Trace(blink::Visitor* visitor) override {
+  void Trace(Visitor* visitor) override {
     visitor->Trace(processing_instruction_);
     NativeEventListener::Trace(visitor);
     ProcessingInstruction::DetachableEventListener::Trace(visitor);
@@ -74,7 +75,7 @@ void DocumentXSLT::ApplyXSLTransform(Document& document,
   DCHECK(!pi->IsLoading());
   UseCounter::Count(document, WebFeature::kXSLProcessingInstruction);
   XSLTProcessor* processor = XSLTProcessor::Create(document);
-  processor->SetXSLStyleSheet(ToXSLStyleSheet(pi->sheet()));
+  processor->SetXSLStyleSheet(To<XSLStyleSheet>(pi->sheet()));
   String result_mime_type;
   String new_source;
   String result_encoding;
@@ -163,7 +164,7 @@ DocumentXSLT& DocumentXSLT::From(Document& document) {
   return *supplement;
 }
 
-void DocumentXSLT::Trace(blink::Visitor* visitor) {
+void DocumentXSLT::Trace(Visitor* visitor) {
   visitor->Trace(transform_source_document_);
   Supplement<Document>::Trace(visitor);
 }

@@ -105,13 +105,13 @@ UnregistrationRequest::UnregistrationRequest(
     const RequestInfo& request_info,
     std::unique_ptr<CustomRequestHandler> custom_request_handler,
     const net::BackoffEntry::Policy& backoff_policy,
-    const UnregistrationCallback& callback,
+    UnregistrationCallback callback,
     int max_retry_count,
     scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
     scoped_refptr<base::SequencedTaskRunner> io_task_runner,
     GCMStatsRecorder* recorder,
     const std::string& source_to_record)
-    : callback_(callback),
+    : callback_(std::move(callback)),
       request_info_(request_info),
       custom_request_handler_(std::move(custom_request_handler)),
       registration_url_(registration_url),
@@ -120,8 +120,7 @@ UnregistrationRequest::UnregistrationRequest(
       retries_left_(max_retry_count),
       io_task_runner_(io_task_runner),
       recorder_(recorder),
-      source_to_record_(source_to_record),
-      weak_ptr_factory_(this) {
+      source_to_record_(source_to_record) {
   DCHECK(io_task_runner_);
   DCHECK_GE(max_retry_count, 0);
 }
@@ -163,8 +162,7 @@ void UnregistrationRequest::Start() {
   auto request = std::make_unique<network::ResourceRequest>();
   request->url = registration_url_;
   request->method = "POST";
-  request->load_flags =
-      net::LOAD_DO_NOT_SEND_COOKIES | net::LOAD_DO_NOT_SAVE_COOKIES;
+  request->credentials_mode = network::mojom::CredentialsMode::kOmit;
   BuildRequestHeaders(&request->headers);
 
   std::string body;
@@ -293,7 +291,7 @@ void UnregistrationRequest::OnURLLoadComplete(
     custom_request_handler_->ReportUMAs(status);
   }
 
-  callback_.Run(status);
+  std::move(callback_).Run(status);
 }
 
 }  // namespace gcm

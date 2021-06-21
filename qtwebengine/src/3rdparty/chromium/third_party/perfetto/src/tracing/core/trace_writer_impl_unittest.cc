@@ -16,7 +16,6 @@
 
 #include "src/tracing/core/trace_writer_impl.h"
 
-#include <gtest/gtest.h>
 #include "perfetto/ext/base/utils.h"
 #include "perfetto/ext/tracing/core/commit_data_request.h"
 #include "perfetto/ext/tracing/core/trace_writer.h"
@@ -26,9 +25,10 @@
 #include "src/tracing/core/shared_memory_arbiter_impl.h"
 #include "src/tracing/test/aligned_buffer_test.h"
 #include "src/tracing/test/fake_producer_endpoint.h"
+#include "test/gtest_and_gmock.h"
 
-#include "perfetto/trace/test_event.pbzero.h"
-#include "perfetto/trace/trace_packet.pbzero.h"
+#include "protos/perfetto/trace/test_event.pbzero.h"
+#include "protos/perfetto/trace/trace_packet.pbzero.h"
 
 namespace perfetto {
 namespace {
@@ -148,26 +148,26 @@ TEST_P(TraceWriterImplTest, FragmentingPacket) {
 // Sets up a scenario in which the SMB is exhausted and TraceWriter fails to get
 // a new chunk while fragmenting a packet. Verifies that data is dropped until
 // the SMB is freed up and TraceWriter can get a new chunk.
-TEST_P(TraceWriterImplTest, FragmentingPacketWhileBufferExhaused) {
+TEST_P(TraceWriterImplTest, FragmentingPacketWhileBufferExhausted) {
   arbiter_.reset(new SharedMemoryArbiterImpl(buf(), buf_size(), page_size(),
                                              &fake_producer_endpoint_,
                                              task_runner_.get()));
 
   const BufferID kBufId = 42;
-  std::unique_ptr<TraceWriter> writer = arbiter_->CreateTraceWriter(
-      kBufId, SharedMemoryArbiter::BufferExhaustedPolicy::kDrop);
+  std::unique_ptr<TraceWriter> writer =
+      arbiter_->CreateTraceWriter(kBufId, BufferExhaustedPolicy::kDrop);
 
   // Write a small first packet, so that |writer| owns a chunk.
   auto packet = writer->NewTracePacket();
   EXPECT_FALSE(reinterpret_cast<TraceWriterImpl*>(writer.get())
                    ->drop_packets_for_testing());
-  EXPECT_EQ(packet->Finalize(), 0);
+  EXPECT_EQ(packet->Finalize(), 0u);
 
   // Grab all the remaining chunks in the SMB in new writers.
   std::array<std::unique_ptr<TraceWriter>, kNumPages * 4 - 1> other_writers;
   for (size_t i = 0; i < other_writers.size(); i++) {
-    other_writers[i] = arbiter_->CreateTraceWriter(
-        kBufId, SharedMemoryArbiter::BufferExhaustedPolicy::kDrop);
+    other_writers[i] =
+        arbiter_->CreateTraceWriter(kBufId, BufferExhaustedPolicy::kDrop);
     auto other_writer_packet = other_writers[i]->NewTracePacket();
     EXPECT_FALSE(reinterpret_cast<TraceWriterImpl*>(other_writers[i].get())
                      ->drop_packets_for_testing());
@@ -225,7 +225,109 @@ TEST_P(TraceWriterImplTest, FragmentingPacketWhileBufferExhaused) {
 
   // The first packet in the chunk should have the previous_packet_dropped flag
   // set, so shouldn't be empty.
-  EXPECT_GT(packet4->Finalize(), 0);
+  EXPECT_GT(packet4->Finalize(), 0u);
+
+  // Flushing the writer causes the chunk to be released again.
+  writer->Flush();
+  EXPECT_EQ(1, last_commit.chunks_to_move_size());
+  EXPECT_EQ(0u, last_commit.chunks_to_move()[0].page());
+  EXPECT_EQ(0u, last_commit.chunks_to_move()[0].chunk());
+  ASSERT_EQ(0, last_commit.chunks_to_patch_size());
+
+  // Chunk should contain only |packet4| and not have any continuation flag set.
+  ASSERT_EQ(SharedMemoryABI::kChunkComplete, abi->GetChunkState(0u, 0u));
+  chunk = abi->TryAcquireChunkForReading(0u, 0u);
+  ASSERT_TRUE(chunk.is_valid());
+  ASSERT_EQ(1, chunk.header()->packets.load().count);
+  ASSERT_FALSE(chunk.header()->packets.load().flags &
+               SharedMemoryABI::ChunkHeader::kChunkNeedsPatching);
+  ASSERT_FALSE(
+      chunk.header()->packets.load().flags &
+      SharedMemoryABI::ChunkHeader::kFirstPacketContinuesFromPrevChunk);
+  ASSERT_FALSE(chunk.header()->packets.load().flags &
+               SharedMemoryABI::ChunkHeader::kLastPacketContinuesOnNextChunk);
+}
+
+// Verifies that a TraceWriter that is flushed before the SMB is full and then
+// acquires a garbage chunk later recovers and writes a previous_packet_dropped
+// marker into the trace.
+TEST_P(TraceWriterImplTest, FlushBeforeBufferExhausted) {
+  arbiter_.reset(new SharedMemoryArbiterImpl(buf(), buf_size(), page_size(),
+                                             &fake_producer_endpoint_,
+                                             task_runner_.get()));
+
+  const BufferID kBufId = 42;
+  std::unique_ptr<TraceWriter> writer =
+      arbiter_->CreateTraceWriter(kBufId, BufferExhaustedPolicy::kDrop);
+
+  // Write a small first packet and flush it, so that |writer| no longer owns
+  // any chunk.
+  auto packet = writer->NewTracePacket();
+  EXPECT_FALSE(reinterpret_cast<TraceWriterImpl*>(writer.get())
+                   ->drop_packets_for_testing());
+  EXPECT_EQ(packet->Finalize(), 0u);
+
+  // Flush the first chunk away.
+  writer->Flush();
+
+  // First chunk should be committed. Don't release it as free just yet.
+  arbiter_->FlushPendingCommitDataRequests();
+  const auto& last_commit = fake_producer_endpoint_.last_commit_data_request;
+  ASSERT_EQ(1, last_commit.chunks_to_move_size());
+  EXPECT_EQ(0u, last_commit.chunks_to_move()[0].page());
+  EXPECT_EQ(0u, last_commit.chunks_to_move()[0].chunk());
+
+  // Grab all the remaining chunks in the SMB in new writers.
+  std::array<std::unique_ptr<TraceWriter>, kNumPages * 4 - 1> other_writers;
+  for (size_t i = 0; i < other_writers.size(); i++) {
+    other_writers[i] =
+        arbiter_->CreateTraceWriter(kBufId, BufferExhaustedPolicy::kDrop);
+    auto other_writer_packet = other_writers[i]->NewTracePacket();
+    EXPECT_FALSE(reinterpret_cast<TraceWriterImpl*>(other_writers[i].get())
+                     ->drop_packets_for_testing());
+  }
+
+  // Write another packet, causing |writer| to acquire a garbage chunk.
+  auto packet2 = writer->NewTracePacket();
+  EXPECT_TRUE(reinterpret_cast<TraceWriterImpl*>(writer.get())
+                  ->drop_packets_for_testing());
+
+  // Writing more data while in garbage mode succeeds. This data is dropped.
+  // Make sure that we fill the garbage chunk, so that |writer| tries to
+  // re-acquire a valid chunk for the next packet.
+  size_t chunk_size = page_size() / 4;
+  std::stringstream large_string_writer;
+  for (size_t pos = 0; pos < chunk_size; pos++)
+    large_string_writer << "x";
+  std::string large_string = large_string_writer.str();
+  packet2->set_for_testing()->set_str(large_string.data(), large_string.size());
+  packet2->Finalize();
+
+  // Next packet should still be in the garbage chunk.
+  auto packet3 = writer->NewTracePacket();
+  EXPECT_TRUE(reinterpret_cast<TraceWriterImpl*>(writer.get())
+                  ->drop_packets_for_testing());
+
+  // Release the first chunk as free, so |writer| can acquire it again.
+  SharedMemoryABI* abi = arbiter_->shmem_abi_for_testing();
+  ASSERT_EQ(SharedMemoryABI::kChunkComplete, abi->GetChunkState(0u, 0u));
+  auto chunk = abi->TryAcquireChunkForReading(0u, 0u);
+  ASSERT_TRUE(chunk.is_valid());
+  abi->ReleaseChunkAsFree(std::move(chunk));
+
+  // Fill the garbage chunk, so that the writer attempts to grab another chunk
+  // for |packet4|.
+  packet3->set_for_testing()->set_str(large_string.data(), large_string.size());
+  packet3->Finalize();
+
+  // Next packet should go into the reacquired chunk we just released.
+  auto packet4 = writer->NewTracePacket();
+  EXPECT_FALSE(reinterpret_cast<TraceWriterImpl*>(writer.get())
+                   ->drop_packets_for_testing());
+
+  // The first packet in the chunk should have the previous_packet_dropped flag
+  // set, so shouldn't be empty.
+  EXPECT_GT(packet4->Finalize(), 0u);
 
   // Flushing the writer causes the chunk to be released again.
   writer->Flush();

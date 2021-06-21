@@ -7,13 +7,14 @@
 
 #include "base/files/file_path.h"
 #include "content/public/browser/native_file_system_permission_grant.h"
+#include "content/public/browser/native_file_system_write_item.h"
 #include "url/origin.h"
 
 namespace content {
 
 // Entry point to an embedder implemented permission context for the Native File
 // System API. Instances of this class can be retrieved via a BrowserContext.
-// All these methods should always be called on the same sequence.
+// All these methods must always be called on the UI thread.
 class NativeFileSystemPermissionContext {
  public:
   // The type of action a user took that resulted in needing a permission grant
@@ -29,6 +30,10 @@ class NativeFileSystemPermissionContext {
     // "save" dialog, and as such it could make sense to return a grant that
     // immediately allows write access without needing to request it.
     kSave,
+    // The path for which a permission grant is requested was the result of
+    // loading a handle from storage. As such the grant should not start out
+    // as granted, even for read access.
+    kLoadFromStorage,
   };
 
   // Returns the read permission grant to use for a particular path.
@@ -42,7 +47,8 @@ class NativeFileSystemPermissionContext {
       const base::FilePath& path,
       bool is_directory,
       int process_id,
-      int frame_id) = 0;
+      int frame_id,
+      UserAction user_action) = 0;
 
   // Returns the permission grant to use for a particular path. This could be a
   // grant that applies to more than just the path passed in, for example if a
@@ -72,10 +78,13 @@ class NativeFileSystemPermissionContext {
       int frame_id,
       base::OnceCallback<void(PermissionStatus)> callback) = 0;
 
+  // These values are persisted to logs. Entries should not be renumbered and
+  // numeric values should never be reused.
   enum class SensitiveDirectoryResult {
-    kAllowed,   // Access to directory is okay.
-    kTryAgain,  // User should pick a different directory.
-    kAbort,     // Abandon entirely, as if picking was cancelled.
+    kAllowed = 0,   // Access to directory is okay.
+    kTryAgain = 1,  // User should pick a different directory.
+    kAbort = 2,     // Abandon entirely, as if picking was cancelled.
+    kMaxValue = kAbort
   };
   // Checks if access to the given |paths| should be allowed or blocked. This is
   // used to implement blocks for certain sensitive directories such as the
@@ -85,9 +94,24 @@ class NativeFileSystemPermissionContext {
   virtual void ConfirmSensitiveDirectoryAccess(
       const url::Origin& origin,
       const std::vector<base::FilePath>& paths,
+      bool is_directory,
       int process_id,
       int frame_id,
       base::OnceCallback<void(SensitiveDirectoryResult)> callback) = 0;
+
+  enum class AfterWriteCheckResult { kAllow, kBlock };
+  // Runs a recently finished write operation through checks such as malware
+  // or other security checks to determine if the write should be allowed.
+  virtual void PerformAfterWriteChecks(
+      std::unique_ptr<NativeFileSystemWriteItem> item,
+      int process_id,
+      int frame_id,
+      base::OnceCallback<void(AfterWriteCheckResult)> callback) = 0;
+
+  // Returns whether the give |origin| already allows write permission, or it is
+  // possible to request one. This is used to block save file dialogs from being
+  // shown if there is no need to ask for it.
+  virtual bool CanObtainWritePermission(const url::Origin& origin) = 0;
 
  protected:
   virtual ~NativeFileSystemPermissionContext() = default;

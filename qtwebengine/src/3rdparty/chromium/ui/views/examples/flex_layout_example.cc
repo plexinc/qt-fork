@@ -46,13 +46,16 @@ void FlexLayoutExample::CreateAdditionalControls(int vertical_pos) {
                                          cross_axis_values, 4, &vertical_pos);
 
   CreateMarginsTextFields(base::ASCIIToUTF16("Interior margin"),
-                          interior_margin_, &vertical_pos);
+                          &interior_margin_, &vertical_pos);
 
   CreateMarginsTextFields(base::ASCIIToUTF16("Default margins"),
-                          default_child_margins_, &vertical_pos);
+                          &default_child_margins_, &vertical_pos);
 
   collapse_margins_ =
       CreateCheckbox(base::ASCIIToUTF16("Collapse margins"), &vertical_pos);
+
+  ignore_default_main_axis_margins_ = CreateCheckbox(
+      base::ASCIIToUTF16("Ignore main axis margins"), &vertical_pos);
 
   layout_ = layout_panel()->SetLayoutManager(std::make_unique<FlexLayout>());
 }
@@ -88,8 +91,12 @@ void FlexLayoutExample::ContentsChanged(Textfield* sender,
 }
 
 void FlexLayoutExample::ButtonPressedImpl(Button* sender) {
-  if (sender == collapse_margins_)
+  if (sender == collapse_margins_) {
     layout_->SetCollapseMargins(collapse_margins_->GetChecked());
+  } else if (sender == ignore_default_main_axis_margins_) {
+    layout_->SetIgnoreDefaultMainAxisMargins(
+        ignore_default_main_axis_margins_->GetChecked());
+  }
   RefreshLayoutPanel(false);
 }
 
@@ -106,12 +113,11 @@ void FlexLayoutExample::UpdateLayoutManager() {
 
 FlexSpecification FlexLayoutExample::GetFlexSpecification(int weight) const {
   return weight > 0
-             ? FlexSpecification::ForSizeRule(MinimumFlexSizeRule::kScaleToZero,
-                                              MaximumFlexSizeRule::kUnbounded)
+             ? FlexSpecification(MinimumFlexSizeRule::kScaleToZero,
+                                 MaximumFlexSizeRule::kUnbounded)
                    .WithWeight(weight)
-             : FlexSpecification::ForSizeRule(
-                   MinimumFlexSizeRule::kPreferredSnapToZero,
-                   MaximumFlexSizeRule::kPreferred)
+             : FlexSpecification(MinimumFlexSizeRule::kPreferredSnapToZero,
+                                 MaximumFlexSizeRule::kPreferred)
                    .WithWeight(0);
 }
 

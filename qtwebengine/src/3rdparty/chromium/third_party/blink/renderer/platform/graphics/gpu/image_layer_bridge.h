@@ -30,9 +30,8 @@ class Size;
 namespace blink {
 
 class PLATFORM_EXPORT ImageLayerBridge
-    : public GarbageCollectedFinalized<ImageLayerBridge>,
+    : public GarbageCollected<ImageLayerBridge>,
       public cc::TextureLayerClient {
-
  public:
   ImageLayerBridge(OpacityMode);
   ~ImageLayerBridge() override;
@@ -58,7 +57,7 @@ class PLATFORM_EXPORT ImageLayerBridge
 
   bool IsAccelerated() { return image_ && image_->IsTextureBacked(); }
 
-  void Trace(blink::Visitor* visitor) {}
+  void Trace(Visitor* visitor) {}
 
  private:
   // SharedMemory bitmap that was registered with SharedBitmapIdRegistrar. Used

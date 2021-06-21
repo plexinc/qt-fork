@@ -6,7 +6,6 @@
 
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/web_cache.h"
 #include "third_party/blink/public/platform/web_url_loader_mock_factory.h"
 #include "third_party/blink/public/web/web_document.h"
@@ -70,14 +69,13 @@ class TestDocumentSubresourceFilter : public WebDocumentSubresourceFilter {
 class SubresourceFilteringWebFrameClient
     : public frame_test_helpers::TestWebFrameClient {
  public:
-  void DidStartProvisionalLoad(WebDocumentLoader* data_source) override {
-    // Normally, the filter should be set when the load is committed. For
-    // the sake of this test, however, inject it earlier to verify that it
-    // is not consulted for the main resource load.
+  void DidCommitNavigation(const WebHistoryItem&,
+                           WebHistoryCommitType,
+                           bool) override {
     subresource_filter_ =
         new TestDocumentSubresourceFilter(load_policy_for_next_load_);
     subresource_filter_->AddToBlacklist("1x1.png");
-    data_source->SetSubresourceFilter(subresource_filter_);
+    Frame()->GetDocumentLoader()->SetSubresourceFilter(subresource_filter_);
   }
 
   void SetLoadPolicyFromNextLoad(
@@ -112,8 +110,7 @@ class WebDocumentSubresourceFilterTest : public testing::Test {
 
   void ExpectSubresourceWasLoaded(bool loaded) {
     WebElement web_element = MainFrame()->GetDocument().QuerySelector("img");
-    HTMLImageElement* image_element =
-        ToHTMLImageElement(web_element.Unwrap<Node>());
+    auto* image_element = To<HTMLImageElement>(web_element.Unwrap<Node>());
     EXPECT_EQ(loaded, !!image_element->naturalWidth());
   }
 
@@ -125,15 +122,15 @@ class WebDocumentSubresourceFilterTest : public testing::Test {
 
  private:
   void RegisterMockedHttpURLLoad(const String& file_name) {
+    // TODO(crbug.com/751425): We should use the mock functionality
+    // via |web_view_helper_|.
     url_test_helpers::RegisterMockedURLLoadFromBase(
         WebString(base_url_), test::CoreTestDataPath(), WebString(file_name));
   }
 
   // testing::Test:
   void TearDown() override {
-    Platform::Current()
-        ->GetURLLoaderMockFactory()
-        ->UnregisterAllURLsAndClearMemoryCache();
+    url_test_helpers::UnregisterAllURLsAndClearMemoryCache();
   }
 
   SubresourceFilteringWebFrameClient client_;

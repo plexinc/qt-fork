@@ -4,12 +4,14 @@
 
 #include "net/third_party/quiche/src/quic/quartc/quartc_session.h"
 
+#include <utility>
+
 #include "net/third_party/quiche/src/quic/core/quic_utils.h"
 #include "net/third_party/quiche/src/quic/core/tls_client_handshaker.h"
 #include "net/third_party/quiche/src/quic/core/tls_server_handshaker.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_mem_slice_storage.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_ptr_util.h"
 #include "net/third_party/quiche/src/quic/quartc/quartc_crypto_helpers.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 namespace {
@@ -24,10 +26,14 @@ QuartcSession::QuartcSession(std::unique_ptr<QuicConnection> connection,
                              const QuicConfig& config,
                              const ParsedQuicVersionVector& supported_versions,
                              const QuicClock* clock)
-    : QuicSession(connection.get(), visitor, config, supported_versions),
+    : QuicSession(connection.get(),
+                  visitor,
+                  config,
+                  supported_versions,
+                  /*num_expected_unidirectional_static_streams = */ 0),
       connection_(std::move(connection)),
       clock_(clock),
-      per_packet_options_(QuicMakeUnique<QuartcPerPacketOptions>()) {
+      per_packet_options_(std::make_unique<QuartcPerPacketOptions>()) {
   per_packet_options_->connection = connection_.get();
   connection_->set_per_packet_options(per_packet_options_.get());
 }
@@ -149,28 +155,46 @@ bool QuartcSession::SendProbingData() {
   return true;
 }
 
-void QuartcSession::OnCryptoHandshakeEvent(CryptoHandshakeEvent event) {
-  QuicSession::OnCryptoHandshakeEvent(event);
-  switch (event) {
-    case ENCRYPTION_FIRST_ESTABLISHED:
-    case ENCRYPTION_REESTABLISHED:
-      // 1-rtt setup triggers 'ENCRYPTION_REESTABLISHED' (after REJ, when the
-      // CHLO is sent).
-      DCHECK(IsEncryptionEstablished());
-      DCHECK(session_delegate_);
-      session_delegate_->OnConnectionWritable();
+void QuartcSession::SetDefaultEncryptionLevel(EncryptionLevel level) {
+  QuicSession::SetDefaultEncryptionLevel(level);
+  switch (level) {
+    case ENCRYPTION_INITIAL:
       break;
-    case HANDSHAKE_CONFIRMED:
+    case ENCRYPTION_ZERO_RTT:
+      if (connection()->perspective() == Perspective::IS_CLIENT) {
+        DCHECK(IsEncryptionEstablished());
+        DCHECK(session_delegate_);
+        session_delegate_->OnConnectionWritable();
+      }
+      break;
+    case ENCRYPTION_HANDSHAKE:
+      break;
+    case ENCRYPTION_FORWARD_SECURE:
       // On the server, handshake confirmed is the first time when you can start
       // writing packets.
       DCHECK(IsEncryptionEstablished());
-      DCHECK(IsCryptoHandshakeConfirmed());
+      DCHECK(OneRttKeysAvailable());
 
       DCHECK(session_delegate_);
       session_delegate_->OnConnectionWritable();
       session_delegate_->OnCryptoHandshakeComplete();
       break;
+    default:
+      QUIC_BUG << "Unknown encryption level: "
+               << EncryptionLevelToString(level);
   }
+}
+
+void QuartcSession::OnOneRttKeysAvailable() {
+  QuicSession::OnOneRttKeysAvailable();
+  // On the server, handshake confirmed is the first time when you can start
+  // writing packets.
+  DCHECK(IsEncryptionEstablished());
+  DCHECK(OneRttKeysAvailable());
+
+  DCHECK(session_delegate_);
+  session_delegate_->OnConnectionWritable();
+  session_delegate_->OnCryptoHandshakeComplete();
 }
 
 void QuartcSession::CancelStream(QuicStreamId stream_id) {
@@ -207,7 +231,7 @@ void QuartcSession::OnCongestionWindowChange(QuicTime /*now*/) {
 
 bool QuartcSession::ShouldKeepConnectionAlive() const {
   // TODO(mellem): Quartc may want different keepalive logic than HTTP.
-  return GetNumOpenDynamicStreams() > 0;
+  return GetNumActiveStreams() > 0;
 }
 
 void QuartcSession::OnConnectionClosed(const QuicConnectionCloseFrame& frame,
@@ -244,7 +268,7 @@ void QuartcSession::OnTransportReceived(const char* data, size_t data_len) {
                    packet);
 }
 
-void QuartcSession::OnMessageReceived(QuicStringPiece message) {
+void QuartcSession::OnMessageReceived(quiche::QuicheStringPiece message) {
   session_delegate_->OnMessageReceived(message);
 }
 
@@ -292,7 +316,8 @@ std::unique_ptr<QuartcStream> QuartcSession::CreateDataStream(
     // Encryption not active so no stream created
     return nullptr;
   }
-  return InitializeDataStream(QuicMakeUnique<QuartcStream>(id, this), priority);
+  return InitializeDataStream(std::make_unique<QuartcStream>(id, this),
+                              priority);
 }
 
 std::unique_ptr<QuartcStream> QuartcSession::InitializeDataStream(
@@ -301,7 +326,8 @@ std::unique_ptr<QuartcStream> QuartcSession::InitializeDataStream(
   // Register the stream to the QuicWriteBlockedList. |priority| is clamped
   // between 0 and 7, with 0 being the highest priority and 7 the lowest
   // priority.
-  write_blocked_streams()->UpdateStreamPriority(stream->id(), priority);
+  write_blocked_streams()->UpdateStreamPriority(
+      stream->id(), spdy::SpdyStreamPrecedence(priority));
 
   if (IsIncomingStream(stream->id())) {
     DCHECK(session_delegate_);
@@ -329,7 +355,7 @@ QuartcClientSession::QuartcClientSession(
     const QuicClock* clock,
     std::unique_ptr<QuartcPacketWriter> packet_writer,
     std::unique_ptr<QuicCryptoClientConfig> client_crypto_config,
-    QuicStringPiece server_crypto_config)
+    quiche::QuicheStringPiece server_crypto_config)
     : QuartcSession(std::move(connection),
                     /*visitor=*/nullptr,
                     config,
@@ -389,7 +415,7 @@ void QuartcClientSession::StartCryptoHandshake() {
     }
   }
 
-  crypto_stream_ = QuicMakeUnique<QuicCryptoClientStream>(
+  crypto_stream_ = std::make_unique<QuicCryptoClientStream>(
       server_id, this,
       client_crypto_config_->proof_verifier()->CreateDefaultContext(),
       client_crypto_config_.get(), this);
@@ -415,7 +441,7 @@ QuartcServerSession::QuartcServerSession(
     const QuicClock* clock,
     const QuicCryptoServerConfig* server_crypto_config,
     QuicCompressedCertsCache* const compressed_certs_cache,
-    QuicCryptoServerStream::Helper* const stream_helper)
+    QuicCryptoServerStreamBase::Helper* const stream_helper)
     : QuartcSession(std::move(connection),
                     visitor,
                     config,
@@ -436,7 +462,7 @@ QuicCryptoStream* QuartcServerSession::GetMutableCryptoStream() {
 }
 
 void QuartcServerSession::StartCryptoHandshake() {
-  crypto_stream_ = QuicMakeUnique<QuicCryptoServerStream>(
+  crypto_stream_ = CreateCryptoServerStream(
       server_crypto_config_, compressed_certs_cache_, this, stream_helper_);
   Initialize();
 }

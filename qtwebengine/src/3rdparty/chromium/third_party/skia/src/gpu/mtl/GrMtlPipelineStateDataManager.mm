@@ -15,50 +15,30 @@
 #endif
 
 GrMtlPipelineStateDataManager::GrMtlPipelineStateDataManager(const UniformInfoArray& uniforms,
-                                                             uint32_t geometryUniformSize,
-                                                             uint32_t fragmentUniformSize)
-        : fGeometryUniformSize(geometryUniformSize)
-        , fFragmentUniformSize(fragmentUniformSize)
-        , fGeometryUniformsDirty(false)
-        , fFragmentUniformsDirty(false) {
-    fGeometryUniformData.reset(geometryUniformSize);
-    fFragmentUniformData.reset(fragmentUniformSize);
-    int count = uniforms.count();
-    fUniforms.push_back_n(count);
+                                                             uint32_t uniformSize)
+        : fUniformSize(uniformSize)
+        , fUniformsDirty(false) {
+    fUniformData.reset(uniformSize);
+    fUniforms.push_back_n(uniforms.count());
     // We must add uniforms in same order is the UniformInfoArray so that UniformHandles already
     // owned by other objects will still match up here.
-    for (int i = 0; i < count; i++) {
+    int i = 0;
+    for (const auto& uniformInfo : uniforms.items()) {
         Uniform& uniform = fUniforms[i];
-        const GrMtlUniformHandler::UniformInfo uniformInfo = uniforms[i];
         SkASSERT(GrShaderVar::kNonArray == uniformInfo.fVariable.getArrayCount() ||
                  uniformInfo.fVariable.getArrayCount() > 0);
         SkDEBUGCODE(
             uniform.fArrayCount = uniformInfo.fVariable.getArrayCount();
             uniform.fType = uniformInfo.fVariable.getType();
-        );
-
-        if (!(kFragment_GrShaderFlag & uniformInfo.fVisibility)) {
-            uniform.fBinding = GrMtlUniformHandler::kGeometryBinding;
-        } else {
-            SkASSERT(kFragment_GrShaderFlag == uniformInfo.fVisibility);
-            uniform.fBinding = GrMtlUniformHandler::kFragBinding;
-        }
+        )
         uniform.fOffset = uniformInfo.fUBOffset;
+        ++i;
     }
 }
 
 void* GrMtlPipelineStateDataManager::getBufferPtrAndMarkDirty(const Uniform& uni) const {
-    void* buffer;
-    if (GrMtlUniformHandler::kGeometryBinding == uni.fBinding) {
-        buffer = fGeometryUniformData.get();
-        fGeometryUniformsDirty = true;
-    } else {
-        SkASSERT(GrMtlUniformHandler::kFragBinding == uni.fBinding);
-        buffer = fFragmentUniformData.get();
-        fFragmentUniformsDirty = true;
-    }
-    buffer = static_cast<char*>(buffer)+uni.fOffset;
-    return buffer;
+    fUniformsDirty = true;
+    return static_cast<char*>(fUniformData.get())+uni.fOffset;
 }
 
 void GrMtlPipelineStateDataManager::set1i(UniformHandle u, int32_t i) const {
@@ -313,22 +293,13 @@ template<int N> inline void GrMtlPipelineStateDataManager::setMatrices(
     SkASSERT(arrayCount <= uni.fArrayCount ||
              (1 == arrayCount && GrShaderVar::kNonArray == uni.fArrayCount));
 
-    void* buffer;
-    if (GrMtlUniformHandler::kGeometryBinding == uni.fBinding) {
-        buffer = fGeometryUniformData.get();
-        fGeometryUniformsDirty = true;
-    } else {
-        SkASSERT(GrMtlUniformHandler::kFragBinding == uni.fBinding);
-        buffer = fFragmentUniformData.get();
-        fFragmentUniformsDirty = true;
-    }
-
-    set_uniform_matrix<N>::set(buffer, uni.fOffset, arrayCount, matrices);
+    fUniformsDirty = true;
+    set_uniform_matrix<N>::set(fUniformData.get(), uni.fOffset, arrayCount, matrices);
 }
 
 template<> struct set_uniform_matrix<2> {
     inline static void set(void* buffer, int uniformOffset, int count, const float matrices[]) {
-        GR_STATIC_ASSERT(sizeof(float) == 4);
+        static_assert(sizeof(float) == 4);
         buffer = static_cast<char*>(buffer) + uniformOffset;
         memcpy(buffer, matrices, count * 4 * sizeof(float));
     }
@@ -336,7 +307,7 @@ template<> struct set_uniform_matrix<2> {
 
 template<> struct set_uniform_matrix<3> {
     inline static void set(void* buffer, int uniformOffset, int count, const float matrices[]) {
-        GR_STATIC_ASSERT(sizeof(float) == 4);
+        static_assert(sizeof(float) == 4);
         buffer = static_cast<char*>(buffer) + uniformOffset;
         for (int i = 0; i < count; ++i) {
             const float* matrix = &matrices[3 * 3 * i];
@@ -350,7 +321,7 @@ template<> struct set_uniform_matrix<3> {
 
 template<> struct set_uniform_matrix<4> {
     inline static void set(void* buffer, int uniformOffset, int count, const float matrices[]) {
-        GR_STATIC_ASSERT(sizeof(float) == 4);
+        static_assert(sizeof(float) == 4);
         buffer = static_cast<char*>(buffer) + uniformOffset;
         memcpy(buffer, matrices, count * 16 * sizeof(float));
     }
@@ -359,23 +330,33 @@ template<> struct set_uniform_matrix<4> {
 void GrMtlPipelineStateDataManager::uploadAndBindUniformBuffers(
         GrMtlGpu* gpu,
         id<MTLRenderCommandEncoder> renderCmdEncoder) const {
-    if (fGeometryUniformSize && fGeometryUniformsDirty) {
-        SkASSERT(fGeometryUniformSize < 4*1024);
-        [renderCmdEncoder setVertexBytes: fGeometryUniformData.get()
-                                  length: fGeometryUniformSize
-                                 atIndex: GrMtlUniformHandler::kGeometryBinding];
-        fGeometryUniformsDirty = false;
-    }
-    if (fFragmentUniformSize && fFragmentUniformsDirty) {
-        SkASSERT(fFragmentUniformSize < 4*1024);
-        [renderCmdEncoder setFragmentBytes: fFragmentUniformData.get()
-                                    length: fFragmentUniformSize
-                                   atIndex: GrMtlUniformHandler::kFragBinding];
-        fFragmentUniformsDirty = false;
+    if (fUniformSize && fUniformsDirty) {
+        SkASSERT(fUniformSize < 4*1024);
+        if (@available(macOS 10.11, iOS 8.3, *)) {
+            [renderCmdEncoder setVertexBytes: fUniformData.get()
+                                      length: fUniformSize
+                                     atIndex: GrMtlUniformHandler::kUniformBinding];
+            [renderCmdEncoder setFragmentBytes: fUniformData.get()
+                                        length: fUniformSize
+                                       atIndex: GrMtlUniformHandler::kUniformBinding];
+        } else {
+            size_t bufferOffset;
+            id<MTLBuffer> uniformBuffer = gpu->resourceProvider().getDynamicBuffer(
+                                                  fUniformSize, &bufferOffset);
+            SkASSERT(uniformBuffer);
+            char* bufferData = (char*) uniformBuffer.contents + bufferOffset;
+            memcpy(bufferData, fUniformData.get(), fUniformSize);
+            [renderCmdEncoder setVertexBuffer: uniformBuffer
+                                       offset: bufferOffset
+                                      atIndex: GrMtlUniformHandler::kUniformBinding];
+            [renderCmdEncoder setFragmentBuffer: uniformBuffer
+                                         offset: bufferOffset
+                                        atIndex: GrMtlUniformHandler::kUniformBinding];
+        }
+        fUniformsDirty = false;
     }
 }
 
 void GrMtlPipelineStateDataManager::resetDirtyBits() {
-    fGeometryUniformsDirty = true;
-    fFragmentUniformsDirty = true;
+    fUniformsDirty = true;
 }

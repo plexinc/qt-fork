@@ -100,7 +100,7 @@ std::unique_ptr<CFX_CSSStyleSheet> CXFA_TextParser::LoadDefaultSheetStyle() {
       "sub{vertical-align:-15em;font-size:.66em}";
   WideString ws = WideString::FromASCII(kStyle);
   auto sheet = pdfium::MakeUnique<CFX_CSSStyleSheet>();
-  if (!sheet->LoadBuffer(ws.c_str(), ws.GetLength()))
+  if (!sheet->LoadBuffer(ws.AsStringView()))
     return nullptr;
 
   return sheet;
@@ -345,9 +345,9 @@ RetainPtr<CFGAS_GEFont> CXFA_TextParser::GetFont(
   if (font) {
     wsFamily = font->GetTypeface();
     if (font->IsBold())
-      dwStyle |= FXFONT_BOLD;
+      dwStyle |= FXFONT_FORCE_BOLD;
     if (font->IsItalic())
-      dwStyle |= FXFONT_BOLD;
+      dwStyle |= FXFONT_FORCE_BOLD;
   }
 
   if (pStyle) {
@@ -357,7 +357,7 @@ RetainPtr<CFGAS_GEFont> CXFA_TextParser::GetFont(
 
     dwStyle = 0;
     if (pStyle->GetFontWeight() > FXFONT_FW_NORMAL)
-      dwStyle |= FXFONT_BOLD;
+      dwStyle |= FXFONT_FORCE_BOLD;
     if (pStyle->GetFontStyle() == CFX_CSSFontStyle::Italic)
       dwStyle |= FXFONT_ITALIC;
   }

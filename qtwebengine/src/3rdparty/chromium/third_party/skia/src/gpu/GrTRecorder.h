@@ -70,7 +70,7 @@ public:
      * between reinterpret_cast<TBase*> and static_cast<TBase*> when operating on TItem*.
      * Multiple inheritance may make this not true. It is runtime asserted.
      */
-    template <typename TItem, typename... Args> TItem& emplace(Args... args) {
+    template <typename TItem, typename... Args> TItem& emplace(Args&&... args) {
         return this->emplaceWithData<TItem, Args...>(0, std::forward<Args>(args)...);
     }
 
@@ -108,9 +108,9 @@ GrTRecorder<TBase>::emplaceWithData(size_t extraDataSize, Args... args) {
     static constexpr size_t kTAlign = alignof(TItem);
     static constexpr size_t kHeaderAlign = alignof(Header);
     static constexpr size_t kAllocAlign = kTAlign > kHeaderAlign ? kTAlign : kHeaderAlign;
-    static constexpr size_t kTItemOffset = GrSizeAlignUp(sizeof(Header), kAllocAlign);
+    static constexpr size_t kTItemOffset = GrAlignTo(sizeof(Header), kAllocAlign);
     // We're assuming if we back up from kItemOffset by sizeof(Header) we will still be aligned.
-    GR_STATIC_ASSERT(sizeof(Header) % alignof(Header) == 0);
+    static_assert(sizeof(Header) % alignof(Header) == 0, "");
     const size_t totalSize = kTItemOffset + sizeof(TItem) + extraDataSize;
     auto alloc = reinterpret_cast<char*>(fArena.makeBytesAlignedTo(totalSize, kAllocAlign));
     Header* header = new (alloc + kTItemOffset - sizeof(Header)) Header();
@@ -134,7 +134,7 @@ template <typename TBase> inline void GrTRecorder<TBase>::reset() {
     for (auto& i : *this) {
         i.~TBase();
     }
-    GR_STATIC_ASSERT(std::is_trivially_destructible<Header>::value);
+    static_assert(std::is_trivially_destructible<Header>::value, "");
     fHead = fTail = nullptr;
     fArena.reset();
 }

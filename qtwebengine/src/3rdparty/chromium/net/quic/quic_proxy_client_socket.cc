@@ -11,6 +11,7 @@
 #include "base/bind_helpers.h"
 #include "base/callback_helpers.h"
 #include "base/values.h"
+#include "net/base/proxy_delegate.h"
 #include "net/http/http_auth_controller.h"
 #include "net/http/http_log_util.h"
 #include "net/http/http_response_headers.h"
@@ -25,10 +26,12 @@ namespace net {
 QuicProxyClientSocket::QuicProxyClientSocket(
     std::unique_ptr<QuicChromiumClientStream::Handle> stream,
     std::unique_ptr<QuicChromiumClientSession::Handle> session,
+    const ProxyServer& proxy_server,
     const std::string& user_agent,
     const HostPortPair& endpoint,
     const NetLogWithSource& net_log,
-    HttpAuthController* auth_controller)
+    HttpAuthController* auth_controller,
+    ProxyDelegate* proxy_delegate)
     : next_state_(STATE_DISCONNECTED),
       stream_(std::move(stream)),
       session_(std::move(session)),
@@ -36,6 +39,8 @@ QuicProxyClientSocket::QuicProxyClientSocket(
       write_buf_len_(0),
       endpoint_(endpoint),
       auth_(auth_controller),
+      proxy_server_(proxy_server),
+      proxy_delegate_(proxy_delegate),
       user_agent_(user_agent),
       net_log_(net_log) {
   DCHECK(stream_->IsOpen());
@@ -181,9 +186,10 @@ int QuicProxyClientSocket::Read(IOBuffer* buf,
     return 0;
   }
 
-  int rv = stream_->ReadBody(buf, buf_len,
-                             base::Bind(&QuicProxyClientSocket::OnReadComplete,
-                                        weak_factory_.GetWeakPtr()));
+  int rv =
+      stream_->ReadBody(buf, buf_len,
+                        base::BindOnce(&QuicProxyClientSocket::OnReadComplete,
+                                       weak_factory_.GetWeakPtr()));
 
   if (rv == ERR_IO_PENDING) {
     read_callback_ = std::move(callback);
@@ -228,9 +234,9 @@ int QuicProxyClientSocket::Write(
                                 buf->data());
 
   int rv = stream_->WriteStreamData(
-      quic::QuicStringPiece(buf->data(), buf_len), false,
-      base::Bind(&QuicProxyClientSocket::OnWriteComplete,
-                 weak_factory_.GetWeakPtr()));
+      quiche::QuicheStringPiece(buf->data(), buf_len), false,
+      base::BindOnce(&QuicProxyClientSocket::OnWriteComplete,
+                     weak_factory_.GetWeakPtr()));
   if (rv == OK)
     return buf_len;
 
@@ -326,8 +332,8 @@ int QuicProxyClientSocket::DoGenerateAuthToken() {
   next_state_ = STATE_GENERATE_AUTH_TOKEN_COMPLETE;
   return auth_->MaybeGenerateAuthToken(
       &request_,
-      base::Bind(&QuicProxyClientSocket::OnIOComplete,
-                 weak_factory_.GetWeakPtr()),
+      base::BindOnce(&QuicProxyClientSocket::OnIOComplete,
+                     weak_factory_.GetWeakPtr()),
       net_log_);
 }
 
@@ -345,6 +351,13 @@ int QuicProxyClientSocket::DoSendRequest() {
   HttpRequestHeaders authorization_headers;
   if (auth_->HaveAuth()) {
     auth_->AddAuthorizationHeader(&authorization_headers);
+  }
+
+  if (proxy_delegate_) {
+    HttpRequestHeaders proxy_delegate_headers;
+    proxy_delegate_->OnBeforeTunnelRequest(proxy_server_,
+                                           &proxy_delegate_headers);
+    request_.extra_headers.MergeFrom(proxy_delegate_headers);
   }
 
   std::string request_line;
@@ -381,8 +394,8 @@ int QuicProxyClientSocket::DoReadReply() {
 
   int rv = stream_->ReadInitialHeaders(
       &response_header_block_,
-      base::Bind(&QuicProxyClientSocket::OnReadResponseHeadersComplete,
-                 weak_factory_.GetWeakPtr()));
+      base::BindOnce(&QuicProxyClientSocket::OnReadResponseHeadersComplete,
+                     weak_factory_.GetWeakPtr()));
   if (rv == ERR_IO_PENDING)
     return ERR_IO_PENDING;
   if (rv < 0)
@@ -402,6 +415,15 @@ int QuicProxyClientSocket::DoReadReplyComplete(int result) {
   NetLogResponseHeaders(
       net_log_, NetLogEventType::HTTP_TRANSACTION_READ_TUNNEL_RESPONSE_HEADERS,
       response_.headers.get());
+
+  if (proxy_delegate_) {
+    int rv = proxy_delegate_->OnTunnelHeadersReceived(proxy_server_,
+                                                      *response_.headers);
+    if (rv != OK) {
+      DCHECK_NE(ERR_IO_PENDING, rv);
+      return rv;
+    }
+  }
 
   switch (response_.headers->response_code()) {
     case 200:  // OK

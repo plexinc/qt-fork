@@ -21,30 +21,29 @@
 #import <Metal/Metal.h>
 
 namespace dawn_native {
-    class CommandEncoderBase;
+    class CommandEncoder;
 }
 
 namespace dawn_native { namespace metal {
 
+    class CommandRecordingContext;
     class Device;
-    struct GlobalEncoders;
 
     class CommandBuffer : public CommandBufferBase {
       public:
-        CommandBuffer(CommandEncoderBase* encoder, const CommandBufferDescriptor* descriptor);
+        CommandBuffer(CommandEncoder* encoder, const CommandBufferDescriptor* descriptor);
         ~CommandBuffer();
 
-        void FillCommands(id<MTLCommandBuffer> commandBuffer);
+        void FillCommands(CommandRecordingContext* commandContext);
 
       private:
-        void EncodeComputePass(id<MTLCommandBuffer> commandBuffer);
-        void EncodeRenderPass(id<MTLCommandBuffer> commandBuffer,
+        void EncodeComputePass(CommandRecordingContext* commandContext);
+        void EncodeRenderPass(CommandRecordingContext* commandContext,
                               MTLRenderPassDescriptor* mtlRenderPass,
-                              GlobalEncoders* globalEncoders,
                               uint32_t width,
                               uint32_t height);
 
-        void EncodeRenderPassInternal(id<MTLCommandBuffer> commandBuffer,
+        void EncodeRenderPassInternal(CommandRecordingContext* commandContext,
                                       MTLRenderPassDescriptor* mtlRenderPass,
                                       uint32_t width,
                                       uint32_t height);

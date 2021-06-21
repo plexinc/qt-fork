@@ -110,35 +110,35 @@ void BiquadDSPKernel::UpdateCoefficients(int number_of_frames,
     // Configure the biquad with the new filter parameters for the appropriate
     // type of filter.
     switch (GetBiquadProcessor()->GetType()) {
-      case BiquadProcessor::kLowPass:
+      case BiquadProcessor::FilterType::kLowPass:
         biquad_.SetLowpassParams(k, normalized_frequency, q[k]);
         break;
 
-      case BiquadProcessor::kHighPass:
+      case BiquadProcessor::FilterType::kHighPass:
         biquad_.SetHighpassParams(k, normalized_frequency, q[k]);
         break;
 
-      case BiquadProcessor::kBandPass:
+      case BiquadProcessor::FilterType::kBandPass:
         biquad_.SetBandpassParams(k, normalized_frequency, q[k]);
         break;
 
-      case BiquadProcessor::kLowShelf:
+      case BiquadProcessor::FilterType::kLowShelf:
         biquad_.SetLowShelfParams(k, normalized_frequency, gain[k]);
         break;
 
-      case BiquadProcessor::kHighShelf:
+      case BiquadProcessor::FilterType::kHighShelf:
         biquad_.SetHighShelfParams(k, normalized_frequency, gain[k]);
         break;
 
-      case BiquadProcessor::kPeaking:
+      case BiquadProcessor::FilterType::kPeaking:
         biquad_.SetPeakingParams(k, normalized_frequency, q[k], gain[k]);
         break;
 
-      case BiquadProcessor::kNotch:
+      case BiquadProcessor::FilterType::kNotch:
         biquad_.SetNotchParams(k, normalized_frequency, q[k]);
         break;
 
-      case BiquadProcessor::kAllpass:
+      case BiquadProcessor::FilterType::kAllpass:
         biquad_.SetAllpassParams(k, normalized_frequency, q[k]);
         break;
     }
@@ -195,11 +195,10 @@ void BiquadDSPKernel::GetFrequencyResponse(BiquadDSPKernel& kernel,
   // updating |kernel| while we're computing the response.
   DCHECK(IsMainThread());
 
-  bool is_good =
-      n_frequencies > 0 && frequency_hz && mag_response && phase_response;
-  DCHECK(is_good);
-  if (!is_good)
-    return;
+  DCHECK_GT(n_frequencies, 0);
+  DCHECK(frequency_hz);
+  DCHECK(mag_response);
+  DCHECK(phase_response);
 
   Vector<float> frequency(n_frequencies);
   double nyquist = kernel.Nyquist();

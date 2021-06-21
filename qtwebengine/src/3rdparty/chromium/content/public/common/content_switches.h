@@ -16,10 +16,12 @@ namespace switches {
 // All switches in alphabetical order. The switches should be documented
 // alongside the definition of their values in the .cc file.
 CONTENT_EXPORT extern const char kAcceleratedCanvas2dMSAASampleCount[];
+CONTENT_EXPORT extern const char kAllowPreCommitInput[];
 CONTENT_EXPORT extern const char kAllowFileAccessFromFiles[];
 CONTENT_EXPORT extern const char kAllowInsecureLocalhost[];
 CONTENT_EXPORT extern const char kAllowLoopbackInPeerConnection[];
 CONTENT_EXPORT extern const char kAllowPopupsDuringPageUnload[];
+CONTENT_EXPORT extern const char kAllowSyncXHRInPageDismissal[];
 CONTENT_EXPORT extern const char kAndroidFontsPath[];
 CONTENT_EXPORT extern const char kBlinkSettings[];
 CONTENT_EXPORT extern const char kBrowserCrashTest[];
@@ -28,6 +30,7 @@ CONTENT_EXPORT extern const char kBrowserSubprocessPath[];
 CONTENT_EXPORT extern const char kBrowserTest[];
 CONTENT_EXPORT extern const char kDefaultTileWidth[];
 CONTENT_EXPORT extern const char kDefaultTileHeight[];
+CONTENT_EXPORT extern const char kMinHeightForGpuRasterTile[];
 CONTENT_EXPORT extern const char kDisable2dCanvasAntialiasing[];
 CONTENT_EXPORT extern const char kDisable2dCanvasImageChromium[];
 CONTENT_EXPORT extern const char kDisable3DAPIs[];
@@ -73,7 +76,6 @@ CONTENT_EXPORT extern const char kDisableNewContentRenderingTimeout[];
 CONTENT_EXPORT extern const char kDisableNotifications[];
 CONTENT_EXPORT extern const char kDisableOriginTrialControlledBlinkFeatures[];
 CONTENT_EXPORT extern const char kDisablePartialRaster[];
-CONTENT_EXPORT extern const char kEnablePartialRaster[];
 extern const char kDisablePepper3d[];
 CONTENT_EXPORT extern const char kDisablePepper3DImageChromium[];
 CONTENT_EXPORT extern const char kDisablePermissionsAPI[];
@@ -99,7 +101,6 @@ CONTENT_EXPORT extern const char kDisableThreadedScrolling[];
 extern const char kDisableV8IdleTasks[];
 CONTENT_EXPORT extern const char kDisableWebGLImageChromium[];
 CONTENT_EXPORT extern const char kDisableWebSecurity[];
-extern const char kDisableXSSAuditor[];
 CONTENT_EXPORT extern const char kDisableZeroCopy[];
 CONTENT_EXPORT extern const char kDisableZeroCopyDxgiVideo[];
 CONTENT_EXPORT extern const char kDomAutomationController[];
@@ -112,7 +113,9 @@ CONTENT_EXPORT extern const char kEnablePreferCompositingToLCDText[];
 CONTENT_EXPORT extern const char kEnableBlinkFeatures[];
 CONTENT_EXPORT extern const char kEnableCaretBrowsing[];
 CONTENT_EXPORT extern const char kEnableDisplayList2dCanvas[];
+CONTENT_EXPORT extern const char kEnableExperimentalWebAssemblyFeatures[];
 CONTENT_EXPORT extern const char kEnableExperimentalWebPlatformFeatures[];
+CONTENT_EXPORT extern const char kEnableFtp[];
 CONTENT_EXPORT extern const char kEnableGpuMemoryBufferCompositorResources[];
 CONTENT_EXPORT extern const char kEnableGpuMemoryBufferVideoFrames[];
 CONTENT_EXPORT extern const char kGpuRasterizationMSAASampleCount[];
@@ -123,7 +126,6 @@ CONTENT_EXPORT extern const char kEnableNetworkInformationDownlinkMax[];
 CONTENT_EXPORT extern const char kDisableNv12DxgiVideo[];
 CONTENT_EXPORT extern const char kEnablePluginPlaceholderTesting[];
 CONTENT_EXPORT extern const char kEnablePreciseMemoryInfo[];
-CONTENT_EXPORT extern const char kEnablePrintBrowser[];
 CONTENT_EXPORT extern const char kEnableRGBA4444Textures[];
 CONTENT_EXPORT extern const char kEnableServiceBinaryLauncher[];
 extern const char kEnableSkiaBenchmarking[];
@@ -131,7 +133,6 @@ CONTENT_EXPORT extern const char kEnableSmoothScrolling[];
 CONTENT_EXPORT extern const char kEnableSpatialNavigation[];
 CONTENT_EXPORT extern const char kEnableStrictMixedContentChecking[];
 CONTENT_EXPORT extern const char kEnableStrictPowerfulFeatureRestrictions[];
-CONTENT_EXPORT extern const char kEnableSubresourceRedirect[];
 CONTENT_EXPORT extern const char kEnableThreadedCompositing[];
 CONTENT_EXPORT extern const char kEnableTracing[];
 CONTENT_EXPORT extern const char kEnableTracingOutput[];
@@ -139,8 +140,6 @@ CONTENT_EXPORT extern const char kEnableUserMediaScreenCapturing[];
 CONTENT_EXPORT extern const char kEnableUseZoomForDSF[];
 CONTENT_EXPORT extern const char kEnableViewport[];
 CONTENT_EXPORT extern const char kEnableVtune[];
-CONTENT_EXPORT extern const char kEnableWebAuthTestingAPI[];
-CONTENT_EXPORT extern const char kEnableWebBluetoothScanning[];
 CONTENT_EXPORT extern const char kEnableWebGL2ComputeContext[];
 CONTENT_EXPORT extern const char kEnableWebGLDraftExtensions[];
 CONTENT_EXPORT extern const char kEnableWebGLImageChromium[];
@@ -149,10 +148,10 @@ CONTENT_EXPORT extern const char kEnableZeroCopy[];
 CONTENT_EXPORT extern const char kFieldTrialHandle[];
 CONTENT_EXPORT extern const char kFileUrlPathAlias[];
 CONTENT_EXPORT extern const char kForceDisplayList2dCanvas[];
-CONTENT_EXPORT extern const char kForceGpuRasterization[];
 CONTENT_EXPORT extern const char kDisableOopRasterization[];
 CONTENT_EXPORT extern const char kEnableOopRasterization[];
 CONTENT_EXPORT extern const char kEnableOopRasterizationDDL[];
+CONTENT_EXPORT extern const char kForceLegacyDefaultReferrerPolicy[];
 CONTENT_EXPORT extern const char kForceOverlayFullscreenVideo[];
 CONTENT_EXPORT extern const char kForcePresentationReceiverForTesting[];
 CONTENT_EXPORT extern const char kForceRendererAccessibility[];
@@ -167,7 +166,7 @@ CONTENT_EXPORT extern const char kIPCConnectionTimeout[];
 CONTENT_EXPORT extern const char kIsolateOrigins[];
 CONTENT_EXPORT extern const char kJavaScriptFlags[];
 CONTENT_EXPORT extern const char kJavaScriptHarmony[];
-CONTENT_EXPORT extern const char kLitePagesServerSubresourceHost[];
+CONTENT_EXPORT extern const char kLaunchAsBrowser[];
 CONTENT_EXPORT extern const char kLogGpuControlListDecisions[];
 CONTENT_EXPORT extern const char kLoggingLevel[];
 CONTENT_EXPORT extern const char kLogFile[];
@@ -185,8 +184,6 @@ CONTENT_EXPORT extern const char kMojoLocalStorage[];
 CONTENT_EXPORT extern const char kNetworkQuietTimeout[];
 CONTENT_EXPORT extern const char kNoZygote[];
 extern const char kNoV8UntrustedCodeMitigations[];
-CONTENT_EXPORT extern const char kEnableAppContainer[];
-CONTENT_EXPORT extern const char kDisableAppContainer[];
 CONTENT_EXPORT extern const char kNumRasterThreads[];
 CONTENT_EXPORT extern const char kOverridePluginPowerSaverForTesting[];
 CONTENT_EXPORT extern const char kPassiveListenersDefault[];
@@ -201,7 +198,6 @@ CONTENT_EXPORT extern const char kProcessPerTab[];
 CONTENT_EXPORT extern const char kProcessType[];
 CONTENT_EXPORT extern const char kProxyServer[];
 CONTENT_EXPORT extern const char kPullToRefresh[];
-CONTENT_EXPORT extern const char kReducedReferrerGranularity[];
 CONTENT_EXPORT extern const char kRegisterPepperPlugins[];
 CONTENT_EXPORT extern const char kRemoteDebuggingPipe[];
 CONTENT_EXPORT extern const char kRemoteDebuggingPort[];
@@ -210,6 +206,7 @@ extern const char kRendererCmdPrefix[];
 CONTENT_EXPORT extern const char kRendererProcess[];
 CONTENT_EXPORT extern const char kRendererProcessLimit[];
 CONTENT_EXPORT extern const char kRendererStartupDialog[];
+CONTENT_EXPORT extern const char kRunManualTestsFlag[];
 extern const char kSandboxIPCProcess[];
 extern const char kShowLayoutShiftRegions[];
 extern const char kShowPaintRects[];
@@ -226,7 +223,7 @@ CONTENT_EXPORT extern const char kTouchEventFeatureDetectionAuto[];
 CONTENT_EXPORT extern const char kTouchEventFeatureDetectionEnabled[];
 CONTENT_EXPORT extern const char kTouchEventFeatureDetectionDisabled[];
 CONTENT_EXPORT extern const char kTouchTextSelectionStrategy[];
-CONTENT_EXPORT extern const char kTrustableBundledExchangesFile[];
+CONTENT_EXPORT extern const char kTrustableWebBundleFileUrl[];
 CONTENT_EXPORT extern const char kUseFakeCodecForPeerConnection[];
 CONTENT_EXPORT extern const char kUseFakeUIForMediaStream[];
 CONTENT_EXPORT extern const char kVideoImageTextureTarget[];
@@ -241,6 +238,9 @@ CONTENT_EXPORT extern const char kWaitForDebuggerChildren[];
 extern const char kWebglAntialiasingMode[];
 extern const char kWebglMSAASampleCount[];
 
+CONTENT_EXPORT extern const char kWebOtpBackend[];
+CONTENT_EXPORT extern const char kWebOtpBackendSmsVerification[];
+CONTENT_EXPORT extern const char kWebOtpBackendUserConsent[];
 #if BUILDFLAG(ENABLE_WEBRTC)
 CONTENT_EXPORT extern const char kDisableWebRtcEncryption[];
 CONTENT_EXPORT extern const char kDisableWebRtcHWDecoding[];
@@ -250,6 +250,7 @@ CONTENT_EXPORT extern const char kEnableWebRtcSrtpEncryptedHeaders[];
 CONTENT_EXPORT extern const char kEnableWebRtcStunOrigin[];
 CONTENT_EXPORT extern const char kEnforceWebRtcIPPermissionCheck[];
 CONTENT_EXPORT extern const char kForceWebRtcIPHandlingPolicy[];
+CONTENT_EXPORT extern const char kWaitForDebuggerWebUI[];
 extern const char kWebRtcMaxCaptureFramerate[];
 extern const char kWebRtcMaxCpuConsumptionPercentage[];
 CONTENT_EXPORT extern const char kWebRtcStunProbeTrialParameter[];
@@ -259,6 +260,17 @@ CONTENT_EXPORT extern const char kWebRtcStunProbeTrialParameter[];
 // WebRTCInternals is excluded from the build for non-WebRTC builds.
 // https://crbug.com/817446
 CONTENT_EXPORT extern const char kWebRtcLocalEventLogging[];
+CONTENT_EXPORT extern const char kWebComponentsV0Enabled[];
+CONTENT_EXPORT extern const char kUseLegacyFormControls[];
+CONTENT_EXPORT extern const char kDisableScrollToTextFragment[];
+
+CONTENT_EXPORT extern const char kWebXrForceRuntime[];
+CONTENT_EXPORT extern const char kWebXrRuntimeNone[];
+CONTENT_EXPORT extern const char kWebXrRuntimeOrientationSensors[];
+CONTENT_EXPORT extern const char kWebXrRuntimeOculus[];
+CONTENT_EXPORT extern const char kWebXrRuntimeOpenVr[];
+CONTENT_EXPORT extern const char kWebXrRuntimeOpenXr[];
+CONTENT_EXPORT extern const char kWebXrRuntimeWMR[];
 
 #if defined(OS_ANDROID)
 CONTENT_EXPORT extern const char kDisableMediaSessionAPI[];
@@ -276,10 +288,6 @@ CONTENT_EXPORT extern const char kRendererWaitForJavaDebugger[];
 
 #if defined(OS_LINUX) && !defined(OS_CHROMEOS)
 CONTENT_EXPORT extern const char kEnableSpeechDispatcher[];
-#endif
-
-#if defined(OS_CHROMEOS)
-CONTENT_EXPORT extern const char kCrashLoopBefore[];
 #endif
 
 #if defined(OS_WIN)

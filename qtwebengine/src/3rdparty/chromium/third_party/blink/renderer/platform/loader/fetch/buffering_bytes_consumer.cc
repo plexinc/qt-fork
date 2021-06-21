@@ -6,32 +6,34 @@
 
 #include "base/feature_list.h"
 #include "base/metrics/field_trial_params.h"
-#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
 
 namespace blink {
+
+namespace {
+constexpr int32_t kDelayMilliseconds = 50;
+}  // namespace
 
 // static
 BufferingBytesConsumer* BufferingBytesConsumer::CreateWithDelay(
     BytesConsumer* bytes_consumer,
     scoped_refptr<base::SingleThreadTaskRunner> timer_task_runner) {
-  if (!base::FeatureList::IsEnabled(features::kBufferingBytesConsumerDelay))
-    return Create(bytes_consumer);
-
   return MakeGarbageCollected<BufferingBytesConsumer>(
-      bytes_consumer, std::move(timer_task_runner),
-      base::TimeDelta::FromMilliseconds(
-          features::kBufferingBytesConsumerDelayMilliseconds.Get()));
+      util::PassKey<BufferingBytesConsumer>(), bytes_consumer,
+      std::move(timer_task_runner),
+      base::TimeDelta::FromMilliseconds(kDelayMilliseconds));
 }
 
 // static
 BufferingBytesConsumer* BufferingBytesConsumer::Create(
     BytesConsumer* bytes_consumer) {
-  return MakeGarbageCollected<BufferingBytesConsumer>(bytes_consumer, nullptr,
-                                                      base::TimeDelta());
+  return MakeGarbageCollected<BufferingBytesConsumer>(
+      util::PassKey<BufferingBytesConsumer>(), bytes_consumer, nullptr,
+      base::TimeDelta());
 }
 
 BufferingBytesConsumer::BufferingBytesConsumer(
+    util::PassKey<BufferingBytesConsumer> key,
     BytesConsumer* bytes_consumer,
     scoped_refptr<base::SingleThreadTaskRunner> timer_task_runner,
     base::TimeDelta buffering_start_delay)

@@ -48,7 +48,7 @@ class StyleSheetContents;
 // broken down by what kind of scope they apply to (e.g. shadow host,
 // tree-boundary-crossing, etc).
 class CORE_EXPORT ScopedStyleResolver final
-    : public GarbageCollectedFinalized<ScopedStyleResolver> {
+    : public GarbageCollected<ScopedStyleResolver> {
  public:
   explicit ScopedStyleResolver(TreeScope& scope) : scope_(scope) {}
 
@@ -85,10 +85,10 @@ class CORE_EXPORT ScopedStyleResolver final
   bool NeedsAppendAllSheets() const { return needs_append_all_sheets_; }
   void SetNeedsAppendAllSheets() { needs_append_all_sheets_ = true; }
   static void KeyframesRulesAdded(const TreeScope&);
-  static ContainerNode& InvalidationRootForTreeScope(const TreeScope&);
+  static Element& InvalidationRootForTreeScope(const TreeScope&);
   void V0ShadowAddedOnV1Document();
 
-  void Trace(blink::Visitor*);
+  void Trace(Visitor*);
 
  private:
   void AddTreeBoundaryCrossingRules(const RuleSet&,
@@ -118,7 +118,7 @@ class CORE_EXPORT ScopedStyleResolver final
     unsigned parent_index_;
     Member<RuleSet> rule_set_;
 
-    void Trace(blink::Visitor*);
+    void Trace(Visitor*);
   };
   using CSSStyleSheetRuleSubSet = HeapVector<Member<RuleSubSet>>;
 

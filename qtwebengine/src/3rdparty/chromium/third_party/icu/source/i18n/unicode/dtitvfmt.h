@@ -16,6 +16,8 @@
 
 #include "unicode/utypes.h"
 
+#if U_SHOW_CPLUSPLUS_API
+
 /**
  * \file
  * \brief C++ API: Format and parse date interval in a language-independent manner.
@@ -172,11 +174,12 @@ class U_I18N_API FormattedDateInterval : public UMemory, public FormattedValue {
  *
  * <P>
  * The calendar fields we support for interval formatting are:
- * year, month, date, day-of-week, am-pm, hour, hour-of-day, minute, and second
+ * year, month, date, day-of-week, am-pm, hour, hour-of-day, minute, second,
+ * and millisecond.
  * (though we do not currently have specific intervalFormat date for skeletons
- * with seconds).
+ * with seconds and millisecond).
  * Those calendar fields can be defined in the following order:
- * year >  month > date > hour (in day) >  minute > second
+ * year >  month > date > hour (in day) >  minute > second > millisecond
  *
  * The largest different calendar fields between 2 calendars is the
  * first different calendar field in above order.
@@ -432,7 +435,7 @@ public:
      * @return    A copy of the object.
      * @stable ICU 4.0
      */
-    virtual Format* clone(void) const;
+    virtual DateIntervalFormat* clone() const;
 
     /**
      * Return true if the given Format objects are semantically equal. Objects
@@ -1150,6 +1153,8 @@ DateIntervalFormat::operator!=(const Format& other) const  {
 U_NAMESPACE_END
 
 #endif /* #if !UCONFIG_NO_FORMATTING */
+
+#endif /* U_SHOW_CPLUSPLUS_API */
 
 #endif // _DTITVFMT_H__
 //eof

@@ -34,12 +34,16 @@
 #include <memory>
 #include "base/callback.h"
 #include "base/time/time.h"
+#include "mojo/public/cpp/base/big_buffer.h"
 #include "mojo/public/cpp/system/data_pipe.h"
-#include "services/network/public/cpp/cors/preflight_timing_info.h"
 #include "services/network/public/mojom/referrer_policy.mojom-shared.h"
 #include "third_party/blink/public/platform/web_common.h"
 #include "third_party/blink/public/platform/web_url_request.h"
 #include "third_party/blink/public/platform/web_vector.h"
+
+namespace net {
+class SiteForCookies;
+}
 
 namespace blink {
 
@@ -58,8 +62,7 @@ class BLINK_PLATFORM_EXPORT WebURLLoaderClient {
   // redirect, or false otherwise.
   virtual bool WillFollowRedirect(
       const WebURL& new_url,
-      const WebURL& new_site_for_cookies,
-      const base::Optional<WebSecurityOrigin>& new_top_frame_origin,
+      const net::SiteForCookies& new_site_for_cookies,
       const WebString& new_referrer,
       network::mojom::ReferrerPolicy new_referrer_policy,
       const WebString& new_method,
@@ -94,7 +97,7 @@ class BLINK_PLATFORM_EXPORT WebURLLoaderClient {
 
   // Called when a chunk of renderer-generated metadata is received from the
   // cache.
-  virtual void DidReceiveCachedMetadata(const char* data, int data_length) {}
+  virtual void DidReceiveCachedMetadata(mojo_base::BigBuffer data) {}
 
   // Called when the load completes successfully.
   // |total_encoded_data_length| may be equal to kUnknownEncodedDataLength.
@@ -103,13 +106,11 @@ class BLINK_PLATFORM_EXPORT WebURLLoaderClient {
   // will be generated in devtools console if this flag is set to true.
   // TODO(crbug.com/798625): use different callback for subresources
   // with responses blocked due to document protection.
-  virtual void DidFinishLoading(
-      base::TimeTicks finish_time,
-      int64_t total_encoded_data_length,
-      int64_t total_encoded_body_length,
-      int64_t total_decoded_body_length,
-      bool should_report_corb_blocking,
-      const WebVector<network::cors::PreflightTimingInfo>&) {}
+  virtual void DidFinishLoading(base::TimeTicks finish_time,
+                                int64_t total_encoded_data_length,
+                                int64_t total_encoded_body_length,
+                                int64_t total_decoded_body_length,
+                                bool should_report_corb_blocking) {}
 
   // Called when the load completes with an error.
   // |total_encoded_data_length| may be equal to kUnknownEncodedDataLength.

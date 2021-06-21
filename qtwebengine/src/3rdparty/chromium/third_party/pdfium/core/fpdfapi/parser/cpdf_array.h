@@ -16,6 +16,7 @@
 #include "core/fpdfapi/parser/cpdf_indirect_object_holder.h"
 #include "core/fpdfapi/parser/cpdf_object.h"
 #include "core/fxcrt/fx_coordinates.h"
+#include "core/fxcrt/retain_ptr.h"
 #include "third_party/base/ptr_util.h"
 
 class CPDF_Array final : public CPDF_Object {
@@ -42,6 +43,7 @@ class CPDF_Array final : public CPDF_Object {
   const CPDF_Object* GetDirectObjectAt(size_t index) const;
   ByteString GetStringAt(size_t index) const;
   WideString GetUnicodeTextAt(size_t index) const;
+  bool GetBooleanAt(size_t index, bool bDefault) const;
   int GetIntegerAt(size_t index) const;
   float GetNumberAt(size_t index) const;
   CPDF_Dictionary* GetDictAt(size_t index);
@@ -56,19 +58,19 @@ class CPDF_Array final : public CPDF_Object {
   // Creates object owned by the array, returns unowned pointer to it.
   // We have special cases for objects that can intern strings from
   // a ByteStringPool. Prefer using these templates over direct calls
-  // to Add()/SetAt()/InsertAt() since by creating a new object with no
+  // to Append()/SetAt()/InsertAt() since by creating a new object with no
   // previous references, they ensure cycles can not be introduced.
   template <typename T, typename... Args>
-  typename std::enable_if<!CanInternStrings<T>::value, T*>::type AddNew(
+  typename std::enable_if<!CanInternStrings<T>::value, T*>::type AppendNew(
       Args&&... args) {
     return static_cast<T*>(
-        Add(pdfium::MakeRetain<T>(std::forward<Args>(args)...)));
+        Append(pdfium::MakeRetain<T>(std::forward<Args>(args)...)));
   }
   template <typename T, typename... Args>
-  typename std::enable_if<CanInternStrings<T>::value, T*>::type AddNew(
+  typename std::enable_if<CanInternStrings<T>::value, T*>::type AppendNew(
       Args&&... args) {
     return static_cast<T*>(
-        Add(pdfium::MakeRetain<T>(m_pPool, std::forward<Args>(args)...)));
+        Append(pdfium::MakeRetain<T>(m_pPool, std::forward<Args>(args)...)));
   }
   template <typename T, typename... Args>
   typename std::enable_if<!CanInternStrings<T>::value, T*>::type SetNewAt(
@@ -100,7 +102,7 @@ class CPDF_Array final : public CPDF_Object {
   }
 
   // Takes ownership of |pObj|, returns unowned pointer to it.
-  CPDF_Object* Add(RetainPtr<CPDF_Object> pObj);
+  CPDF_Object* Append(RetainPtr<CPDF_Object> pObj);
   CPDF_Object* SetAt(size_t index, RetainPtr<CPDF_Object> pObj);
   CPDF_Object* InsertAt(size_t index, RetainPtr<CPDF_Object> pObj);
 
@@ -143,7 +145,7 @@ class CPDF_ArrayLocker {
   }
 
  private:
-  UnownedPtr<const CPDF_Array> const m_pArray;
+  RetainPtr<const CPDF_Array> const m_pArray;
 };
 
 inline CPDF_Array* ToArray(CPDF_Object* obj) {

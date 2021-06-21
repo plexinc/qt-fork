@@ -44,7 +44,6 @@ class LayoutTextControlMultiLine final : public LayoutTextControl {
                    const PhysicalOffset& accumulated_offset,
                    HitTestAction) override;
 
-  float GetAvgCharWidth(const AtomicString& family) const override;
   LayoutUnit PreferredContentLogicalWidth(float char_width) const override;
   LayoutUnit ComputeControlLogicalHeight(
       LayoutUnit line_height,
@@ -66,8 +65,6 @@ class LayoutTextControlMultiLine final : public LayoutTextControl {
   LayoutUnit ScrollWidth() const override;
   LayoutUnit ScrollHeight() const override;
 };
-
-DEFINE_LAYOUT_OBJECT_TYPE_CASTS(LayoutTextControlMultiLine, IsTextArea());
 
 }  // namespace blink
 

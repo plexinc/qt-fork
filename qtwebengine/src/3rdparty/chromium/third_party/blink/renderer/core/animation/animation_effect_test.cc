@@ -32,15 +32,15 @@
 
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_computed_effect_timing.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_optional_effect_timing.h"
 #include "third_party/blink/renderer/core/animation/animation_effect_owner.h"
-#include "third_party/blink/renderer/core/animation/computed_effect_timing.h"
-#include "third_party/blink/renderer/core/animation/optional_effect_timing.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 
 namespace blink {
 
 class MockAnimationEffectOwner
-    : public GarbageCollectedFinalized<MockAnimationEffectOwner>,
+    : public GarbageCollected<MockAnimationEffectOwner>,
       public AnimationEffectOwner {
   USING_GARBAGE_COLLECTED_MIXIN(MockAnimationEffectOwner);
 
@@ -49,6 +49,7 @@ class MockAnimationEffectOwner
   MOCK_CONST_METHOD0(Playing, bool());
   MOCK_CONST_METHOD0(IsEventDispatchAllowed, bool());
   MOCK_CONST_METHOD0(EffectSuppressed, bool());
+  MOCK_CONST_METHOD0(ReplaceStateRemoved, bool());
   MOCK_METHOD0(EffectInvalidated, void());
   MOCK_METHOD0(UpdateIfNecessary, void());
   MOCK_METHOD0(GetAnimation, Animation*());
@@ -56,7 +57,8 @@ class MockAnimationEffectOwner
 
 class TestAnimationEffectEventDelegate : public AnimationEffect::EventDelegate {
  public:
-  void OnEventCondition(const AnimationEffect& animation_node) override {
+  void OnEventCondition(const AnimationEffect& animation_node,
+                        Timing::Phase current_phase) override {
     event_triggered_ = true;
   }
   bool RequiresIterationEvents(const AnimationEffect& animation_node) override {
@@ -92,35 +94,38 @@ class TestAnimationEffect : public AnimationEffect {
   TestAnimationEffectEventDelegate* EventDelegate() {
     return event_delegate_.Get();
   }
-  double CalculateTimeToEffectChange(
+  AnimationTimeDelta CalculateTimeToEffectChange(
       bool forwards,
-      double local_time,
-      double time_to_next_iteration) const override {
+      base::Optional<double> local_time,
+      AnimationTimeDelta time_to_next_iteration) const override {
+    DCHECK(!local_time || !Timing::IsNull(local_time.value()));
     local_time_ = local_time;
     time_to_next_iteration_ = time_to_next_iteration;
-    return -1;
+    return AnimationTimeDelta::FromSecondsD(
+        std::numeric_limits<double>::infinity());
   }
   double TakeLocalTime() {
-    const double result = local_time_;
-    local_time_ = NullValue();
+    DCHECK(local_time_);
+    const double result = local_time_.value();
+    local_time_.reset();
     return result;
   }
 
-  double TakeTimeToNextIteration() {
-    const double result = time_to_next_iteration_;
-    time_to_next_iteration_ = NullValue();
+  base::Optional<AnimationTimeDelta> TakeTimeToNextIteration() {
+    const base::Optional<AnimationTimeDelta> result = time_to_next_iteration_;
+    time_to_next_iteration_.reset();
     return result;
   }
 
-  void Trace(blink::Visitor* visitor) override {
+  void Trace(Visitor* visitor) override {
     visitor->Trace(event_delegate_);
     AnimationEffect::Trace(visitor);
   }
 
  private:
   Member<TestAnimationEffectEventDelegate> event_delegate_;
-  mutable double local_time_;
-  mutable double time_to_next_iteration_;
+  mutable base::Optional<double> local_time_;
+  mutable base::Optional<AnimationTimeDelta> time_to_next_iteration_;
 };
 
 TEST(AnimationAnimationEffectTest, Sanity) {
@@ -246,7 +251,7 @@ TEST(AnimationAnimationEffectTest, ZeroIteration) {
 
   animation_node->UpdateInheritedTime(-1);
   EXPECT_EQ(0, animation_node->SpecifiedTiming().ActiveDuration());
-  EXPECT_TRUE(IsNull(animation_node->CurrentIteration()));
+  EXPECT_FALSE(animation_node->CurrentIteration());
   EXPECT_FALSE(animation_node->Progress());
 
   animation_node->UpdateInheritedTime(0);
@@ -263,7 +268,7 @@ TEST(AnimationAnimationEffectTest, InfiniteIteration) {
   auto* animation_node = MakeGarbageCollected<TestAnimationEffect>(timing);
 
   animation_node->UpdateInheritedTime(-1);
-  EXPECT_TRUE(IsNull(animation_node->CurrentIteration()));
+  EXPECT_FALSE(animation_node->CurrentIteration());
   EXPECT_FALSE(animation_node->Progress());
 
   EXPECT_EQ(std::numeric_limits<double>::infinity(),
@@ -475,7 +480,7 @@ TEST(AnimationAnimationEffectTest, ZeroDurationInfiniteIteration) {
 
   animation_node->UpdateInheritedTime(-1);
   EXPECT_EQ(0, animation_node->SpecifiedTiming().ActiveDuration());
-  EXPECT_TRUE(IsNull(animation_node->CurrentIteration()));
+  EXPECT_FALSE(animation_node->CurrentIteration());
   EXPECT_FALSE(animation_node->Progress());
 
   animation_node->UpdateInheritedTime(0);
@@ -492,7 +497,7 @@ TEST(AnimationAnimationEffectTest, ZeroDurationIteration) {
   auto* animation_node = MakeGarbageCollected<TestAnimationEffect>(timing);
 
   animation_node->UpdateInheritedTime(-1);
-  EXPECT_TRUE(IsNull(animation_node->CurrentIteration()));
+  EXPECT_FALSE(animation_node->CurrentIteration());
   EXPECT_FALSE(animation_node->Progress());
 
   animation_node->UpdateInheritedTime(0);
@@ -532,7 +537,7 @@ TEST(AnimationAnimationEffectTest, ZeroDurationIterationAlternate) {
   auto* animation_node = MakeGarbageCollected<TestAnimationEffect>(timing);
 
   animation_node->UpdateInheritedTime(-1);
-  EXPECT_TRUE(IsNull(animation_node->CurrentIteration()));
+  EXPECT_FALSE(animation_node->CurrentIteration());
   EXPECT_FALSE(animation_node->Progress());
 
   animation_node->UpdateInheritedTime(0);
@@ -552,7 +557,7 @@ TEST(AnimationAnimationEffectTest, ZeroDurationIterationAlternateReverse) {
   auto* animation_node = MakeGarbageCollected<TestAnimationEffect>(timing);
 
   animation_node->UpdateInheritedTime(-1);
-  EXPECT_TRUE(IsNull(animation_node->CurrentIteration()));
+  EXPECT_FALSE(animation_node->CurrentIteration());
   EXPECT_FALSE(animation_node->Progress());
 
   animation_node->UpdateInheritedTime(0);
@@ -693,31 +698,40 @@ TEST(AnimationAnimationEffectTest, TimeToEffectChange) {
 
   animation_node->UpdateInheritedTime(0);
   EXPECT_EQ(0, animation_node->TakeLocalTime());
-  EXPECT_TRUE(std::isinf(animation_node->TakeTimeToNextIteration()));
+  base::Optional<AnimationTimeDelta> time_to_next_iteration =
+      animation_node->TakeTimeToNextIteration();
+  EXPECT_TRUE(time_to_next_iteration);
+  EXPECT_TRUE(time_to_next_iteration->is_max());
 
   // Normal iteration.
   animation_node->UpdateInheritedTime(1.75);
   EXPECT_EQ(1.75, animation_node->TakeLocalTime());
-  EXPECT_NEAR(0.05, animation_node->TakeTimeToNextIteration(),
-              0.000000000000001);
+  time_to_next_iteration = animation_node->TakeTimeToNextIteration();
+  EXPECT_TRUE(time_to_next_iteration);
+  EXPECT_NEAR(0.05, time_to_next_iteration->InSecondsF(), 0.000000000000001);
 
   // Reverse iteration.
   animation_node->UpdateInheritedTime(2.75);
   EXPECT_EQ(2.75, animation_node->TakeLocalTime());
-  EXPECT_NEAR(0.05, animation_node->TakeTimeToNextIteration(),
-              0.000000000000001);
+  time_to_next_iteration = animation_node->TakeTimeToNextIteration();
+  EXPECT_TRUE(time_to_next_iteration);
+  EXPECT_NEAR(0.05, time_to_next_iteration->InSecondsF(), 0.000000000000001);
 
   // Item ends before iteration finishes.
   animation_node->UpdateInheritedTime(3.4);
   EXPECT_EQ(Timing::kPhaseActive, animation_node->GetPhase());
   EXPECT_EQ(3.4, animation_node->TakeLocalTime());
-  EXPECT_TRUE(std::isinf(animation_node->TakeTimeToNextIteration()));
+  time_to_next_iteration = animation_node->TakeTimeToNextIteration();
+  EXPECT_TRUE(time_to_next_iteration);
+  EXPECT_TRUE(time_to_next_iteration->is_max());
 
   // Item has finished.
   animation_node->UpdateInheritedTime(3.5);
   EXPECT_EQ(Timing::kPhaseAfter, animation_node->GetPhase());
   EXPECT_EQ(3.5, animation_node->TakeLocalTime());
-  EXPECT_TRUE(std::isinf(animation_node->TakeTimeToNextIteration()));
+  time_to_next_iteration = animation_node->TakeTimeToNextIteration();
+  EXPECT_TRUE(time_to_next_iteration);
+  EXPECT_TRUE(time_to_next_iteration->is_max());
 }
 
 TEST(AnimationAnimationEffectTest, UpdateTiming) {

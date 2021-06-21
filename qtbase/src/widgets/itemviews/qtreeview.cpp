@@ -1517,7 +1517,7 @@ void QTreeView::drawTree(QPainter *painter, const QRegion &region) const
 /// ### move to QObject :)
 static inline bool ancestorOf(QObject *widget, QObject *other)
 {
-    for (QObject *parent = other; parent != 0; parent = parent->parent()) {
+    for (QObject *parent = other; parent != nullptr; parent = parent->parent()) {
         if (parent == widget)
             return true;
     }
@@ -1888,7 +1888,7 @@ void QTreeView::mousePressEvent(QMouseEvent *event)
 {
     Q_D(QTreeView);
     bool handled = false;
-    if (style()->styleHint(QStyle::SH_ListViewExpand_SelectMouseType, 0, this) == QEvent::MouseButtonPress)
+    if (style()->styleHint(QStyle::SH_ListViewExpand_SelectMouseType, nullptr, this) == QEvent::MouseButtonPress)
         handled = d->expandOrCollapseItemAtPos(event->pos());
     if (!handled && d->itemDecorationAt(event->pos()) == -1)
         QAbstractItemView::mousePressEvent(event);
@@ -1907,7 +1907,7 @@ void QTreeView::mouseReleaseEvent(QMouseEvent *event)
     } else {
         if (state() == QAbstractItemView::DragSelectingState || state() == QAbstractItemView::DraggingState)
             setState(QAbstractItemView::NoState);
-        if (style()->styleHint(QStyle::SH_ListViewExpand_SelectMouseType, 0, this) == QEvent::MouseButtonRelease)
+        if (style()->styleHint(QStyle::SH_ListViewExpand_SelectMouseType, nullptr, this) == QEvent::MouseButtonRelease)
             d->expandOrCollapseItemAtPos(event->pos());
     }
 }
@@ -1944,7 +1944,7 @@ void QTreeView::mouseDoubleClickEvent(QMouseEvent *event)
         if (edit(persistent, DoubleClicked, event) || state() != NoState)
             return; // the double click triggered editing
 
-        if (!style()->styleHint(QStyle::SH_ItemView_ActivateItemOnSingleClick, 0, this))
+        if (!style()->styleHint(QStyle::SH_ItemView_ActivateItemOnSingleClick, nullptr, this))
             emit activated(persistent);
 
         d->pressedIndex = QModelIndex();
@@ -2208,7 +2208,7 @@ QModelIndex QTreeView::moveCursor(CursorAction cursorAction, Qt::KeyboardModifie
             d->collapse(vi, true);
             d->moveCursorUpdatedView = true;
         } else {
-            bool descend = style()->styleHint(QStyle::SH_ItemView_ArrowKeysNavigateIntoChildren, 0, this);
+            bool descend = style()->styleHint(QStyle::SH_ItemView_ArrowKeysNavigateIntoChildren, nullptr, this);
             if (descend) {
                 QModelIndex par = current.parent();
                 if (par.isValid() && par != rootIndex())
@@ -2244,7 +2244,7 @@ QModelIndex QTreeView::moveCursor(CursorAction cursorAction, Qt::KeyboardModifie
             d->expand(vi, true);
             d->moveCursorUpdatedView = true;
         } else {
-            bool descend = style()->styleHint(QStyle::SH_ItemView_ArrowKeysNavigateIntoChildren, 0, this);
+            bool descend = style()->styleHint(QStyle::SH_ItemView_ArrowKeysNavigateIntoChildren, nullptr, this);
             if (descend) {
                 QModelIndex idx = d->modelIndex(d->below(vi));
                 if (idx.parent() == current)
@@ -2608,11 +2608,11 @@ void QTreeView::sortByColumn(int column, Qt::SortOrder order)
     Q_D(QTreeView);
     if (column < -1)
         return;
-    // If sorting is enabled it will emit a signal connected to
-    // _q_sortIndicatorChanged, which then actually sorts
     d->header->setSortIndicator(column, order);
-    // If sorting is not enabled, force to sort now
-    if (!d->sortingEnabled)
+    // If sorting is not enabled or has the same order as before, force to sort now
+    // else sorting will be trigger through sortIndicatorChanged()
+    if (!d->sortingEnabled ||
+        (d->header->sortIndicatorSection() == column && d->header->sortIndicatorOrder() == order))
         d->model->sort(column, order);
 }
 
@@ -3051,7 +3051,7 @@ void QTreeViewPrivate::initialize()
     header->setDefaultAlignment(Qt::AlignLeft|Qt::AlignVCenter);
     q->setHeader(header);
 #if QT_CONFIG(animation)
-    animationsEnabled = q->style()->styleHint(QStyle::SH_Widget_Animation_Duration, 0, q) > 0;
+    animationsEnabled = q->style()->styleHint(QStyle::SH_Widget_Animation_Duration, nullptr, q) > 0;
     QObject::connect(&animatedOperation, SIGNAL(finished()), q, SLOT(_q_endAnimatedOperation()));
 #endif // animation
 }
@@ -3231,8 +3231,8 @@ void QTreeViewPrivate::drawAnimatedOperation(QPainter *painter) const
 QPixmap QTreeViewPrivate::renderTreeToPixmapForAnimation(const QRect &rect) const
 {
     Q_Q(const QTreeView);
-    QPixmap pixmap(rect.size() * q->devicePixelRatio());
-    pixmap.setDevicePixelRatio(q->devicePixelRatio());
+    QPixmap pixmap(rect.size() * q->devicePixelRatioF());
+    pixmap.setDevicePixelRatio(q->devicePixelRatioF());
     if (rect.size().isEmpty())
         return pixmap;
     pixmap.fill(Qt::transparent); //the base might not be opaque, and we don't want uninitialized pixels.
@@ -3317,9 +3317,21 @@ void QTreeViewPrivate::layout(int i, bool recursiveExpanding, bool afterIsUninit
 
     int count = 0;
     if (model->hasChildren(parent)) {
-        if (model->canFetchMore(parent))
+        if (model->canFetchMore(parent)) {
+            // fetchMore first, otherwise we might not yet have any data for sizeHintForRow
             model->fetchMore(parent);
-        count = model->rowCount(parent);
+            // guestimate the number of items in the viewport, and fetch as many as might fit
+            const int itemHeight = defaultItemHeight <= 0 ? q->sizeHintForRow(0) : defaultItemHeight;
+            const int viewCount = itemHeight ? viewport->height() / itemHeight : 0;
+            int lastCount = -1;
+            while ((count = model->rowCount(parent)) < viewCount &&
+                   count != lastCount && model->canFetchMore(parent)) {
+                model->fetchMore(parent);
+                lastCount = count;
+            }
+        } else {
+            count = model->rowCount(parent);
+        }
     }
 
     bool expanding = true;
@@ -3344,7 +3356,7 @@ void QTreeViewPrivate::layout(int i, bool recursiveExpanding, bool afterIsUninit
     int hidden = 0;
     int last = 0;
     int children = 0;
-    QTreeViewItem *item = 0;
+    QTreeViewItem *item = nullptr;
     for (int j = first; j < first + count; ++j) {
         current = model->index(j - first, 0, parent);
         if (isRowHidden(current)) {
@@ -3755,7 +3767,8 @@ int QTreeViewPrivate::itemDecorationAt(const QPoint &pos) const
     bool spanned = false;
     if (!spanningIndexes.isEmpty()) {
         const QModelIndex index = q->indexAt(pos);
-        spanned = q->isFirstColumnSpanned(index.row(), index.parent());
+        if (index.isValid())
+            spanned = q->isFirstColumnSpanned(index.row(), index.parent());
     }
     const int column = spanned ? 0 : header->logicalIndexAt(pos.x());
     if (!isTreePosition(column))
@@ -3955,7 +3968,7 @@ int QTreeViewPrivate::accessibleTree2Index(const QModelIndex &index) const
 void QTreeViewPrivate::updateIndentationFromStyle()
 {
     Q_Q(const QTreeView);
-    indent = q->style()->pixelMetric(QStyle::PM_TreeViewIndentation, 0, q);
+    indent = q->style()->pixelMetric(QStyle::PM_TreeViewIndentation, nullptr, q);
 }
 
 /*!

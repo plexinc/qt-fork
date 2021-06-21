@@ -15,6 +15,8 @@
 #include "ui/ozone/platform/wayland/gpu/wayland_surface_gpu.h"
 #include "ui/ozone/public/surface_ozone_canvas.h"
 
+class SkCanvas;
+
 namespace ui {
 
 class WaylandBufferManagerGpu;
@@ -31,7 +33,7 @@ class WaylandCanvasSurface : public SurfaceOzoneCanvas,
   ~WaylandCanvasSurface() override;
 
   // SurfaceOzoneCanvas
-  sk_sp<SkSurface> GetSurface() override;
+  SkCanvas* GetCanvas() override;
   void ResizeCanvas(const gfx::Size& viewport_size) override;
   void PresentCanvas(const gfx::Rect& damage) override;
   std::unique_ptr<gfx::VSyncProvider> CreateVSyncProvider() override;
@@ -41,6 +43,8 @@ class WaylandCanvasSurface : public SurfaceOzoneCanvas,
   // WaylandBufferManager to import a wl_buffer, and creates an SkSurface, which
   // is backed by that shared region.
   class SharedMemoryBuffer;
+
+  void ProcessUnsubmittedBuffers();
 
   // WaylandSurfaceGpu overrides:
   void OnSubmission(uint32_t buffer_id,
@@ -57,17 +61,19 @@ class WaylandCanvasSurface : public SurfaceOzoneCanvas,
   gfx::Size size_;
   std::vector<std::unique_ptr<SharedMemoryBuffer>> buffers_;
 
-  // Currently used buffer. Set on GetSurface() and released on PresentCanvas()
-  // call.
+  // Contains pending to be submitted buffers. The vector is processed as FIFO.
+  std::vector<SharedMemoryBuffer*> unsubmitted_buffers_;
+
+  // Pending buffer that is to be placed into the |unsubmitted_buffers_| to be
+  // processed.
+  SharedMemoryBuffer* pending_buffer_ = nullptr;
+
+  // Currently used buffer. Set on PresentCanvas() and released on
+  // OnSubmission() call.
   SharedMemoryBuffer* current_buffer_ = nullptr;
 
-  // Previously used buffer. Set on PresentCanvas().
+  // Previously used buffer. Set on OnSubmission().
   SharedMemoryBuffer* previous_buffer_ = nullptr;
-
-  // The id of the current existing buffer. Even though, there can only be one
-  // buffer (SkSurface) at a time, the buffer manager on the browser process
-  // side requires buffer id to be passed.
-  uint32_t buffer_id_ = 0;
 
   DISALLOW_COPY_AND_ASSIGN(WaylandCanvasSurface);
 };

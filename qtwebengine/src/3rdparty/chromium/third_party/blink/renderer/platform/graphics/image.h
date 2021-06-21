@@ -30,6 +30,7 @@
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
+#include "third_party/blink/renderer/platform/geometry/float_point.h"
 #include "third_party/blink/renderer/platform/geometry/float_size.h"
 #include "third_party/blink/renderer/platform/geometry/int_rect.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_types.h"
@@ -40,11 +41,11 @@
 #include "third_party/blink/renderer/platform/graphics/paint/paint_record.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
-#include "third_party/blink/renderer/platform/shared_buffer.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
+#include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
 #include "third_party/blink/renderer/platform/wtf/thread_safe_ref_counted.h"
-#include "third_party/blink/renderer/platform/wtf/time.h"
 #include "third_party/skia/include/core/SkRefCnt.h"
+#include "ui/base/resource/scale_factor.h"
 
 class SkMatrix;
 
@@ -56,7 +57,7 @@ class ImageDecodeCache;
 
 namespace blink {
 
-class FloatPoint;
+class DarkModeImageClassifier;
 class FloatRect;
 class GraphicsContext;
 class Image;
@@ -75,7 +76,9 @@ class PLATFORM_EXPORT Image : public ThreadSafeRefCounted<Image> {
 
   static cc::ImageDecodeCache& SharedCCDecodeCache(SkColorType);
 
-  static scoped_refptr<Image> LoadPlatformResource(const char* name);
+  static scoped_refptr<Image> LoadPlatformResource(
+      int resource_id,
+      ui::ScaleFactor scale_factor = ui::SCALE_FACTOR_100P);
 
   static PaintImage ResizeAndOrientImage(
       const PaintImage&,
@@ -106,9 +109,16 @@ class PLATFORM_EXPORT Image : public ThreadSafeRefCounted<Image> {
   virtual bool HasIntrinsicSize() const { return true; }
 
   virtual IntSize Size() const = 0;
+  IntSize Size(RespectImageOrientationEnum) const;
+  virtual IntSize SizeRespectingOrientation() const { return Size(); }
+  virtual FloatSize SizeAsFloat(
+      RespectImageOrientationEnum respect_orientation) const {
+    return FloatSize(Size(respect_orientation));
+  }
   IntRect Rect() const { return IntRect(IntPoint(), Size()); }
   int width() const { return Size().Width(); }
   int height() const { return Size().Height(); }
+
   virtual bool GetHotSpot(IntPoint&) const { return false; }
 
   enum SizeAvailability {
@@ -198,6 +208,22 @@ class PLATFORM_EXPORT Image : public ThreadSafeRefCounted<Image> {
 
   virtual PaintImage PaintImageForCurrentFrame() = 0;
 
+  virtual bool HasDefaultOrientation() const { return true; }
+
+  // Most image types have the default orientation. Only bitmap derived image
+  // types need to override this method.
+  virtual ImageOrientation CurrentFrameOrientation() const {
+    return kDefaultImageOrientation;
+  }
+
+  // Correct the src rect (rotate and maybe translate it) to account for a
+  // non-default image orientation. The image must have non-default orientation
+  // to call this method. The image_size is the oriented size of the image (i.e.
+  // after orientation has been applied). src_rect may be a subset of the image,
+  // also oriented.
+  FloatRect CorrectSrcRectForImageOrientation(FloatSize image_size,
+                                              FloatRect src_rect) const;
+
   enum ImageClampingMode {
     kClampImageToSourceRect,
     kDoNotClampImageToSourceRect
@@ -233,25 +259,36 @@ class PLATFORM_EXPORT Image : public ThreadSafeRefCounted<Image> {
     return nullptr;
   }
 
-  void SetShouldCacheDarkModeClassification(bool should_cache_result) {
-    should_cache_dark_mode_classification_ = should_cache_result;
+  // This function is implemented by the derived classes which might
+  // have certain conditions or default classification decisions which
+  // need to be checked before the classification algorithms are applied
+  // on the image.
+  virtual DarkModeClassification CheckTypeSpecificConditionsForDarkMode(
+      const FloatRect& dest_rect,
+      DarkModeImageClassifier* classifier) {
+    return DarkModeClassification::kDoNotApplyFilter;
   }
 
-  bool ShouldCacheDarkModeClassification() {
-    return should_cache_dark_mode_classification_;
-  }
-
-  // Decides if a dark mode filter should be applied to the image or not.
-  // |src_rect| is needed in case of image sprites for the location and
-  // size of the smaller images that the sprite holds.
-  // For images that come from sprites the |src_rect.X| and |src_rect.Y|
-  // can be non-zero. But for other images they are both zero.
-  bool ShouldApplyDarkModeFilter(const FloatRect& src_rect);
+  // This function returns true if it can create the bitmap of the
+  // image using |src_rect| for the location and dimensions of the image.
+  // For Bitmap and SVG (and any other type) images the implementation
+  // of this function differs when it comes to the implementation of
+  // PaintImageForCurrentFrame(). Once the PaintImage is available,
+  // the method used to extract the bitmap is the same for any image.
+  bool GetBitmap(const FloatRect& src_rect, SkBitmap* bitmap);
 
   PaintImage::Id paint_image_id() const { return stable_image_id_; }
 
   // Returns an SkBitmap that is a copy of the image's current frame.
   SkBitmap AsSkBitmapForCurrentFrame(RespectImageOrientationEnum);
+
+  DarkModeClassification GetDarkModeClassification(const FloatRect& src_rect);
+
+  // Dark mode classification result is cached to be consistent and have
+  // higher performance for future paints.
+  void AddDarkModeClassification(
+      const FloatRect& src_rect,
+      const DarkModeClassification dark_mode_classification);
 
  protected:
   Image(ImageObserver* = nullptr, bool is_multipart = false);
@@ -262,7 +299,8 @@ class PLATFORM_EXPORT Image : public ThreadSafeRefCounted<Image> {
                            const FloatPoint& phase,
                            SkBlendMode,
                            const FloatRect&,
-                           const FloatSize& repeat_spacing);
+                           const FloatSize& repeat_spacing,
+                           RespectImageOrientationEnum);
 
   // Creates and initializes a PaintImageBuilder with the metadata flags for the
   // PaintImage.
@@ -271,23 +309,10 @@ class PLATFORM_EXPORT Image : public ThreadSafeRefCounted<Image> {
   // Whether or not size is available yet.
   virtual bool IsSizeAvailable() { return true; }
 
-  DarkModeClassification GetDarkModeClassification(const FloatRect& src_rect);
-
-  // Dark mode classification result is cached to be consistent and have
-  // higher performance for future paints.
-  void AddDarkModeClassification(
-      const FloatRect& src_rect,
-      const DarkModeClassification dark_mode_classification);
-
-  typedef FloatSize ClassificationKey;
+  typedef FloatPoint ClassificationKey;
   HashMap<ClassificationKey, DarkModeClassification> dark_mode_classifications_;
 
  private:
-  virtual DarkModeClassification ClassifyImageForDarkMode(
-      const FloatRect& src_rect) {
-    return DarkModeClassification::kDoNotApplyFilter;
-  }
-
   bool image_observer_disabled_;
   scoped_refptr<SharedBuffer> encoded_image_data_;
   // TODO(Oilpan): consider having Image on the Oilpan heap and
@@ -300,13 +325,8 @@ class PLATFORM_EXPORT Image : public ThreadSafeRefCounted<Image> {
   WeakPersistent<ImageObserver> image_observer_;
   PaintImage::Id stable_image_id_;
   const bool is_multipart_;
-  bool should_cache_dark_mode_classification_ = true;
   DISALLOW_COPY_AND_ASSIGN(Image);
 };
-
-#define DEFINE_IMAGE_TYPE_CASTS(typeName)                          \
-  DEFINE_TYPE_CASTS(typeName, Image, image, image->Is##typeName(), \
-                    image.Is##typeName())
 
 }  // namespace blink
 

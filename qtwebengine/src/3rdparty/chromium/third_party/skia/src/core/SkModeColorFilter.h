@@ -20,8 +20,8 @@ public:
     uint32_t getFlags() const override;
 
 #if SK_SUPPORT_GPU
-    std::unique_ptr<GrFragmentProcessor> asFragmentProcessor(
-            GrRecordingContext*, const GrColorSpaceInfo&) const override;
+    std::unique_ptr<GrFragmentProcessor> asFragmentProcessor(GrRecordingContext*,
+                                                             const GrColorInfo&) const override;
 #endif
 
 protected:
@@ -31,6 +31,8 @@ protected:
     bool onAsAColorMode(SkColor*, SkBlendMode*) const override;
 
     bool onAppendStages(const SkStageRec& rec, bool shaderIsOpaque) const override;
+    skvm::Color onProgram(skvm::Builder*, skvm::Color,
+                          SkColorSpace*, skvm::Uniforms*, SkArenaAlloc*) const override;
 
 private:
     SK_FLATTENABLE_HOOKS(SkModeColorFilter)

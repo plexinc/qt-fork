@@ -4,9 +4,11 @@
 
 #include "third_party/blink/renderer/platform/blob/blob_bytes_provider.h"
 
+#include "base/memory/ptr_util.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/task/post_task.h"
-#include "mojo/public/cpp/bindings/strong_binding.h"
+#include "base/task/thread_pool.h"
+#include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/platform/instrumentation/histogram.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
@@ -116,8 +118,8 @@ constexpr size_t BlobBytesProvider::kMaxConsolidatedItemSizeInBytes;
 
 // static
 BlobBytesProvider* BlobBytesProvider::CreateAndBind(
-    mojom::blink::BytesProviderRequest request) {
-  auto task_runner = base::CreateSequencedTaskRunnerWithTraits(
+    mojo::PendingReceiver<mojom::blink::BytesProvider> receiver) {
+  auto task_runner = base::ThreadPool::CreateSequencedTaskRunner(
       {base::MayBlock(), base::TaskPriority::USER_VISIBLE});
   auto provider = base::WrapUnique(new BlobBytesProvider(task_runner));
   auto* result = provider.get();
@@ -127,10 +129,11 @@ BlobBytesProvider* BlobBytesProvider::CreateAndBind(
       *task_runner, FROM_HERE,
       CrossThreadBindOnce(
           [](std::unique_ptr<BlobBytesProvider> provider,
-             mojom::blink::BytesProviderRequest request) {
-            mojo::MakeStrongBinding(std::move(provider), std::move(request));
+             mojo::PendingReceiver<mojom::blink::BytesProvider> receiver) {
+            mojo::MakeSelfOwnedReceiver(std::move(provider),
+                                        std::move(receiver));
           },
-          WTF::Passed(std::move(provider)), WTF::Passed(std::move(request))));
+          WTF::Passed(std::move(provider)), WTF::Passed(std::move(receiver))));
   return result;
 }
 

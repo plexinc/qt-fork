@@ -22,15 +22,11 @@ test("services_unittests") {
   # section below. If you are unsure, contact blundell@chromium.org.
   deps = [
     "//services/content:tests",
-    "//services/identity:tests",
     "//services/metrics/public/cpp:tests",
     "//services/network:tests",
     "//services/network/public/cpp:tests",
+    "//services/network/public/cpp/cert_verifier:tests",
     "//services/test:run_all_unittests",
-  ]
-
-  data_deps = [
-    "//testing/buildbot/filters:services_unittests_filters",
   ]
 
   if (!is_ios) {
@@ -42,12 +38,11 @@ test("services_unittests") {
       "//services/image_annotation/public/cpp:tests",
       "//services/media_session:tests",
       "//services/media_session/public/cpp:tests",
-      "//services/preferences:tests",
       "//services/proxy_resolver:tests",
       "//services/resource_coordinator:tests",
       "//services/shape_detection:tests",
       "//services/tracing:tests",
-      "//services/viz/privileged/interfaces:unit_tests",
+      "//services/viz/privileged/mojom:unit_tests",
       "//services/viz/public/cpp/compositing:tests",
       "//services/viz/public/cpp/gpu:tests",
       "//services/viz/public/cpp/hit_test:tests",
@@ -56,9 +51,9 @@ test("services_unittests") {
 
   if (is_android) {
     deps += [
+      "//components/signin/public/android:java",
       "//services/data_decoder/public/cpp/android:safe_json_java",
       "//services/device:java",
-      "//services/identity:java",
       "//services/media_session/public/cpp/android:media_session_java",
       "//services/tracing:tracing_test_helper_java",
 
@@ -99,10 +94,11 @@ if (!is_ios) {
 
 if (is_android) {
   junit_binary("service_junit_tests") {
-    java_files = [
+    sources = [
       "device/generic_sensor/android/junit/src/org/chromium/device/sensors/PlatformSensorAndProviderTest.java",
-      "device/nfc/android/junit/src/org/chromium/device/nfc/NFCTest.java",
       "device/geolocation/android/junit/src/org/chromium/device/geolocation/LocationProviderTest.java",
+      "device/nfc/android/junit/src/org/chromium/device/nfc/NFCTest.java",
+      "device/nfc/android/junit/src/org/chromium/device/nfc/NfcBlocklistTest.java",
       "shape_detection/android/junit/src/org/chromium/shape_detection/BitmapUtilsTest.java",
     ]
     deps = [
@@ -123,14 +119,14 @@ if (is_android) {
       "//services/device/public/mojom:generic_sensor_java",
       "//services/device/public/mojom:mojom_java",
       "//services/shape_detection:shape_detection_java",
-      "//skia/public/interfaces:interfaces_java",
-      "//third_party/android_deps:com_android_support_support_annotations_java",
+      "//skia/public/mojom:mojom_java",
+      "//third_party/android_deps:androidx_annotation_annotation_java",
     ]
   }
 
   android_library("service_javatests") {
     testonly = true
-    java_files = [
+    sources = [
       "shape_detection/android/javatests/src/org/chromium/shape_detection/BarcodeDetectionImplTest.java",
       "shape_detection/android/javatests/src/org/chromium/shape_detection/FaceDetectionImplTest.java",
       "shape_detection/android/javatests/src/org/chromium/shape_detection/TestUtils.java",
@@ -148,13 +144,13 @@ if (is_android) {
       "//mojo/public/mojom/base:base_java",
       "//services/shape_detection:shape_detection_java",
       "//services/shape_detection/public/mojom:mojom_java",
-      "//skia/public/interfaces:interfaces_java",
+      "//skia/public/mojom:mojom_java",
+      "//third_party/android_deps:androidx_test_monitor_java",
+      "//third_party/android_deps:androidx_test_runner_java",
       "//third_party/android_support_test_runner:runner_java",
       "//third_party/junit",
-      "//ui/gfx/geometry/mojo:mojo_java",
+      "//ui/gfx/geometry/mojom:mojom_java",
     ]
-    data = [
-      "test/data/",
-    ]
+    data = [ "test/data/" ]
   }
 }

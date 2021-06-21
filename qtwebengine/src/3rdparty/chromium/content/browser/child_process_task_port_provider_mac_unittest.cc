@@ -8,11 +8,15 @@
 
 #include <vector>
 
+#include "base/clang_profiling_buildflags.h"
 #include "base/mac/scoped_mach_port.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/task/post_task.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/task/thread_pool.h"
+#include "base/test/task_environment.h"
+#include "base/test/test_timeouts.h"
 #include "content/common/child_process.mojom.h"
+#include "ipc/ipc_buildflags.h"
 #include "mojo/public/cpp/system/platform_handle.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -24,20 +28,28 @@ using testing::WithArgs;
 
 class MockChildProcess : public mojom::ChildProcess {
  public:
+  MOCK_METHOD1(Initialize,
+               void(mojo::PendingRemote<mojom::ChildProcessHostBootstrap>));
   MOCK_METHOD0(ProcessShutdown, void());
   MOCK_METHOD1(GetTaskPort, void(GetTaskPortCallback));
 #if BUILDFLAG(IPC_MESSAGE_LOG_ENABLED)
   MOCK_METHOD1(SetIPCLoggingEnabled, void(bool));
 #endif
+#if BUILDFLAG(CLANG_PROFILING_INSIDE_SANDBOX)
+  MOCK_METHOD1(SetProfilingFile, void(base::File));
+#endif
   MOCK_METHOD1(GetBackgroundTracingAgentProvider,
                void(mojo::PendingReceiver<
                     tracing::mojom::BackgroundTracingAgentProvider>));
   MOCK_METHOD0(CrashHungProcess, void());
+  MOCK_METHOD1(BootstrapLegacyIpc,
+               void(mojo::PendingReceiver<IPC::mojom::ChannelBootstrap>));
   MOCK_METHOD2(RunService,
                void(const std::string&,
                     mojo::PendingReceiver<service_manager::mojom::Service>));
   MOCK_METHOD1(BindServiceInterface,
                void(mojo::GenericPendingReceiver receiver));
+  MOCK_METHOD1(BindReceiver, void(mojo::GenericPendingReceiver receiver));
 };
 
 class ChildProcessTaskPortProviderTest : public testing::Test,
@@ -46,7 +58,6 @@ class ChildProcessTaskPortProviderTest : public testing::Test,
   ChildProcessTaskPortProviderTest()
       : event_(base::WaitableEvent::ResetPolicy::AUTOMATIC) {
     provider_.AddObserver(this);
-    last_seqno_ = GetNotificationPortSequenceNumber();
   }
   ~ChildProcessTaskPortProviderTest() override {
     provider_.RemoveObserver(this);
@@ -54,14 +65,15 @@ class ChildProcessTaskPortProviderTest : public testing::Test,
 
   void WaitForTaskPort() { event_.Wait(); }
 
-  // There is no observer callback for when a process dies, so use the kernel's
-  // sequence number on the notification port receive right to determine if the
-  // DEAD_NAME notification has been delivered. If the seqno is different, then
-  // assume it is.
-  void WaitForNotificationPortSeqnoChange() {
-    base::RunLoop run_loop;
-    CheckSequenceNumberAndQuitIfChanged(run_loop.QuitWhenIdleClosure());
-    run_loop.Run();
+  // There is no observer callback for when a process dies, so spin the run loop
+  // until the desired exit |condition| is met.
+  void WaitForCondition(base::RepeatingCallback<bool(void)> condition) {
+    base::TimeTicks start = base::TimeTicks::Now();
+    do {
+      base::RunLoop().RunUntilIdle();
+      if (condition.Run())
+        break;
+    } while ((base::TimeTicks::Now() - start) < TestTimeouts::action_timeout());
   }
 
   mach_port_urefs_t GetSendRightRefCount(mach_port_t send_right) {
@@ -92,37 +104,10 @@ class ChildProcessTaskPortProviderTest : public testing::Test,
   }
 
  private:
-  mach_port_seqno_t GetNotificationPortSequenceNumber() {
-    mach_port_status_t status;
-    mach_msg_type_number_t count = sizeof(status);
-    kern_return_t kr = mach_port_get_attributes(
-        mach_task_self(), provider_.notification_port_.get(),
-        MACH_PORT_RECEIVE_STATUS, reinterpret_cast<mach_port_info_t>(&status),
-        &count);
-    EXPECT_EQ(KERN_SUCCESS, kr);
-    return status.mps_seqno;
-  }
-
-  void CheckSequenceNumberAndQuitIfChanged(base::OnceClosure quit_closure) {
-    mach_port_seqno_t seqno = GetNotificationPortSequenceNumber();
-    if (seqno == last_seqno_) {
-      task_environment_.GetMainThreadTaskRunner()->PostDelayedTask(
-          FROM_HERE,
-          base::BindOnce(&ChildProcessTaskPortProviderTest::
-                             CheckSequenceNumberAndQuitIfChanged,
-                         base::Unretained(this), std::move(quit_closure)),
-          base::TimeDelta::FromMilliseconds(10));
-    } else {
-      last_seqno_ = seqno;
-      std::move(quit_closure).Run();
-    }
-  }
-
-  base::test::ScopedTaskEnvironment task_environment_;
+  base::test::TaskEnvironment task_environment_;
   ChildProcessTaskPortProvider provider_;
   base::WaitableEvent event_;
   std::vector<base::ProcessHandle> received_processes_;
-  mach_port_seqno_t last_seqno_;
 };
 
 static constexpr mach_port_t kMachPortNull = MACH_PORT_NULL;
@@ -147,7 +132,8 @@ TEST_F(ChildProcessTaskPortProviderTest, ChildLifecycle) {
   EXPECT_CALL(child_process, GetTaskPort(_))
       .WillOnce(WithArgs<0>(
           [&send_right](mojom::ChildProcess::GetTaskPortCallback callback) {
-            std::move(callback).Run(mojo::WrapMachPort(send_right.get()));
+            std::move(callback).Run(mojo::PlatformHandle(
+                base::mac::RetainMachSendRight(send_right.get())));
           }));
 
   provider()->OnChildProcessLaunched(99, &child_process);
@@ -164,7 +150,11 @@ TEST_F(ChildProcessTaskPortProviderTest, ChildLifecycle) {
   // "Kill" the process and verify that the association is deleted.
   receive_right.reset();
 
-  WaitForNotificationPortSeqnoChange();
+  WaitForCondition(base::BindRepeating(
+      [](ChildProcessTaskPortProvider* provider) -> bool {
+        return provider->TaskForPid(99) == MACH_PORT_NULL;
+      },
+      base::Unretained(provider())));
 
   EXPECT_EQ(kMachPortNull, provider()->TaskForPid(99));
 
@@ -173,8 +163,7 @@ TEST_F(ChildProcessTaskPortProviderTest, ChildLifecycle) {
   EXPECT_EQ(1u, GetDeadNameRefCount(send_right.get()));
 }
 
-// Test is flaky. See https://crbug.com/986288.
-TEST_F(ChildProcessTaskPortProviderTest, DISABLED_DeadTaskPort) {
+TEST_F(ChildProcessTaskPortProviderTest, DeadTaskPort) {
   EXPECT_EQ(kMachPortNull, provider()->TaskForPid(6));
 
   // Create a fake task port for the fake process.
@@ -183,15 +172,15 @@ TEST_F(ChildProcessTaskPortProviderTest, DISABLED_DeadTaskPort) {
   ASSERT_TRUE(base::mac::CreateMachPort(&receive_right, &send_right));
 
   scoped_refptr<base::SequencedTaskRunner> task_runner =
-      base::CreateSequencedTaskRunner({});
+      base::ThreadPool::CreateSequencedTaskRunner({});
 
   MockChildProcess child_process;
   EXPECT_CALL(child_process, GetTaskPort(_))
       .WillOnce(
           WithArgs<0>([&task_runner, &receive_right, &send_right](
                           mojom::ChildProcess::GetTaskPortCallback callback) {
-            mojo::ScopedHandle mach_handle =
-                mojo::WrapMachPort(send_right.get());
+            mojo::PlatformHandle mach_handle(
+                base::mac::RetainMachSendRight(send_right.get()));
 
             // Destroy the receive right.
             task_runner->PostTask(
@@ -219,8 +208,10 @@ TEST_F(ChildProcessTaskPortProviderTest, DISABLED_DeadTaskPort) {
                           mojom::ChildProcess::GetTaskPortCallback callback) {
             task_runner->PostTask(
                 FROM_HERE,
-                base::BindOnce(std::move(callback),
-                               mojo::WrapMachPort(send_right2.get())));
+                base::BindOnce(
+                    std::move(callback),
+                    mojo::PlatformHandle(
+                        base::mac::RetainMachSendRight(send_right2.get()))));
           }));
 
   provider()->OnChildProcessLaunched(123, &child_contol2);
@@ -234,7 +225,11 @@ TEST_F(ChildProcessTaskPortProviderTest, DISABLED_DeadTaskPort) {
 
   // Clean up the second receive right.
   receive_right2.reset();
-  WaitForNotificationPortSeqnoChange();
+  WaitForCondition(base::BindRepeating(
+      [](ChildProcessTaskPortProvider* provider) -> bool {
+        return provider->TaskForPid(123) == MACH_PORT_NULL;
+      },
+      base::Unretained(provider())));
   EXPECT_EQ(kMachPortNull, provider()->TaskForPid(123));
 }
 
@@ -255,7 +250,8 @@ TEST_F(ChildProcessTaskPortProviderTest, ReplacePort) {
       .Times(2)
       .WillRepeatedly(WithArgs<0>(
           [&receive_right](mojom::ChildProcess::GetTaskPortCallback callback) {
-            std::move(callback).Run(mojo::WrapMachPort(receive_right.get()));
+            std::move(callback).Run(mojo::PlatformHandle(
+                base::mac::RetainMachSendRight(receive_right.get())));
           }));
 
   provider()->OnChildProcessLaunched(42, &child_process);
@@ -285,7 +281,8 @@ TEST_F(ChildProcessTaskPortProviderTest, ReplacePort) {
   EXPECT_CALL(child_process2, GetTaskPort(_))
       .WillOnce(
           [&send_right2](mojom::ChildProcess::GetTaskPortCallback callback) {
-            std::move(callback).Run(mojo::WrapMachPort(send_right2.get()));
+            std::move(callback).Run(mojo::PlatformHandle(
+                base::mac::RetainMachSendRight(send_right2.get())));
           });
 
   provider()->OnChildProcessLaunched(42, &child_process2);

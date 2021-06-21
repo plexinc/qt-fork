@@ -15,8 +15,12 @@ class V8XRFrameRequestCallback;
 class XRFrame;
 class XRSession;
 
+namespace probe {
+class AsyncTaskId;
+}
+
 class XRFrameRequestCallbackCollection final
-    : public GarbageCollectedFinalized<XRFrameRequestCallbackCollection>,
+    : public GarbageCollected<XRFrameRequestCallbackCollection>,
       public NameClient {
  public:
   explicit XRFrameRequestCallbackCollection(ExecutionContext*);
@@ -28,7 +32,7 @@ class XRFrameRequestCallbackCollection final
 
   bool IsEmpty() const { return !callbacks_.size(); }
 
-  void Trace(blink::Visitor*);
+  void Trace(Visitor*);
   const char* NameInHeapSnapshot() const override {
     return "XRFrameRequestCallbackCollection";
   }
@@ -40,7 +44,10 @@ class XRFrameRequestCallbackCollection final
            !WTF::IsHashTraitsEmptyValue<Traits, CallbackId>(id);
   }
 
-  using CallbackMap = HeapHashMap<CallbackId, Member<V8XRFrameRequestCallback>>;
+  using CallbackAndAsyncTask = std::pair<Member<V8XRFrameRequestCallback>,
+                                         std::unique_ptr<probe::AsyncTaskId>>;
+  using CallbackMap = HeapHashMap<CallbackId, CallbackAndAsyncTask>;
+
   CallbackMap callbacks_;
   Vector<CallbackId> pending_callbacks_;
 

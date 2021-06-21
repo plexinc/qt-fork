@@ -15,89 +15,21 @@
 #ifndef sw_Stream_hpp
 #define sw_Stream_hpp
 
-#include "System/Types.hpp"
+#include <Vulkan/VulkanPlatform.h>
 
-namespace sw
+namespace sw {
+
+struct Stream
 {
-	enum StreamType ENUM_UNDERLYING_TYPE_UNSIGNED_INT
-	{
-		STREAMTYPE_COLOR,     // 4 normalized unsigned bytes, ZYXW order
-		STREAMTYPE_FLOAT,     // Normalization ignored
-		STREAMTYPE_BYTE,
-		STREAMTYPE_SBYTE,
-		STREAMTYPE_SHORT,
-		STREAMTYPE_USHORT,
-		STREAMTYPE_INT,
-		STREAMTYPE_UINT,
-		STREAMTYPE_HALF,      // Normalization ignored
-		STREAMTYPE_2_10_10_10_INT,
-		STREAMTYPE_2_10_10_10_UINT,
+	const void *buffer = nullptr;
+	unsigned int robustnessSize = 0;
+	unsigned int vertexStride = 0;
+	unsigned int instanceStride = 0;
+	VkFormat format = VK_FORMAT_UNDEFINED;
+	unsigned int offset = 0;
+	unsigned int binding = 0;
+};
 
-		STREAMTYPE_LAST = STREAMTYPE_2_10_10_10_UINT
-	};
+}  // namespace sw
 
-	struct StreamResource
-	{
-		const void *buffer;
-		unsigned int vertexStride;
-		unsigned int instanceStride;
-	};
-
-	struct Stream : public StreamResource
-	{
-		Stream(const void *buffer = nullptr, unsigned int vertexStride = 0)
-		{
-			this->buffer = buffer;
-			this->vertexStride = vertexStride;
-			this->instanceStride = 0;
-		}
-
-		Stream &define(StreamType type, unsigned char count, bool normalized = false)
-		{
-			this->type = type;
-			this->count = count;
-			this->normalized = normalized;
-
-			return *this;
-		}
-
-		Stream &define(const void *buffer, StreamType type, unsigned char count, bool normalized = false)
-		{
-			this->buffer = buffer;
-			this->type = type;
-			this->count = count;
-			this->normalized = normalized;
-
-			return *this;
-		}
-
-		Stream &defaults()
-		{
-			static const float4 null = {0, 0, 0, 1};
-
-			buffer = &null;
-			vertexStride = 0;
-			instanceStride = 0;
-			type = STREAMTYPE_FLOAT;
-			count = 0;
-			normalized = false;
-			offset = 0;
-			binding = 0;
-
-			return *this;
-		}
-
-		operator bool() const   // Returns true if stream contains data
-		{
-			return count != 0;
-		}
-
-		StreamType type;
-		unsigned char count;
-		bool normalized;
-		unsigned int offset;
-		unsigned int binding;
-	};
-}
-
-#endif   // sw_Stream_hpp
+#endif  // sw_Stream_hpp

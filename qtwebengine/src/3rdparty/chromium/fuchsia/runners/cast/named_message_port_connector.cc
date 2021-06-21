@@ -20,8 +20,8 @@
 
 namespace {
 
-const char kBindingsJsPath[] =
-    FILE_PATH_LITERAL("chromecast/bindings/named_message_port_connector.js");
+const char kBindingsJsPath[] = FILE_PATH_LITERAL(
+    "chromecast/bindings/resources/named_message_port_connector.js");
 const char kControlPortConnectMessage[] = "cast.master.connect";
 
 }  // namespace
@@ -43,45 +43,32 @@ NamedMessagePortConnector::NamedMessagePortConnector(fuchsia::web::Frame* frame)
   frame_->AddBeforeLoadJavaScript(
       static_cast<uint64_t>(
           CastPlatformBindingsId::NAMED_MESSAGE_PORT_CONNECTOR),
-      std::move(origins), cr_fuchsia::CloneBuffer(bindings_script_),
+      std::move(origins),
+      cr_fuchsia::CloneBuffer(bindings_script_, "cast-bindings-js"),
       [](fuchsia::web::Frame_AddBeforeLoadJavaScript_Result result) {
         CHECK(result.is_response()) << "Couldn't inject bindings.";
       });
 }
 
 NamedMessagePortConnector::~NamedMessagePortConnector() {
-  frame_->RemoveBeforeLoadJavaScript(static_cast<uint64_t>(
-      CastPlatformBindingsId::NAMED_MESSAGE_PORT_CONNECTOR));
-
-  // All handlers must be unregistered prior to deletion.
-  DCHECK(port_connected_handlers_.empty());
+  if (frame_) {
+    // Don't attempt to remove before-load JavaScript when being deleted because
+    // the Frame has disconnected.
+    frame_->RemoveBeforeLoadJavaScript(static_cast<uint64_t>(
+        CastPlatformBindingsId::NAMED_MESSAGE_PORT_CONNECTOR));
+  }
 }
 
-void NamedMessagePortConnector::RegisterDefaultHandler(
-    DefaultPortConnectedCallback handler) {
+void NamedMessagePortConnector::Register(DefaultPortConnectedCallback handler) {
   default_handler_ = std::move(handler);
-}
-
-void NamedMessagePortConnector::Register(const std::string& port_name,
-                                         PortConnectedCallback handler) {
-  DCHECK(handler);
-  DCHECK(!port_name.empty());
-  DCHECK(port_connected_handlers_.find(port_name) ==
-         port_connected_handlers_.end());
-
-  port_connected_handlers_[port_name] = handler;
-}
-
-void NamedMessagePortConnector::Unregister(const std::string& port_name) {
-  size_t removed = port_connected_handlers_.erase(port_name);
-  DCHECK_EQ(removed, 1U);
 }
 
 void NamedMessagePortConnector::OnPageLoad() {
   control_port_.Unbind();
 
   fuchsia::web::WebMessage message;
-  message.set_data(cr_fuchsia::MemBufferFromString(kControlPortConnectMessage));
+  message.set_data(cr_fuchsia::MemBufferFromString(kControlPortConnectMessage,
+                                                   "cast-connect-message"));
   std::vector<fuchsia::web::OutgoingTransferable> outgoing_vector(1);
   outgoing_vector[0].set_message_port(control_port_.NewRequest());
   message.set_outgoing_transfer(std::move(outgoing_vector));
@@ -111,9 +98,11 @@ void NamedMessagePortConnector::OnConnectRequest(
     return;
   }
 
-  if (message.incoming_transfer().size() != 1) {
-    LOG(ERROR) << "Expected one Transferable, got "
-               << message.incoming_transfer().size() << " instead.";
+  size_t num_transfers = message.has_incoming_transfer() ?
+    message.incoming_transfer().size() : 0U;
+  if (num_transfers != 1) {
+    LOG(ERROR) << "Expected one Transferable, got " << num_transfers
+               << " instead.";
     control_port_.Unbind();
     return;
   }
@@ -126,22 +115,8 @@ void NamedMessagePortConnector::OnConnectRequest(
     return;
   }
 
-  if (default_handler_ && port_connected_handlers_.find(port_name) ==
-                              port_connected_handlers_.end()) {
-    default_handler_.Run(port_name, std::move(transferable.message_port()));
-  } else {
-    // TODO(crbug.com/953958): Deprecated, remove this once all APIs are
-    // migrated.
+  DCHECK(default_handler_);
+  default_handler_.Run(port_name, std::move(transferable.message_port()));
 
-    if (port_connected_handlers_.find(port_name) ==
-        port_connected_handlers_.end()) {
-      LOG(ERROR) << "No registration for port: " << port_name;
-      control_port_.Unbind();
-      return;
-    }
-
-    port_connected_handlers_[port_name].Run(
-        std::move(transferable.message_port()));
-  }
   ReceiveNextConnectRequest();
 }

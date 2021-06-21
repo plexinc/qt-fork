@@ -19,7 +19,7 @@
 #include "components/renderer_context_menu/context_menu_content_type.h"
 #include "components/renderer_context_menu/render_view_context_menu_observer.h"
 #include "components/renderer_context_menu/render_view_context_menu_proxy.h"
-#include "content/public/common/context_menu_params.h"
+#include "content/public/browser/context_menu_params.h"
 #include "ppapi/buildflags/buildflags.h"
 #include "ui/base/models/simple_menu_model.h"
 #include "ui/base/page_transition_types.h"
@@ -98,6 +98,9 @@ class RenderViewContextMenuBase : public ui::SimpleMenuModel::Delegate,
   void AddMenuItemWithIcon(int command_id,
                            const base::string16& title,
                            const gfx::ImageSkia& image) override;
+  void AddMenuItemWithIcon(int command_id,
+                           const base::string16& title,
+                           const gfx::VectorIcon& icon) override;
   void AddCheckItem(int command_id, const base::string16& title) override;
   void AddSeparator() override;
   void AddSubMenu(int command_id,
@@ -107,6 +110,10 @@ class RenderViewContextMenuBase : public ui::SimpleMenuModel::Delegate,
                                      int message_id,
                                      ui::MenuModel* model,
                                      const gfx::ImageSkia& image) override;
+  void AddSubMenuWithStringIdAndIcon(int command_id,
+                                     int message_id,
+                                     ui::MenuModel* model,
+                                     const gfx::VectorIcon& icon) override;
   void UpdateMenuItem(int command_id,
                       bool enabled,
                       bool hidden,

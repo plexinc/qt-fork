@@ -10,10 +10,8 @@
 #include "build/build_config.h"
 #include "components/viz/common/features.h"
 #include "components/viz/host/host_frame_sink_manager.h"
-#include "components/viz/service/frame_sinks/frame_sink_manager_impl.h"
 #include "content/browser/accessibility/browser_accessibility_manager.h"
 #include "content/browser/compositor/surface_utils.h"
-#include "content/browser/frame_host/render_widget_host_view_guest.h"
 #include "content/browser/gpu/gpu_data_manager_impl.h"
 #include "content/browser/renderer_host/delegated_frame_host.h"
 #include "content/browser/renderer_host/display_util.h"
@@ -53,9 +51,9 @@ RenderWidgetHostViewBase::~RenderWidgetHostViewBase() {
   // away. However, some subclasses may wish to call this earlier in their
   // shutdown process, e.g. to force removal from
   // RenderWidgetHostInputEventRouter's surface map before relinquishing a
-  // host pointer, as in RenderWidgetHostViewGuest. There is no harm in calling
-  // NotifyObserversAboutShutdown() twice, as the observers are required to
-  // de-register on the first call, and so the second call does nothing.
+  // host pointer. There is no harm in calling NotifyObserversAboutShutdown()
+  // twice, as the observers are required to de-register on the first call, and
+  // so the second call does nothing.
   NotifyObserversAboutShutdown();
   // If we have a live reference to |text_input_manager_|, we should unregister
   // so that the |text_input_manager_| will free its state.
@@ -318,12 +316,14 @@ void RenderWidgetHostViewBase::SetBackgroundColor(SkColor color) {
                     : SK_AlphaOPAQUE;
   default_background_color_ = color;
   UpdateBackgroundColor();
+#ifndef TOOLKIT_QT
   if (opaque != (SkColorGetA(color) == SK_AlphaOPAQUE)) {
     if (host()->owner_delegate()) {
       host()->owner_delegate()->SetBackgroundOpaque(SkColorGetA(color) ==
                                                     SK_AlphaOPAQUE);
     }
   }
+#endif
 }
 
 base::Optional<SkColor> RenderWidgetHostViewBase::GetBackgroundColor() {
@@ -333,6 +333,10 @@ base::Optional<SkColor> RenderWidgetHostViewBase::GetBackgroundColor() {
 }
 
 bool RenderWidgetHostViewBase::IsMouseLocked() {
+  return false;
+}
+
+bool RenderWidgetHostViewBase::GetIsMouseLockedUnadjustedMovementForTesting() {
   return false;
 }
 
@@ -362,12 +366,6 @@ InputEventAckState RenderWidgetHostViewBase::FilterInputEvent(
   return INPUT_EVENT_ACK_STATE_NOT_CONSUMED;
 }
 
-InputEventAckState RenderWidgetHostViewBase::FilterChildGestureEvent(
-    const blink::WebGestureEvent& gesture_event) {
-  // By default, do nothing with the child's gesture events.
-  return INPUT_EVENT_ACK_STATE_NOT_CONSUMED;
-}
-
 void RenderWidgetHostViewBase::WheelEventAck(
     const blink::WebMouseWheelEvent& event,
     InputEventAckState ack_result) {
@@ -377,6 +375,10 @@ void RenderWidgetHostViewBase::GestureEventAck(
     const blink::WebGestureEvent& event,
     InputEventAckState ack_result) {
 }
+
+void RenderWidgetHostViewBase::ChildDidAckGestureEvent(
+    const blink::WebGestureEvent& event,
+    InputEventAckState ack_result) {}
 
 bool RenderWidgetHostViewBase::OnUnconsumedKeyboardEventAck(
     const NativeWebKeyboardEventWithLatencyInfo& event) {
@@ -513,14 +515,14 @@ bool RenderWidgetHostViewBase::HasDisplayPropertyChanged(gfx::NativeView view) {
   if (current_display_area_ == display.work_area() &&
       current_device_scale_factor_ == display.device_scale_factor() &&
       current_display_rotation_ == display.rotation() &&
-      current_display_color_space_ == display.color_space()) {
+      current_display_color_spaces_ == display.color_spaces()) {
     return false;
   }
 
   current_display_area_ = display.work_area();
   current_device_scale_factor_ = display.device_scale_factor();
   current_display_rotation_ = display.rotation();
-  current_display_color_space_ = display.color_space();
+  current_display_color_spaces_ = display.color_spaces();
   return true;
 }
 
@@ -540,10 +542,6 @@ void RenderWidgetHostViewBase::EnableAutoResize(const gfx::Size& min_size,
 void RenderWidgetHostViewBase::DisableAutoResize(const gfx::Size& new_size) {
   if (!new_size.IsEmpty())
     SetSize(new_size);
-  // This clears the cached value in the WebContents, so that OOPIFs will
-  // stop using it.
-  if (host()->delegate())
-    host()->delegate()->ResetAutoResizeSize();
   host()->SetAutoResize(false, gfx::Size(), gfx::Size());
   host()->SynchronizeVisualProperties();
 }
@@ -565,11 +563,6 @@ RenderWidgetHostViewBase::DidUpdateVisualProperties(
 
 base::WeakPtr<RenderWidgetHostViewBase> RenderWidgetHostViewBase::GetWeakPtr() {
   return weak_factory_.GetWeakPtr();
-}
-
-void RenderWidgetHostViewBase::FocusedNodeTouched(
-    bool editable) {
-  DVLOG(1) << "FocusedNodeTouched: " << editable;
 }
 
 void RenderWidgetHostViewBase::GetScreenInfo(ScreenInfo* screen_info) {
@@ -688,10 +681,6 @@ bool RenderWidgetHostViewBase::TransformPointToCoordSpaceForView(
   return true;
 }
 
-bool RenderWidgetHostViewBase::IsRenderWidgetHostViewGuest() {
-  return false;
-}
-
 bool RenderWidgetHostViewBase::IsRenderWidgetHostViewChildFrame() {
   return false;
 }
@@ -709,6 +698,11 @@ void RenderWidgetHostViewBase::Destroy() {
 
 bool RenderWidgetHostViewBase::CanSynchronizeVisualProperties() {
   return true;
+}
+
+std::vector<std::unique_ptr<ui::TouchEvent>>
+RenderWidgetHostViewBase::ExtractAndCancelActiveTouches() {
+  return {};
 }
 
 void RenderWidgetHostViewBase::TextInputStateChanged(
@@ -775,16 +769,29 @@ RenderWidgetHostViewBase::GetTouchSelectionControllerClientManager() {
   return nullptr;
 }
 
-void RenderWidgetHostViewBase::SetRecordTabSwitchTimeRequest(
+void RenderWidgetHostViewBase::SetRecordContentToVisibleTimeRequest(
     base::TimeTicks start_time,
-    bool destination_is_loaded,
-    bool destination_is_frozen) {
-  last_record_tab_switch_time_request_.emplace(
-      start_time, destination_is_loaded, destination_is_frozen);
+    base::Optional<bool> destination_is_loaded,
+    base::Optional<bool> destination_is_frozen,
+    bool show_reason_tab_switching,
+    bool show_reason_unoccluded,
+    bool show_reason_bfcache_restore) {
+  if (last_record_tab_switch_time_request_.has_value()) {
+    last_record_tab_switch_time_request_.value().UpdateRequest(
+        RecordContentToVisibleTimeRequest(
+            start_time, destination_is_loaded, destination_is_frozen,
+            show_reason_tab_switching, show_reason_unoccluded,
+            show_reason_bfcache_restore));
+  } else {
+    last_record_tab_switch_time_request_.emplace(
+        start_time, destination_is_loaded, destination_is_frozen,
+        show_reason_tab_switching, show_reason_unoccluded,
+        show_reason_bfcache_restore);
+  }
 }
 
-base::Optional<RecordTabSwitchTimeRequest>
-RenderWidgetHostViewBase::TakeRecordTabSwitchTimeRequest() {
+base::Optional<RecordContentToVisibleTimeRequest>
+RenderWidgetHostViewBase::TakeRecordContentToVisibleTimeRequest() {
   auto stored_state = std::move(last_record_tab_switch_time_request_);
   last_record_tab_switch_time_request_.reset();
   return stored_state;
@@ -824,13 +831,8 @@ bool RenderWidgetHostViewBase::TransformPointToTargetCoordSpace(
 
   RenderWidgetHostViewBase* cur_view = target_view;
   while (cur_view->IsRenderWidgetHostViewChildFrame()) {
-    if (cur_view->IsRenderWidgetHostViewGuest()) {
-      cur_view = static_cast<RenderWidgetHostViewGuest*>(cur_view)
-                     ->GetOwnerRenderWidgetHostView();
-    } else {
-      cur_view = static_cast<RenderWidgetHostViewChildFrame*>(cur_view)
-                     ->GetParentView();
-    }
+    cur_view =
+        static_cast<RenderWidgetHostViewChildFrame*>(cur_view)->GetParentView();
     if (!cur_view)
       return false;
     target_ancestors.push_back(cur_view->GetFrameSinkId());

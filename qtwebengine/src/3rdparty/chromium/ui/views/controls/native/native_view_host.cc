@@ -4,7 +4,11 @@
 
 #include "ui/views/controls/native/native_view_host.h"
 
+#include <memory>
+#include <utility>
+
 #include "base/logging.h"
+#include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/base/cursor/cursor.h"
 #include "ui/gfx/canvas.h"
 #include "ui/views/controls/native/native_view_host_wrapper.h"

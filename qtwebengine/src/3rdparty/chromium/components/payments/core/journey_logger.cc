@@ -7,8 +7,6 @@
 #include <algorithm>
 #include <vector>
 
-#include "base/debug/crash_logging.h"
-#include "base/debug/dump_without_crashing.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_number_conversions.h"
@@ -73,19 +71,22 @@ bool ValidateExclusiveBitVector(const std::vector<bool>& bit_vector) {
   return seen_true_bit;
 }
 
-enum class TransactionSize {
-  kZeroTransaction = 0,
-  kMicroTransaction = 1,
-  kRegularTransaction = 2,
-  kMaxValue = kRegularTransaction,
-};
+// Records time to checkout for payment requests. The 5-minute max is chosen
+// since the payment handler window times out after 5 minutes.
+void RecordTimeToCheckoutUmaHistograms(const std::string name,
+                                       const base::TimeDelta time_to_checkout) {
+  UmaHistogramCustomTimes(
+      name, time_to_checkout, base::TimeDelta::FromMilliseconds(1) /* min */,
+      base::TimeDelta::FromMinutes(5) /* max */, 100 /*bucket count*/);
+}
 
 }  // namespace
 
-JourneyLogger::JourneyLogger(bool is_incognito, ukm::SourceId source_id)
+JourneyLogger::JourneyLogger(bool is_incognito,
+                             ukm::SourceId payment_request_source_id)
     : is_incognito_(is_incognito),
       events_(EVENT_INITIATED),
-      source_id_(source_id) {}
+      payment_request_source_id_(payment_request_source_id) {}
 
 JourneyLogger::~JourneyLogger() {
   // has_recorded_ is false in cases that the page gets closed. To see more
@@ -252,6 +253,15 @@ void JourneyLogger::RecordTransactionAmount(std::string currency,
     transaction_size = TransactionSize::kMicroTransaction;
   base::UmaHistogramEnumeration(
       "PaymentRequest.TransactionAmount" + completion_suffix, transaction_size);
+
+  if (payment_request_source_id_ == ukm::kInvalidSourceId)
+    return;
+
+  // Record the transaction amount in UKM.
+  ukm::builders::PaymentRequest_TransactionAmount(payment_request_source_id_)
+      .SetCompletionStatus(completed)
+      .SetCategory(static_cast<int64_t>(transaction_size))
+      .Record(ukm::UkmRecorder::Get());
 }
 
 void JourneyLogger::RecordJourneyStatsHistograms(
@@ -259,16 +269,11 @@ void JourneyLogger::RecordJourneyStatsHistograms(
   if (has_recorded_) {
     UMA_HISTOGRAM_BOOLEAN(
         "PaymentRequest.JourneyLoggerHasRecordedMultipleTimes", true);
-    static base::debug::CrashKeyString* journey_logger_multiple_record =
-        base::debug::AllocateCrashKeyString("journey_logger_multiple_record",
-                                            base::debug::CrashKeySize::Size32);
-    base::debug::SetCrashKeyString(journey_logger_multiple_record,
-                                   base::StringPrintf("%d", events_));
-    base::debug::DumpWithoutCrashing();
   }
   has_recorded_ = true;
 
   RecordEventsMetric(completion_status);
+  RecordTimeToCheckout(completion_status);
 
   // These following metrics only make sense if the Payment Request was
   // triggered.
@@ -349,14 +354,92 @@ void JourneyLogger::RecordEventsMetric(CompletionStatus completion_status) {
   ValidateEventBits();
   base::UmaHistogramSparse("PaymentRequest.Events", events_);
 
-  if (source_id_ == ukm::kInvalidSourceId)
+  if (payment_request_source_id_ == ukm::kInvalidSourceId)
     return;
 
   // Record the events in UKM.
-  ukm::builders::PaymentRequest_CheckoutEvents(source_id_)
+  ukm::builders::PaymentRequest_CheckoutEvents(payment_request_source_id_)
       .SetCompletionStatus(completion_status)
       .SetEvents(events_)
       .Record(ukm::UkmRecorder::Get());
+
+  if (payment_app_source_id_ == ukm::kInvalidSourceId)
+    return;
+
+  // Record the events in UKM for payment app.
+  ukm::builders::PaymentApp_CheckoutEvents(payment_app_source_id_)
+      .SetCompletionStatus(completion_status)
+      .SetEvents(events_)
+      .Record(ukm::UkmRecorder::Get());
+
+  // Clear payment app source id since it gets deleted after recording.
+  payment_app_source_id_ = ukm::kInvalidSourceId;
+}
+
+void JourneyLogger::RecordTimeToCheckout(
+    CompletionStatus completion_status) const {
+  const base::TimeDelta time_to_checkout =
+      base::TimeTicks::Now() - trigger_time_;
+  const std::string histogram_name = "PaymentRequest.TimeToCheckout";
+
+  // Whether or not the payment sheet was shown shown.
+  std::string ui_show_suffix;
+  if (events_ & EVENT_SHOWN)
+    ui_show_suffix = ".Shown";
+  else if (events_ & EVENT_SKIPPED_SHOW)
+    ui_show_suffix = ".SkippedShow";
+  else  // User aborted before request.show()
+    ui_show_suffix = ".BeforeShow";
+
+  std::string completion_suffix;
+  switch (completion_status) {
+    case COMPLETION_STATUS_COMPLETED: {
+      completion_suffix = ".Completed";
+      // Record time to checkout for completed requests separated by payment
+      // sheet shown status. Requests can complete only after request.show()
+      // call.
+      DCHECK_NE(".BeforeShow", ui_show_suffix);
+      RecordTimeToCheckoutUmaHistograms(
+          histogram_name + ".Completed" + ui_show_suffix, time_to_checkout);
+
+      // Record time to checkout for completed requests separated by payment
+      // sheet shown status and selected method.
+      std::string selected_method_suffix;
+      if (events_ & EVENT_SELECTED_CREDIT_CARD) {
+        selected_method_suffix = ".BasicCard";
+      } else if (events_ & EVENT_SELECTED_GOOGLE) {
+        selected_method_suffix = ".Google";
+      } else {
+        DCHECK(events_ & EVENT_SELECTED_OTHER);
+        selected_method_suffix = ".Other";
+      }
+      RecordTimeToCheckoutUmaHistograms(histogram_name + ".Completed" +
+                                            ui_show_suffix +
+                                            selected_method_suffix,
+                                        time_to_checkout);
+      break;
+    }
+    case COMPLETION_STATUS_USER_ABORTED: {
+      completion_suffix = ".UserAborted";
+      // Record time to checkout for requests aborted by user separated by
+      // payment sheet shown status.
+      RecordTimeToCheckoutUmaHistograms(
+          histogram_name + ".UserAborted" + ui_show_suffix, time_to_checkout);
+      break;
+    }
+    case COMPLETION_STATUS_OTHER_ABORTED:
+      completion_suffix = ".OtherAborted";
+      break;
+    case COMPLETION_STATUS_COULD_NOT_SHOW:
+      // Do not record checkout duration when payment sheet could not shown.
+      return;
+    default:
+      NOTREACHED();
+  }
+  // Record time to checkout for payment reuqests separated by completion
+  // status.
+  RecordTimeToCheckoutUmaHistograms(histogram_name + completion_suffix,
+                                    time_to_checkout);
 }
 
 void JourneyLogger::ValidateEventBits() const {
@@ -405,12 +488,6 @@ void JourneyLogger::ValidateEventBits() const {
   if (events_ & EVENT_SKIPPED_SHOW) {
     // Built in autofill payment handler for basic card should not skip UI show.
     DCHECK(!(events_ & EVENT_SELECTED_CREDIT_CARD));
-    // Payment sheet should not get skipped when any of the following info is
-    // required.
-    DCHECK(!(events_ & EVENT_REQUEST_SHIPPING));
-    DCHECK(!(events_ & EVENT_REQUEST_PAYER_NAME));
-    DCHECK(!(events_ & EVENT_REQUEST_PAYER_EMAIL));
-    DCHECK(!(events_ & EVENT_REQUEST_PAYER_PHONE));
   }
 
   // Check that the two bits are not set at the same time.
@@ -420,6 +497,15 @@ void JourneyLogger::ValidateEventBits() const {
 
 bool JourneyLogger::WasPaymentRequestTriggered() {
   return (events_ & EVENT_SHOWN) > 0 || (events_ & EVENT_SKIPPED_SHOW) > 0;
+}
+
+void JourneyLogger::SetTriggerTime() {
+  trigger_time_ = base::TimeTicks::Now();
+}
+
+void JourneyLogger::SetPaymentAppUkmSourceId(
+    ukm::SourceId payment_app_source_id) {
+  payment_app_source_id_ = payment_app_source_id;
 }
 
 }  // namespace payments

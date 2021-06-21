@@ -11,10 +11,10 @@
 #include "base/macros.h"
 #include "content/common/content_export.h"
 #include "content/common/navigation_params.h"
-#include "content/public/common/url_loader_throttle.h"
 #include "content/renderer/loader/frame_request_blocker.h"
 #include "content/renderer/loader/navigation_response_override_parameters.h"
 #include "content/renderer/loader/web_url_loader_impl.h"
+#include "third_party/blink/public/common/loader/url_loader_throttle.h"
 #include "third_party/blink/public/platform/web_string.h"
 #include "third_party/blink/public/platform/web_url_request.h"
 
@@ -30,7 +30,6 @@ namespace content {
 class CONTENT_EXPORT RequestExtraData : public blink::WebURLRequest::ExtraData {
  public:
   RequestExtraData();
-  ~RequestExtraData() override;
 
   // |custom_user_agent| is used to communicate an overriding custom user agent
   // to |RenderViewImpl::willSendRequest()|; set to a null string to indicate no
@@ -43,8 +42,8 @@ class CONTENT_EXPORT RequestExtraData : public blink::WebURLRequest::ExtraData {
     custom_user_agent_ = custom_user_agent;
   }
 
-  // PlzNavigate: |navigation_response_override| is used to override certain
-  // parameters of navigation requests.
+  // |navigation_response_override| is used to override certain parameters of
+  // navigation requests.
   std::unique_ptr<NavigationResponseOverrideParameters>
   TakeNavigationResponseOverrideOwnership() {
     return std::move(navigation_response_override_);
@@ -55,19 +54,12 @@ class CONTENT_EXPORT RequestExtraData : public blink::WebURLRequest::ExtraData {
     navigation_response_override_ = std::move(response_override);
   }
 
-  // Copy of the settings value determining if mixed plugin content should be
-  // blocked.
-  bool block_mixed_plugin_content() const {
-    return block_mixed_plugin_content_;
-  }
-  void set_block_mixed_plugin_content(bool block_mixed_plugin_content) {
-    block_mixed_plugin_content_ = block_mixed_plugin_content;
-  }
-  std::vector<std::unique_ptr<URLLoaderThrottle>> TakeURLLoaderThrottles() {
+  std::vector<std::unique_ptr<blink::URLLoaderThrottle>>
+  TakeURLLoaderThrottles() {
     return std::move(url_loader_throttles_);
   }
   void set_url_loader_throttles(
-      std::vector<std::unique_ptr<URLLoaderThrottle>> throttles) {
+      std::vector<std::unique_ptr<blink::URLLoaderThrottle>> throttles) {
     url_loader_throttles_ = std::move(throttles);
   }
   void set_frame_request_blocker(
@@ -87,11 +79,12 @@ class CONTENT_EXPORT RequestExtraData : public blink::WebURLRequest::ExtraData {
   void CopyToResourceRequest(network::ResourceRequest* request) const;
 
  private:
+  ~RequestExtraData() override;
+
   blink::WebString custom_user_agent_;
   std::unique_ptr<NavigationResponseOverrideParameters>
       navigation_response_override_;
-  bool block_mixed_plugin_content_ = false;
-  std::vector<std::unique_ptr<URLLoaderThrottle>> url_loader_throttles_;
+  std::vector<std::unique_ptr<blink::URLLoaderThrottle>> url_loader_throttles_;
   scoped_refptr<FrameRequestBlocker> frame_request_blocker_;
   bool allow_cross_origin_auth_prompt_ = false;
 

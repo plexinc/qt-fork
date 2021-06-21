@@ -5,7 +5,7 @@
 #ifndef QUICHE_QUIC_TEST_TOOLS_MOCK_QUIC_SESSION_VISITOR_H_
 #define QUICHE_QUIC_TEST_TOOLS_MOCK_QUIC_SESSION_VISITOR_H_
 
-#include "net/third_party/quiche/src/quic/core/quic_crypto_server_stream.h"
+#include "net/third_party/quiche/src/quic/core/quic_crypto_server_stream_base.h"
 #include "net/third_party/quiche/src/quic/core/quic_time_wait_list_manager.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
 
@@ -31,7 +31,8 @@ class MockQuicSessionVisitor : public QuicTimeWaitListManager::Visitor {
                void(QuicConnectionId connection_id));
 };
 
-class MockQuicCryptoServerStreamHelper : public QuicCryptoServerStream::Helper {
+class MockQuicCryptoServerStreamHelper
+    : public QuicCryptoServerStreamBase::Helper {
  public:
   MockQuicCryptoServerStreamHelper();
   MockQuicCryptoServerStreamHelper(const MockQuicCryptoServerStreamHelper&) =
@@ -39,9 +40,6 @@ class MockQuicCryptoServerStreamHelper : public QuicCryptoServerStream::Helper {
   MockQuicCryptoServerStreamHelper& operator=(
       const MockQuicCryptoServerStreamHelper&) = delete;
   ~MockQuicCryptoServerStreamHelper() override;
-  MOCK_CONST_METHOD2(GenerateConnectionIdForReject,
-                     QuicConnectionId(QuicTransportVersion version,
-                                      QuicConnectionId connection_id));
   MOCK_CONST_METHOD5(CanAcceptClientHello,
                      bool(const CryptoHandshakeMessage& message,
                           const QuicSocketAddress& client_address,

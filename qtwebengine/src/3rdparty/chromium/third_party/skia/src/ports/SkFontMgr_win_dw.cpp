@@ -15,13 +15,13 @@
 #include "include/core/SkTypes.h"
 #include "include/private/SkMutex.h"
 #include "src/core/SkEndian.h"
-#include "src/core/SkMakeUnique.h"
 #include "src/core/SkTypefaceCache.h"
 #include "src/ports/SkTypeface_win_dw.h"
 #include "src/utils/SkUTF.h"
 #include "src/utils/win/SkDWrite.h"
 #include "src/utils/win/SkDWriteFontFileStream.h"
 #include "src/utils/win/SkHRESULT.h"
+#include "src/utils/win/SkObjBase.h"
 #include "src/utils/win/SkTScopedComPtr.h"
 
 #include <dwrite.h>
@@ -33,15 +33,15 @@
 class StreamFontFileLoader : public IDWriteFontFileLoader {
 public:
     // IUnknown methods
-    virtual HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void** ppvObject);
-    virtual ULONG STDMETHODCALLTYPE AddRef();
-    virtual ULONG STDMETHODCALLTYPE Release();
+    SK_STDMETHODIMP QueryInterface(REFIID iid, void** ppvObject) override;
+    SK_STDMETHODIMP_(ULONG) AddRef() override;
+    SK_STDMETHODIMP_(ULONG) Release() override;
 
     // IDWriteFontFileLoader methods
-    virtual HRESULT STDMETHODCALLTYPE CreateStreamFromKey(
+    SK_STDMETHODIMP CreateStreamFromKey(
         void const* fontFileReferenceKey,
         UINT32 fontFileReferenceKeySize,
-        IDWriteFontFileStream** fontFileStream);
+        IDWriteFontFileStream** fontFileStream) override;
 
     // Takes ownership of stream.
     static HRESULT Create(std::unique_ptr<SkStreamAsset> stream,
@@ -53,18 +53,17 @@ public:
         return S_OK;
     }
 
-    std::unique_ptr<SkStreamAsset> fStream;
-
 private:
     StreamFontFileLoader(std::unique_ptr<SkStreamAsset> stream)
         : fStream(std::move(stream)), fRefCount(1)
     {}
     virtual ~StreamFontFileLoader() { }
 
+    std::unique_ptr<SkStreamAsset> fStream;
     ULONG fRefCount;
 };
 
-HRESULT StreamFontFileLoader::QueryInterface(REFIID iid, void** ppvObject) {
+SK_STDMETHODIMP StreamFontFileLoader::QueryInterface(REFIID iid, void** ppvObject) {
     if (iid == IID_IUnknown || iid == __uuidof(IDWriteFontFileLoader)) {
         *ppvObject = this;
         AddRef();
@@ -75,11 +74,11 @@ HRESULT StreamFontFileLoader::QueryInterface(REFIID iid, void** ppvObject) {
     }
 }
 
-ULONG StreamFontFileLoader::AddRef() {
+SK_STDMETHODIMP_(ULONG) StreamFontFileLoader::AddRef() {
     return InterlockedIncrement(&fRefCount);
 }
 
-ULONG StreamFontFileLoader::Release() {
+SK_STDMETHODIMP_(ULONG) StreamFontFileLoader::Release() {
     ULONG newCount = InterlockedDecrement(&fRefCount);
     if (0 == newCount) {
         delete this;
@@ -87,7 +86,7 @@ ULONG StreamFontFileLoader::Release() {
     return newCount;
 }
 
-HRESULT StreamFontFileLoader::CreateStreamFromKey(
+SK_STDMETHODIMP StreamFontFileLoader::CreateStreamFromKey(
     void const* fontFileReferenceKey,
     UINT32 fontFileReferenceKeySize,
     IDWriteFontFileStream** fontFileStream)
@@ -103,13 +102,13 @@ HRESULT StreamFontFileLoader::CreateStreamFromKey(
 class StreamFontFileEnumerator : public IDWriteFontFileEnumerator {
 public:
     // IUnknown methods
-    virtual HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void** ppvObject);
-    virtual ULONG STDMETHODCALLTYPE AddRef();
-    virtual ULONG STDMETHODCALLTYPE Release();
+    SK_STDMETHODIMP QueryInterface(REFIID iid, void** ppvObject) override;
+    SK_STDMETHODIMP_(ULONG) AddRef() override;
+    SK_STDMETHODIMP_(ULONG) Release() override;
 
     // IDWriteFontFileEnumerator methods
-    virtual HRESULT STDMETHODCALLTYPE MoveNext(BOOL* hasCurrentFile);
-    virtual HRESULT STDMETHODCALLTYPE GetCurrentFontFile(IDWriteFontFile** fontFile);
+    SK_STDMETHODIMP MoveNext(BOOL* hasCurrentFile) override;
+    SK_STDMETHODIMP GetCurrentFontFile(IDWriteFontFile** fontFile) override;
 
     static HRESULT Create(IDWriteFactory* factory, IDWriteFontFileLoader* fontFileLoader,
                           StreamFontFileEnumerator** streamFontFileEnumerator) {
@@ -140,7 +139,7 @@ StreamFontFileEnumerator::StreamFontFileEnumerator(IDWriteFactory* factory,
     , fHasNext(true)
 { }
 
-HRESULT StreamFontFileEnumerator::QueryInterface(REFIID iid, void** ppvObject) {
+SK_STDMETHODIMP StreamFontFileEnumerator::QueryInterface(REFIID iid, void** ppvObject) {
     if (iid == IID_IUnknown || iid == __uuidof(IDWriteFontFileEnumerator)) {
         *ppvObject = this;
         AddRef();
@@ -151,11 +150,11 @@ HRESULT StreamFontFileEnumerator::QueryInterface(REFIID iid, void** ppvObject) {
     }
 }
 
-ULONG StreamFontFileEnumerator::AddRef() {
+SK_STDMETHODIMP_(ULONG) StreamFontFileEnumerator::AddRef() {
     return InterlockedIncrement(&fRefCount);
 }
 
-ULONG StreamFontFileEnumerator::Release() {
+SK_STDMETHODIMP_(ULONG) StreamFontFileEnumerator::Release() {
     ULONG newCount = InterlockedDecrement(&fRefCount);
     if (0 == newCount) {
         delete this;
@@ -163,7 +162,7 @@ ULONG StreamFontFileEnumerator::Release() {
     return newCount;
 }
 
-HRESULT StreamFontFileEnumerator::MoveNext(BOOL* hasCurrentFile) {
+SK_STDMETHODIMP StreamFontFileEnumerator::MoveNext(BOOL* hasCurrentFile) {
     *hasCurrentFile = FALSE;
 
     if (!fHasNext) {
@@ -182,7 +181,7 @@ HRESULT StreamFontFileEnumerator::MoveNext(BOOL* hasCurrentFile) {
     return S_OK;
 }
 
-HRESULT StreamFontFileEnumerator::GetCurrentFontFile(IDWriteFontFile** fontFile) {
+SK_STDMETHODIMP StreamFontFileEnumerator::GetCurrentFontFile(IDWriteFontFile** fontFile) {
     if (fCurrentFile.get() == nullptr) {
         *fontFile = nullptr;
         return E_FAIL;
@@ -197,16 +196,16 @@ HRESULT StreamFontFileEnumerator::GetCurrentFontFile(IDWriteFontFile** fontFile)
 class StreamFontCollectionLoader : public IDWriteFontCollectionLoader {
 public:
     // IUnknown methods
-    virtual HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void** ppvObject);
-    virtual ULONG STDMETHODCALLTYPE AddRef();
-    virtual ULONG STDMETHODCALLTYPE Release();
+    SK_STDMETHODIMP QueryInterface(REFIID iid, void** ppvObject) override;
+    SK_STDMETHODIMP_(ULONG) AddRef() override;
+    SK_STDMETHODIMP_(ULONG) Release() override;
 
     // IDWriteFontCollectionLoader methods
-    virtual HRESULT STDMETHODCALLTYPE CreateEnumeratorFromKey(
+    SK_STDMETHODIMP CreateEnumeratorFromKey(
         IDWriteFactory* factory,
         void const* collectionKey,
         UINT32 collectionKeySize,
-        IDWriteFontFileEnumerator** fontFileEnumerator);
+        IDWriteFontFileEnumerator** fontFileEnumerator) override;
 
     static HRESULT Create(IDWriteFontFileLoader* fontFileLoader,
                           StreamFontCollectionLoader** streamFontCollectionLoader) {
@@ -227,7 +226,7 @@ private:
     SkTScopedComPtr<IDWriteFontFileLoader> fFontFileLoader;
 };
 
-HRESULT StreamFontCollectionLoader::QueryInterface(REFIID iid, void** ppvObject) {
+SK_STDMETHODIMP StreamFontCollectionLoader::QueryInterface(REFIID iid, void** ppvObject) {
     if (iid == IID_IUnknown || iid == __uuidof(IDWriteFontCollectionLoader)) {
         *ppvObject = this;
         AddRef();
@@ -238,11 +237,11 @@ HRESULT StreamFontCollectionLoader::QueryInterface(REFIID iid, void** ppvObject)
     }
 }
 
-ULONG StreamFontCollectionLoader::AddRef() {
+SK_STDMETHODIMP_(ULONG) StreamFontCollectionLoader::AddRef() {
     return InterlockedIncrement(&fRefCount);
 }
 
-ULONG StreamFontCollectionLoader::Release() {
+SK_STDMETHODIMP_(ULONG) StreamFontCollectionLoader::Release() {
     ULONG newCount = InterlockedDecrement(&fRefCount);
     if (0 == newCount) {
         delete this;
@@ -250,7 +249,7 @@ ULONG StreamFontCollectionLoader::Release() {
     return newCount;
 }
 
-HRESULT StreamFontCollectionLoader::CreateEnumeratorFromKey(
+SK_STDMETHODIMP StreamFontCollectionLoader::CreateEnumeratorFromKey(
     IDWriteFactory* factory,
     void const* collectionKey,
     UINT32 collectionKeySize,
@@ -520,10 +519,34 @@ public:
         : fRefCount(1), fOuter(SkSafeRef(outer)), fCharacter(character), fResolvedTypeface(nullptr) {
     }
 
-    virtual ~FontFallbackRenderer() { }
+    // IUnknown methods
+    SK_STDMETHODIMP QueryInterface(IID const& riid, void** ppvObject) override {
+        if (__uuidof(IUnknown) == riid ||
+            __uuidof(IDWritePixelSnapping) == riid ||
+            __uuidof(IDWriteTextRenderer) == riid)
+        {
+            *ppvObject = this;
+            this->AddRef();
+            return S_OK;
+        }
+        *ppvObject = nullptr;
+        return E_FAIL;
+    }
+
+    SK_STDMETHODIMP_(ULONG) AddRef() override {
+        return InterlockedIncrement(&fRefCount);
+    }
+
+    SK_STDMETHODIMP_(ULONG) Release() override {
+        ULONG newCount = InterlockedDecrement(&fRefCount);
+        if (0 == newCount) {
+            delete this;
+        }
+        return newCount;
+    }
 
     // IDWriteTextRenderer methods
-    virtual HRESULT STDMETHODCALLTYPE DrawGlyphRun(
+    SK_STDMETHODIMP DrawGlyphRun(
         void* clientDrawingContext,
         FLOAT baselineOriginX,
         FLOAT baselineOriginY,
@@ -557,7 +580,7 @@ public:
         return S_OK;
     }
 
-    virtual HRESULT STDMETHODCALLTYPE DrawUnderline(
+    SK_STDMETHODIMP DrawUnderline(
         void* clientDrawingContext,
         FLOAT baselineOriginX,
         FLOAT baselineOriginY,
@@ -565,7 +588,7 @@ public:
         IUnknown* clientDrawingEffect) override
     { return E_NOTIMPL; }
 
-    virtual HRESULT STDMETHODCALLTYPE DrawStrikethrough(
+    SK_STDMETHODIMP DrawStrikethrough(
         void* clientDrawingContext,
         FLOAT baselineOriginX,
         FLOAT baselineOriginY,
@@ -573,7 +596,7 @@ public:
         IUnknown* clientDrawingEffect) override
     { return E_NOTIMPL; }
 
-    virtual HRESULT STDMETHODCALLTYPE DrawInlineObject(
+    SK_STDMETHODIMP DrawInlineObject(
         void* clientDrawingContext,
         FLOAT originX,
         FLOAT originY,
@@ -584,7 +607,7 @@ public:
     { return E_NOTIMPL; }
 
     // IDWritePixelSnapping methods
-    virtual HRESULT STDMETHODCALLTYPE IsPixelSnappingDisabled(
+    SK_STDMETHODIMP IsPixelSnappingDisabled(
         void* clientDrawingContext,
         BOOL* isDisabled) override
     {
@@ -592,7 +615,7 @@ public:
         return S_OK;
     }
 
-    virtual HRESULT STDMETHODCALLTYPE GetCurrentTransform(
+    SK_STDMETHODIMP GetCurrentTransform(
         void* clientDrawingContext,
         DWRITE_MATRIX* transform) override
     {
@@ -601,7 +624,7 @@ public:
         return S_OK;
     }
 
-    virtual HRESULT STDMETHODCALLTYPE GetPixelsPerDip(
+    SK_STDMETHODIMP GetPixelsPerDip(
         void* clientDrawingContext,
         FLOAT* pixelsPerDip) override
     {
@@ -609,35 +632,11 @@ public:
         return S_OK;
     }
 
-    // IUnknown methods
-    ULONG STDMETHODCALLTYPE AddRef() override {
-        return InterlockedIncrement(&fRefCount);
-    }
-
-    ULONG STDMETHODCALLTYPE Release() override {
-        ULONG newCount = InterlockedDecrement(&fRefCount);
-        if (0 == newCount) {
-            delete this;
-        }
-        return newCount;
-    }
-
-    virtual HRESULT STDMETHODCALLTYPE QueryInterface(IID const& riid, void** ppvObject) override{
-        if (__uuidof(IUnknown) == riid ||
-            __uuidof(IDWritePixelSnapping) == riid ||
-            __uuidof(IDWriteTextRenderer) == riid)
-        {
-            *ppvObject = this;
-            this->AddRef();
-            return S_OK;
-        }
-        *ppvObject = nullptr;
-        return E_FAIL;
-    }
-
     sk_sp<SkTypeface> ConsumeFallbackTypeface() { return std::move(fResolvedTypeface); }
 
-protected:
+private:
+    virtual ~FontFallbackRenderer() { }
+
     ULONG fRefCount;
     sk_sp<const SkFontMgr_DirectWrite> fOuter;
     UINT32 fCharacter;
@@ -655,10 +654,33 @@ public:
         , fNumberSubstitution(numberSubstitution)
     { }
 
-    virtual ~FontFallbackSource() { }
+    // IUnknown methods
+    SK_STDMETHODIMP QueryInterface(IID const& riid, void** ppvObject) override {
+        if (__uuidof(IUnknown) == riid ||
+            __uuidof(IDWriteTextAnalysisSource) == riid)
+        {
+            *ppvObject = this;
+            this->AddRef();
+            return S_OK;
+        }
+        *ppvObject = nullptr;
+        return E_FAIL;
+    }
+
+    SK_STDMETHODIMP_(ULONG) AddRef() override {
+        return InterlockedIncrement(&fRefCount);
+    }
+
+    SK_STDMETHODIMP_(ULONG) Release() override {
+        ULONG newCount = InterlockedDecrement(&fRefCount);
+        if (0 == newCount) {
+            delete this;
+        }
+        return newCount;
+    }
 
     // IDWriteTextAnalysisSource methods
-    virtual HRESULT STDMETHODCALLTYPE GetTextAtPosition(
+    SK_STDMETHODIMP GetTextAtPosition(
         UINT32 textPosition,
         WCHAR const** textString,
         UINT32* textLength) override
@@ -673,7 +695,7 @@ public:
         return S_OK;
     }
 
-    virtual HRESULT STDMETHODCALLTYPE GetTextBeforePosition(
+    SK_STDMETHODIMP GetTextBeforePosition(
         UINT32 textPosition,
         WCHAR const** textString,
         UINT32* textLength) override
@@ -688,12 +710,12 @@ public:
         return S_OK;
     }
 
-    virtual DWRITE_READING_DIRECTION STDMETHODCALLTYPE GetParagraphReadingDirection() override {
+    SK_STDMETHODIMP_(DWRITE_READING_DIRECTION) GetParagraphReadingDirection() override {
         // TODO: this is also interesting.
         return DWRITE_READING_DIRECTION_LEFT_TO_RIGHT;
     }
 
-    virtual HRESULT STDMETHODCALLTYPE GetLocaleName(
+    SK_STDMETHODIMP GetLocaleName(
         UINT32 textPosition,
         UINT32* textLength,
         WCHAR const** localeName) override
@@ -702,7 +724,7 @@ public:
         return S_OK;
     }
 
-    virtual HRESULT STDMETHODCALLTYPE GetNumberSubstitution(
+    SK_STDMETHODIMP GetNumberSubstitution(
         UINT32 textPosition,
         UINT32* textLength,
         IDWriteNumberSubstitution** numberSubstitution) override
@@ -711,32 +733,9 @@ public:
         return S_OK;
     }
 
-    // IUnknown methods
-    ULONG STDMETHODCALLTYPE AddRef() override {
-        return InterlockedIncrement(&fRefCount);
-    }
+private:
+    virtual ~FontFallbackSource() { }
 
-    ULONG STDMETHODCALLTYPE Release() override {
-        ULONG newCount = InterlockedDecrement(&fRefCount);
-        if (0 == newCount) {
-            delete this;
-        }
-        return newCount;
-    }
-
-    virtual HRESULT STDMETHODCALLTYPE QueryInterface(IID const& riid, void** ppvObject) override{
-        if (__uuidof(IUnknown) == riid ||
-            __uuidof(IDWriteTextAnalysisSource) == riid)
-        {
-            *ppvObject = this;
-            this->AddRef();
-            return S_OK;
-        }
-        *ppvObject = nullptr;
-        return E_FAIL;
-    }
-
-protected:
     ULONG fRefCount;
     const WCHAR* fString;
     UINT32 fLength;
@@ -1038,7 +1037,7 @@ sk_sp<SkTypeface> SkFontMgr_DirectWrite::onMakeFromStreamArgs(std::unique_ptr<Sk
 }
 
 sk_sp<SkTypeface> SkFontMgr_DirectWrite::onMakeFromData(sk_sp<SkData> data, int ttcIndex) const {
-    return this->makeFromStream(skstd::make_unique<SkMemoryStream>(std::move(data)), ttcIndex);
+    return this->makeFromStream(std::make_unique<SkMemoryStream>(std::move(data)), ttcIndex);
 }
 
 sk_sp<SkTypeface> SkFontMgr_DirectWrite::onMakeFromFile(const char path[], int ttcIndex) const {

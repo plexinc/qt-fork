@@ -18,6 +18,8 @@
 
 namespace net {
 
+class ProxyResolutionRequest;
+
 namespace test {
 
 class JobControllerPeer;
@@ -120,8 +122,6 @@ class HttpStreamFactory::JobController
                         const SSLConfig& used_ssl_config,
                         const ProxyInfo& used_proxy_info,
                         HttpAuthController* auth_controller) override;
-
-  bool OnInitConnection(const ProxyInfo& proxy_info) override;
 
   // Invoked when the |job| finishes pre-connecting sockets.
   void OnPreconnectsComplete(Job* job) override;
@@ -282,8 +282,8 @@ class HttpStreamFactory::JobController
   // given error code is simply returned.
   int ReconsiderProxyAfterError(Job* job, int error);
 
-  // Returns true if QUIC is whitelisted for |host|.
-  bool IsQuicWhitelistedForHost(const std::string& host);
+  // Returns true if QUIC is allowed for |host|.
+  bool IsQuicAllowedForHost(const std::string& host);
 
   HttpStreamFactory* factory_;
   HttpNetworkSession* session_;
@@ -350,7 +350,7 @@ class HttpStreamFactory::JobController
   bool can_start_alternative_proxy_job_;
 
   State next_state_;
-  std::unique_ptr<ProxyResolutionService::Request> proxy_resolve_request_;
+  std::unique_ptr<ProxyResolutionRequest> proxy_resolve_request_;
   const HttpRequestInfo request_info_;
   ProxyInfo proxy_info_;
   const SSLConfig server_ssl_config_;

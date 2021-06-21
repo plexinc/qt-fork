@@ -24,6 +24,7 @@
 #include "net/log/net_log_event_type.h"
 #include "net/log/net_log_source.h"
 #include "net/log/net_log_with_source.h"
+#include "net/proxy_resolution/proxy_resolution_request.h"
 #include "net/spdy/spdy_session.h"
 #include "url/url_constants.h"
 
@@ -211,8 +212,6 @@ void HttpStreamFactory::JobController::OnStreamReady(
     const SSLConfig& used_ssl_config) {
   DCHECK(job);
 
-  factory_->OnStreamReady(job->proxy_info(), request_info_.privacy_mode);
-
   if (IsJobOrphaned(job)) {
     // We have bound a job to the associated HttpStreamRequest, |job| has been
     // orphaned.
@@ -345,7 +344,7 @@ void HttpStreamFactory::JobController::OnStreamFailed(
     return;
   }
   delegate_->OnStreamFailed(status, *job->net_error_details(), used_ssl_config,
-                            job->proxy_info());
+                            job->proxy_info(), job->resolve_error_info());
 }
 
 void HttpStreamFactory::JobController::OnFailedOnDefaultNetwork(Job* job) {
@@ -417,12 +416,6 @@ void HttpStreamFactory::JobController::OnNeedsProxyAuth(
     BindJob(job);
   delegate_->OnNeedsProxyAuth(proxy_response, used_ssl_config, used_proxy_info,
                               auth_controller);
-}
-
-bool HttpStreamFactory::JobController::OnInitConnection(
-    const ProxyInfo& proxy_info) {
-  return factory_->OnInitConnection(*this, proxy_info,
-                                    request_info_.privacy_mode);
 }
 
 void HttpStreamFactory::JobController::OnPreconnectsComplete(Job* job) {
@@ -627,10 +620,10 @@ int HttpStreamFactory::JobController::DoResolveProxy() {
   GURL origin_url = ApplyHostMappingRules(request_info_.url, &destination);
 
   CompletionOnceCallback io_callback =
-      base::Bind(&JobController::OnIOComplete, base::Unretained(this));
+      base::BindOnce(&JobController::OnIOComplete, base::Unretained(this));
   return session_->proxy_resolution_service()->ResolveProxy(
-      origin_url, request_info_.method, &proxy_info_, std::move(io_callback),
-      &proxy_resolve_request_, net_log_);
+      origin_url, request_info_.method, request_info_.network_isolation_key,
+      &proxy_info_, std::move(io_callback), &proxy_resolve_request_, net_log_);
 }
 
 int HttpStreamFactory::JobController::DoResolveProxyComplete(int rv) {
@@ -886,7 +879,8 @@ void HttpStreamFactory::JobController::MaybeReportBrokenAlternativeService() {
     // network changes.
     session_->http_server_properties()
         ->MarkAlternativeServiceBrokenUntilDefaultNetworkChanges(
-            alternative_service_info_.alternative_service());
+            alternative_service_info_.alternative_service(),
+            request_info_.network_isolation_key);
     // Reset error status for Jobs after reporting brokenness.
     ResetErrorStatusForJobs();
     return;
@@ -907,7 +901,8 @@ void HttpStreamFactory::JobController::MaybeReportBrokenAlternativeService() {
   HistogramBrokenAlternateProtocolLocation(
       BROKEN_ALTERNATE_PROTOCOL_LOCATION_HTTP_STREAM_FACTORY_JOB_ALT);
   session_->http_server_properties()->MarkAlternativeServiceBroken(
-      alternative_service_info_.alternative_service());
+      alternative_service_info_.alternative_service(),
+      request_info_.network_isolation_key);
   // Reset error status for Jobs after reporting brokenness.
   ResetErrorStatusForJobs();
 }
@@ -929,7 +924,7 @@ void HttpStreamFactory::JobController::NotifyRequestFailed(int rv) {
   if (!request_)
     return;
   delegate_->OnStreamFailed(rv, NetErrorDetails(), server_ssl_config_,
-                            ProxyInfo());
+                            ProxyInfo(), ResolveErrorInfo());
 }
 
 GURL HttpStreamFactory::JobController::ApplyHostMappingRules(
@@ -993,7 +988,8 @@ HttpStreamFactory::JobController::GetAlternativeServiceInfoInternal(
   HttpServerProperties& http_server_properties =
       *session_->http_server_properties();
   const AlternativeServiceInfoVector alternative_service_info_vector =
-      http_server_properties.GetAlternativeServiceInfos(origin);
+      http_server_properties.GetAlternativeServiceInfos(
+          origin, request_info.network_isolation_key);
   if (alternative_service_info_vector.empty())
     return AlternativeServiceInfo();
 
@@ -1003,19 +999,25 @@ HttpStreamFactory::JobController::GetAlternativeServiceInfoInternal(
   // First alternative service that is not marked as broken.
   AlternativeServiceInfo first_alternative_service_info;
 
+  bool is_any_broken = false;
   for (const AlternativeServiceInfo& alternative_service_info :
        alternative_service_info_vector) {
     DCHECK(IsAlternateProtocolValid(alternative_service_info.protocol()));
     if (!quic_advertised && alternative_service_info.protocol() == kProtoQUIC)
       quic_advertised = true;
     const bool is_broken = http_server_properties.IsAlternativeServiceBroken(
-        alternative_service_info.alternative_service());
+        alternative_service_info.alternative_service(),
+        request_info.network_isolation_key);
     net_log_.AddEvent(
         NetLogEventType::HTTP_STREAM_JOB_CONTROLLER_ALT_SVC_FOUND, [&] {
           return NetLogAltSvcParams(&alternative_service_info, is_broken);
         });
     if (is_broken) {
-      HistogramAlternateProtocolUsage(ALTERNATE_PROTOCOL_USAGE_BROKEN, false);
+      if (!is_any_broken) {
+        // Only log the broken alternative service once per request.
+        is_any_broken = true;
+        HistogramAlternateProtocolUsage(ALTERNATE_PROTOCOL_USAGE_BROKEN, false);
+      }
       continue;
     }
 
@@ -1048,7 +1050,9 @@ HttpStreamFactory::JobController::GetAlternativeServiceInfoInternal(
       continue;
 
     if (stream_type == HttpStreamRequest::BIDIRECTIONAL_STREAM &&
-        session_->params().quic_params.disable_bidirectional_streams) {
+        session_->context()
+            .quic_context->params()
+            ->disable_bidirectional_streams) {
       continue;
     }
 
@@ -1064,13 +1068,13 @@ HttpStreamFactory::JobController::GetAlternativeServiceInfoInternal(
     // Check whether there is an existing QUIC session to use for this origin.
     HostPortPair mapped_origin(origin.host(), origin.port());
     ignore_result(ApplyHostMappingRules(original_url, &mapped_origin));
-    QuicSessionKey session_key(mapped_origin, request_info.privacy_mode,
-                               request_info.socket_tag,
-                               request_info.network_isolation_key);
+    QuicSessionKey session_key(
+        mapped_origin, request_info.privacy_mode, request_info.socket_tag,
+        request_info.network_isolation_key, request_info.disable_secure_dns);
 
     HostPortPair destination(alternative_service_info.host_port_pair());
     if (session_key.host() != destination.host() &&
-        !session_->params().quic_params.allow_remote_alt_svc) {
+        !session_->context().quic_context->params()->allow_remote_alt_svc) {
       continue;
     }
     ignore_result(ApplyHostMappingRules(original_url, &destination));
@@ -1079,7 +1083,7 @@ HttpStreamFactory::JobController::GetAlternativeServiceInfoInternal(
                                                                destination))
       return alternative_service_info;
 
-    if (!IsQuicWhitelistedForHost(destination.host()))
+    if (!IsQuicAllowedForHost(destination.host()))
       continue;
 
     // Cache this entry if we don't have a non-broken Alt-Svc yet.
@@ -1097,7 +1101,7 @@ HttpStreamFactory::JobController::GetAlternativeServiceInfoInternal(
 quic::ParsedQuicVersion HttpStreamFactory::JobController::SelectQuicVersion(
     const quic::ParsedQuicVersionVector& advertised_versions) {
   const quic::ParsedQuicVersionVector& supported_versions =
-      session_->params().quic_params.supported_versions;
+      session_->context().quic_context->params()->supported_versions;
   if (advertised_versions.empty())
     return supported_versions[0];
 
@@ -1205,8 +1209,8 @@ int HttpStreamFactory::JobController::ReconsiderProxyAfterError(Job* job,
   if (request_info_.load_flags & LOAD_BYPASS_PROXY)
     return error;
 
-  if (proxy_info_.is_https() && proxy_ssl_config_.send_client_cert) {
-    session_->ssl_client_auth_cache()->Remove(
+  if (proxy_info_.is_https()) {
+    session_->ssl_client_context()->ClearClientCertificate(
         proxy_info_.proxy_server().host_port_pair());
   }
 
@@ -1233,15 +1237,15 @@ int HttpStreamFactory::JobController::ReconsiderProxyAfterError(Job* job,
   return OK;
 }
 
-bool HttpStreamFactory::JobController::IsQuicWhitelistedForHost(
+bool HttpStreamFactory::JobController::IsQuicAllowedForHost(
     const std::string& host) {
-  const base::flat_set<std::string>& host_whitelist =
-      session_->params().quic_host_whitelist;
-  if (host_whitelist.empty())
+  const base::flat_set<std::string>& host_allowlist =
+      session_->params().quic_host_allowlist;
+  if (host_allowlist.empty())
     return true;
 
   std::string lowered_host = base::ToLowerASCII(host);
-  return base::Contains(host_whitelist, lowered_host);
+  return base::Contains(host_allowlist, lowered_host);
 }
 
 }  // namespace net

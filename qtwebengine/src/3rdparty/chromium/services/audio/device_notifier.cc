@@ -14,8 +14,7 @@
 namespace audio {
 
 DeviceNotifier::DeviceNotifier()
-    : task_runner_(base::SequencedTaskRunnerHandle::Get()),
-      weak_factory_(this) {
+    : task_runner_(base::SequencedTaskRunnerHandle::Get()) {
   base::SystemMonitor::Get()->AddDevicesChangedObserver(this);
 }
 
@@ -24,10 +23,10 @@ DeviceNotifier::~DeviceNotifier() {
   base::SystemMonitor::Get()->RemoveDevicesChangedObserver(this);
 }
 
-void DeviceNotifier::Bind(mojo::PendingReceiver<mojom::DeviceNotifier> receiver,
-                          TracedServiceRef context_ref) {
+void DeviceNotifier::Bind(
+    mojo::PendingReceiver<mojom::DeviceNotifier> receiver) {
   DCHECK(task_runner_->RunsTasksInCurrentSequence());
-  receivers_.Add(this, std::move(receiver), std::move(context_ref));
+  receivers_.Add(this, std::move(receiver));
 }
 
 void DeviceNotifier::RegisterListener(

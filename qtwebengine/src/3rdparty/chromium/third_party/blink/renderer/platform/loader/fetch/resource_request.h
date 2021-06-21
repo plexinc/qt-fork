@@ -34,11 +34,13 @@
 #include "base/optional.h"
 #include "base/time/time.h"
 #include "base/unguessable_token.h"
+#include "net/cookies/site_for_cookies.h"
 #include "services/metrics/public/cpp/ukm_source_id.h"
-#include "services/network/public/mojom/cors.mojom-blink.h"
-#include "services/network/public/mojom/fetch_api.mojom-blink.h"
-#include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink.h"
-#include "third_party/blink/public/mojom/net/ip_address_space.mojom-blink.h"
+#include "services/network/public/mojom/cors.mojom-blink-forward.h"
+#include "services/network/public/mojom/fetch_api.mojom-blink-forward.h"
+#include "services/network/public/mojom/ip_address_space.mojom-blink-forward.h"
+#include "services/network/public/mojom/trust_tokens.mojom-blink.h"
+#include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink-forward.h"
 #include "third_party/blink/public/platform/resource_request_blocked_reason.h"
 #include "third_party/blink/public/platform/web_url_request.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_load_priority.h"
@@ -46,93 +48,44 @@
 #include "third_party/blink/renderer/platform/network/http_names.h"
 #include "third_party/blink/renderer/platform/network/http_parsers.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
-#include "third_party/blink/renderer/platform/weborigin/referrer.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
 #include "third_party/blink/renderer/platform/wtf/ref_counted.h"
-#include "third_party/blink/renderer/platform/wtf/time.h"
 
 namespace blink {
 
 class EncodedFormData;
 
-// A ResourceRequest is a "request" object for ResourceLoader. Conceptually
-// it is https://fetch.spec.whatwg.org/#concept-request, but it contains
-// a lot of blink specific fields. WebURLRequest is the "public version"
-// of this class and WebURLLoader needs it. See WebURLRequest and
-// WrappedResourceRequest.
-//
-// This class is thread-bound. Do not copy/pass an instance across threads.
-class PLATFORM_EXPORT ResourceRequest final {
-  USING_FAST_MALLOC(ResourceRequest);
+// ResourceRequestHead represents request without request body.
+// See ResourceRequest below to see what request is.
+// ResourceRequestHead is implicitly copyable while ResourceRequest is not.
+// TODO(yoichio) : Migrate existing ResourceRequest occurrence not using request
+// body to ResourceRequestHead.
+class PLATFORM_EXPORT ResourceRequestHead {
+  DISALLOW_NEW();
 
  public:
-  enum class RedirectStatus : uint8_t { kFollowedRedirect, kNoRedirect };
-  // TODO(domfarolino): Remove these location enums when Referer header crash
-  // debugging is done.
-  enum class SetHttpReferrerLocation : uint8_t {
-    kCreateRedirectRequest,
-    kFrameLoaderResourceRequestForReload,
-    kFrameLoadRequest,
-    kInspectorNetworkAgent,
-    kLocalDomWindow,
-    kResourceFetcher,
-    kWebURLRequest,
-  };
-  enum class SetReferrerStringLocation : uint8_t {
-    kCSSFontFaceSrcValueFetch,
-    kCSSImageSetValueCacheImage,
-    kCSSImageValueCacheImage,
-    kHistoryItem,
-    kModuleScriptLoader,
-    kPerformHTTPFetch,
-    kPingLoader,
-    kPreloadRequestStart,
-    kResourceFetcher,
-    kThreadableLoaderCreateAccessControlPreflightRequest,
-    kThreadableLoaderPrepareCrossOriginRequest,
-    kWebLocalFrameImpl,
-    kWebURLRequest,
-  };
-  enum class SetReferrerPolicyLocation : uint8_t {
-    kAnchorElement,
-    kCSSFontFaceSrcValueFetch,
-    kCSSImageSetValueCacheImage,
-    kCSSImageValueCacheImage,
-    kFrameOwnerLoadOrRedirectSubframe,
-    kHistoryItem,
-    kImageLoader,
-    kLinkImport,
-    kLoadStylesheet,
-    kModuleLoader,
-    kPerformHTTPFetch,
-    kPingLoader,
-    kPrefetchIfNeeded,
-    kPreloadIfNeeded,
-    kPreloadRequestStart,
-    kResourceFetcher,
-    kSFOCreateFetchParameters,
-    kThreadableLoaderCreateAccessControlPreflightRequest,
-    kThreadableLoaderPrepareCrossOriginRequest,
-    kWebLocalFrameImpl,
-  };
+  enum class RedirectStatus : uint8_t {
+    kFollowedRedirect,
+    kNoRedirect
+  };  // TO REMOVE
 
-  ResourceRequest();
-  explicit ResourceRequest(const String& url_string);
-  explicit ResourceRequest(const KURL&);
+  ResourceRequestHead();
+  explicit ResourceRequestHead(const KURL&);
 
-  // TODO(toyoshim): Use std::unique_ptr as much as possible, and hopefully
-  // make ResourceRequest DISALLOW_COPY_AND_ASSIGN. See crbug.com/787704.
-  ResourceRequest(const ResourceRequest&);
-  ResourceRequest& operator=(const ResourceRequest&);
+  ResourceRequestHead(const ResourceRequestHead&);
+  ResourceRequestHead& operator=(const ResourceRequestHead&);
+  ResourceRequestHead(ResourceRequestHead&&);
+  ResourceRequestHead& operator=(ResourceRequestHead&&);
 
-  ~ResourceRequest();
+  ~ResourceRequestHead();
 
   // Constructs a new ResourceRequest for a redirect from this instance.
+  // Since body for a redirect request is kept and handled in the network
+  // service, the returned instance here in blink side doesn't contain body.
   std::unique_ptr<ResourceRequest> CreateRedirectRequest(
       const KURL& new_url,
       const AtomicString& new_method,
-      const KURL& new_site_for_cookies,
-      scoped_refptr<const SecurityOrigin> new_top_frame_origin,
+      const net::SiteForCookies& new_site_for_cookies,
       const String& new_referrer,
       network::mojom::ReferrerPolicy new_referrer_policy,
       bool skip_service_worker) const;
@@ -142,14 +95,6 @@ class PLATFORM_EXPORT ResourceRequest final {
   const KURL& Url() const;
   void SetUrl(const KURL&);
 
-  // ThreadableLoader sometimes breaks redirect chains into separate Resource
-  // and ResourceRequests. The ResourceTiming API needs the initial URL for the
-  // name attribute of PerformanceResourceTiming entries. This property
-  // remembers the initial URL for that purpose. Note that it can return a null
-  // URL. In that case, use Url() instead.
-  const KURL& GetInitialUrlForResourceTiming() const;
-  void SetInitialUrlForResourceTiming(const KURL&);
-
   void RemoveUserAndPassFromURL();
 
   mojom::FetchCacheMode GetCacheMode() const;
@@ -158,8 +103,12 @@ class PLATFORM_EXPORT ResourceRequest final {
   base::TimeDelta TimeoutInterval() const;
   void SetTimeoutInterval(base::TimeDelta);
 
-  const KURL& SiteForCookies() const;
-  void SetSiteForCookies(const KURL&);
+  const net::SiteForCookies& SiteForCookies() const;
+  void SetSiteForCookies(const net::SiteForCookies&);
+
+  // Returns true if SiteForCookies() was set either via SetSiteForCookies or
+  // CreateRedirectRequest.
+  bool SiteForCookiesSet() const { return site_for_cookies_set_; }
 
   const SecurityOrigin* TopFrameOrigin() const;
   void SetTopFrameOrigin(scoped_refptr<const SecurityOrigin>);
@@ -174,6 +123,15 @@ class PLATFORM_EXPORT ResourceRequest final {
   }
   void SetRequestorOrigin(scoped_refptr<const SecurityOrigin> origin) {
     requestor_origin_ = std::move(origin);
+  }
+
+  // The origin of the isolated world - set if this is a fetch/XHR initiated by
+  // an isolated world.
+  const scoped_refptr<const SecurityOrigin>& IsolatedWorldOrigin() const {
+    return isolated_world_origin_;
+  }
+  void SetIsolatedWorldOrigin(scoped_refptr<const SecurityOrigin> origin) {
+    isolated_world_origin_ = std::move(origin);
   }
 
   const AtomicString& HttpMethod() const;
@@ -193,42 +151,17 @@ class PLATFORM_EXPORT ResourceRequest final {
     SetHttpHeaderField(http_names::kContentType, http_content_type);
   }
 
-  // TODO(domfarolino): Remove this once we stop storing the generated referrer
-  // as a header, and instead use a separate member. See
-  // https://crbug.com/850813.
-  const AtomicString& HttpReferrer() const {
-    return HttpHeaderField(http_names::kReferer);
-  }
-  SetHttpReferrerLocation HttpReferrerLocation() const {
-    return set_http_referrer_location_;
-  }
-  void SetHttpReferrer(const Referrer&, SetHttpReferrerLocation);
-  bool DidSetHttpReferrer() const { return did_set_http_referrer_; }
-  void ClearHTTPReferrer();
-
-  void SetReferrerPolicy(
-      network::mojom::ReferrerPolicy referrer_policy,
-      SetReferrerPolicyLocation set_referrer_policy_location) {
+  void SetReferrerPolicy(network::mojom::ReferrerPolicy referrer_policy) {
     referrer_policy_ = referrer_policy;
-    set_referrer_policy_location_ = set_referrer_policy_location;
   }
   network::mojom::ReferrerPolicy GetReferrerPolicy() const {
     return referrer_policy_;
   }
-  SetReferrerPolicyLocation ReferrerPolicyLocation() const {
-    return set_referrer_policy_location_;
-  }
 
-  void SetReferrerString(
-      const String& referrer_string,
-      SetReferrerStringLocation set_referrer_string_location) {
+  void SetReferrerString(const String& referrer_string) {
     referrer_string_ = referrer_string;
-    set_referrer_string_location_ = set_referrer_string_location;
   }
   const String& ReferrerString() const { return referrer_string_; }
-  SetReferrerStringLocation ReferrerStringLocation() const {
-    return set_referrer_string_location_;
-  }
 
   const AtomicString& HttpOrigin() const {
     return HttpHeaderField(http_names::kOrigin);
@@ -246,9 +179,6 @@ class PLATFORM_EXPORT ResourceRequest final {
   void SetHTTPAccept(const AtomicString& http_accept) {
     SetHttpHeaderField(http_names::kAccept, http_accept);
   }
-
-  EncodedFormData* HttpBody() const;
-  void SetHttpBody(scoped_refptr<EncodedFormData>);
 
   bool AllowStoredCredentials() const;
   void SetAllowStoredCredentials(bool allow_credentials);
@@ -278,23 +208,6 @@ class PLATFORM_EXPORT ResourceRequest final {
   // Allows the request to be matched up with its requestor.
   int RequestorID() const { return requestor_id_; }
   void SetRequestorID(int requestor_id) { requestor_id_ = requestor_id; }
-
-  // The unique child id (not PID) of the process from which this request
-  // originated. In the case of out-of-process plugins, this allows to link back
-  // the request to the plugin process (as it is processed through a render view
-  // process).
-  int GetPluginChildID() const { return plugin_child_id_; }
-  void SetPluginChildID(int plugin_child_id) {
-    plugin_child_id_ = plugin_child_id;
-  }
-
-  // Allows the request to be matched up with its app cache host.
-  const base::UnguessableToken& AppCacheHostID() const {
-    return app_cache_host_id_;
-  }
-  void SetAppCacheHostID(const base::UnguessableToken& id) {
-    app_cache_host_id_ = id;
-  }
 
   // True if request was user initiated.
   bool HasUserGesture() const { return has_user_gesture_; }
@@ -330,16 +243,11 @@ class PLATFORM_EXPORT ResourceRequest final {
   }
 
   // Extra data associated with this request.
-  WebURLRequest::ExtraData* GetExtraData() const {
-    return sharable_extra_data_ ? sharable_extra_data_->data.get() : nullptr;
+  const scoped_refptr<WebURLRequest::ExtraData>& GetExtraData() const {
+    return extra_data_;
   }
-  void SetExtraData(std::unique_ptr<WebURLRequest::ExtraData> extra_data) {
-    if (extra_data) {
-      sharable_extra_data_ =
-          base::MakeRefCounted<SharableExtraData>(std::move(extra_data));
-    } else {
-      sharable_extra_data_ = nullptr;
-    }
+  void SetExtraData(scoped_refptr<WebURLRequest::ExtraData> extra_data) {
+    extra_data_ = extra_data;
   }
 
   bool IsDownloadToNetworkCacheOnly() const { return download_to_cache_only_; }
@@ -353,6 +261,13 @@ class PLATFORM_EXPORT ResourceRequest final {
   }
   void SetRequestContext(mojom::RequestContextType context) {
     request_context_ = context;
+  }
+
+  network::mojom::RequestDestination GetRequestDestination() const {
+    return destination_;
+  }
+  void SetRequestDestination(network::mojom::RequestDestination destination) {
+    destination_ = destination;
   }
 
   network::mojom::RequestMode GetMode() const { return mode_; }
@@ -405,7 +320,8 @@ class PLATFORM_EXPORT ResourceRequest final {
 
   // https://wicg.github.io/cors-rfc1918/#external-request
   bool IsExternalRequest() const { return is_external_request_; }
-  void SetExternalRequestStateFromRequestorAddressSpace(mojom::IPAddressSpace);
+  void SetExternalRequestStateFromRequestorAddressSpace(
+      network::mojom::IPAddressSpace);
 
   network::mojom::CorsPreflightPolicy CorsPreflightPolicy() const {
     return cors_preflight_policy_;
@@ -414,8 +330,7 @@ class PLATFORM_EXPORT ResourceRequest final {
     cors_preflight_policy_ = policy;
   }
 
-  void SetRedirectStatus(RedirectStatus status) { redirect_status_ = status; }
-  RedirectStatus GetRedirectStatus() const { return redirect_status_; }
+  const Vector<KURL>& GetRedirectChain() const { return redirect_chain_; }
 
   void SetSuggestedFilename(const base::Optional<String>& suggested_filename) {
     suggested_filename_ = suggested_filename;
@@ -438,13 +353,6 @@ class PLATFORM_EXPORT ResourceRequest final {
     is_automatic_upgrade_ = is_automatic_upgrade;
   }
   bool IsAutomaticUpgrade() const { return is_automatic_upgrade_; }
-
-  bool ShouldAlsoUseFactoryBoundOriginForCors() const {
-    return should_also_use_factory_bound_origin_for_cors_;
-  }
-  void SetShouldAlsoUseFactoryBoundOriginForCors(bool value) {
-    should_also_use_factory_bound_origin_for_cors_ = value;
-  }
 
   void SetAllowStaleResponse(bool value) { allow_stale_response_ = value; }
   bool AllowsStaleResponse() const { return allow_stale_response_; }
@@ -489,6 +397,14 @@ class PLATFORM_EXPORT ResourceRequest final {
     return fetch_window_id_;
   }
 
+  void SetRecursivePrefetchToken(
+      const base::Optional<base::UnguessableToken>& token) {
+    recursive_prefetch_token_ = token;
+  }
+  const base::Optional<base::UnguessableToken>& RecursivePrefetchToken() const {
+    return recursive_prefetch_token_;
+  }
+
   void SetInspectorId(uint64_t inspector_id) { inspector_id_ = inspector_id; }
   uint64_t InspectorId() const { return inspector_id_; }
 
@@ -511,29 +427,45 @@ class PLATFORM_EXPORT ResourceRequest final {
     is_signed_exchange_prefetch_cache_enabled_ = enabled;
   }
 
- private:
-  using SharableExtraData =
-      base::RefCountedData<std::unique_ptr<WebURLRequest::ExtraData>>;
+  bool PrefetchMaybeForTopLeveNavigation() const {
+    return prefetch_maybe_for_top_level_navigation_;
+  }
+  void SetPrefetchMaybeForTopLevelNavigation(
+      bool prefetch_maybe_for_top_level_navigation) {
+    prefetch_maybe_for_top_level_navigation_ =
+        prefetch_maybe_for_top_level_navigation;
+  }
 
+  const base::Optional<network::mojom::blink::TrustTokenParams>&
+  TrustTokenParams() const {
+    return trust_token_params_;
+  }
+  void SetTrustTokenParams(
+      base::Optional<network::mojom::blink::TrustTokenParams> params) {
+    trust_token_params_ = std::move(params);
+  }
+
+  // Whether either RequestorOrigin or IsolatedWorldOrigin can display the
+  // |url|,
+  bool CanDisplay(const KURL&) const;
+
+ private:
   const CacheControlHeader& GetCacheControlHeader() const;
 
   bool NeedsHTTPOrigin() const;
 
   KURL url_;
-  // TODO(yoav): initial_url_for_resource_timing_ is a stop-gap only needed
-  // until Out-of-Blink CORS lands: https://crbug.com/736308
-  KURL initial_url_for_resource_timing_;
   // base::TimeDelta::Max() represents the default timeout on platforms that
   // have one.
   base::TimeDelta timeout_interval_;
-  KURL site_for_cookies_;
+  net::SiteForCookies site_for_cookies_;
   scoped_refptr<const SecurityOrigin> top_frame_origin_;
 
   scoped_refptr<const SecurityOrigin> requestor_origin_;
+  scoped_refptr<const SecurityOrigin> isolated_world_origin_;
 
   AtomicString http_method_;
   HTTPHeaderMap http_header_fields_;
-  scoped_refptr<EncodedFormData> http_body_;
   bool allow_stored_credentials_ : 1;
   bool report_upload_progress_ : 1;
   bool report_raw_headers_ : 1;
@@ -546,32 +478,25 @@ class PLATFORM_EXPORT ResourceRequest final {
   mojom::FetchCacheMode cache_mode_;
   bool skip_service_worker_ : 1;
   bool download_to_cache_only_ : 1;
+  bool site_for_cookies_set_ : 1;
   ResourceLoadPriority priority_;
   int intra_priority_value_;
   int requestor_id_;
-  int plugin_child_id_;
-  base::UnguessableToken app_cache_host_id_;
   WebURLRequest::PreviewsState previews_state_;
-  scoped_refptr<SharableExtraData> sharable_extra_data_;
+  scoped_refptr<WebURLRequest::ExtraData> extra_data_;
   mojom::RequestContextType request_context_;
+  network::mojom::RequestDestination destination_;
   network::mojom::RequestMode mode_;
   mojom::FetchImportanceMode fetch_importance_mode_;
   network::mojom::CredentialsMode credentials_mode_;
   network::mojom::RedirectMode redirect_mode_;
   String fetch_integrity_;
-  // TODO(domfarolino): Use AtomicString for referrer_string_ once
-  // off-main-thread fetch is fully implemented and ResourceRequest never gets
-  // transferred between threads. See https://crbug.com/706331.
   String referrer_string_;
   network::mojom::ReferrerPolicy referrer_policy_;
-  bool did_set_http_referrer_;
   bool is_external_request_;
   network::mojom::CorsPreflightPolicy cors_preflight_policy_;
-  RedirectStatus redirect_status_;
-  // TODO(domfarolino): Remove these after crash debugging is complete.
-  SetHttpReferrerLocation set_http_referrer_location_;
-  SetReferrerStringLocation set_referrer_string_location_;
-  SetReferrerPolicyLocation set_referrer_policy_location_;
+  Vector<KURL> redirect_chain_;
+  base::Optional<network::mojom::blink::TrustTokenParams> trust_token_params_;
 
   base::Optional<String> suggested_filename_;
 
@@ -585,7 +510,6 @@ class PLATFORM_EXPORT ResourceRequest final {
   bool is_revalidating_ = false;
 
   bool is_automatic_upgrade_ = false;
-  bool should_also_use_factory_bound_origin_for_cors_ = false;
 
   base::Optional<base::UnguessableToken> devtools_token_;
   base::Optional<String> devtools_id_;
@@ -602,6 +526,81 @@ class PLATFORM_EXPORT ResourceRequest final {
   bool is_from_origin_dirty_style_sheet_ = false;
 
   bool is_signed_exchange_prefetch_cache_enabled_ = false;
+
+  // Currently this is only used when a prefetch request has `as=document`
+  // specified. If true, and the request is cross-origin, the browser will cache
+  // the request under the cross-origin's partition. Furthermore, its reuse from
+  // the prefetch cache will be restricted to top-level-navigations.
+  bool prefetch_maybe_for_top_level_navigation_ = false;
+
+  // This is used when fetching preload header requests from cross-origin
+  // prefetch responses. The browser process uses this token to ensure the
+  // request is cached correctly.
+  base::Optional<base::UnguessableToken> recursive_prefetch_token_;
+};
+
+class PLATFORM_EXPORT ResourceRequestBody {
+ public:
+  ResourceRequestBody();
+  explicit ResourceRequestBody(scoped_refptr<EncodedFormData> form_body);
+  ResourceRequestBody(const ResourceRequestBody&) = delete;
+  ResourceRequestBody(ResourceRequestBody&&);
+
+  ResourceRequestBody& operator=(const ResourceRequestBody&) = delete;
+  ResourceRequestBody& operator=(ResourceRequestBody&&);
+
+  ~ResourceRequestBody();
+
+  const scoped_refptr<EncodedFormData>& FormBody() const { return form_body_; }
+  void SetFormBody(scoped_refptr<EncodedFormData>);
+
+ private:
+  scoped_refptr<EncodedFormData> form_body_;
+};
+
+// A ResourceRequest is a "request" object for ResourceLoader. Conceptually
+// it is https://fetch.spec.whatwg.org/#concept-request, but it contains
+// a lot of blink specific fields. WebURLRequest is the "public version"
+// of this class and WebURLLoader needs it. See WebURLRequest and
+// WrappedResourceRequest.
+//
+// This class is thread-bound. Do not copy/pass an instance across threads.
+//
+// Although request consists head and body, ResourceRequest is implemented by
+// inheriting ResourceRequestHead due in order to make it possible to use
+// property accessors through both ResourceRequestHead and ResourceRequest while
+// avoiding duplicate accessor definitions.
+// For those who want to add a new property in request, please implement its
+// member and accessors in ResourceRequestHead instead of ResourceRequest.
+class PLATFORM_EXPORT ResourceRequest final : public ResourceRequestHead {
+  USING_FAST_MALLOC(ResourceRequest);
+
+ public:
+  ResourceRequest();
+  explicit ResourceRequest(const String& url_string);
+  explicit ResourceRequest(const KURL&);
+  explicit ResourceRequest(const ResourceRequestHead&);
+
+  ResourceRequest(const ResourceRequest&) = delete;
+  ResourceRequest(ResourceRequest&&);
+  ResourceRequest& operator=(ResourceRequest&&);
+
+  ~ResourceRequest();
+
+  // TODO(yoichio): Use move semantics as much as possible.
+  // See crbug.com/787704.
+  void CopyFrom(const ResourceRequest&);
+  void CopyHeadFrom(const ResourceRequestHead&);
+
+  const scoped_refptr<EncodedFormData>& HttpBody() const;
+  void SetHttpBody(scoped_refptr<EncodedFormData>);
+
+  ResourceRequestBody& MutableBody() { return body_; }
+
+ private:
+  ResourceRequest& operator=(const ResourceRequest&);
+
+  ResourceRequestBody body_;
 };
 
 }  // namespace blink

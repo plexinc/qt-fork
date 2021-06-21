@@ -7,7 +7,7 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "media/learning/impl/distribution_reporter.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -35,11 +35,13 @@ class LearningTaskControllerImplTest : public testing::Test {
       dist += info.observed;
       if (dist == predicted)
         num_correct_++;
+      most_recent_source_id_ = info.source_id;
     }
 
    public:
     int num_reported_ = 0;
     int num_correct_ = 0;
+    ukm::SourceId most_recent_source_id_;
   };
 
   // Model that always predicts a constant.
@@ -112,7 +114,7 @@ class LearningTaskControllerImplTest : public testing::Test {
     // To prevent a memory leak, reset the controller.  This may post
     // destruction of other objects, so RunUntilIdle().
     controller_.reset();
-    scoped_task_environment_.RunUntilIdle();
+    task_environment_.RunUntilIdle();
   }
 
   void CreateController(SequenceBoundFeatureProvider feature_provider =
@@ -130,14 +132,30 @@ class LearningTaskControllerImplTest : public testing::Test {
     controller_->SetTrainerForTesting(std::move(fake_trainer));
   }
 
-  void AddExample(const LabelledExample& example) {
+  void AddExample(const LabelledExample& example,
+                  base::Optional<ukm::SourceId> source_id = base::nullopt) {
     base::UnguessableToken id = base::UnguessableToken::Create();
-    controller_->BeginObservation(id, example.features);
+    controller_->BeginObservation(id, example.features, base::nullopt,
+                                  source_id);
     controller_->CompleteObservation(
         id, ObservationCompletion(example.target_value, example.weight));
   }
 
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  void VerifyPrediction(const FeatureVector& features,
+                        base::Optional<TargetHistogram> expectation) {
+    base::Optional<TargetHistogram> observed_prediction;
+    controller_->PredictDistribution(
+        features, base::BindOnce(
+                      [](base::Optional<TargetHistogram>* test_storage,
+                         const base::Optional<TargetHistogram>& predicted) {
+                        *test_storage = predicted;
+                      },
+                      &observed_prediction));
+    task_environment_.RunUntilIdle();
+    EXPECT_EQ(observed_prediction, expectation);
+  }
+
+  base::test::TaskEnvironment task_environment_;
 
   // Number of models that we trained.
   int num_models_ = 0;
@@ -208,7 +226,7 @@ TEST_F(LearningTaskControllerImplTest, FeatureProviderIsUsed) {
   example.features.push_back(FeatureValue(123));
   example.weight = 321u;
   AddExample(example);
-  scoped_task_environment_.RunUntilIdle();
+  task_environment_.RunUntilIdle();
   EXPECT_EQ(trainer_raw_->training_data()[0].features[0], FeatureValue(124));
   EXPECT_EQ(trainer_raw_->training_data()[0].weight, example.weight);
 }
@@ -256,6 +274,30 @@ TEST_F(LearningTaskControllerImplTest, FeatureSubsetsWork) {
   // Verify that the training data has the adjusted features.
   EXPECT_EQ(trainer_raw_->training_data().size(), 1u);
   EXPECT_EQ(trainer_raw_->training_data()[0].features, expected_features);
+}
+
+TEST_F(LearningTaskControllerImplTest, PredictDistribution) {
+  CreateController();
+
+  // Predictions should be base::nullopt until we have a model.
+  LabelledExample example;
+  VerifyPrediction(example.features, base::nullopt);
+
+  AddExample(example);
+  TargetHistogram expected_histogram;
+  expected_histogram += predicted_target_;
+  VerifyPrediction(example.features, expected_histogram);
+}
+
+TEST_F(LearningTaskControllerImplTest,
+       SourceIdIsProvidedToDistributionReporter) {
+  CreateController();
+  LabelledExample example;
+  ukm::SourceId source_id(123);
+  // Add two examples, so that the second causes a prediction to be reported.
+  AddExample(example, source_id);
+  AddExample(example, source_id);
+  EXPECT_EQ(reporter_raw_->most_recent_source_id_, source_id);
 }
 
 }  // namespace learning

@@ -21,7 +21,7 @@ namespace cc {
 class DisplayItemList;
 class PaintFlags;
 
-class CC_PAINT_EXPORT RecordPaintCanvas final : public PaintCanvas {
+class CC_PAINT_EXPORT RecordPaintCanvas : public PaintCanvas {
  public:
   RecordPaintCanvas(DisplayItemList* list, const SkRect& bounds);
   RecordPaintCanvas(const RecordPaintCanvas&) = delete;
@@ -30,6 +30,10 @@ class CC_PAINT_EXPORT RecordPaintCanvas final : public PaintCanvas {
   RecordPaintCanvas& operator=(const RecordPaintCanvas&) = delete;
 
   SkImageInfo imageInfo() const override;
+
+  void* accessTopLayerPixels(SkImageInfo* info,
+                             size_t* rowBytes,
+                             SkIPoint* origin = nullptr) override;
 
   void flush() override;
 
@@ -98,13 +102,13 @@ class CC_PAINT_EXPORT RecordPaintCanvas final : public PaintCanvas {
   void drawPicture(sk_sp<const PaintRecord> record) override;
 
   bool isClipEmpty() const override;
-  bool isClipRect() const override;
-  const SkMatrix& getTotalMatrix() const override;
+  SkMatrix getTotalMatrix() const override;
 
   void Annotate(AnnotationType type,
                 const SkRect& rect,
                 sk_sp<SkData> data) override;
   void recordCustomData(uint32_t id) override;
+  void setNodeId(int) override;
 
   // Don't shadow non-virtual helper functions.
   using PaintCanvas::clipRect;

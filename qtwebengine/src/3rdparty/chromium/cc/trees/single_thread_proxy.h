@@ -17,11 +17,11 @@
 
 namespace viz {
 class BeginFrameSource;
+struct FrameTimingDetails;
 }
 
 namespace cc {
 
-class MutatorEvents;
 class LayerTreeHost;
 class LayerTreeHostSingleThreadClient;
 class RenderFrameMetadataObserver;
@@ -78,7 +78,8 @@ class CC_EXPORT SingleThreadProxy : public Proxy,
   // SchedulerClient implementation
   bool WillBeginImplFrame(const viz::BeginFrameArgs& args) override;
   void DidFinishImplFrame() override;
-  void DidNotProduceFrame(const viz::BeginFrameAck& ack) override;
+  void DidNotProduceFrame(const viz::BeginFrameAck& ack,
+                          FrameSkippedReason reason) override;
   void WillNotReceiveBeginFrame() override;
   void ScheduledActionSendBeginMainFrame(
       const viz::BeginFrameArgs& args) override;
@@ -96,6 +97,7 @@ class CC_EXPORT SingleThreadProxy : public Proxy,
   void FrameIntervalUpdated(base::TimeDelta interval) override;
   size_t CompositedAnimationsCount() const override;
   size_t MainThreadAnimationsCount() const override;
+  bool HasCustomPropertyAnimations() const override;
   bool CurrentFrameHadRAF() const override;
   bool NextFrameHasPendingRAF() const override;
 
@@ -111,8 +113,6 @@ class CC_EXPORT SingleThreadProxy : public Proxy,
   void SetNeedsPrepareTilesOnImplThread() override;
   void SetNeedsCommitOnImplThread() override;
   void SetVideoNeedsBeginFrames(bool needs_begin_frames) override;
-  void PostAnimationEventsToMainThreadOnImplThread(
-      std::unique_ptr<MutatorEvents> events) override;
   bool IsInsideDraw() override;
   bool IsBeginMainFrameExpected() override;
   void RenewTreePriority() override {}
@@ -130,7 +130,7 @@ class CC_EXPORT SingleThreadProxy : public Proxy,
   void DidPresentCompositorFrameOnImplThread(
       uint32_t frame_token,
       std::vector<LayerTreeHost::PresentationTimeCallback> callbacks,
-      const gfx::PresentationFeedback& feedback) override;
+      const viz::FrameTimingDetails& details) override;
   void NotifyAnimationWorkletStateChange(
       AnimationWorkletMutationState state,
       ElementListType element_list_type) override;
@@ -153,7 +153,7 @@ class CC_EXPORT SingleThreadProxy : public Proxy,
   void BeginMainFrameAbortedOnImplThread(CommitEarlyOutReason reason);
   void DoBeginMainFrame(const viz::BeginFrameArgs& begin_frame_args);
   void DoPainting();
-  void DoCommit();
+  void DoCommit(const viz::BeginFrameArgs& commit_args);
   DrawResult DoComposite(LayerTreeHostImpl::FrameData* frame);
   void DoSwap();
   void DidCommitAndDrawFrame();
@@ -200,6 +200,10 @@ class CC_EXPORT SingleThreadProxy : public Proxy,
   // When output surface is lost, is set to true until a new output surface is
   // initialized.
   bool layer_tree_frame_sink_lost_;
+
+  // A number that kept incrementing in CompositeImmediately, which indicates a
+  // new impl frame.
+  uint64_t begin_frame_sequence_number_ = 1u;
 
   // This is the callback for the scheduled RequestNewLayerTreeFrameSink.
   base::CancelableOnceClosure layer_tree_frame_sink_creation_callback_;

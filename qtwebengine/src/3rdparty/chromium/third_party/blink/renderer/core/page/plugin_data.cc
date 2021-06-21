@@ -23,16 +23,17 @@
 
 #include "third_party/blink/renderer/core/page/plugin_data.h"
 
+#include "mojo/public/cpp/bindings/remote.h"
+#include "third_party/blink/public/common/thread_safe_browser_interface_broker_proxy.h"
 #include "third_party/blink/public/mojom/plugins/plugin_registry.mojom-blink.h"
 #include "third_party/blink/public/platform/file_path_conversion.h"
-#include "third_party/blink/public/platform/interface_provider.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/web_security_origin.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
 
 namespace blink {
 
-void MimeClassInfo::Trace(blink::Visitor* visitor) {
+void MimeClassInfo::Trace(Visitor* visitor) {
   visitor->Trace(plugin_);
 }
 
@@ -41,7 +42,7 @@ MimeClassInfo::MimeClassInfo(const String& type,
                              PluginInfo& plugin)
     : type_(type), description_(description), plugin_(&plugin) {}
 
-void PluginInfo::Trace(blink::Visitor* visitor) {
+void PluginInfo::Trace(Visitor* visitor) {
   visitor->Trace(mimes_);
 }
 
@@ -79,16 +80,16 @@ wtf_size_t PluginInfo::GetMimeClassInfoSize() const {
   return mimes_.size();
 }
 
-void PluginData::Trace(blink::Visitor* visitor) {
+void PluginData::Trace(Visitor* visitor) {
   visitor->Trace(plugins_);
   visitor->Trace(mimes_);
 }
 
 // static
 void PluginData::RefreshBrowserSidePluginCache() {
-  mojom::blink::PluginRegistryPtr registry;
-  Platform::Current()->GetInterfaceProvider()->GetInterface(
-      mojo::MakeRequest(&registry));
+  mojo::Remote<mojom::blink::PluginRegistry> registry;
+  Platform::Current()->GetBrowserInterfaceBroker()->GetInterface(
+      registry.BindNewPipeAndPassReceiver());
   Vector<mojom::blink::PluginInfoPtr> plugins;
   registry->GetPlugins(true, SecurityOrigin::CreateUniqueOpaque(), &plugins);
 }
@@ -97,9 +98,9 @@ void PluginData::UpdatePluginList(const SecurityOrigin* main_frame_origin) {
   ResetPluginData();
   main_frame_origin_ = main_frame_origin;
 
-  mojom::blink::PluginRegistryPtr registry;
-  Platform::Current()->GetInterfaceProvider()->GetInterface(
-      mojo::MakeRequest(&registry));
+  mojo::Remote<mojom::blink::PluginRegistry> registry;
+  Platform::Current()->GetBrowserInterfaceBroker()->GetInterface(
+      registry.BindNewPipeAndPassReceiver());
   Vector<mojom::blink::PluginInfoPtr> plugins;
   registry->GetPlugins(false, main_frame_origin_, &plugins);
   for (const auto& plugin : plugins) {

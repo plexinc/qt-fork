@@ -28,8 +28,7 @@
 #include <mutex>
 #include <queue>
 
-namespace sw
-{
+namespace sw {
 
 // TaskEvents is an interface for notifying when tasks begin and end.
 // Tasks can be nested and/or overlapping.
@@ -43,7 +42,11 @@ public:
 	// a corresponding call to start().
 	virtual void finish() = 0;
 	// complete() is a helper for calling start() followed by finish().
-	inline void complete() { start(); finish(); }
+	inline void complete()
+	{
+		start();
+		finish();
+	}
 
 protected:
 	virtual ~TaskEvents() = default;
@@ -90,8 +93,8 @@ public:
 	// wait() blocks until all the tasks have been finished or the timeout
 	// has been reached, returning true if all tasks have been completed, or
 	// false if the timeout has been reached.
-	template <class CLOCK, class DURATION>
-	bool wait(const std::chrono::time_point<CLOCK, DURATION>& timeout)
+	template<class CLOCK, class DURATION>
+	bool wait(const std::chrono::time_point<CLOCK, DURATION> &timeout)
 	{
 		std::unique_lock<std::mutex> lock(mutex);
 		return condition.wait_until(lock, timeout, [this] { return count_ == 0; });
@@ -112,109 +115,14 @@ public:
 	void finish() override { done(); }
 
 private:
-	int32_t count_ = 0; // guarded by mutex
-	std::mutex mutex;
-	std::condition_variable condition;
-};
-
-// Event is a synchronization mechanism used to indicate to waiting threads
-// when a boolean condition has become true.
-class Event
-{
-public:
-	enum class ClearMode
-	{
-		// The event signal will be automatically reset when a call to wait()
-		// returns.
-		// A single call to signal() will only unblock a single (possibly
-		// pending) call to wait().
-		Auto,
-
-		// The event will remain in the signaled state when calling signal().
-		// While the event is in the signaled state, any calls to wait() will
-		// unblock without automatically reseting the signaled state.
-		// The signaled state can be reset with a call to clear().
-		Manual
-	};
-
-
-	Event(ClearMode mode = ClearMode::Auto, bool initialState = false)
-			: mode(mode), signaled(initialState) {}
-
-	// signal() signals the event, unblocking any calls to wait().
-	void signal()
-	{
-		std::unique_lock<std::mutex> lock(mutex);
-		signaled = true;
-		if (mode == ClearMode::Auto)
-		{
-			condition.notify_one();
-		}
-		else
-		{
-			condition.notify_all();
-		}
-	}
-
-	// clear() sets the event signal to false.
-	void clear()
-	{
-		std::unique_lock<std::mutex> lock(mutex);
-		signaled = false;
-	}
-
-	// wait() blocks until all the event signal is set to true.
-	// If the event was constructed with the Auto ClearMode, then the signal
-	// is cleared before returning.
-	void wait()
-	{
-		std::unique_lock<std::mutex> lock(mutex);
-		condition.wait(lock, [this] { return signaled; });
-		if (mode == ClearMode::Auto)
-		{
-			signaled = false;
-		}
-	}
-
-	// wait() blocks until the event signal is set to true or the timeout
-	// has been reached, returning true if signal was raised, or false if the
-	// timeout has been reached.
-	// If the event was constructed with the Auto ClearMode and the wait did
-	// not time out, then the signal is cleared before returning.
-	template <class CLOCK, class DURATION>
-	bool wait(const std::chrono::time_point<CLOCK, DURATION>& timeout)
-	{
-		std::unique_lock<std::mutex> lock(mutex);
-		if (!condition.wait_until(lock, timeout, [this] { return signaled; }))
-		{
-			return false;
-		}
-		if (mode == ClearMode::Auto)
-		{
-			signaled = false;
-		}
-		return true;
-	}
-
-	// bool() returns true if the event is signaled, otherwise false.
-	// Note: No lock is held after bool() returns, so the event state may
-	// immediately change after returning.
-	operator bool()
-	{
-		std::unique_lock<std::mutex> lock(mutex);
-		return signaled;
-	}
-
-public:
-	const ClearMode mode;
-	bool signaled; // guarded by mutex
+	int32_t count_ = 0;  // guarded by mutex
 	std::mutex mutex;
 	std::condition_variable condition;
 };
 
 // Chan is a thread-safe FIFO queue of type T.
 // Chan takes its name after Golang's chan.
-template <typename T>
+template<typename T>
 class Chan
 {
 public:
@@ -244,10 +152,11 @@ private:
 	std::condition_variable added;
 };
 
-template <typename T>
-Chan<T>::Chan() {}
+template<typename T>
+Chan<T>::Chan()
+{}
 
-template <typename T>
+template<typename T>
 T Chan<T>::take()
 {
 	std::unique_lock<std::mutex> lock(mutex);
@@ -258,11 +167,11 @@ T Chan<T>::take()
 	return out;
 }
 
-template <typename T>
+template<typename T>
 std::pair<T, bool> Chan<T>::tryTake()
 {
 	std::unique_lock<std::mutex> lock(mutex);
-	if (queue.size() == 0)
+	if(queue.size() == 0)
 	{
 		return std::make_pair(T{}, false);
 	}
@@ -271,7 +180,7 @@ std::pair<T, bool> Chan<T>::tryTake()
 	return std::make_pair(out, true);
 }
 
-template <typename T>
+template<typename T>
 void Chan<T>::put(const T &item)
 {
 	std::unique_lock<std::mutex> lock(mutex);
@@ -279,13 +188,13 @@ void Chan<T>::put(const T &item)
 	added.notify_one();
 }
 
-template <typename T>
+template<typename T>
 size_t Chan<T>::count()
 {
 	std::unique_lock<std::mutex> lock(mutex);
 	return queue.size();
 }
 
-} // namespace sw
+}  // namespace sw
 
-#endif // sw_Synchronization_hpp
+#endif  // sw_Synchronization_hpp

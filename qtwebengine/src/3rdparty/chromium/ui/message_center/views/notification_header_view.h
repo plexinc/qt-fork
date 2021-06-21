@@ -50,8 +50,10 @@ class MESSAGE_CENTER_EXPORT NotificationHeaderView : public views::Button {
   void SetBackgroundColor(SkColor color);
 
   void ClearAppIcon();
-  void ClearProgress();
   void SetSubpixelRenderingEnabled(bool enabled);
+
+  // Shows or hides the app icon.
+  void SetAppIconVisible(bool visible);
 
   // views::View:
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
@@ -64,11 +66,17 @@ class MESSAGE_CENTER_EXPORT NotificationHeaderView : public views::Button {
     return summary_text_view_;
   }
 
+  const views::ImageView* app_icon_view_for_testing() const {
+    return app_icon_view_;
+  }
+
+  const views::Label* timestamp_view_for_testing() const {
+    return timestamp_view_;
+  }
+
   const base::string16& app_name_for_testing() const;
 
   const gfx::ImageSkia& app_icon_for_testing() const;
-
-  const base::string16& timestamp_for_testing() const;
 
  private:
   FRIEND_TEST_ALL_PREFIXES(NotificationHeaderViewTest, SettingsMode);

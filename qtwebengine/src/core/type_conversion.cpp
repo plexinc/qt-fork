@@ -39,11 +39,11 @@
 
 #include "type_conversion.h"
 
-#include <content/public/common/favicon_url.h>
 #include <net/cert/x509_certificate.h>
 #include <net/cert/x509_util.h>
 #include <ui/events/event_constants.h>
 #include <ui/gfx/image/image_skia.h>
+#include "third_party/blink/public/mojom/favicon/favicon_url.mojom.h"
 
 #include <QtCore/qcoreapplication.h>
 #include <QtGui/qmatrix4x4.h>
@@ -59,6 +59,11 @@ QImage toQImage(const SkBitmap &bitmap)
     case kRGBA_F16_SkColorType:
     case kRGBA_F32_SkColorType:
     case kRGBA_F16Norm_SkColorType:
+    case kR8G8_unorm_SkColorType:
+    case kA16_float_SkColorType:
+    case kA16_unorm_SkColorType:
+    case kR16G16_float_SkColorType:
+    case kR16G16_unorm_SkColorType:
         qWarning("Unknown or unsupported skia image format");
         break;
     case kAlpha_8_SkColorType:
@@ -130,6 +135,21 @@ QImage toQImage(const SkBitmap &bitmap)
         break;
     case kGray_8_SkColorType:
         image = toQImage(bitmap, QImage::Format_Grayscale8);
+        break;
+    case kR16G16B16A16_unorm_SkColorType:
+        switch (bitmap.alphaType()) {
+        case kUnknown_SkAlphaType:
+            break;
+        case kUnpremul_SkAlphaType:
+            image = toQImage(bitmap, QImage::Format_RGBA64);
+            break;
+        case kOpaque_SkAlphaType:
+            image = toQImage(bitmap, QImage::Format_RGBX64);
+            break;
+        case kPremul_SkAlphaType:
+            image = toQImage(bitmap, QImage::Format_RGBA64_Premultiplied);
+            break;
+        }
         break;
     }
     return image;
@@ -222,27 +242,27 @@ int flagsFromModifiers(Qt::KeyboardModifiers modifiers)
     return modifierFlags;
 }
 
-FaviconInfo::FaviconTypeFlags toQt(content::FaviconURL::IconType type)
+FaviconInfo::FaviconTypeFlags toQt(blink::mojom::FaviconIconType type)
 {
     switch (type) {
-    case content::FaviconURL::IconType::kFavicon:
+    case blink::mojom::FaviconIconType::kFavicon:
         return FaviconInfo::Favicon;
-    case content::FaviconURL::IconType::kTouchIcon:
+    case blink::mojom::FaviconIconType::kTouchIcon:
         return FaviconInfo::TouchIcon;
-    case content::FaviconURL::IconType::kTouchPrecomposedIcon:
+    case blink::mojom::FaviconIconType::kTouchPrecomposedIcon:
         return FaviconInfo::TouchPrecomposedIcon;
-    case content::FaviconURL::IconType::kInvalid:
+    case blink::mojom::FaviconIconType::kInvalid:
         return FaviconInfo::InvalidIcon;
     }
     Q_UNREACHABLE();
     return FaviconInfo::InvalidIcon;
 }
 
-FaviconInfo toFaviconInfo(const content::FaviconURL &favicon_url)
+FaviconInfo toFaviconInfo(const blink::mojom::FaviconURLPtr &favicon_url)
 {
     FaviconInfo info;
-    info.url = toQt(favicon_url.icon_url);
-    info.type = toQt(favicon_url.icon_type);
+    info.url = toQt(favicon_url->icon_url);
+    info.type = toQt(favicon_url->icon_type);
     // TODO: Add support for rel sizes attribute (favicon_url.icon_sizes):
     // http://www.w3schools.com/tags/att_link_sizes.asp
     info.size = QSize(0, 0);

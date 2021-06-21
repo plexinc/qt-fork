@@ -5,9 +5,7 @@
 import("//build/config/ios/asset_catalog.gni")
 
 colorset("settings_catalog_example_text") {
-  sources = [
-    "settings_catalog_example_text.colorset/Contents.json",
-  ]
+  sources = [ "settings_catalog_example_text.colorset/Contents.json" ]
 }
 
 imageset("app_icon_placeholder") {
@@ -43,15 +41,6 @@ imageset("settings_error") {
     "settings_error.imageset/settings_error.png",
     "settings_error.imageset/settings_error@2x.png",
     "settings_error.imageset/settings_error@3x.png",
-  ]
-}
-
-imageset("settings_sync") {
-  sources = [
-    "settings_sync.imageset/Contents.json",
-    "settings_sync.imageset/settings_sync.png",
-    "settings_sync.imageset/settings_sync@2x.png",
-    "settings_sync.imageset/settings_sync@3x.png",
   ]
 }
 

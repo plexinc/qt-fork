@@ -70,13 +70,6 @@ class BookmarkLoadDetails {
     model_meta_info_map_ = meta_info_map;
   }
 
-  int64_t model_sync_transaction_version() const {
-    return model_sync_transaction_version_;
-  }
-  void set_model_sync_transaction_version(int64_t sync_transaction_version) {
-    model_sync_transaction_version_ = sync_transaction_version;
-  }
-
   // Max id of the nodes.
   void set_max_id(int64_t max_id) { max_id_ = max_id; }
   int64_t max_id() const { return max_id_; }
@@ -99,6 +92,10 @@ class BookmarkLoadDetails {
   // reassign the ids to ensure they are unique.
   void set_ids_reassigned(bool value) { ids_reassigned_ = value; }
   bool ids_reassigned() const { return ids_reassigned_; }
+
+  // Whether new GUIDs were assigned to Bookmarks that lacked them.
+  void set_guids_reassigned(bool value) { guids_reassigned_ = value; }
+  bool guids_reassigned() const { return guids_reassigned_; }
 
   // Returns the string blob representing the sync metadata in the json file.
   // The string blob is set during decode time upon the call to Bookmark::Load.
@@ -124,11 +121,11 @@ class BookmarkLoadDetails {
   LoadManagedNodeCallback load_managed_node_callback_;
   std::unique_ptr<TitledUrlIndex> index_;
   BookmarkNode::MetaInfoMap model_meta_info_map_;
-  int64_t model_sync_transaction_version_;
   int64_t max_id_ = 1;
   std::string computed_checksum_;
   std::string stored_checksum_;
   bool ids_reassigned_ = false;
+  bool guids_reassigned_ = false;
   scoped_refptr<UrlIndex> url_index_;
   // A string blob represetning the sync metadata stored in the json file.
   std::string sync_metadata_str_;

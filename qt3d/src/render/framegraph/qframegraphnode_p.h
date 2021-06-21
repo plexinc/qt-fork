@@ -54,6 +54,7 @@
 #include <QtCore/QtGlobal>
 #include <private/qnode_p.h>
 #include <Qt3DRender/qframegraphnode.h>
+#include <Qt3DRender/private/qt3drender_global_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -61,7 +62,7 @@ namespace Qt3DRender {
 
 class QFrameGraphNode;
 
-class QFrameGraphNodePrivate : public Qt3DCore::QNodePrivate
+class Q_3DRENDERSHARED_PRIVATE_EXPORT QFrameGraphNodePrivate : public Qt3DCore::QNodePrivate
 {
 public:
     QFrameGraphNodePrivate();
@@ -69,6 +70,10 @@ public:
 
     static QFrameGraphNodePrivate *get(QFrameGraphNode *node) { return node->d_func(); }
     static const QFrameGraphNodePrivate *get(const QFrameGraphNode *node) { return node->d_func(); }
+
+    QString dumpFrameGraph() const;
+    QStringList dumpFrameGraphPaths() const;
+    QStringList dumpFrameGraphFilterState() const;
 
     Q_DECLARE_PUBLIC(QFrameGraphNode)
 };

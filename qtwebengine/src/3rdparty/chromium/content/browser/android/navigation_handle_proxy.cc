@@ -60,7 +60,7 @@ void NavigationHandleProxy::DidFinish() {
   }
 
   bool is_valid_search_form_url =
-      cpp_navigation_handle_->GetSearchableFormURL() != nullptr
+      cpp_navigation_handle_->GetSearchableFormURL() != ""
           ? cpp_navigation_handle_->GetSearchableFormURL().is_valid()
           : false;
 
@@ -88,7 +88,6 @@ NavigationHandleProxy::~NavigationHandleProxy() {
 // Called from Java.
 void NavigationHandleProxy::SetRequestHeader(
     JNIEnv* env,
-    const JavaParamRef<jobject>& obj,
     const JavaParamRef<jstring>& name,
     const JavaParamRef<jstring>& value) {
   cpp_navigation_handle_->SetRequestHeader(ConvertJavaStringToUTF8(name),
@@ -98,7 +97,6 @@ void NavigationHandleProxy::SetRequestHeader(
 // Called from Java.
 void NavigationHandleProxy::RemoveRequestHeader(
     JNIEnv* env,
-    const JavaParamRef<jobject>& obj,
     const JavaParamRef<jstring>& name) {
   cpp_navigation_handle_->RemoveRequestHeader(ConvertJavaStringToUTF8(name));
 }

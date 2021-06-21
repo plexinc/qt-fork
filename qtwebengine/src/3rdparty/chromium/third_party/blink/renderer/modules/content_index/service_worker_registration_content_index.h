@@ -16,7 +16,7 @@ namespace blink {
 class ContentIndex;
 
 class ServiceWorkerRegistrationContentIndex final
-    : public GarbageCollectedFinalized<ServiceWorkerRegistrationContentIndex>,
+    : public GarbageCollected<ServiceWorkerRegistrationContentIndex>,
       public Supplement<ServiceWorkerRegistration> {
   USING_GARBAGE_COLLECTED_MIXIN(ServiceWorkerRegistrationContentIndex);
 
@@ -32,7 +32,7 @@ class ServiceWorkerRegistrationContentIndex final
   static ContentIndex* index(ServiceWorkerRegistration& registration);
   ContentIndex* index();
 
-  void Trace(blink::Visitor* visitor) override;
+  void Trace(Visitor* visitor) override;
 
  private:
   Member<ServiceWorkerRegistration> registration_;

@@ -13,6 +13,8 @@
 
 #include "core/fxge/cfx_renderdevice.h"
 #include "fpdfsdk/pwl/cpwl_scroll_bar.h"
+#include "public/fpdf_fwlevent.h"
+#include "third_party/base/ptr_util.h"
 #include "third_party/base/stl_util.h"
 
 namespace {
@@ -87,9 +89,7 @@ class CPWL_MsgControl final : public Observable {
     }
   }
 
-  void ReleaseCapture() {
-    m_aMousePath.clear();
-  }
+  void ReleaseCapture() { m_aMousePath.clear(); }
 
   CPWL_Wnd* GetFocusedWindow() const { return m_pMainKeyboardWnd.Get(); }
 
@@ -100,8 +100,24 @@ class CPWL_MsgControl final : public Observable {
   UnownedPtr<CPWL_Wnd> m_pMainKeyboardWnd;
 };
 
-CPWL_Wnd::CPWL_Wnd(const CreateParams& cp,
-                   std::unique_ptr<PrivateData> pAttachedData)
+// static
+bool CPWL_Wnd::IsSHIFTKeyDown(uint32_t nFlag) {
+  return !!(nFlag & FWL_EVENTFLAG_ShiftKey);
+}
+
+// static
+bool CPWL_Wnd::IsCTRLKeyDown(uint32_t nFlag) {
+  return !!(nFlag & FWL_EVENTFLAG_ControlKey);
+}
+
+// static
+bool CPWL_Wnd::IsALTKeyDown(uint32_t nFlag) {
+  return !!(nFlag & FWL_EVENTFLAG_AltKey);
+}
+
+CPWL_Wnd::CPWL_Wnd(
+    const CreateParams& cp,
+    std::unique_ptr<IPWL_SystemHandler::PerWindowData> pAttachedData)
     : m_CreationParams(cp), m_pAttachedData(std::move(pAttachedData)) {}
 
 CPWL_Wnd::~CPWL_Wnd() {
@@ -236,31 +252,21 @@ void CPWL_Wnd::DrawChildAppearance(CFX_RenderDevice* pDevice,
 }
 
 bool CPWL_Wnd::InvalidateRect(CFX_FloatRect* pRect) {
-    if (!IsValid())
+  if (!IsValid())
     return true;
 
-    ObservedPtr<CPWL_Wnd> thisObserved(this);
-    CFX_FloatRect rcRefresh = pRect ? *pRect : GetWindowRect();
-    if (!HasFlag(PWS_NOREFRESHCLIP)) {
-      CFX_FloatRect rcClip = GetClipRect();
-      if (!rcClip.IsEmpty())
-        rcRefresh.Intersect(rcClip);
-    }
+  ObservedPtr<CPWL_Wnd> thisObserved(this);
+  CFX_FloatRect rcRefresh = pRect ? *pRect : GetWindowRect();
+  if (!HasFlag(PWS_NOREFRESHCLIP)) {
+    CFX_FloatRect rcClip = GetClipRect();
+    if (!rcClip.IsEmpty())
+      rcRefresh.Intersect(rcClip);
+  }
 
   CFX_FloatRect rcWin = PWLtoWnd(rcRefresh);
   rcWin.Inflate(1, 1);
   rcWin.Normalize();
-
-  CFX_SystemHandler* pSH = GetSystemHandler();
-  if (!pSH)
-    return true;
-
-  CPDFSDK_Widget* widget =
-      ToCPDFSDKWidget(m_CreationParams.pAttachedWidget.Get());
-  if (!widget)
-    return true;
-
-  pSH->InvalidateRect(widget, rcWin);
+  GetSystemHandler()->InvalidateRect(m_pAttachedData.get(), rcWin);
   return !!thisObserved;
 }
 
@@ -308,10 +314,17 @@ PWL_IMPLEMENT_KEY_METHOD(OnChar)
 PWL_IMPLEMENT_MOUSE_METHOD(OnLButtonDblClk)
 PWL_IMPLEMENT_MOUSE_METHOD(OnLButtonDown)
 PWL_IMPLEMENT_MOUSE_METHOD(OnLButtonUp)
-PWL_IMPLEMENT_MOUSE_METHOD(OnRButtonDown)
-PWL_IMPLEMENT_MOUSE_METHOD(OnRButtonUp)
 PWL_IMPLEMENT_MOUSE_METHOD(OnMouseMove)
 #undef PWL_IMPLEMENT_MOUSE_METHOD
+
+// Unlike their FWL counterparts, PWL windows don't handle right clicks.
+bool CPWL_Wnd::OnRButtonDown(const CFX_PointF& point, uint32_t nFlag) {
+  return false;
+}
+
+bool CPWL_Wnd::OnRButtonUp(const CFX_PointF& point, uint32_t nFlag) {
+  return false;
+}
 
 WideString CPWL_Wnd::GetText() {
   return WideString();
@@ -515,7 +528,8 @@ void CPWL_Wnd::OnSetFocus() {}
 
 void CPWL_Wnd::OnKillFocus() {}
 
-std::unique_ptr<CPWL_Wnd::PrivateData> CPWL_Wnd::CloneAttachedData() const {
+std::unique_ptr<IPWL_SystemHandler::PerWindowData> CPWL_Wnd::CloneAttachedData()
+    const {
   return m_pAttachedData ? m_pAttachedData->Clone() : nullptr;
 }
 
@@ -588,10 +602,8 @@ bool CPWL_Wnd::RePosChildWnd() {
 void CPWL_Wnd::CreateChildWnd(const CreateParams& cp) {}
 
 void CPWL_Wnd::SetCursor() {
-  if (IsValid()) {
-    if (CFX_SystemHandler* pSH = GetSystemHandler())
-      pSH->SetCursor(GetCreationParams()->eCursorType);
-  }
+  if (IsValid())
+    GetSystemHandler()->SetCursor(GetCreationParams()->eCursorType);
 }
 
 void CPWL_Wnd::CreateMsgControl() {
@@ -615,17 +627,17 @@ bool CPWL_Wnd::IsCaptureMouse() const {
 
 bool CPWL_Wnd::IsWndCaptureMouse(const CPWL_Wnd* pWnd) const {
   CPWL_MsgControl* pCtrl = GetMsgControl();
-  return pCtrl ? pCtrl->IsWndCaptureMouse(pWnd) : false;
+  return pCtrl && pCtrl->IsWndCaptureMouse(pWnd);
 }
 
 bool CPWL_Wnd::IsWndCaptureKeyboard(const CPWL_Wnd* pWnd) const {
   CPWL_MsgControl* pCtrl = GetMsgControl();
-  return pCtrl ? pCtrl->IsWndCaptureKeyboard(pWnd) : false;
+  return pCtrl && pCtrl->IsWndCaptureKeyboard(pWnd);
 }
 
 bool CPWL_Wnd::IsFocused() const {
   CPWL_MsgControl* pCtrl = GetMsgControl();
-  return pCtrl ? pCtrl->IsMainCaptureKeyboard(this) : false;
+  return pCtrl && pCtrl->IsMainCaptureKeyboard(this);
 }
 
 CFX_FloatRect CPWL_Wnd::GetFocusRect() const {
@@ -643,10 +655,6 @@ float CPWL_Wnd::GetFontSize() const {
 
 void CPWL_Wnd::SetFontSize(float fFontSize) {
   m_CreationParams.fFontSize = fFontSize;
-}
-
-CFX_SystemHandler* CPWL_Wnd::GetSystemHandler() const {
-  return m_CreationParams.pSystemHandler.Get();
 }
 
 CFX_Color CPWL_Wnd::GetBorderLeftTopColor(BorderStyle nBorderStyle) const {

@@ -21,11 +21,11 @@ CFWL_ComboList::CFWL_ComboList(
     const CFWL_App* app,
     std::unique_ptr<CFWL_WidgetProperties> properties,
     CFWL_Widget* pOuter)
-    : CFWL_ListBox(app, std::move(properties), pOuter), m_bNotifyOwner(true) {
+    : CFWL_ListBox(app, std::move(properties), pOuter) {
   ASSERT(pOuter);
 }
 
-int32_t CFWL_ComboList::MatchItem(const WideString& wsMatch) {
+int32_t CFWL_ComboList::MatchItem(WideStringView wsMatch) {
   if (wsMatch.IsEmpty())
     return -1;
 
@@ -33,7 +33,7 @@ int32_t CFWL_ComboList::MatchItem(const WideString& wsMatch) {
   for (int32_t i = 0; i < iCount; i++) {
     CFWL_ListItem* hItem = GetItem(this, i);
     WideString wsText = hItem ? hItem->GetText() : WideString();
-    auto pos = wsText.Find(wsMatch.c_str());
+    auto pos = wsText.Find(wsMatch);
     if (pos.has_value() && pos.value() == 0)
       return i;
   }

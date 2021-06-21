@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2015 The ANGLE Project Authors. All rights reserved.
+// Copyright 2015 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -44,7 +44,7 @@ class ShaderConstants11 : angle::NonCopyable
                           const D3D11_VIEWPORT &dxViewport,
                           bool is9_3,
                           bool presentPathFast);
-    bool onFirstVertexChange(GLint firstVertex);
+    bool onFirstVertexChange(GLint firstVertex, GLint baseVertex);
     void onImageLayerChange(gl::ShaderType shaderType, unsigned int imageIndex, int layer);
     void onSamplerChange(gl::ShaderType shaderType,
                          unsigned int samplerIndex,
@@ -313,9 +313,11 @@ class StateManager11 final : angle::NonCopyable
                                              ID3D11Resource *resource);
 
     angle::Result syncBlendState(const gl::Context *context,
-                                 const gl::BlendState &blendState,
+                                 const gl::BlendStateArray &blendStateArray,
                                  const gl::ColorF &blendColor,
-                                 unsigned int sampleMask);
+                                 unsigned int sampleMask,
+                                 bool sampleAlphaToCoverage,
+                                 bool emulateConstantAlpha);
 
     angle::Result syncDepthStencilState(const gl::Context *context);
 
@@ -461,8 +463,10 @@ class StateManager11 final : angle::NonCopyable
     DirtyBits mGraphicsDirtyBitsMask;
     DirtyBits mComputeDirtyBitsMask;
 
+    bool mCurSampleAlphaToCoverage;
+
     // Blend State
-    gl::BlendState mCurBlendState;
+    gl::BlendStateArray mCurBlendStateArray;
     gl::ColorF mCurBlendColor;
     unsigned int mCurSampleMask;
 
@@ -591,6 +595,8 @@ class StateManager11 final : angle::NonCopyable
 
     // ANGLE_multiview.
     bool mIsMultiviewEnabled;
+
+    bool mIndependentBlendStates;
 
     // Driver Constants.
     gl::ShaderMap<d3d11::Buffer> mShaderDriverConstantBuffers;

@@ -7,14 +7,15 @@
 #include "base/bind.h"
 #include "base/json/json_reader.h"
 #include "base/memory/ref_counted_memory.h"
+#include "base/numerics/ranges.h"
 #include "base/run_loop.h"
 #include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
-#include "components/viz/common/gl_helper.h"
 #include "components/viz/test/test_gpu_service_holder.h"
+#include "gpu/command_buffer/client/gl_helper.h"
 #include "gpu/command_buffer/client/gles2_implementation.h"
 #include "gpu/command_buffer/client/shared_memory_limits.h"
 #include "gpu/ipc/common/surface_handle.h"
@@ -60,7 +61,7 @@ class YUVReadbackTest : public testing::Test {
     gl_ = context_->GetImplementation();
     gpu::ContextSupport* support = context_->GetImplementation();
 
-    helper_ = std::make_unique<GLHelper>(gl_, support);
+    helper_ = std::make_unique<gpu::GLHelper>(gl_, support);
   }
 
   void TearDown() override {
@@ -133,14 +134,14 @@ class YUVReadbackTest : public testing::Test {
   int Channel(SkBitmap* pixels, int x, int y, int c) {
     if (pixels->bytesPerPixel() == 4) {
       uint32_t* data =
-          pixels->getAddr32(std::max(0, std::min(x, pixels->width() - 1)),
-                            std::max(0, std::min(y, pixels->height() - 1)));
+          pixels->getAddr32(base::ClampToRange(x, 0, pixels->width() - 1),
+                            base::ClampToRange(y, 0, pixels->height() - 1));
       return (*data) >> (c * 8) & 0xff;
     } else {
       DCHECK_EQ(pixels->bytesPerPixel(), 1);
       DCHECK_EQ(c, 0);
-      return *pixels->getAddr8(std::max(0, std::min(x, pixels->width() - 1)),
-                               std::max(0, std::min(y, pixels->height() - 1)));
+      return *pixels->getAddr8(base::ClampToRange(x, 0, pixels->width() - 1),
+                               base::ClampToRange(y, 0, pixels->height() - 1));
     }
   }
 
@@ -153,13 +154,13 @@ class YUVReadbackTest : public testing::Test {
     DCHECK_LT(y, pixels->height());
     if (pixels->bytesPerPixel() == 4) {
       uint32_t* data = pixels->getAddr32(x, y);
-      v = std::max(0, std::min(v, 255));
+      v = base::ClampToRange(v, 0, 255);
       *data = (*data & ~(0xffu << (c * 8))) | (v << (c * 8));
     } else {
       DCHECK_EQ(pixels->bytesPerPixel(), 1);
       DCHECK_EQ(c, 0);
       uint8_t* data = pixels->getAddr8(x, y);
-      v = std::max(0, std::min(v, 255));
+      v = base::ClampToRange(v, 0, 255);
       *data = v;
     }
   }
@@ -318,7 +319,7 @@ class YUVReadbackTest : public testing::Test {
                        int test_pattern,
                        bool flip,
                        bool use_mrt,
-                       GLHelper::ScalerQuality quality) {
+                       gpu::GLHelper::ScalerQuality quality) {
     GLuint src_texture;
     gl_->GenTextures(1, &src_texture);
     SkBitmap input_pixels;
@@ -360,7 +361,7 @@ class YUVReadbackTest : public testing::Test {
         "pattern: %d %s %s",
         xsize, ysize, output_xsize, output_ysize, xmargin, ymargin,
         test_pattern, flip ? "flip" : "noflip", use_mrt ? "mrt" : "nomrt");
-    std::unique_ptr<ReadbackYUVInterface> yuv_reader =
+    std::unique_ptr<gpu::ReadbackYUVInterface> yuv_reader =
         helper_->CreateReadbackPipelineYUV(flip, use_mrt);
 
     scoped_refptr<media::VideoFrame> output_frame =
@@ -468,20 +469,20 @@ class YUVReadbackTest : public testing::Test {
 
   std::unique_ptr<gpu::GLInProcessContext> context_;
   gpu::gles2::GLES2Interface* gl_;
-  std::unique_ptr<GLHelper> helper_;
+  std::unique_ptr<gpu::GLHelper> helper_;
   gl::DisableNullDrawGLBindings enable_pixel_output_;
 };
 
 TEST_F(YUVReadbackTest, YUVReadbackOptTest) {
   for (int use_mrt = 0; use_mrt <= 1; ++use_mrt) {
-    // This test uses the gpu.service/gpu_decoder tracing events to detect how
+    // This test uses the gpu.service/gpu.decoder tracing events to detect how
     // many scaling passes are actually performed by the YUV readback pipeline.
     StartTracing(TRACE_DISABLED_BY_DEFAULT(
         "gpu.service") "," TRACE_DISABLED_BY_DEFAULT("gpu.decoder"));
 
     // Run a test with no size scaling, just planerization.
     TestYUVReadback(800, 400, 800, 400, 0, 0, 1, false, use_mrt == 1,
-                    GLHelper::SCALER_QUALITY_FAST);
+                    gpu::GLHelper::SCALER_QUALITY_FAST);
 
     std::map<std::string, int> event_counts;
     EndTracing(&event_counts);
@@ -532,7 +533,7 @@ TEST_P(YUVReadbackPixelTest, Test) {
                 kYUVReadbackSizes[ox], kYUVReadbackSizes[oy],
                 compute_margin(kYUVReadbackSizes[x], kYUVReadbackSizes[ox], xm),
                 compute_margin(kYUVReadbackSizes[y], kYUVReadbackSizes[oy], ym),
-                pattern, flip, use_mrt, GLHelper::SCALER_QUALITY_GOOD);
+                pattern, flip, use_mrt, gpu::GLHelper::SCALER_QUALITY_GOOD);
             if (HasFailure()) {
               return;
             }
@@ -545,7 +546,7 @@ TEST_P(YUVReadbackPixelTest, Test) {
 
 // First argument is intentionally empty.
 INSTANTIATE_TEST_SUITE_P(
-    ,
+    All,
     YUVReadbackPixelTest,
     ::testing::Combine(
         ::testing::Bool(),

@@ -12,7 +12,9 @@ subrepository, has its own [development workflow][cros-dev-guide].
 
 - [Life of a Chromium Developer][life-of-a-chromium-developer], which is mostly
   up-to-date.
-- [Tutorial][noms-tutorial] by committer emeritus noms@chromium.org
+- [Tutorial][noms-tutorial] by committer emeritus noms@chromium.org.
+- [Commit Checklist][commit-checklist], a useful checklist to go through before
+  submitting each CL on Gerrit.
 
 ## Communicate
 
@@ -30,6 +32,21 @@ policies][code-reviews] for more) for the code being changed.
   bug][crbug-new].
 - Just because there is a bug in the bug system doesn't necessarily mean that a
   patch will be accepted.
+
+## Design Documents
+Any nontrivial technical effort that will significantly impact Chromium should
+have a design doc ([template][design-doc-template]). Specifically, we require
+design docs in the following cases:
+- When writing code that will have a large impact on Chromium as a whole, e.g.
+  when you are changing code in Chromium's critical path (page loading,
+  rendering).
+- When beginning a large technical undertaking that should be documented for
+  historical reasons (>1 person-month of work can be used as a general guideline).
+
+Send public design docs to
+[chromium-design-docs@chromium.org][chromium-design-docs]. Google internal Chrome
+design docs should follow the process at
+[go/chrome-dd-review-process][chrome-dd-review-process].
 
 ## Legal stuff
 
@@ -78,6 +95,9 @@ contribution can be accepted:
    # Uncomment if you want new branches to track the current branch.
    # git config --global branch.autosetupmerge always
    ```
+3. Visit <https://chromium-review.googlesource.com/settings/> to ensure that
+   your preferred email is set to the same one you use in your git
+   configuration.
 
 ## Creating a change
 
@@ -94,7 +114,7 @@ Write and test your change.
 - Conform to the [style guide][cr-styleguide].
 - Include tests.
 - Patches should be a reasonable size to review. Review time often increases
-  expontentially with patch size.
+  exponentially with patch size.
 
 Commit your change locally in git:
 
@@ -107,6 +127,9 @@ git][github-tutorial] is useful for the basics. However, keep in mind that the
 Chromium workflow is not the same as the GitHub pull request workflow.
 
 ## Uploading a change for review
+
+Note: go through the [commit checklist][commit-checklist] for Chromium before
+uploading a change for review.
 
 Chromium uses a Gerrit instance hosted at
 <https://chromium-review.googlesource.com> for code reviews. In order to upload
@@ -210,8 +233,8 @@ list of the reviewers you picked.
 
 In the same dialog, you can include an optional message to your reviewers. This
 space can be used for specific questions or instructions. Once you're done,
-make sure to click **Send**, which notifies the requested reviewers that they
-should review your change.
+make sure to click **Start Review**, which notifies the requested reviewers that
+they should review your change.
 
 **IMPORTANT: UNTIL YOU SEND THE REVIEW REQUEST, NO ONE WILL LOOK AT THE REVIEW**
 
@@ -277,6 +300,41 @@ Alternatively, a developer with commit access can [directly
 commit][direct-commit] a change, bypassing the commit queue. This should only
 be used in emergencies because it will bypass all the safety nets.
 
+## Code guidelines
+
+In addition to the adhering to the [styleguide][cr-styleguide], the following
+general rules of thumb can be helpful in navigating how to structure changes:
+
+- **Code in the Chromium project should be in service of other code in the
+  Chromium project.** This is important so developers can understand the
+  constraints informing a design decision. Those constraints should be apparent
+  from the scope of code within the boundary of the project and its various
+  repositories. In other words, for each line of code, you should be able to
+  find a product in the Chromium repositories that depends on that line of code
+  or else the line of code should be removed.
+
+- **Code should only be moved to a central location (e.g., //base) when
+  multiple consumers would benefit.** We should resist the temptation to
+  build overly generic common libraries as that can lead to code bloat and
+  unnecessary complexity in common code.
+
+- **The code likely wasn't designed for everything we are trying to do with it
+  now.** Take time to refactor existing code to make sure the new feature or
+  subcomponent you are developing fits properly within the system. Technical
+  debt is easy to accumulate and is everyone's responsibility to avoid.
+
+- **Common code is everyone's responsibility.** Large files that are at the
+  cross-roads of many subsystems, where integration happens, can be some of the
+  most fragile in the system. As a companion to the previous point, be
+  cognizant of how you may be adding more complexity to the commons as you
+  venture to complete your task.
+
+- **Changes should include corresponding tests.** Automated testing is at the
+  heart of how we move forward as a project. All changes should include
+  corresponding tests so we can ensure that there is good coverage for code and
+  that future changes will be less likely to regress functionality. Protect
+  your code with tests!
+
 ## Tips
 
 ### Review etiquette
@@ -303,9 +361,12 @@ feature in order to receive email notifications.
 
 [//]: # (the reference link section should be alphabetically sorted)
 [checkout-and-build]: https://chromium.googlesource.com/chromium/src/+/master/docs/#checking-out-and-building
+[chrome-dd-review-process]: http://go/chrome-dd-review-process
+[chromium-design-docs]: https://groups.google.com/a/chromium.org/forum/#!forum/chromium-design-docs
 [cl-footer-syntax]: https://dev.chromium.org/developers/contributing-code/-bug-syntax
 [code-reviews-owners]: code_reviews.md#OWNERS-files
 [code-reviews]: code_reviews.md
+[commit-checklist]: commit_checklist.md
 [commit-queue]: infra/cq.md
 [core-principles]: https://www.chromium.org/developers/core-principles
 [corporate-cla]: https://cla.developers.google.com/about/google-corporate?csw=1
@@ -318,6 +379,7 @@ feature in order to receive email notifications.
 [cros-dev-guide]: https://chromium.googlesource.com/chromiumos/docs/+/master/developer_guide.md
 [crrev]: https://chromium-review.googlesource.com
 [depot-tools-setup]: https://commondatastorage.googleapis.com/chrome-infra-docs/flat/depot_tools/docs/html/depot_tools_tutorial.html#_setting_up
+[design-doc-template]: https://docs.google.com/document/d/14YBYKgk-uSfjfwpKFlp_omgUq5hwMVazy_M965s_1KA
 [direct-commit]: https://dev.chromium.org/developers/contributing-code/direct-commit
 [discussion-groups]: https://www.chromium.org/developers/discussion-groups
 [github-tutorial]: https://try.github.io

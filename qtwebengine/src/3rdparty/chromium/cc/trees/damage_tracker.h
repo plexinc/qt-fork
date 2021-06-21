@@ -5,6 +5,7 @@
 #ifndef CC_TREES_DAMAGE_TRACKER_H_
 #define CC_TREES_DAMAGE_TRACKER_H_
 
+#include <algorithm>
 #include <memory>
 #include <vector>
 
@@ -34,9 +35,7 @@ class CC_EXPORT DamageTracker {
 
   DamageTracker& operator=(const DamageTracker&) = delete;
 
-  static void UpdateDamageTracking(
-      LayerTreeImpl* layer_tree_impl,
-      const RenderSurfaceList& render_surface_list);
+  static void UpdateDamageTracking(LayerTreeImpl* layer_tree_impl);
 
   void DidDrawDamagedArea() {
     current_damage_ = DamageAccumulator();
@@ -91,15 +90,19 @@ class CC_EXPORT DamageTracker {
     int bottom_ = 0;
   };
 
-  DamageAccumulator TrackDamageFromSurfaceMask(
-      LayerImpl* target_surface_mask_layer);
   DamageAccumulator TrackDamageFromLeftoverRects();
 
   // These helper functions are used only during UpdateDamageTracking().
   void PrepareForUpdate();
   void AccumulateDamageFromLayer(LayerImpl* layer);
-  void AccumulateDamageFromRenderSurface(RenderSurfaceImpl* render_surface);
-  void ComputeSurfaceDamage(RenderSurfaceImpl* render_surface);
+  void AccumulateDamageFromRenderSurface(
+      RenderSurfaceImpl* render_surface,
+      std::vector<std::pair<RenderSurfaceImpl*, gfx::Rect>>&
+          surfaces_with_backdrop_blur_filter);
+  void ComputeSurfaceDamage(
+      RenderSurfaceImpl* render_surface,
+      std::vector<std::pair<RenderSurfaceImpl*, gfx::Rect>>&
+          surfaces_with_backdrop_blur_filter);
   void ExpandDamageInsideRectWithFilters(const gfx::Rect& pre_filter_rect,
                                          const FilterOperations& filters);
 
@@ -148,10 +151,10 @@ class CC_EXPORT DamageTracker {
   SortedRectMapForLayers rect_history_for_layers_;
   SortedRectMapForSurfaces rect_history_for_surfaces_;
 
-  unsigned int mailboxId_;
+  unsigned int mailboxId_ = 0;
   DamageAccumulator current_damage_;
   // Damage from contributing render surface and layer
-  bool has_damage_from_contributing_content_;
+  bool has_damage_from_contributing_content_ = false;
 
   // Damage accumulated since the last call to PrepareForUpdate().
   DamageAccumulator damage_for_this_update_;

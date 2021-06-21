@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "content/browser/accessibility/accessibility_browsertest.h"
+#include "base/bind_helpers.h"
 #include "base/macros.h"
 #include "content/browser/accessibility/browser_accessibility.h"
 #include "content/browser/renderer_host/render_widget_host_view_aura.h"
@@ -42,7 +43,7 @@ void AccessibilityBrowserTest::LoadInitialAccessibilityTreeFromHtml(
                                          ax::mojom::Event::kLoadComplete);
   GURL html_data_url("data:text/html," +
                      net::EscapeQueryParamValue(html, false));
-  NavigateToURL(shell(), html_data_url);
+  EXPECT_TRUE(NavigateToURL(shell(), html_data_url));
   waiter.WaitForNotification();
 }
 

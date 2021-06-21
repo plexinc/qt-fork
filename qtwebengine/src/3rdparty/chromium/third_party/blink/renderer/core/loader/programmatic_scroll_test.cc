@@ -3,8 +3,7 @@
 // found in the LICENSE file.
 
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/blink/public/platform/platform.h"
-#include "third_party/blink/public/platform/web_input_event.h"
+#include "third_party/blink/public/common/input/web_input_event.h"
 #include "third_party/blink/public/platform/web_url_loader_mock_factory.h"
 #include "third_party/blink/public/web/web_frame.h"
 #include "third_party/blink/public/web/web_history_item.h"
@@ -31,13 +30,13 @@ class ProgrammaticScrollTest : public testing::Test {
   ProgrammaticScrollTest() : base_url_("http://www.test.com/") {}
 
   void TearDown() override {
-    Platform::Current()
-        ->GetURLLoaderMockFactory()
-        ->UnregisterAllURLsAndClearMemoryCache();
+    url_test_helpers::UnregisterAllURLsAndClearMemoryCache();
   }
 
  protected:
   void RegisterMockedHttpURLLoad(const String& file_name) {
+    // TODO(crbug.com/751425): We should use the mock functionality
+    // via the WebViewHelper instance in each test case.
     url_test_helpers::RegisterMockedURLLoadFromBase(
         WebString(base_url_), test::CoreTestDataPath(), WebString(file_name));
   }
@@ -53,7 +52,7 @@ TEST_F(ProgrammaticScrollTest, RestoreScrollPositionAndViewStateWithScale) {
       web_view_helper.InitializeAndLoad(base_url_.Utf8() + "long_scroll.html");
   web_view->MainFrameWidget()->Resize(WebSize(1000, 1000));
   web_view->MainFrameWidget()->UpdateAllLifecyclePhases(
-      WebWidget::LifecycleUpdateReason::kTest);
+      DocumentUpdateReason::kTest);
 
   FrameLoader& loader = web_view->MainFrameImpl()->GetFrame()->Loader();
   loader.GetDocumentLoader()->SetLoadType(WebFrameLoadType::kBackForward);
@@ -72,6 +71,8 @@ TEST_F(ProgrammaticScrollTest, RestoreScrollPositionAndViewStateWithScale) {
   loader.GetDocumentLoader()->GetInitialScrollState().was_scrolled_by_user =
       false;
   loader.RestoreScrollPositionAndViewState();
+  web_view->MainFrameWidget()->UpdateAllLifecyclePhases(
+      DocumentUpdateReason::kTest);
 
   // Expect that both scroll and scale were restored.
   EXPECT_EQ(2.0f, web_view->PageScaleFactor());
@@ -86,7 +87,7 @@ TEST_F(ProgrammaticScrollTest, RestoreScrollPositionAndViewStateWithoutScale) {
       web_view_helper.InitializeAndLoad(base_url_.Utf8() + "long_scroll.html");
   web_view->MainFrameWidget()->Resize(WebSize(1000, 1000));
   web_view->MainFrameWidget()->UpdateAllLifecyclePhases(
-      WebWidget::LifecycleUpdateReason::kTest);
+      DocumentUpdateReason::kTest);
 
   FrameLoader& loader = web_view->MainFrameImpl()->GetFrame()->Loader();
   loader.GetDocumentLoader()->SetLoadType(WebFrameLoadType::kBackForward);
@@ -102,6 +103,8 @@ TEST_F(ProgrammaticScrollTest, RestoreScrollPositionAndViewStateWithoutScale) {
   // FrameLoader::restoreScrollPositionAndViewState flows differently if scale
   // is zero.
   loader.RestoreScrollPositionAndViewState();
+  web_view->MainFrameWidget()->UpdateAllLifecyclePhases(
+      DocumentUpdateReason::kTest);
 
   // Expect that only the scroll position was restored.
   EXPECT_EQ(3.0f, web_view->PageScaleFactor());
@@ -116,7 +119,7 @@ TEST_F(ProgrammaticScrollTest, SaveScrollStateClearsAnchor) {
       web_view_helper.InitializeAndLoad(base_url_.Utf8() + "long_scroll.html");
   web_view->MainFrameWidget()->Resize(WebSize(1000, 1000));
   web_view->MainFrameWidget()->UpdateAllLifecyclePhases(
-      WebWidget::LifecycleUpdateReason::kTest);
+      DocumentUpdateReason::kTest);
 
   FrameLoader& loader = web_view->MainFrameImpl()->GetFrame()->Loader();
   loader.GetDocumentLoader()->SetLoadType(WebFrameLoadType::kBackForward);
@@ -167,11 +170,11 @@ TEST_F(ProgrammaticScrollSimTest, NavigateToHash) {
   )HTML");
   main_resource.Finish();
   css_resource.Complete();
-  Compositor().BeginFrame();
 
   // Run pending tasks to fire the load event and close the document. This
   // should cause the document to scroll to the hash.
   test::RunPendingTasks();
+  Compositor().BeginFrame();
 
   ScrollableArea* layout_viewport = GetDocument().View()->LayoutViewport();
   EXPECT_EQ(3000, layout_viewport->GetScrollOffset().Height());

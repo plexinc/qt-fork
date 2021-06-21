@@ -35,10 +35,11 @@ class WebContentsObserverProxy : public WebContentsObserver {
   void RenderProcessGone(base::TerminationStatus termination_status) override;
   void DidStartLoading() override;
   void DidStopLoading() override;
+  void LoadProgressChanged(double progress) override;
   void DidFailLoad(RenderFrameHost* render_frame_host,
                    const GURL& validated_url,
-                   int error_code,
-                   const base::string16& error_description) override;
+                   int error_code) override;
+  void DidChangeVisibleSecurityState() override;
   void DocumentAvailableInMainFrame() override;
   void DidFirstVisuallyNonEmptyPaint() override;
   void OnVisibilityChanged(content::Visibility visibility) override;
@@ -50,7 +51,7 @@ class WebContentsObserverProxy : public WebContentsObserver {
 
   void DidFinishLoad(RenderFrameHost* render_frame_host,
                      const GURL& validated_url) override;
-  void DocumentLoadedInFrame(RenderFrameHost* render_frame_host) override;
+  void DOMContentLoaded(RenderFrameHost* render_frame_host) override;
   void NavigationEntryCommitted(
       const LoadCommittedDetails& load_details) override;
   void NavigationEntriesDeleted() override;
@@ -59,11 +60,10 @@ class WebContentsObserverProxy : public WebContentsObserver {
   void WebContentsDestroyed() override;
   void DidAttachInterstitialPage() override;
   void DidDetachInterstitialPage() override;
-  void DidChangeThemeColor(base::Optional<SkColor> color) override;
+  void DidChangeThemeColor() override;
   void MediaEffectivelyFullscreenChanged(bool is_fullscreen) override;
   void SetToBaseURLForDataURLIfNeeded(std::string* url);
   void ViewportFitChanged(blink::mojom::ViewportFit value) override;
-  void DidReloadLoFiImages() override;
   void OnWebContentsFocused(RenderWidgetHost*) override;
   void OnWebContentsLostFocus(RenderWidgetHost*) override;
 

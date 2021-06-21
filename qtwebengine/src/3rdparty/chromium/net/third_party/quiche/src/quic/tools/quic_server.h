@@ -18,11 +18,13 @@
 #include "net/third_party/quiche/src/quic/core/quic_epoll_connection_helper.h"
 #include "net/third_party/quiche/src/quic/core/quic_framer.h"
 #include "net/third_party/quiche/src/quic/core/quic_packet_writer.h"
+#include "net/third_party/quiche/src/quic/core/quic_udp_socket.h"
 #include "net/third_party/quiche/src/quic/core/quic_version_manager.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_epoll.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_socket_address.h"
 #include "net/third_party/quiche/src/quic/tools/quic_simple_server_backend.h"
 #include "net/third_party/quiche/src/quic/tools/quic_spdy_server_base.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 
@@ -39,8 +41,11 @@ class QuicServer : public QuicSpdyServerBase,
   QuicServer(std::unique_ptr<ProofSource> proof_source,
              QuicSimpleServerBackend* quic_simple_server_backend);
   QuicServer(std::unique_ptr<ProofSource> proof_source,
+             QuicSimpleServerBackend* quic_simple_server_backend,
+             const ParsedQuicVersionVector& supported_versions);
+  QuicServer(std::unique_ptr<ProofSource> proof_source,
              const QuicConfig& config,
-             const QuicCryptoServerConfig::ConfigOptions& server_config_options,
+             const QuicCryptoServerConfig::ConfigOptions& crypto_config_options,
              const ParsedQuicVersionVector& supported_versions,
              QuicSimpleServerBackend* quic_simple_server_backend,
              uint8_t expected_server_connection_id_length);
@@ -76,7 +81,7 @@ class QuicServer : public QuicSpdyServerBase,
     crypto_config_.set_chlo_multiplier(multiplier);
   }
 
-  void SetPreSharedKey(QuicStringPiece key) {
+  void SetPreSharedKey(quiche::QuicheStringPiece key) {
     crypto_config_.set_pre_shared_key(key);
   }
 
@@ -86,6 +91,8 @@ class QuicServer : public QuicSpdyServerBase,
 
   int port() { return port_; }
 
+  QuicEpollServer* epoll_server() { return &epoll_server_; }
+
  protected:
   virtual QuicPacketWriter* CreateWriter(int fd);
 
@@ -93,7 +100,6 @@ class QuicServer : public QuicSpdyServerBase,
 
   const QuicConfig& config() const { return config_; }
   const QuicCryptoServerConfig& crypto_config() const { return crypto_config_; }
-  QuicEpollServer* epoll_server() { return &epoll_server_; }
 
   QuicDispatcher* dispatcher() { return dispatcher_.get(); }
 
@@ -124,7 +130,7 @@ class QuicServer : public QuicSpdyServerBase,
   int port_;
 
   // Listening connection.  Also used for outbound client communication.
-  int fd_;
+  QuicUdpSocketFd fd_;
 
   // If overflow_supported_ is true this will be the number of packets dropped
   // during the lifetime of the server.  This may overflow if enough packets

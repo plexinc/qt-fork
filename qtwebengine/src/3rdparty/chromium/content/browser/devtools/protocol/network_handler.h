@@ -14,40 +14,39 @@
 #include "base/memory/weak_ptr.h"
 #include "base/optional.h"
 #include "base/unguessable_token.h"
-#include "content/browser/devtools/devtools_url_loader_interceptor.h"
 #include "content/browser/devtools/protocol/devtools_domain_handler.h"
 #include "content/browser/devtools/protocol/network.h"
 #include "mojo/public/cpp/system/data_pipe.h"
 #include "net/base/net_errors.h"
 #include "net/cookies/canonical_cookie.h"
 #include "services/network/public/mojom/network_service.mojom.h"
+#include "services/network/public/mojom/url_response_head.mojom.h"
+#include "third_party/blink/public/mojom/loader/resource_load_info.mojom-shared.h"
 
 namespace net {
 class HttpRequestHeaders;
-class URLRequest;
 class SSLInfo;
 class X509Certificate;
 }  // namespace net
 
 namespace network {
-struct ResourceResponseHead;
 struct ResourceRequest;
 struct URLLoaderCompletionStatus;
+namespace mojom {
+class URLLoaderFactoryOverride;
+}
 }  // namespace network
 
 namespace content {
 class BrowserContext;
 class DevToolsAgentHostImpl;
 class DevToolsIOContext;
+class DevToolsURLLoaderInterceptor;
 class RenderFrameHostImpl;
 class RenderProcessHost;
-class InterceptionHandle;
-class NavigationHandle;
 class NavigationRequest;
-class NavigationThrottle;
 class SignedExchangeEnvelope;
 class StoragePartition;
-struct GlobalRequestID;
 struct InterceptedRequestInfo;
 struct SignedExchangeError;
 
@@ -69,10 +68,17 @@ class NetworkHandler : public DevToolsDomainHandler,
   // in network domain.
   static net::Error NetErrorFromString(const std::string& error, bool* ok);
   static std::string NetErrorToString(int net_error);
-  static const char* ResourceTypeToString(ResourceType resource_type);
+  static const char* ResourceTypeToString(
+      blink::mojom::ResourceType resource_type);
   static bool AddInterceptedResourceType(
       const std::string& resource_type,
-      base::flat_set<ResourceType>* intercepted_resource_types);
+      base::flat_set<blink::mojom::ResourceType>* intercepted_resource_types);
+  static std::unique_ptr<Array<Network::Cookie>> BuildCookieArray(
+      const std::vector<net::CanonicalCookie>& cookie_list);
+  static void SetCookies(
+      StoragePartition* storage_partition,
+      std::unique_ptr<protocol::Array<Network::CookieParam>> cookies,
+      base::OnceCallback<void(bool)> callback);
 
   void Wire(UberDispatcher* dispatcher) override;
   void SetRenderer(int render_process_id,
@@ -108,6 +114,7 @@ class NetworkHandler : public DevToolsDomainHandler,
                  Maybe<bool> http_only,
                  Maybe<std::string> same_site,
                  Maybe<double> expires,
+                 Maybe<std::string> priority,
                  std::unique_ptr<SetCookieCallback> callback) override;
   void SetCookies(
       std::unique_ptr<protocol::Array<Network::CookieParam>> cookies,
@@ -156,23 +163,24 @@ class NetworkHandler : public DevToolsDomainHandler,
       const base::UnguessableToken& frame_token,
       bool is_navigation,
       bool is_download,
-      mojo::PendingReceiver<network::mojom::URLLoaderFactory>*
-          target_factory_receiver);
+      network::mojom::URLLoaderFactoryOverride* intercepting_factory);
 
   void ApplyOverrides(net::HttpRequestHeaders* headers,
                       bool* skip_service_worker,
                       bool* disable_cache);
-  void NavigationRequestWillBeSent(const NavigationRequest& nav_request);
+  void NavigationRequestWillBeSent(const NavigationRequest& nav_request,
+                                   base::TimeTicks timestamp);
   void RequestSent(const std::string& request_id,
                    const std::string& loader_id,
                    const network::ResourceRequest& request,
                    const char* initiator_type,
-                   const base::Optional<GURL>& initiator_url);
+                   const base::Optional<GURL>& initiator_url,
+                   base::TimeTicks timestamp);
   void ResponseReceived(const std::string& request_id,
                         const std::string& loader_id,
                         const GURL& url,
                         const char* resource_type,
-                        const network::ResourceResponseHead& head,
+                        const network::mojom::URLResponseHead& head,
                         Maybe<std::string> frame_id);
   void LoadingComplete(
       const std::string& request_id,
@@ -182,7 +190,7 @@ class NetworkHandler : public DevToolsDomainHandler,
   void OnSignedExchangeReceived(
       base::Optional<const base::UnguessableToken> devtools_navigation_token,
       const GURL& outer_request_url,
-      const network::ResourceResponseHead& outer_response,
+      const network::mojom::URLResponseHead& outer_response,
       const base::Optional<SignedExchangeEnvelope>& header,
       const scoped_refptr<net::X509Certificate>& certificate,
       const base::Optional<net::SSLInfo>& ssl_info,
@@ -206,16 +214,6 @@ class NetworkHandler : public DevToolsDomainHandler,
   static std::unique_ptr<Network::Request> CreateRequestFromResourceRequest(
       const network::ResourceRequest& request,
       const std::string& cookie_line);
-  static std::unique_ptr<Network::Request> CreateRequestFromURLRequest(
-      const net::URLRequest* request,
-      const std::string& cookie);
-
-  std::unique_ptr<NavigationThrottle> CreateThrottleForNavigation(
-      NavigationHandle* navigation_handle);
-  bool ShouldCancelNavigation(const GlobalRequestID& global_request_id);
-  void WillSendNavigationRequest(net::HttpRequestHeaders* headers,
-                                 bool* skip_service_worker,
-                                 bool* disable_cache);
 
  private:
   void RequestIntercepted(std::unique_ptr<InterceptedRequestInfo> request_info);
@@ -239,7 +237,6 @@ class NetworkHandler : public DevToolsDomainHandler,
   RenderFrameHostImpl* host_;
   bool enabled_;
   std::vector<std::pair<std::string, std::string>> extra_headers_;
-  std::unique_ptr<InterceptionHandle> interception_handle_;
   std::unique_ptr<DevToolsURLLoaderInterceptor> url_loader_interceptor_;
   bool bypass_service_worker_;
   bool cache_disabled_;

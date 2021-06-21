@@ -15,6 +15,7 @@
 
 #include "base/compiler_specific.h"
 #include "base/containers/flat_set.h"
+#include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
@@ -69,13 +70,13 @@ namespace aura {
 
 class LayoutManager;
 class ScopedKeyboardHook;
+class ScopedWindowEventTargetingBlocker;
 class WindowDelegate;
-class WindowObserver;
 class WindowTargeter;
 class WindowTreeHost;
 
 // Defined in class_property.h (which we do not include)
-template<typename T>
+template <typename T>
 using WindowProperty = ui::ClassProperty<T>;
 
 namespace test {
@@ -110,10 +111,7 @@ class AURA_EXPORT Window : public ui::LayerDelegate,
   static constexpr int kInitialId = -1;
 
   // Used when stacking windows.
-  enum StackDirection {
-    STACK_ABOVE,
-    STACK_BELOW
-  };
+  enum StackDirection { STACK_ABOVE, STACK_BELOW };
 
   // These values are persisted to logs. Entries should not be renumbered and
   // numeric values should never be reused.
@@ -155,6 +153,7 @@ class AURA_EXPORT Window : public ui::LayerDelegate,
   // Initializes the window. This creates the window's layer.
   void Init(ui::LayerType layer_type);
 
+  bool is_destroying() const { return is_destroying_; }
   void set_owned_by_parent(bool owned_by_parent) {
     owned_by_parent_ = owned_by_parent;
   }
@@ -385,11 +384,6 @@ class AURA_EXPORT Window : public ui::LayerDelegate,
   std::unique_ptr<ScopedKeyboardHook> CaptureSystemKeyEvents(
       base::Optional<base::flat_set<ui::DomCode>> codes);
 
-  // Suppresses painting window content by disgarding damaged rect and ignoring
-  // new paint requests. This is a one way operation and there is no way to
-  // reenable painting.
-  void SuppressPaint();
-
   // NativeWidget::[GS]etNativeWindowProperty use strings as keys, and this is
   // difficult to change while retaining compatibility with other platforms.
   // TODO(benrg): Find a better solution.
@@ -397,7 +391,7 @@ class AURA_EXPORT Window : public ui::LayerDelegate,
   void* GetNativeWindowProperty(const char* key) const;
 
   // Type of a function to delete a property that this window owns.
-  //typedef void (*PropertyDeallocator)(int64_t value);
+  // typedef void (*PropertyDeallocator)(int64_t value);
 
   // Overridden from ui::LayerDelegate:
   void OnDeviceScaleFactorChanged(float old_device_scale_factor,
@@ -407,9 +401,10 @@ class AURA_EXPORT Window : public ui::LayerDelegate,
   // Overridden from ui::LayerOwner:
   std::unique_ptr<ui::Layer> RecreateLayer() override;
 
-#if !defined(NDEBUG)
+#if DCHECK_IS_ON()
   // These methods are useful when debugging.
   std::string GetDebugInfo() const;
+  std::string GetWindowHierarchy(int depth) const;
   void PrintWindowHierarchy(int depth) const;
 #endif
 
@@ -513,6 +508,7 @@ class AURA_EXPORT Window : public ui::LayerDelegate,
   friend class HitTestDataProviderAura;
   friend class LayoutManager;
   friend class PropertyConverter;
+  friend class ScopedWindowEventTargetingBlocker;
   friend class WindowTargeter;
   friend class test::WindowTestApi;
 
@@ -607,7 +603,8 @@ class AURA_EXPORT Window : public ui::LayerDelegate,
                           ui::PropertyChangeReason reason) override;
   void OnLayerOpacityChanged(ui::PropertyChangeReason reason) override;
   void OnLayerAlphaShapeChanged() override;
-  void OnLayerFillsBoundsOpaquelyChanged() override;
+  void OnLayerFillsBoundsOpaquelyChanged(
+      ui::PropertyChangeReason reason) override;
 
   // Overridden from ui::EventTarget:
   bool CanAcceptEvent(const ui::Event& event) override;
@@ -641,6 +638,9 @@ class AURA_EXPORT Window : public ui::LayerDelegate,
   WindowTreeHost* host_ = nullptr;
 
   client::WindowType type_;
+
+  // True if this window is being destroyed.
+  bool is_destroying_ = false;
 
   // True if the Window is owned by its parent - i.e. it will be deleted by its
   // parent during its parents destruction.
@@ -682,6 +682,10 @@ class AURA_EXPORT Window : public ui::LayerDelegate,
 
   // Makes the window pass all events through to any windows behind it.
   EventTargetingPolicy event_targeting_policy_;
+  // Used to restore to the original event targeting policy after all event
+  // targeting blockers on this window are removed.
+  EventTargetingPolicy restore_event_targeting_policy_;
+  int event_targeting_blocker_count_ = 0;
 
   base::ReentrantObserverList<WindowObserver, true> observers_;
 

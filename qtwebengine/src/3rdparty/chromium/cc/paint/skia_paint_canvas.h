@@ -53,6 +53,10 @@ class CC_PAINT_EXPORT SkiaPaintCanvas final : public PaintCanvas {
 
   SkImageInfo imageInfo() const override;
 
+  void* accessTopLayerPixels(SkImageInfo* info,
+                             size_t* rowBytes,
+                             SkIPoint* origin = nullptr) override;
+
   void flush() override;
 
   int save() override;
@@ -122,17 +126,18 @@ class CC_PAINT_EXPORT SkiaPaintCanvas final : public PaintCanvas {
   void drawPicture(sk_sp<const PaintRecord> record) override;
 
   bool isClipEmpty() const override;
-  bool isClipRect() const override;
-  const SkMatrix& getTotalMatrix() const override;
+  SkMatrix getTotalMatrix() const override;
 
   void Annotate(AnnotationType type,
                 const SkRect& rect,
                 sk_sp<SkData> data) override;
 
+  void setNodeId(int) override;
+
   // Don't shadow non-virtual helper functions.
+  using PaintCanvas::clipPath;
   using PaintCanvas::clipRect;
   using PaintCanvas::clipRRect;
-  using PaintCanvas::clipPath;
   using PaintCanvas::drawColor;
   using PaintCanvas::drawImage;
   using PaintCanvas::drawPicture;
@@ -152,6 +157,7 @@ class CC_PAINT_EXPORT SkiaPaintCanvas final : public PaintCanvas {
   }
 
   SkCanvas* canvas_;
+  SkBitmap bitmap_;
   std::unique_ptr<SkCanvas> owned_;
   ImageProvider* image_provider_ = nullptr;
 

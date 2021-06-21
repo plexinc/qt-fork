@@ -20,13 +20,57 @@ class CreditCardCVCAuthenticator
     : public payments::FullCardRequest::ResultDelegate,
       public payments::FullCardRequest::UIDelegate {
  public:
+  struct CVCAuthenticationResponse {
+    CVCAuthenticationResponse();
+    ~CVCAuthenticationResponse();
+
+    CVCAuthenticationResponse& with_did_succeed(bool b) {
+      did_succeed = b;
+      return *this;
+    }
+    // Data pointed to by |c| must outlive this object.
+    CVCAuthenticationResponse& with_card(const CreditCard* c) {
+      card = c;
+      return *this;
+    }
+    CVCAuthenticationResponse& with_cvc(const base::string16 s) {
+      cvc = base::string16(s);
+      return *this;
+    }
+    CVCAuthenticationResponse& with_creation_options(
+        base::Optional<base::Value> v) {
+      creation_options = std::move(v);
+      return *this;
+    }
+    CVCAuthenticationResponse& with_request_options(
+        base::Optional<base::Value> v) {
+      request_options = std::move(v);
+      return *this;
+    }
+    CVCAuthenticationResponse& with_card_authorization_token(std::string s) {
+      card_authorization_token = s;
+      return *this;
+    }
+    bool did_succeed = false;
+    const CreditCard* card = nullptr;
+    base::string16 cvc = base::string16();
+    base::Optional<base::Value> creation_options = base::nullopt;
+    base::Optional<base::Value> request_options = base::nullopt;
+    std::string card_authorization_token = std::string();
+  };
   class Requester {
    public:
-    virtual ~Requester() {}
+    virtual ~Requester() = default;
     virtual void OnCVCAuthenticationComplete(
-        bool did_succeed,
-        const CreditCard* card = nullptr,
-        const base::string16& cvc = base::string16()) = 0;
+        const CVCAuthenticationResponse& response) = 0;
+
+    // Returns whether or not the user, while on the CVC prompt, should be
+    // offered to switch to FIDO authentication for card unmasking. This will
+    // always be false for Desktop since FIDO authentication is offered as a
+    // separate prompt after the CVC prompt. On Android, however, this is
+    // offered through a checkbox on the CVC prompt. This feature does not yet
+    // exist on iOS.
+    virtual bool ShouldOfferFidoAuth() const = 0;
   };
   explicit CreditCardCVCAuthenticator(AutofillClient* client);
   ~CreditCardCVCAuthenticator() override;
@@ -39,7 +83,7 @@ class CreditCardCVCAuthenticator
 
   // payments::FullCardRequest::ResultDelegate
   void OnFullCardRequestSucceeded(
-      const payments::FullCardRequest& /*full_card_request*/,
+      const payments::FullCardRequest& full_card_request,
       const CreditCard& card,
       const base::string16& cvc) override;
   void OnFullCardRequestFailed() override;
@@ -50,6 +94,7 @@ class CreditCardCVCAuthenticator
                         base::WeakPtr<CardUnmaskDelegate> delegate) override;
   void OnUnmaskVerificationResult(
       AutofillClient::PaymentsRpcResult result) override;
+  bool ShouldOfferFidoAuth() const override;
 
   payments::FullCardRequest* GetFullCardRequest();
 

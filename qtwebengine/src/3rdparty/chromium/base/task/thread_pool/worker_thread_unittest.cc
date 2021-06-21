@@ -15,7 +15,6 @@
 #include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/synchronization/condition_variable.h"
-#include "base/synchronization/waitable_event.h"
 #include "base/task/common/checked_lock.h"
 #include "base/task/thread_pool/environment_config.h"
 #include "base/task/thread_pool/sequence.h"
@@ -24,6 +23,7 @@
 #include "base/task/thread_pool/test_utils.h"
 #include "base/task/thread_pool/worker_thread_observer.h"
 #include "base/test/test_timeouts.h"
+#include "base/test/test_waitable_event.h"
 #include "base/threading/platform_thread.h"
 #include "base/threading/simple_thread.h"
 #include "base/time/time.h"
@@ -51,7 +51,7 @@ class WorkerThreadDefaultDelegate : public WorkerThread::Delegate {
     return WorkerThread::ThreadLabel::DEDICATED;
   }
   void OnMainEntry(const WorkerThread* worker) override {}
-  RunIntentWithRegisteredTaskSource GetWork(WorkerThread* worker) override {
+  RegisteredTaskSource GetWork(WorkerThread* worker) override {
     return nullptr;
   }
   void DidProcessTask(RegisteredTaskSource task_source) override {
@@ -145,7 +145,7 @@ class ThreadPoolWorkerTest : public testing::TestWithParam<int> {
       outer_->main_entry_called_.Signal();
     }
 
-    RunIntentWithRegisteredTaskSource GetWork(WorkerThread* worker) override {
+    RegisteredTaskSource GetWork(WorkerThread* worker) override {
       EXPECT_FALSE(IsCallToDidProcessTaskExpected());
       EXPECT_EQ(outer_->worker_.get(), worker);
 
@@ -166,9 +166,8 @@ class ThreadPoolWorkerTest : public testing::TestWithParam<int> {
       }
 
       // Create a Sequence with TasksPerSequence() Tasks.
-      scoped_refptr<Sequence> sequence =
-          MakeRefCounted<Sequence>(TaskTraits{ThreadPool()}, nullptr,
-                                   TaskSourceExecutionMode::kParallel);
+      scoped_refptr<Sequence> sequence = MakeRefCounted<Sequence>(
+          TaskTraits(), nullptr, TaskSourceExecutionMode::kParallel);
       Sequence::Transaction sequence_transaction(sequence->BeginTransaction());
       for (int i = 0; i < outer_->TasksPerSequence(); ++i) {
         Task task(FROM_HERE,
@@ -180,7 +179,7 @@ class ThreadPoolWorkerTest : public testing::TestWithParam<int> {
         sequence_transaction.PushTask(std::move(task));
       }
       auto registered_task_source =
-          outer_->task_tracker_.WillQueueTaskSource(sequence);
+          outer_->task_tracker_.RegisterTaskSource(sequence);
       EXPECT_TRUE(registered_task_source);
 
       ExpectCallToDidProcessTask();
@@ -190,9 +189,9 @@ class ThreadPoolWorkerTest : public testing::TestWithParam<int> {
         CheckedAutoLock auto_lock(outer_->lock_);
         outer_->created_sequences_.push_back(sequence);
       }
-      auto run_intent = registered_task_source->WillRunTask();
-      EXPECT_TRUE(run_intent);
-      return {std::move(registered_task_source), std::move(run_intent)};
+      auto run_status = registered_task_source.WillRunTask();
+      EXPECT_NE(run_status, TaskSource::RunStatus::kDisallowed);
+      return registered_task_source;
     }
 
     // This override verifies that |task_source| has the expected number of
@@ -215,12 +214,11 @@ class ThreadPoolWorkerTest : public testing::TestWithParam<int> {
         EXPECT_TRUE(registered_task_source);
 
         // Verify the number of Tasks in |registered_task_source|.
-        auto transaction(registered_task_source->BeginTransaction());
         for (int i = 0; i < outer_->TasksPerSequence() - 1; ++i) {
-          auto run_intent = registered_task_source->WillRunTask();
-          EXPECT_TRUE(transaction.TakeTask(&run_intent));
+          registered_task_source.WillRunTask();
+          IgnoreResult(registered_task_source.TakeTask());
           EXPECT_EQ(i == outer_->TasksPerSequence() - 2,
-                    !transaction.DidProcessTask(std::move(run_intent)));
+                    !registered_task_source.DidProcessTask());
         }
 
         scoped_refptr<TaskSource> task_source =
@@ -272,7 +270,7 @@ class ThreadPoolWorkerTest : public testing::TestWithParam<int> {
   mutable CheckedLock lock_;
 
   // Signaled once OnMainEntry() has been called.
-  WaitableEvent main_entry_called_;
+  TestWaitableEvent main_entry_called_;
 
   // Number of Sequences that should be created by GetWork(). When this
   // is 0, GetWork() returns nullptr.
@@ -297,7 +295,7 @@ class ThreadPoolWorkerTest : public testing::TestWithParam<int> {
   size_t num_run_tasks_ = 0;
 
   // Signaled after |worker_| is set.
-  WaitableEvent worker_set_;
+  TestWaitableEvent worker_set_;
 
   DISALLOW_COPY_AND_ASSIGN(ThreadPoolWorkerTest);
 };
@@ -411,12 +409,12 @@ class ControllableCleanupDelegate : public WorkerThreadDefaultDelegate {
     friend class RefCountedThreadSafe<Controls>;
     ~Controls() = default;
 
-    WaitableEvent work_running_{WaitableEvent::ResetPolicy::MANUAL,
-                                WaitableEvent::InitialState::SIGNALED};
-    WaitableEvent work_processed_;
-    WaitableEvent cleanup_requested_;
-    WaitableEvent destroyed_;
-    WaitableEvent exited_;
+    TestWaitableEvent work_running_{WaitableEvent::ResetPolicy::MANUAL,
+                                    WaitableEvent::InitialState::SIGNALED};
+    TestWaitableEvent work_processed_;
+    TestWaitableEvent cleanup_requested_;
+    TestWaitableEvent destroyed_;
+    TestWaitableEvent exited_;
 
     bool expect_get_work_ = true;
     bool can_cleanup_ = false;
@@ -430,7 +428,7 @@ class ControllableCleanupDelegate : public WorkerThreadDefaultDelegate {
 
   ~ControllableCleanupDelegate() override { controls_->destroyed_.Signal(); }
 
-  RunIntentWithRegisteredTaskSource GetWork(WorkerThread* worker) override {
+  RegisteredTaskSource GetWork(WorkerThread* worker) override {
     EXPECT_TRUE(controls_->expect_get_work_);
 
     // Sends one item of work to signal |work_processed_|. On subsequent calls,
@@ -446,27 +444,27 @@ class ControllableCleanupDelegate : public WorkerThreadDefaultDelegate {
 
     controls_->work_requested_ = true;
     scoped_refptr<Sequence> sequence = MakeRefCounted<Sequence>(
-        TaskTraits(ThreadPool(), WithBaseSyncPrimitives(),
+        TaskTraits(WithBaseSyncPrimitives(),
                    TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN),
         nullptr, TaskSourceExecutionMode::kParallel);
-    Task task(
-        FROM_HERE,
-        BindOnce(
-            [](WaitableEvent* work_processed, WaitableEvent* work_running) {
-              work_processed->Signal();
-              work_running->Wait();
-            },
-            Unretained(&controls_->work_processed_),
-            Unretained(&controls_->work_running_)),
-        TimeDelta());
+    Task task(FROM_HERE,
+              BindOnce(
+                  [](TestWaitableEvent* work_processed,
+                     TestWaitableEvent* work_running) {
+                    work_processed->Signal();
+                    work_running->Wait();
+                  },
+                  Unretained(&controls_->work_processed_),
+                  Unretained(&controls_->work_running_)),
+              TimeDelta());
     EXPECT_TRUE(
         task_tracker_->WillPostTask(&task, sequence->shutdown_behavior()));
     sequence->BeginTransaction().PushTask(std::move(task));
     auto registered_task_source =
-        task_tracker_->WillQueueTaskSource(std::move(sequence));
+        task_tracker_->RegisterTaskSource(std::move(sequence));
     EXPECT_TRUE(registered_task_source);
-    auto run_intent = registered_task_source->WillRunTask();
-    return {std::move(registered_task_source), std::move(run_intent)};
+    registered_task_source.WillRunTask();
+    return registered_task_source;
   }
 
   void DidProcessTask(RegisteredTaskSource) override {}
@@ -649,7 +647,7 @@ class CallJoinFromDifferentThread : public SimpleThread {
 
  private:
   WorkerThread* const worker_to_join_;
-  WaitableEvent run_started_event_;
+  TestWaitableEvent run_started_event_;
   DISALLOW_COPY_AND_ASSIGN(CallJoinFromDifferentThread);
 };
 
@@ -696,8 +694,7 @@ class ExpectThreadPriorityDelegate : public WorkerThreadDefaultDelegate {
  public:
   ExpectThreadPriorityDelegate()
       : priority_verified_in_get_work_event_(
-            WaitableEvent::ResetPolicy::AUTOMATIC,
-            WaitableEvent::InitialState::NOT_SIGNALED),
+            WaitableEvent::ResetPolicy::AUTOMATIC),
         expected_thread_priority_(ThreadPriority::BACKGROUND) {}
 
   void SetExpectedThreadPriority(ThreadPriority expected_thread_priority) {
@@ -712,7 +709,7 @@ class ExpectThreadPriorityDelegate : public WorkerThreadDefaultDelegate {
   void OnMainEntry(const WorkerThread* worker) override {
     VerifyThreadPriority();
   }
-  RunIntentWithRegisteredTaskSource GetWork(WorkerThread* worker) override {
+  RegisteredTaskSource GetWork(WorkerThread* worker) override {
     VerifyThreadPriority();
     priority_verified_in_get_work_event_.Signal();
     return nullptr;
@@ -726,7 +723,7 @@ class ExpectThreadPriorityDelegate : public WorkerThreadDefaultDelegate {
   }
 
   // Signaled after GetWork() has verified the priority of the worker thread.
-  WaitableEvent priority_verified_in_get_work_event_;
+  TestWaitableEvent priority_verified_in_get_work_event_;
 
   // Synchronizes access to |expected_thread_priority_|.
   CheckedLock expected_thread_priority_lock_;
@@ -747,11 +744,11 @@ TEST(ThreadPoolWorkerTest, BumpPriorityOfAliveThreadDuringShutdown) {
 
   // Block shutdown to ensure that the worker doesn't exit when StartShutdown()
   // is called.
-  scoped_refptr<Sequence> sequence = MakeRefCounted<Sequence>(
-      TaskTraits{ThreadPool(), TaskShutdownBehavior::BLOCK_SHUTDOWN}, nullptr,
-      TaskSourceExecutionMode::kParallel);
+  scoped_refptr<Sequence> sequence =
+      MakeRefCounted<Sequence>(TaskTraits{TaskShutdownBehavior::BLOCK_SHUTDOWN},
+                               nullptr, TaskSourceExecutionMode::kParallel);
   auto registered_task_source =
-      task_tracker.WillQueueTaskSource(std::move(sequence));
+      task_tracker.RegisterTaskSource(std::move(sequence));
 
   std::unique_ptr<ExpectThreadPriorityDelegate> delegate(
       new ExpectThreadPriorityDelegate);
@@ -800,29 +797,20 @@ class VerifyCallsToObserverDelegate : public WorkerThreadDefaultDelegate {
 
 }  // namespace
 
-// Flaky: crbug.com/846121
-#if defined(OS_LINUX) && defined(ADDRESS_SANITIZER)
-#define MAYBE_WorkerThreadObserver DISABLED_WorkerThreadObserver
-#else
-#define MAYBE_WorkerThreadObserver WorkerThreadObserver
-#endif
-
 // Verify that the WorkerThreadObserver is notified when the worker enters
 // and exits its main function.
-TEST(ThreadPoolWorkerTest, MAYBE_WorkerThreadObserver) {
+TEST(ThreadPoolWorkerTest, WorkerThreadObserver) {
   StrictMock<test::MockWorkerThreadObserver> observer;
-  {
-    TaskTracker task_tracker("Test");
-    auto delegate = std::make_unique<VerifyCallsToObserverDelegate>(&observer);
-    auto worker = MakeRefCounted<WorkerThread>(ThreadPriority::NORMAL,
-                                               std::move(delegate),
-                                               task_tracker.GetTrackedRef());
-
-    EXPECT_CALL(observer, OnWorkerThreadMainEntry());
-    worker->Start(&observer);
-    worker->Cleanup();
-    worker = nullptr;
-  }
+  TaskTracker task_tracker("Test");
+  auto delegate = std::make_unique<VerifyCallsToObserverDelegate>(&observer);
+  auto worker =
+      MakeRefCounted<WorkerThread>(ThreadPriority::NORMAL, std::move(delegate),
+                                   task_tracker.GetTrackedRef());
+  EXPECT_CALL(observer, OnWorkerThreadMainEntry());
+  worker->Start(&observer);
+  worker->Cleanup();
+  // Join the worker to avoid leaks.
+  worker->JoinForTesting();
   Mock::VerifyAndClear(&observer);
 }
 

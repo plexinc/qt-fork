@@ -91,7 +91,7 @@ class DefaultObserver : public SettingsObserver {
     // Event for StorageArea.
     {
       auto args = std::make_unique<base::ListValue>();
-      args->GetList().push_back(changes->Clone());
+      args->Append(changes->Clone());
       auto event = std::make_unique<Event>(
           NamespaceToEventHistogram(settings_namespace),
           base::StringPrintf("storage.%s.onChanged", namespace_string.c_str()),
@@ -159,9 +159,7 @@ StorageFrontend::~StorageFrontend() {
 
 ValueStoreCache* StorageFrontend::GetValueStoreCache(
     settings_namespace::Namespace settings_namespace) const {
-  // TODO(crbug.com/933874): We should DCHECK for BrowserThread::UI here, but
-  // currently that breaks ExtensionSettingsSyncTest which calls this on the
-  // backend sequence.
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   auto it = caches_.find(settings_namespace);
   if (it != caches_.end())
     return it->second;

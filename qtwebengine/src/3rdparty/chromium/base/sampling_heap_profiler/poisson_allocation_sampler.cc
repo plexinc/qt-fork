@@ -103,6 +103,11 @@ thread_local bool g_internal_reentry_guard;
 // Accumulated bytes towards sample thread local key.
 thread_local intptr_t g_accumulated_bytes_tls;
 
+// Used as a workaround to avoid bias from muted samples. See
+// ScopedMuteThreadSamples for more details.
+thread_local intptr_t g_accumulated_bytes_tls_snapshot;
+const intptr_t kAccumulatedBytesOffset = 1 << 29;
+
 // A boolean used to distinguish first allocation on a thread:
 //   false - first allocation on the thread;
 //   true  - otherwise.
@@ -301,11 +306,25 @@ void PartitionFreeHook(void* address) {
 PoissonAllocationSampler::ScopedMuteThreadSamples::ScopedMuteThreadSamples() {
   DCHECK(!g_internal_reentry_guard);
   g_internal_reentry_guard = true;
+
+  // We mute thread samples immediately after taking a sample, which is when we
+  // reset g_accumulated_bytes_tls. This breaks the random sampling requirement
+  // of the poisson process, and causes us to systematically overcount all other
+  // allocations. That's because muted allocations rarely trigger a sample
+  // [which would cause them to be ignored] since they occur right after
+  // g_accumulated_bytes_tls is reset.
+  //
+  // To counteract this, we drop g_accumulated_bytes_tls by a large, fixed
+  // amount to lower the probability that a sample is taken to close to 0. Then
+  // we reset it after we're done muting thread samples.
+  g_accumulated_bytes_tls_snapshot = g_accumulated_bytes_tls;
+  g_accumulated_bytes_tls -= kAccumulatedBytesOffset;
 }
 
 PoissonAllocationSampler::ScopedMuteThreadSamples::~ScopedMuteThreadSamples() {
   DCHECK(g_internal_reentry_guard);
   g_internal_reentry_guard = false;
+  g_accumulated_bytes_tls = g_accumulated_bytes_tls_snapshot;
 }
 
 // static
@@ -343,9 +362,10 @@ bool PoissonAllocationSampler::InstallAllocatorHooks() {
 #if BUILDFLAG(USE_ALLOCATOR_SHIM)
   allocator::InsertAllocatorDispatch(&g_allocator_dispatch);
 #else
+  // If the allocator shim isn't available, then we don't install any hooks.
+  // There's no point in printing an error message, since this can regularly
+  // happen for tests.
   ignore_result(g_allocator_dispatch);
-  DLOG(WARNING)
-      << "base::allocator shims are not available for memory sampling.";
 #endif  // BUILDFLAG(USE_ALLOCATOR_SHIM)
 
 #if BUILDFLAG(USE_PARTITION_ALLOC) && !defined(OS_NACL)
@@ -412,11 +432,11 @@ void PoissonAllocationSampler::RecordAlloc(void* address,
     return;
 
   if (UNLIKELY(!g_running.load(std::memory_order_relaxed))) {
-    // Sampling is in fact disabled. Put a large negative value into
-    // the accumulator. It needs to be large enough to have this code
-    // not trigger frequently, and small enough to eventually start collecting
-    // samples when the sampling is enabled.
-    g_accumulated_bytes_tls = -static_cast<intptr_t>(kWarmupInterval);
+    // Sampling is in fact disabled. Reset the state of the sampler.
+    // We do this check off the fast-path, because it's quite a rare state when
+    // allocation hooks are installed but the sampler is not running.
+    g_sampling_interval_initialized_tls = false;
+    g_accumulated_bytes_tls = 0;
     return;
   }
 
@@ -433,6 +453,20 @@ void PoissonAllocationSampler::DoRecordAlloc(intptr_t accumulated_bytes,
     return;
 
   size_t mean_interval = g_sampling_interval.load(std::memory_order_relaxed);
+  if (UNLIKELY(!g_sampling_interval_initialized_tls)) {
+    g_sampling_interval_initialized_tls = true;
+    // This is the very first allocation on the thread. It always makes it
+    // passing the condition at |RecordAlloc|, because g_accumulated_bytes_tls
+    // is initialized with zero due to TLS semantics.
+    // Generate proper sampling interval instance and make sure the allocation
+    // has indeed crossed the threshold before counting it as a sample.
+    accumulated_bytes -= GetNextSampleInterval(mean_interval);
+    if (accumulated_bytes < 0) {
+      g_accumulated_bytes_tls = accumulated_bytes;
+      return;
+    }
+  }
+
   size_t samples = accumulated_bytes / mean_interval;
   accumulated_bytes %= mean_interval;
 
@@ -443,31 +477,25 @@ void PoissonAllocationSampler::DoRecordAlloc(intptr_t accumulated_bytes,
 
   g_accumulated_bytes_tls = accumulated_bytes;
 
-  if (UNLIKELY(!g_sampling_interval_initialized_tls)) {
-    g_sampling_interval_initialized_tls = true;
-    // This is the very first allocation on the thread. It always produces an
-    // extra sample because g_accumulated_bytes_tls is initialized with zero
-    // due to TLS semantics.
-    // Make sure we don't count this extra sample.
-    if (!--samples)
-      return;
-  }
-
   if (UNLIKELY(ScopedMuteThreadSamples::IsMuted()))
     return;
 
   ScopedMuteThreadSamples no_reentrancy_scope;
-  AutoLock lock(mutex_);
+  std::vector<SamplesObserver*> observers_copy;
+  {
+    AutoLock lock(mutex_);
 
-  // TODO(alph): Sometimes RecordAlloc is called twice in a row without
-  // a RecordFree in between. Investigate it.
-  if (sampled_addresses_set().Contains(address))
-    return;
-  sampled_addresses_set().Insert(address);
-  BalanceAddressesHashSet();
+    // TODO(alph): Sometimes RecordAlloc is called twice in a row without
+    // a RecordFree in between. Investigate it.
+    if (sampled_addresses_set().Contains(address))
+      return;
+    sampled_addresses_set().Insert(address);
+    BalanceAddressesHashSet();
+    observers_copy = observers_;
+  }
 
   size_t total_allocated = mean_interval * samples;
-  for (auto* observer : observers_)
+  for (auto* observer : observers_copy)
     observer->SampleAdded(address, size, total_allocated, type, context);
 }
 
@@ -479,10 +507,14 @@ void PoissonAllocationSampler::DoRecordFree(void* address) {
   // thus reenter DoRecordAlloc. However the call chain won't build up further
   // as RecordAlloc accesses are guarded with pthread TLS-based ReentryGuard.
   ScopedMuteThreadSamples no_reentrancy_scope;
-  AutoLock lock(mutex_);
-  for (auto* observer : observers_)
+  std::vector<SamplesObserver*> observers_copy;
+  {
+    AutoLock lock(mutex_);
+    observers_copy = observers_;
+    sampled_addresses_set().Remove(address);
+  }
+  for (auto* observer : observers_copy)
     observer->SampleRemoved(address);
-  sampled_addresses_set().Remove(address);
 }
 
 void PoissonAllocationSampler::BalanceAddressesHashSet() {

@@ -35,12 +35,10 @@ void H264Encoder::ShutdownEncoder(std::unique_ptr<Thread> encoding_thread,
 }
 
 H264Encoder::H264Encoder(
-    const VideoTrackRecorder::OnEncodedVideoCB& on_encoded_video_callback,
+    const VideoTrackRecorder::OnEncodedVideoCB& on_encoded_video_cb,
     int32_t bits_per_second,
     scoped_refptr<base::SingleThreadTaskRunner> task_runner)
-    : Encoder(on_encoded_video_callback,
-              bits_per_second,
-              std::move(task_runner)) {
+    : Encoder(on_encoded_video_cb, bits_per_second, std::move(task_runner)) {
   DCHECK(encoding_thread_);
 }
 
@@ -56,6 +54,9 @@ void H264Encoder::EncodeOnEncodingTaskRunner(
     base::TimeTicks capture_timestamp) {
   TRACE_EVENT0("media", "H264Encoder::EncodeOnEncodingTaskRunner");
   DCHECK(encoding_task_runner_->BelongsToCurrentThread());
+
+  if (frame->storage_type() == media::VideoFrame::STORAGE_GPU_MEMORY_BUFFER)
+    frame = ConvertToI420ForSoftwareEncoder(frame);
 
   const gfx::Size frame_size = frame->visible_rect().size();
   if (!openh264_encoder_ || configured_size_ != frame_size) {
@@ -109,7 +110,7 @@ void H264Encoder::EncodeOnEncodingTaskRunner(
       *origin_task_runner_.get(), FROM_HERE,
       CrossThreadBindOnce(
           OnFrameEncodeCompleted,
-          WTF::Passed(CrossThreadBindRepeating(on_encoded_video_callback_)),
+          WTF::Passed(CrossThreadBindRepeating(on_encoded_video_cb_)),
           video_params, std::move(data), std::string(), capture_timestamp,
           is_key_frame));
 }

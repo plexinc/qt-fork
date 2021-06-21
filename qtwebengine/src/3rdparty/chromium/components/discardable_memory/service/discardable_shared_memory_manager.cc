@@ -28,9 +28,10 @@
 #include "base/trace_event/process_memory_dump.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
+#include "build/chromecast_buildflags.h"
 #include "components/crash/core/common/crash_key.h"
 #include "components/discardable_memory/common/discardable_shared_memory_heap.h"
-#include "mojo/public/cpp/bindings/strong_binding.h"
+#include "mojo/public/cpp/bindings/self_owned_receiver.h"
 
 #if defined(OS_LINUX)
 #include "base/files/file_path.h"
@@ -92,16 +93,16 @@ class DiscardableMemoryImpl : public base::DiscardableMemory {
  public:
   DiscardableMemoryImpl(
       std::unique_ptr<base::DiscardableSharedMemory> shared_memory,
-      const base::Closure& deleted_callback)
+      base::OnceClosure deleted_callback)
       : shared_memory_(std::move(shared_memory)),
-        deleted_callback_(deleted_callback),
+        deleted_callback_(std::move(deleted_callback)),
         is_locked_(true) {}
 
   ~DiscardableMemoryImpl() override {
     if (is_locked_)
       shared_memory_->Unlock(0, 0);
 
-    deleted_callback_.Run();
+    std::move(deleted_callback_).Run();
   }
 
   // Overridden from base::DiscardableMemory:
@@ -125,6 +126,11 @@ class DiscardableMemoryImpl : public base::DiscardableMemory {
     return shared_memory_->memory();
   }
 
+  void DiscardForTesting() override {
+    DCHECK(is_locked_);
+    shared_memory_->Purge(base::Time::Now());
+  }
+
   base::trace_event::MemoryAllocatorDump* CreateMemoryAllocatorDump(
       const char* name,
       base::trace_event::ProcessMemoryDump* pmd) const override {
@@ -140,7 +146,7 @@ class DiscardableMemoryImpl : public base::DiscardableMemory {
 
  private:
   std::unique_ptr<base::DiscardableSharedMemory> shared_memory_;
-  const base::Closure deleted_callback_;
+  base::OnceClosure deleted_callback_;
   bool is_locked_;
 
   DISALLOW_COPY_AND_ASSIGN(DiscardableMemoryImpl);
@@ -152,7 +158,7 @@ class DiscardableMemoryImpl : public base::DiscardableMemory {
 int64_t GetDefaultMemoryLimit() {
   const int kMegabyte = 1024 * 1024;
 
-#if defined(CHROMECAST_BUILD)
+#if BUILDFLAG(IS_CHROMECAST)
   // Bypass IsLowEndDevice() check and fix max_default_memory_limit to 64MB on
   // Chromecast devices. Set value here as IsLowEndDevice() is used on some, but
   // not all Chromecast devices.
@@ -222,8 +228,8 @@ DiscardableSharedMemoryManager::DiscardableSharedMemoryManager()
       memory_limit_(default_memory_limit_),
       bytes_allocated_(0),
       memory_pressure_listener_(new base::MemoryPressureListener(
-          base::Bind(&DiscardableSharedMemoryManager::OnMemoryPressure,
-                     base::Unretained(this)))),
+          base::BindRepeating(&DiscardableSharedMemoryManager::OnMemoryPressure,
+                              base::Unretained(this)))),
       // Current thread might not have a task runner in tests.
       enforce_memory_policy_task_runner_(base::ThreadTaskRunnerHandle::Get()),
       enforce_memory_policy_pending_(false),
@@ -233,8 +239,8 @@ DiscardableSharedMemoryManager::DiscardableSharedMemoryManager()
   g_instance = this;
   DCHECK_NE(memory_limit_, 0u);
   enforce_memory_policy_callback_ =
-      base::Bind(&DiscardableSharedMemoryManager::EnforceMemoryPolicy,
-                 weak_ptr_factory_.GetWeakPtr());
+      base::BindRepeating(&DiscardableSharedMemoryManager::EnforceMemoryPolicy,
+                          weak_ptr_factory_.GetWeakPtr());
   base::trace_event::MemoryDumpManager::GetInstance()->RegisterDumpProvider(
       this, "DiscardableSharedMemoryManager",
       base::ThreadTaskRunnerHandle::Get());
@@ -279,8 +285,7 @@ DiscardableSharedMemoryManager* DiscardableSharedMemoryManager::Get() {
 }
 
 void DiscardableSharedMemoryManager::Bind(
-    mojom::DiscardableSharedMemoryManagerRequest request,
-    const service_manager::BindSourceInfo& source_info) {
+    mojo::PendingReceiver<mojom::DiscardableSharedMemoryManager> receiver) {
   DCHECK(!mojo_thread_message_loop_ ||
          mojo_thread_message_loop_ == base::MessageLoopCurrent::Get());
   if (!mojo_thread_task_runner_) {
@@ -290,10 +295,10 @@ void DiscardableSharedMemoryManager::Bind(
     mojo_thread_task_runner_ = base::ThreadTaskRunnerHandle::Get();
   }
 
-  mojo::MakeStrongBinding(
+  mojo::MakeSelfOwnedReceiver(
       std::make_unique<MojoDiscardableSharedMemoryManagerImpl>(
           next_client_id_++, mojo_thread_weak_ptr_factory_.GetWeakPtr()),
-      std::move(request));
+      std::move(receiver));
 }
 
 std::unique_ptr<base::DiscardableMemory>
@@ -315,7 +320,7 @@ DiscardableSharedMemoryManager::AllocateLockedDiscardableMemory(size_t size) {
   memory->Close();
   return std::make_unique<DiscardableMemoryImpl>(
       std::move(memory),
-      base::Bind(
+      base::BindOnce(
           &DiscardableSharedMemoryManager::DeletedDiscardableSharedMemory,
           base::Unretained(this), new_id, kInvalidUniqueClientID));
 }
@@ -413,7 +418,7 @@ void DiscardableSharedMemoryManager::EnforceMemoryPolicy() {
   ReduceMemoryUsageUntilWithinMemoryLimit();
 }
 
-size_t DiscardableSharedMemoryManager::GetBytesAllocated() {
+size_t DiscardableSharedMemoryManager::GetBytesAllocated() const {
   base::AutoLock lock(lock_);
 
   return bytes_allocated_;

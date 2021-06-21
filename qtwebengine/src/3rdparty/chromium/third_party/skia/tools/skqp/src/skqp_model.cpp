@@ -60,15 +60,15 @@ SkQP::RenderOutcome skqp::Check(const SkPixmap& minImg,
                         uint8_t v    = (c                    >> component) & 0xFF,
                                 vmin = (color(minImg, point) >> component) & 0xFF,
                                 vmax = (color(maxImg, point) >> component) & 0xFF;
-                        err = SkMax32(err, SkMax32((int)v - (int)vmax, (int)vmin - (int)v));
+                        err = std::max(err, std::max((int)v - (int)vmax, (int)vmin - (int)v));
                     }
-                    error = SkMin32(error, err);
+                    error = std::min(error, err);
                 }
             }
             if (error > (int)tolerance) {
                 ++result.fBadPixelCount;
                 result.fTotalError += error;
-                result.fMaxError = SkMax32(error, result.fMaxError);
+                result.fMaxError = std::max(error, result.fMaxError);
                 if (errorOut) {
                     if (!errorOut->getPixels()) {
                         errorOut->allocPixels(SkImageInfo::Make(
@@ -91,8 +91,7 @@ static SkBitmap decode(sk_sp<SkData> data) {
     if (auto codec = SkCodec::MakeFromData(std::move(data))) {
         SkISize size = codec->getInfo().dimensions();
         SkASSERT(!size.isEmpty());
-        SkImageInfo info = SkImageInfo::Make(size.width(), size.height(),
-                                             skqp::kColorType, skqp::kAlphaType);
+        SkImageInfo info = SkImageInfo::Make(size, skqp::kColorType, skqp::kAlphaType);
         bitmap.allocPixels(info);
         if (SkCodec::kSuccess != codec->getPixels(bitmap.pixmap())) {
             bitmap.reset();

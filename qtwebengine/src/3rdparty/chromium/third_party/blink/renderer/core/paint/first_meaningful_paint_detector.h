@@ -6,11 +6,10 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_PAINT_FIRST_MEANINGFUL_PAINT_DETECTOR_H_
 
 #include "base/macros.h"
-#include "third_party/blink/public/web/web_widget_client.h"
+#include "third_party/blink/public/web/web_swap_result.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/paint/paint_event.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
-#include "third_party/blink/renderer/platform/wtf/time.h"
 
 namespace base {
 class TickClock;
@@ -27,7 +26,7 @@ class PaintTiming;
 // seconds), and computes the layout-based First Meaningful Paint.
 // See https://goo.gl/vpaxv6 and http://goo.gl/TEiMi4 for more details.
 class CORE_EXPORT FirstMeaningfulPaintDetector
-    : public GarbageCollectedFinalized<FirstMeaningfulPaintDetector> {
+    : public GarbageCollected<FirstMeaningfulPaintDetector> {
  public:
   static FirstMeaningfulPaintDetector& From(Document&);
 
@@ -35,19 +34,19 @@ class CORE_EXPORT FirstMeaningfulPaintDetector
   virtual ~FirstMeaningfulPaintDetector() = default;
 
   void MarkNextPaintAsMeaningfulIfNeeded(const LayoutObjectCounter&,
-                                         int contents_height_before_layout,
-                                         int contents_height_after_layout,
+                                         double contents_height_before_layout,
+                                         double contents_height_after_layout,
                                          int visible_height);
   void NotifyInputEvent();
   void NotifyPaint();
-  void ReportSwapTime(PaintEvent, WebWidgetClient::SwapResult, base::TimeTicks);
+  void ReportSwapTime(PaintEvent, WebSwapResult, base::TimeTicks);
   void NotifyFirstContentfulPaint(base::TimeTicks swap_stamp);
   void OnNetwork2Quiet();
 
   // The caller owns the |clock| which must outlive the paint detector.
   static void SetTickClockForTesting(const base::TickClock* clock);
 
-  void Trace(blink::Visitor*);
+  void Trace(Visitor*);
 
   enum HadUserInput { kNoUserInput, kHadUserInput, kHadUserInputEnumMax };
 

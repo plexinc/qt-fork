@@ -132,7 +132,7 @@ class ShapePathBuilder : public PathBuilder {
   }
 
  private:
-  Member<LocalFrameView> view_;
+  LocalFrameView* view_;
   LayoutObject& layout_object_;
   const ShapeOutsideInfo& shape_outside_info_;
 };
@@ -278,6 +278,8 @@ std::unique_ptr<protocol::DictionaryValue> BuildElementInfo(Element* element) {
       class_names.Append("::before");
     else if (pseudo_element->GetPseudoId() == kPseudoIdAfter)
       class_names.Append("::after");
+    else if (pseudo_element->GetPseudoId() == kPseudoIdMarker)
+      class_names.Append("::marker");
   }
   if (!class_names.IsEmpty())
     element_info->setString("className", class_names.ToString());
@@ -287,19 +289,19 @@ std::unique_ptr<protocol::DictionaryValue> BuildElementInfo(Element* element) {
   if (!layout_object || !containing_view)
     return element_info;
 
-  if (auto* context = element->GetDisplayLockContext()) {
-    if (context->IsLocked()) {
-      // If it's a locked element, use the values from the locked frame rect.
-      // TODO(vmpstr): Verify that these values are correct here.
-      element_info->setString(
-          "nodeWidth",
-          String::Number(context->GetLockedContentLogicalWidth().ToDouble()));
-      element_info->setString(
-          "nodeHeight",
-          String::Number(context->GetLockedContentLogicalHeight().ToDouble()));
-    }
-    return element_info;
-  }
+  // if (auto* context = element->GetDisplayLockContext()) {
+  //  if (context->IsLocked()) {
+  //    // If it's a locked element, use the values from the locked frame rect.
+  //    // TODO(vmpstr): Verify that these values are correct here.
+  //    element_info->setString(
+  //        "nodeWidth",
+  //        String::Number(context->GetLockedContentLogicalWidth().ToDouble()));
+  //    element_info->setString(
+  //        "nodeHeight",
+  //        String::Number(context->GetLockedContentLogicalHeight().ToDouble()));
+  //  }
+  //  return element_info;
+  //}
 
   // layoutObject the getBoundingClientRect() data in the tooltip
   // to be consistent with the rulers (see http://crbug.com/262338).
@@ -448,8 +450,10 @@ InspectorHighlight::InspectorHighlight(
       scale_(1.f) {
   DCHECK(!DisplayLockUtilities::NearestLockedExclusiveAncestor(*node));
   LocalFrameView* frame_view = node->GetDocument().View();
-  if (frame_view)
-    scale_ = 1.f / frame_view->GetChromeClient()->WindowToViewportScalar(1.f);
+  if (frame_view) {
+    scale_ = 1.f / frame_view->GetChromeClient()->WindowToViewportScalar(
+                       &frame_view->GetFrame(), 1.f);
+  }
   AppendPathsForShapeOutside(node, highlight_config);
   AppendNodeHighlight(node, highlight_config);
   auto* text_node = DynamicTo<Text>(node);
@@ -475,7 +479,8 @@ void InspectorHighlight::AppendDistanceInfo(Node* node) {
   boxes_ = std::make_unique<protocol::Array<protocol::Array<double>>>();
   computed_style_ = protocol::DictionaryValue::create();
 
-  node->GetDocument().EnsurePaintLocationDataValidForNode(node);
+  node->GetDocument().EnsurePaintLocationDataValidForNode(
+      node, DocumentUpdateReason::kInspector);
   LayoutObject* layout_object = node->GetLayoutObject();
   if (!layout_object)
     return;
@@ -484,7 +489,8 @@ void InspectorHighlight::AppendDistanceInfo(Node* node) {
       MakeGarbageCollected<CSSComputedStyleDeclaration>(node, true);
   for (size_t i = 0; i < style->length(); ++i) {
     AtomicString name(style->item(i));
-    const CSSValue* value = style->GetPropertyCSSValue(cssPropertyID(name));
+    const CSSValue* value = style->GetPropertyCSSValue(
+        cssPropertyID(node->GetExecutionContext(), name));
     if (!value)
       continue;
     if (value->IsColorValue()) {
@@ -536,7 +542,7 @@ void InspectorHighlight::VisitAndCollectDistanceInfo(
     PseudoId pseudo_id,
     LayoutObject* layout_object) {
   protocol::DOM::PseudoType pseudo_type;
-  if (!InspectorDOMAgent::GetPseudoElementType(pseudo_id, &pseudo_type))
+  if (pseudo_id == kPseudoIdNone)
     return;
   for (LayoutObject* child = layout_object->SlowFirstChild(); child;
        child = child->NextSibling()) {
@@ -703,7 +709,8 @@ bool InspectorHighlight::GetBoxModel(
     Node* node,
     std::unique_ptr<protocol::DOM::BoxModel>* model,
     bool use_absolute_zoom) {
-  node->GetDocument().EnsurePaintLocationDataValidForNode(node);
+  node->GetDocument().EnsurePaintLocationDataValidForNode(
+      node, DocumentUpdateReason::kInspector);
   LayoutObject* layout_object = node->GetLayoutObject();
   LocalFrameView* view = node->GetDocument().View();
   if (!layout_object || !view)

@@ -19,12 +19,13 @@
 #include <vector>
 
 #include "absl/types/optional.h"
-#include "api/bitrate_constraints.h"
 #include "api/crypto/crypto_options.h"
 #include "api/fec_controller.h"
+#include "api/frame_transformer_interface.h"
+#include "api/rtc_event_log/rtc_event_log.h"
 #include "api/transport/bitrate_settings.h"
+#include "api/units/timestamp.h"
 #include "call/rtp_config.h"
-#include "logging/rtc_event_log/rtc_event_log.h"
 #include "modules/rtp_rtcp/include/report_block_data.h"
 #include "modules/rtp_rtcp/include/rtcp_statistics.h"
 #include "modules/rtp_rtcp/include/rtp_packet_sender.h"
@@ -44,7 +45,6 @@ class TargetTransferRateObserver;
 class Transport;
 class Module;
 class PacedSender;
-class PacketFeedbackObserver;
 class PacketRouter;
 class RtpVideoSenderInterface;
 class RateLimiter;
@@ -52,7 +52,6 @@ class RtcpBandwidthObserver;
 class RtpPacketSender;
 class SendDelayStats;
 class SendStatisticsProxy;
-class TransportFeedbackObserver;
 
 struct RtpSenderObservers {
   RtcpRttStats* rtcp_rtt_stats;
@@ -112,7 +111,8 @@ class RtpTransportControllerSendInterface {
       const RtpSenderObservers& observers,
       RtcEventLog* event_log,
       std::unique_ptr<FecController> fec_controller,
-      const RtpSenderFrameEncryptionConfig& frame_encryption_config) = 0;
+      const RtpSenderFrameEncryptionConfig& frame_encryption_config,
+      rtc::scoped_refptr<FrameTransformerInterface> frame_transformer) = 0;
   virtual void DestroyRtpVideoSender(
       RtpVideoSenderInterface* rtp_video_sender) = 0;
 
@@ -123,23 +123,13 @@ class RtpTransportControllerSendInterface {
 
   // SetAllocatedSendBitrateLimits sets bitrates limits imposed by send codec
   // settings.
-  // |min_send_bitrate_bps| is the total minimum send bitrate required by all
-  // sending streams.  This is the minimum bitrate the PacedSender will use.
-  // |max_padding_bitrate_bps| is the max
-  // bitrate the send streams request for padding. This can be higher than the
-  // current network estimate and tells the PacedSender how much it should max
-  // pad unless there is real packets to send.
-  virtual void SetAllocatedSendBitrateLimits(int min_send_bitrate_bps,
-                                             int max_padding_bitrate_bps,
-                                             int total_bitrate_bps) = 0;
+  virtual void SetAllocatedSendBitrateLimits(
+      BitrateAllocationLimits limits) = 0;
 
   virtual void SetPacingFactor(float pacing_factor) = 0;
   virtual void SetQueueTimeLimit(int limit_ms) = 0;
 
-  virtual void RegisterPacketFeedbackObserver(
-      PacketFeedbackObserver* observer) = 0;
-  virtual void DeRegisterPacketFeedbackObserver(
-      PacketFeedbackObserver* observer) = 0;
+  virtual StreamFeedbackProvider* GetStreamFeedbackProvider() = 0;
   virtual void RegisterTargetTransferRateObserver(
       TargetTransferRateObserver* observer) = 0;
   virtual void OnNetworkRouteChanged(
@@ -148,7 +138,7 @@ class RtpTransportControllerSendInterface {
   virtual void OnNetworkAvailability(bool network_available) = 0;
   virtual RtcpBandwidthObserver* GetBandwidthObserver() = 0;
   virtual int64_t GetPacerQueuingDelayMs() const = 0;
-  virtual int64_t GetFirstPacketTimeMs() const = 0;
+  virtual absl::optional<Timestamp> GetFirstPacketTime() const = 0;
   virtual void EnablePeriodicAlrProbing(bool enable) = 0;
   virtual void OnSentPacket(const rtc::SentPacket& sent_packet) = 0;
   virtual void OnReceivedPacket(const ReceivedPacket& received_packet) = 0;
@@ -162,6 +152,7 @@ class RtpTransportControllerSendInterface {
       size_t transport_overhead_per_packet) = 0;
 
   virtual void AccountForAudioPacketsInPacedSender(bool account_for_audio) = 0;
+  virtual void IncludeOverheadInPacedSender() = 0;
 };
 
 }  // namespace webrtc

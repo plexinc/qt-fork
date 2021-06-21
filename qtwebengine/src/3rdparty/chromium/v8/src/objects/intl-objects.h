@@ -10,6 +10,7 @@
 #define V8_OBJECTS_INTL_OBJECTS_H_
 
 #include <map>
+#include <memory>
 #include <set>
 #include <string>
 
@@ -20,13 +21,12 @@
 #include "unicode/locid.h"
 #include "unicode/uversion.h"
 
-#define V8_MINIMUM_ICU_VERSION 64
+#define V8_MINIMUM_ICU_VERSION 65
 
 namespace U_ICU_NAMESPACE {
 class BreakIterator;
 class Collator;
 class FormattedValue;
-class SimpleDateFormat;
 class UnicodeString;
 }  // namespace U_ICU_NAMESPACE
 
@@ -131,15 +131,6 @@ class Intl {
       Isolate* isolate, Handle<JSReceiver> options, Handle<String> property,
       int min, int max, int fallback);
 
-  // Canonicalize the locale.
-  // https://tc39.github.io/ecma402/#sec-canonicalizelanguagetag,
-  // including type check and structural validity check.
-  static Maybe<std::string> CanonicalizeLanguageTag(Isolate* isolate,
-                                                    Handle<Object> locale_in);
-
-  static Maybe<std::string> CanonicalizeLanguageTag(Isolate* isolate,
-                                                    const std::string& locale);
-
   // https://tc39.github.io/ecma402/#sec-canonicalizelocalelist
   // {only_return_one_result} is an optimization for callers that only
   // care about the first result.
@@ -164,7 +155,7 @@ class Intl {
 
   V8_WARN_UNUSED_RESULT static MaybeHandle<Object> StringLocaleCompare(
       Isolate* isolate, Handle<String> s1, Handle<String> s2,
-      Handle<Object> locales, Handle<Object> options);
+      Handle<Object> locales, Handle<Object> options, const char* method);
 
   V8_WARN_UNUSED_RESULT static Handle<Object> CompareStrings(
       Isolate* isolate, const icu::Collator& collator, Handle<String> s1,
@@ -173,7 +164,7 @@ class Intl {
   // ecma402/#sup-properties-of-the-number-prototype-object
   V8_WARN_UNUSED_RESULT static MaybeHandle<String> NumberToLocaleString(
       Isolate* isolate, Handle<Object> num, Handle<Object> locales,
-      Handle<Object> options);
+      Handle<Object> options, const char* method);
 
   // ecma402/#sec-setnfdigitoptions
   struct NumberFormatDigitOptions {
@@ -187,8 +178,6 @@ class Intl {
   SetNumberFormatDigitOptions(Isolate* isolate, Handle<JSReceiver> options,
                               int mnfd_default, int mxfd_default,
                               bool notation_is_compact);
-
-  static icu::Locale CreateICULocale(const std::string& bcp47_locale);
 
   // Helper funciton to convert a UnicodeString to a Handle<String>
   V8_WARN_UNUSED_RESULT static MaybeHandle<String> ToString(
@@ -238,22 +227,6 @@ class Intl {
       Isolate* isolate, Handle<JSReceiver> receiver,
       Handle<JSFunction> constructor, bool has_initialized_slot);
 
-  // enum for "caseFirst" option: shared by Intl.Locale and Intl.Collator.
-  enum class CaseFirst { kUpper, kLower, kFalse, kUndefined };
-
-  // Shared function to read the "caseFirst" option.
-  V8_WARN_UNUSED_RESULT static Maybe<CaseFirst> GetCaseFirst(
-      Isolate* isolate, Handle<JSReceiver> options, const char* method);
-
-  // enum for "hourCycle" option: shared by Intl.Locale and Intl.DateTimeFormat.
-  enum class HourCycle { kH11, kH12, kH23, kH24, kUndefined };
-
-  static HourCycle ToHourCycle(const std::string& str);
-
-  // Shared function to read the "hourCycle" option.
-  V8_WARN_UNUSED_RESULT static Maybe<HourCycle> GetHourCycle(
-      Isolate* isolate, Handle<JSReceiver> options, const char* method);
-
   // enum for "localeMatcher" option: shared by many Intl objects.
   enum class MatcherOption { kBestFit, kLookup };
 
@@ -270,13 +243,22 @@ class Intl {
   static bool IsValidCalendar(const icu::Locale& locale,
                               const std::string& value);
 
+  // Check the numberingSystem is valid.
+  static bool IsValidNumberingSystem(const std::string& value);
+
+  // Check the calendar is well formed.
+  static bool IsWellFormedCalendar(const std::string& value);
+
+  // Check the currency is well formed.
+  static bool IsWellFormedCurrency(const std::string& value);
+
   struct ResolvedLocale {
     std::string locale;
     icu::Locale icu_locale;
     std::map<std::string, std::string> extensions;
   };
 
-  static ResolvedLocale ResolveLocale(
+  static Maybe<ResolvedLocale> ResolveLocale(
       Isolate* isolate, const std::set<std::string>& available_locales,
       const std::vector<std::string>& requested_locales, MatcherOption options,
       const std::set<std::string>& relevant_extension_keys);
@@ -324,10 +306,6 @@ class Intl {
   // Convert a Handle<String> to icu::UnicodeString
   static icu::UnicodeString ToICUUnicodeString(Isolate* isolate,
                                                Handle<String> string);
-
-  // Convert a Handle<String> to icu::StringPiece
-  static icu::StringPiece ToICUStringPiece(Isolate* isolate,
-                                           Handle<String> string);
 
   static const uint8_t* ToLatin1LowerTable();
 

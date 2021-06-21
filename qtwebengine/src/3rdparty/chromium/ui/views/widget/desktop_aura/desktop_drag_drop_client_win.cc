@@ -4,6 +4,8 @@
 
 #include "ui/views/widget/desktop_aura/desktop_drag_drop_client_win.h"
 
+#include <memory>
+
 #include "base/metrics/histogram_macros.h"
 #include "ui/base/dragdrop/drag_drop_types.h"
 #include "ui/base/dragdrop/drag_source_win.h"
@@ -14,12 +16,9 @@
 
 namespace views {
 
-DesktopDragDropClientWin::DesktopDragDropClientWin(
-    aura::Window* root_window,
-    HWND window)
-    : drag_drop_in_progress_(false),
-      drag_operation_(0),
-      weak_factory_(this) {
+DesktopDragDropClientWin::DesktopDragDropClientWin(aura::Window* root_window,
+                                                   HWND window)
+    : drag_drop_in_progress_(false), drag_operation_(0) {
   drop_target_ = new DesktopDropTargetWin(root_window);
   drop_target_->Init(window);
 }

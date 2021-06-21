@@ -27,6 +27,7 @@
 #include "third_party/blink/renderer/core/events/touch_event.h"
 
 #include "third_party/blink/public/platform/web_coalesced_input_event.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_touch_event_init.h"
 #include "third_party/blink/renderer/core/dom/events/event_dispatcher.h"
 #include "third_party/blink/renderer/core/dom/events/event_path.h"
 #include "third_party/blink/renderer/core/event_interface_names.h"
@@ -34,6 +35,7 @@
 #include "third_party/blink/renderer/core/frame/intervention.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
+#include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/html/html_element.h"
 #include "third_party/blink/renderer/core/input/input_device_capabilities.h"
 #include "third_party/blink/renderer/core/inspector/console_message.h"
@@ -53,8 +55,7 @@ const WebTouchEvent* GetWebTouchEvent(const WebCoalescedInputEvent& event) {
 }
 }  // namespace
 
-TouchEvent::TouchEvent()
-    : current_touch_action_(TouchAction::kTouchActionAuto) {}
+TouchEvent::TouchEvent() : current_touch_action_(TouchAction::kAuto) {}
 
 TouchEvent::TouchEvent(const WebCoalescedInputEvent& event,
                        TouchList* touches,
@@ -91,7 +92,7 @@ TouchEvent::TouchEvent(const AtomicString& type,
       touches_(TouchList::Create(initializer->touches())),
       target_touches_(TouchList::Create(initializer->targetTouches())),
       changed_touches_(TouchList::Create(initializer->changedTouches())),
-      current_touch_action_(TouchAction::kTouchActionAuto) {}
+      current_touch_action_(TouchAction::kAuto) {}
 
 TouchEvent::~TouchEvent() = default;
 
@@ -126,7 +127,7 @@ void TouchEvent::preventDefault() {
       // Only enable the warning when the current touch action is auto because
       // an author may use touch action but call preventDefault for interop with
       // browsers that don't support touch-action.
-      if (current_touch_action_ == TouchAction::kTouchActionAuto) {
+      if (current_touch_action_ == TouchAction::kAuto) {
         id = "PreventDefaultPassive";
         message =
             "Unable to preventDefault inside passive event listener due to "
@@ -147,7 +148,7 @@ void TouchEvent::preventDefault() {
        type() == event_type_names::kTouchmove) &&
       local_dom_window) {
     auto* local_frame = DynamicTo<LocalFrame>(view()->GetFrame());
-    if (local_frame && current_touch_action_ == TouchAction::kTouchActionAuto) {
+    if (local_frame && current_touch_action_ == TouchAction::kAuto) {
       switch (HandlingPassive()) {
         case PassiveMode::kNotPassiveDefault:
           UseCounter::Count(local_dom_window->document(),
@@ -172,7 +173,7 @@ bool TouchEvent::IsTouchStartOrFirstTouchMove() const {
   return GetWebTouchEvent(*native_event_)->touch_start_or_first_touch_move;
 }
 
-void TouchEvent::Trace(blink::Visitor* visitor) {
+void TouchEvent::Trace(Visitor* visitor) {
   visitor->Trace(touches_);
   visitor->Trace(target_touches_);
   visitor->Trace(changed_touches_);

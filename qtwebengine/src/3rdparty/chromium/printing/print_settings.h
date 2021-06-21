@@ -8,6 +8,8 @@
 #include <algorithm>
 #include <string>
 
+#include "base/macros.h"
+#include "base/optional.h"
 #include "base/strings/string16.h"
 #include "printing/page_range.h"
 #include "printing/page_setup.h"
@@ -16,10 +18,17 @@
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
 
+#if defined(OS_CHROMEOS)
+#include <map>
+
+#include "base/values.h"
+#endif  // defined(OS_CHROMEOS)
+
 namespace printing {
 
-// Returns true if |color_mode| is color and not B&W.
-PRINTING_EXPORT bool IsColorModelSelected(int color_mode);
+// Returns true if |color_mode| is color and not B&W. Must be called with a
+// |color_mode| from printing::ColorModel, excluding UNKNOWN_COLOR_MODEL.
+PRINTING_EXPORT base::Optional<bool> IsColorModelSelected(int color_mode);
 
 #if defined(USE_CUPS)
 // Get the color model setting name and value for the |color_mode|.
@@ -58,8 +67,11 @@ class PRINTING_EXPORT PrintSettings {
     }
   };
 
+#if defined(OS_CHROMEOS)
+  using AdvancedSettings = std::map<std::string, base::Value>;
+#endif  // defined(OS_CHROMEOS)
+
   PrintSettings();
-  PrintSettings(const PrintSettings& other);
   ~PrintSettings();
 
   // Reinitialize the settings to the default values.
@@ -201,7 +213,12 @@ class PRINTING_EXPORT PrintSettings {
 
   void set_pin_value(const std::string& pin_value) { pin_value_ = pin_value; }
   const std::string& pin_value() const { return pin_value_; }
-#endif
+
+  AdvancedSettings& advanced_settings() { return advanced_settings_; }
+  const AdvancedSettings& advanced_settings() const {
+    return advanced_settings_;
+  }
+#endif  // defined(OS_CHROMEOS)
 
   // Cookie generator. It is used to initialize PrintedDocument with its
   // associated PrintSettings, to be sure that each generated PrintedPage is
@@ -289,12 +306,14 @@ class PRINTING_EXPORT PrintSettings {
   // Username if it's required by the printer.
   std::string username_;
 
-  // Job title if it's required by the printer.
-  std::string job_title_;
-
   // PIN code entered by the user.
   std::string pin_value_;
+
+  // Advanced settings.
+  AdvancedSettings advanced_settings_;
 #endif
+
+  DISALLOW_COPY_AND_ASSIGN(PrintSettings);
 };
 
 }  // namespace printing

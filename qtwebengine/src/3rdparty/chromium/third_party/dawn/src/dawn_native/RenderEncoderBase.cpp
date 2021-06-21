@@ -27,13 +27,17 @@
 namespace dawn_native {
 
     RenderEncoderBase::RenderEncoderBase(DeviceBase* device, EncodingContext* encodingContext)
-        : ProgrammablePassEncoder(device, encodingContext) {
+        : ProgrammablePassEncoder(device, encodingContext),
+          mDisableBaseVertex(device->IsToggleEnabled(Toggle::DisableBaseVertex)),
+          mDisableBaseInstance(device->IsToggleEnabled(Toggle::DisableBaseInstance)) {
     }
 
     RenderEncoderBase::RenderEncoderBase(DeviceBase* device,
                                          EncodingContext* encodingContext,
                                          ErrorTag errorTag)
-        : ProgrammablePassEncoder(device, encodingContext, errorTag) {
+        : ProgrammablePassEncoder(device, encodingContext, errorTag),
+          mDisableBaseVertex(device->IsToggleEnabled(Toggle::DisableBaseVertex)),
+          mDisableBaseInstance(device->IsToggleEnabled(Toggle::DisableBaseInstance)) {
     }
 
     void RenderEncoderBase::Draw(uint32_t vertexCount,
@@ -41,6 +45,10 @@ namespace dawn_native {
                                  uint32_t firstVertex,
                                  uint32_t firstInstance) {
         mEncodingContext->TryEncode(this, [&](CommandAllocator* allocator) -> MaybeError {
+            if (mDisableBaseInstance && firstInstance != 0) {
+                return DAWN_VALIDATION_ERROR("Non-zero first instance not supported");
+            }
+
             DrawCmd* draw = allocator->Allocate<DrawCmd>(Command::Draw);
             draw->vertexCount = vertexCount;
             draw->instanceCount = instanceCount;
@@ -57,6 +65,13 @@ namespace dawn_native {
                                         int32_t baseVertex,
                                         uint32_t firstInstance) {
         mEncodingContext->TryEncode(this, [&](CommandAllocator* allocator) -> MaybeError {
+            if (mDisableBaseInstance && firstInstance != 0) {
+                return DAWN_VALIDATION_ERROR("Non-zero first instance not supported");
+            }
+            if (mDisableBaseInstance && baseVertex != 0) {
+                return DAWN_VALIDATION_ERROR("Non-zero base vertex not supported");
+            }
+
             DrawIndexedCmd* draw = allocator->Allocate<DrawIndexedCmd>(Command::DrawIndexed);
             draw->indexCount = indexCount;
             draw->instanceCount = instanceCount;
@@ -81,6 +96,8 @@ namespace dawn_native {
             cmd->indirectBuffer = indirectBuffer;
             cmd->indirectOffset = indirectOffset;
 
+            mUsageTracker.BufferUsedAs(indirectBuffer, wgpu::BufferUsage::Indirect);
+
             return {};
         });
     }
@@ -99,6 +116,8 @@ namespace dawn_native {
                 allocator->Allocate<DrawIndexedIndirectCmd>(Command::DrawIndexedIndirect);
             cmd->indirectBuffer = indirectBuffer;
             cmd->indirectOffset = indirectOffset;
+
+            mUsageTracker.BufferUsedAs(indirectBuffer, wgpu::BufferUsage::Indirect);
 
             return {};
         });
@@ -125,31 +144,27 @@ namespace dawn_native {
             cmd->buffer = buffer;
             cmd->offset = offset;
 
+            mUsageTracker.BufferUsedAs(buffer, wgpu::BufferUsage::Index);
+
             return {};
         });
     }
 
-    void RenderEncoderBase::SetVertexBuffers(uint32_t startSlot,
-                                             uint32_t count,
-                                             BufferBase* const* buffers,
-                                             uint64_t const* offsets) {
+    void RenderEncoderBase::SetVertexBuffer(uint32_t slot, BufferBase* buffer, uint64_t offset) {
         mEncodingContext->TryEncode(this, [&](CommandAllocator* allocator) -> MaybeError {
-            for (size_t i = 0; i < count; ++i) {
-                DAWN_TRY(GetDevice()->ValidateObject(buffers[i]));
+            DAWN_TRY(GetDevice()->ValidateObject(buffer));
+
+            if (slot >= kMaxVertexBuffers) {
+                return DAWN_VALIDATION_ERROR("Vertex buffer slot out of bounds");
             }
 
-            SetVertexBuffersCmd* cmd =
-                allocator->Allocate<SetVertexBuffersCmd>(Command::SetVertexBuffers);
-            cmd->startSlot = startSlot;
-            cmd->count = count;
+            SetVertexBufferCmd* cmd =
+                allocator->Allocate<SetVertexBufferCmd>(Command::SetVertexBuffer);
+            cmd->slot = slot;
+            cmd->buffer = buffer;
+            cmd->offset = offset;
 
-            Ref<BufferBase>* cmdBuffers = allocator->AllocateData<Ref<BufferBase>>(count);
-            for (size_t i = 0; i < count; ++i) {
-                cmdBuffers[i] = buffers[i];
-            }
-
-            uint64_t* cmdOffsets = allocator->AllocateData<uint64_t>(count);
-            memcpy(cmdOffsets, offsets, count * sizeof(uint64_t));
+            mUsageTracker.BufferUsedAs(buffer, wgpu::BufferUsage::Vertex);
 
             return {};
         });

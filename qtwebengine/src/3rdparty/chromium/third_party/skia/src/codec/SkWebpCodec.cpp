@@ -14,8 +14,8 @@
 #include "include/private/SkTo.h"
 #include "src/codec/SkCodecAnimationPriv.h"
 #include "src/codec/SkCodecPriv.h"
+#include "src/codec/SkParseEncodedOrigin.h"
 #include "src/codec/SkSampler.h"
-#include "src/core/SkMakeUnique.h"
 #include "src/core/SkRasterPipeline.h"
 #include "src/core/SkStreamPriv.h"
 
@@ -106,7 +106,7 @@ std::unique_ptr<SkCodec> SkWebpCodec::MakeFromStream(std::unique_ptr<SkStream> s
         WebPChunkIterator chunkIterator;
         SkAutoTCallVProc<WebPChunkIterator, WebPDemuxReleaseChunkIterator> autoCI(&chunkIterator);
         if (WebPDemuxGetChunk(demux, "EXIF", 1, &chunkIterator)) {
-            is_orientation_marker(chunkIterator.chunk.bytes, chunkIterator.chunk.size, &origin);
+            SkParseEncodedOrigin(chunkIterator.chunk.bytes, chunkIterator.chunk.size, &origin);
         }
     }
 
@@ -219,12 +219,15 @@ int SkWebpCodec::onGetRepetitionCount() {
         return 0;
     }
 
-    const int repCount = WebPDemuxGetI(fDemux.get(), WEBP_FF_LOOP_COUNT);
-    if (0 == repCount) {
+    int loopCount = WebPDemuxGetI(fDemux.get(), WEBP_FF_LOOP_COUNT);
+    if (0 == loopCount) {
         return kRepetitionCountInfinite;
     }
 
-    return repCount;
+#ifndef SK_LEGACY_WEBP_LOOP_COUNT
+    loopCount--;
+#endif
+    return loopCount;
 }
 
 int SkWebpCodec::onGetFrameCount() {
@@ -390,12 +393,12 @@ SkCodec::Result SkWebpCodec::onGetPixels(const SkImageInfo& dstInfo, void* dst, 
         SkASSERT(SkIsAlign2(subset.fLeft) && SkIsAlign2(subset.fTop));
         SkASSERT(this->getValidSubset(&subset) && subset == *options.fSubset);
 
-        if (!SkIRect::IntersectsNoEmptyCheck(subset, frameRect)) {
+        if (!SkIRect::Intersects(subset, frameRect)) {
             return kSuccess;
         }
 
-        int minXOffset = SkTMin(dstX, subset.x());
-        int minYOffset = SkTMin(dstY, subset.y());
+        int minXOffset = std::min(dstX, subset.x());
+        int minYOffset = std::min(dstY, subset.y());
         dstX -= minXOffset;
         dstY -= minYOffset;
         frameRect.offset(-minXOffset, -minYOffset);

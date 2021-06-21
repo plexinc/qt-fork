@@ -9,7 +9,6 @@
 #include <string>
 
 #include "components/data_reduction_proxy/proto/client_config.pb.h"
-#include "components/data_reduction_proxy/proto/pageload_metrics.pb.h"
 #include "net/base/network_change_notifier.h"
 #include "net/base/proxy_server.h"
 #include "net/nqe/effective_connection_type.h"
@@ -75,16 +74,9 @@ static_assert(net::EFFECTIVE_CONNECTION_TYPE_LAST == 6,
               "If net::EFFECTIVE_CONNECTION_TYPE changes, "
               "PageloadMetrics_EffectiveConnectionType needs to be updated.");
 
-// Returns the PageloadMetrics_EffectiveConnectionType equivalent of
-// |effective_connection_type|.
-PageloadMetrics_EffectiveConnectionType
-ProtoEffectiveConnectionTypeFromEffectiveConnectionType(
-    net::EffectiveConnectionType effective_connection_type);
-
-// Returns the PageloadMetrics_ConnectionType equivalent of
-// |connection_type|.
-PageloadMetrics_ConnectionType ProtoConnectionTypeFromConnectionType(
-    net::NetworkChangeNotifier::ConnectionType connection_type);
+// Returns the corresponding scheme string for the prefetch proto scheme.
+std::string SchemeFromPrefetchScheme(
+    PrefetchProxyConfig_Proxy_Scheme proxy_scheme);
 
 // Returns the |net::ProxyServer::Scheme| for a ProxyServer_ProxyScheme.
 net::ProxyServer::Scheme SchemeFromProxyScheme(

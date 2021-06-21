@@ -11,7 +11,6 @@
 
 #include "base/stl_util.h"
 #include "base/strings/string_util.h"
-#include "components/variations/client_filterable_state.h"
 
 namespace variations {
 namespace {
@@ -117,6 +116,30 @@ bool CheckStudyLowEndDevice(const Study::Filter& filter,
                             bool is_low_end_device) {
   return !filter.has_is_low_end_device() ||
          filter.is_low_end_device() == is_low_end_device;
+}
+
+bool CheckStudyEnterprise(const Study::Filter& filter,
+                          const ClientFilterableState& client_state) {
+  return !filter.has_is_enterprise() ||
+         filter.is_enterprise() == client_state.IsEnterprise();
+}
+
+bool CheckStudyPolicyRestriction(const Study::Filter& filter,
+                                 RestrictionPolicy policy_restriction) {
+  switch (policy_restriction) {
+    // If the policy is set to no restrictions let any study that is not
+    // specifically designated for clients requesting critical studies only.
+    case RestrictionPolicy::NO_RESTRICTIONS:
+      return filter.policy_restriction() != Study::CRITICAL_ONLY;
+    // If the policy is set to only allow critical studies than make sure they
+    // have that restriction applied on their Filter.
+    case RestrictionPolicy::CRITICAL_ONLY:
+      return filter.policy_restriction() != Study::NONE;
+    // If the policy is set to not allow any variations then return false
+    // regardless of the actual Filter.
+    case RestrictionPolicy::ALL:
+      return false;
+  }
 }
 
 bool CheckStudyStartDate(const Study::Filter& filter,
@@ -271,6 +294,19 @@ bool ShouldAddStudy(const Study& study,
                                 client_state.is_low_end_device)) {
       DVLOG(1) << "Filtered out study " << study.name()
                << " due to is_low_end_device.";
+      return false;
+    }
+
+    if (!CheckStudyEnterprise(study.filter(), client_state)) {
+      DVLOG(1) << "Filtered out study " << study.name()
+               << " due to enterprise state.";
+      return false;
+    }
+
+    if (!CheckStudyPolicyRestriction(study.filter(),
+                                     client_state.policy_restriction)) {
+      DVLOG(1) << "Filtered out study " << study.name()
+               << " due to policy restriction.";
       return false;
     }
 

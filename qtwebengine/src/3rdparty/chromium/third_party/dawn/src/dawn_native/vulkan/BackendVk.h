@@ -30,12 +30,14 @@ namespace dawn_native { namespace vulkan {
 
         const VulkanFunctions& GetFunctions() const;
         VkInstance GetVkInstance() const;
+        const VulkanGlobalInfo& GetGlobalInfo() const;
 
         MaybeError Initialize();
 
         std::vector<std::unique_ptr<AdapterBase>> DiscoverDefaultAdapters() override;
 
       private:
+        MaybeError LoadVulkan();
         ResultOrError<VulkanGlobalKnobs> CreateInstance();
 
         MaybeError RegisterDebugReport();

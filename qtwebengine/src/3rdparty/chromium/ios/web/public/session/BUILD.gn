@@ -6,9 +6,10 @@ source_set("session") {
   configs += [ "//build/config/compiler:enable_arc" ]
   deps = [
     "//base",
+    "//ios/web/common:user_agent",
     "//ios/web/public",
-    "//ios/web/public:user_agent",
     "//ios/web/public/navigation",
+    "//ios/web/public/security",
     "//net",
     "//url",
   ]
@@ -18,5 +19,6 @@ source_set("session") {
     "crw_session_storage.h",
     "serializable_user_data_manager.h",
     "session_certificate_policy_cache.h",
+    "session_certificate_policy_cache.mm",
   ]
 }

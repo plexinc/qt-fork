@@ -17,7 +17,7 @@
 #endif
 #include "src/codec/SkIcoCodec.h"
 #include "src/codec/SkJpegCodec.h"
-#ifdef SK_HAS_PNG_LIBRARY
+#ifdef SK_CODEC_DECODES_PNG
 #include "src/codec/SkPngCodec.h"
 #endif
 #include "include/core/SkStream.h"
@@ -26,8 +26,8 @@
 #include "src/codec/SkWebpCodec.h"
 #ifdef SK_HAS_WUFFS_LIBRARY
 #include "src/codec/SkWuffsCodec.h"
-#else
-#include "src/codec/SkGifCodec.h"
+#elif defined(SK_USE_LIBGIFCODEC)
+#include "SkGifCodec.h"
 #endif
 
 struct DecoderProc {
@@ -37,25 +37,22 @@ struct DecoderProc {
 
 static std::vector<DecoderProc>* decoders() {
     static auto* decoders = new std::vector<DecoderProc> {
-    #ifdef SK_HAS_JPEG_LIBRARY
+    #ifdef SK_CODEC_DECODES_JPEG
         { SkJpegCodec::IsJpeg, SkJpegCodec::MakeFromStream },
     #endif
-    #ifdef SK_HAS_WEBP_LIBRARY
+    #ifdef SK_CODEC_DECODES_WEBP
         { SkWebpCodec::IsWebp, SkWebpCodec::MakeFromStream },
     #endif
     #ifdef SK_HAS_WUFFS_LIBRARY
         { SkWuffsCodec_IsFormat, SkWuffsCodec_MakeFromStream },
-    #else
+    #elif defined(SK_USE_LIBGIFCODEC)
         { SkGifCodec::IsGif, SkGifCodec::MakeFromStream },
     #endif
-    #ifdef SK_HAS_PNG_LIBRARY
+    #ifdef SK_CODEC_DECODES_PNG
         { SkIcoCodec::IsIco, SkIcoCodec::MakeFromStream },
     #endif
         { SkBmpCodec::IsBmp, SkBmpCodec::MakeFromStream },
         { SkWbmpCodec::IsWbmp, SkWbmpCodec::MakeFromStream },
-    #ifdef SK_HAS_HEIF_LIBRARY
-        { SkHeifCodec::IsHeif, SkHeifCodec::MakeFromStream },
-    #endif
     };
     return decoders;
 }
@@ -66,9 +63,9 @@ void SkCodec::Register(
     decoders()->push_back(DecoderProc{peek, make});
 }
 
-
-std::unique_ptr<SkCodec> SkCodec::MakeFromStream(std::unique_ptr<SkStream> stream,
-                                                 Result* outResult, SkPngChunkReader* chunkReader) {
+std::unique_ptr<SkCodec> SkCodec::MakeFromStream(
+        std::unique_ptr<SkStream> stream, Result* outResult,
+        SkPngChunkReader* chunkReader, SelectionPolicy selectionPolicy) {
     Result resultStorage;
     if (!outResult) {
         outResult = &resultStorage;
@@ -76,6 +73,12 @@ std::unique_ptr<SkCodec> SkCodec::MakeFromStream(std::unique_ptr<SkStream> strea
 
     if (!stream) {
         *outResult = kInvalidInput;
+        return nullptr;
+    }
+
+    if (selectionPolicy != SelectionPolicy::kPreferStillImage
+            && selectionPolicy != SelectionPolicy::kPreferAnimation) {
+        *outResult = kInvalidParameters;
         return nullptr;
     }
 
@@ -109,7 +112,7 @@ std::unique_ptr<SkCodec> SkCodec::MakeFromStream(std::unique_ptr<SkStream> strea
 
     // PNG is special, since we want to be able to supply an SkPngChunkReader.
     // But this code follows the same pattern as the loop.
-#ifdef SK_HAS_PNG_LIBRARY
+#ifdef SK_CODEC_DECODES_PNG
     if (SkPngCodec::IsPng(buffer, bytesRead)) {
         return SkPngCodec::MakeFromStream(std::move(stream), outResult, chunkReader);
     } else
@@ -120,6 +123,12 @@ std::unique_ptr<SkCodec> SkCodec::MakeFromStream(std::unique_ptr<SkStream> strea
                 return proc.MakeFromStream(std::move(stream), outResult);
             }
         }
+
+#ifdef SK_HAS_HEIF_LIBRARY
+        if (SkHeifCodec::IsHeif(buffer, bytesRead)) {
+            return SkHeifCodec::MakeFromStream(std::move(stream), selectionPolicy, outResult);
+        }
+#endif
 
 #ifdef SK_CODEC_DECODES_RAW
         // Try to treat the input as RAW if all the other checks failed.
@@ -166,9 +175,8 @@ bool SkCodec::conversionSupported(const SkImageInfo& dst, bool srcIsOpaque, bool
     switch (dst.colorType()) {
         case kRGBA_8888_SkColorType:
         case kBGRA_8888_SkColorType:
-            return true;
         case kRGBA_F16_SkColorType:
-            return dst.colorSpace();
+            return true;
         case kRGB_565_SkColorType:
             return srcIsOpaque;
         case kGray_8_SkColorType:
@@ -205,8 +213,21 @@ bool SkCodec::rewindIfNeeded() {
     return this->onRewind();
 }
 
+static SkIRect frame_rect_on_screen(SkIRect frameRect,
+                                    const SkIRect& screenRect) {
+    if (!frameRect.intersect(screenRect)) {
+        return SkIRect::MakeEmpty();
+    }
+
+    return frameRect;
+}
+
 bool zero_rect(const SkImageInfo& dstInfo, void* pixels, size_t rowBytes,
                SkISize srcDimensions, SkIRect prevRect) {
+    prevRect = frame_rect_on_screen(prevRect, SkIRect::MakeSize(srcDimensions));
+    if (prevRect.isEmpty()) {
+        return true;
+    }
     const auto dimensions = dstInfo.dimensions();
     if (dimensions != srcDimensions) {
         SkRect src = SkRect::Make(srcDimensions);
@@ -224,13 +245,7 @@ bool zero_rect(const SkImageInfo& dstInfo, void* pixels, size_t rowBytes,
         }
     }
 
-    if (!prevRect.intersect(dstInfo.bounds())) {
-        SkCodecPrintf("rectangles do not intersect!");
-        SkASSERT(false);
-        return true;
-    }
-
-    const SkImageInfo info = dstInfo.makeWH(prevRect.width(), prevRect.height());
+    const SkImageInfo info = dstInfo.makeDimensions(prevRect.size());
     const size_t bpp = dstInfo.bytesPerPixel();
     const size_t offset = prevRect.x() * bpp + prevRect.y() * rowBytes;
     void* eraseDst = SkTAddOffset<void>(pixels, offset);
@@ -315,13 +330,8 @@ SkCodec::Result SkCodec::handleFrameIndex(const SkImageInfo& info, void* pixels,
         ? kSuccess : kInvalidConversion;
 }
 
-SkCodec::Result SkCodec::getPixels(const SkImageInfo& dstInfo, void* pixels, size_t rowBytes,
+SkCodec::Result SkCodec::getPixels(const SkImageInfo& info, void* pixels, size_t rowBytes,
                                    const Options* options) {
-    SkImageInfo info = dstInfo;
-    if (!info.colorSpace()) {
-        info = info.makeColorSpace(SkColorSpace::MakeSRGB());
-    }
-
     if (kUnknown_SkColorType == info.colorType()) {
         return kInvalidConversion;
     }
@@ -390,14 +400,10 @@ SkCodec::Result SkCodec::getPixels(const SkImageInfo& dstInfo, void* pixels, siz
     return result;
 }
 
-SkCodec::Result SkCodec::startIncrementalDecode(const SkImageInfo& dstInfo, void* pixels,
+SkCodec::Result SkCodec::startIncrementalDecode(const SkImageInfo& info, void* pixels,
         size_t rowBytes, const SkCodec::Options* options) {
     fStartedIncrementalDecode = false;
 
-    SkImageInfo info = dstInfo;
-    if (!info.colorSpace()) {
-        info = info.makeColorSpace(SkColorSpace::MakeSRGB());
-    }
     if (kUnknown_SkColorType == info.colorType()) {
         return kInvalidConversion;
     }
@@ -463,15 +469,10 @@ SkCodec::Result SkCodec::startIncrementalDecode(const SkImageInfo& dstInfo, void
 }
 
 
-SkCodec::Result SkCodec::startScanlineDecode(const SkImageInfo& dstInfo,
+SkCodec::Result SkCodec::startScanlineDecode(const SkImageInfo& info,
         const SkCodec::Options* options) {
     // Reset fCurrScanline in case of failure.
     fCurrScanline = -1;
-
-    SkImageInfo info = dstInfo;
-    if (!info.colorSpace()) {
-        info = info.makeColorSpace(SkColorSpace::MakeSRGB());
-    }
 
     if (!this->rewindIfNeeded()) {
         return kCouldNotRewind;
@@ -633,11 +634,18 @@ bool SkCodec::initializeColorXform(const SkImageInfo& dstInfo, SkEncodedInfo::Al
                                    bool srcIsOpaque) {
     fXformTime = kNo_XformTime;
     bool needsColorXform = false;
-    if (this->usesColorXform() && dstInfo.colorSpace()) {
-        dstInfo.colorSpace()->toProfile(&fDstProfile);
+    if (this->usesColorXform()) {
         if (kRGBA_F16_SkColorType == dstInfo.colorType()) {
             needsColorXform = true;
-        } else {
+            if (dstInfo.colorSpace()) {
+                dstInfo.colorSpace()->toProfile(&fDstProfile);
+            } else {
+                // Use the srcProfile to avoid conversion.
+                const auto* srcProfile = fEncodedInfo.profile();
+                fDstProfile = srcProfile ? *srcProfile : *skcms_sRGB_profile();
+            }
+        } else if (dstInfo.colorSpace()) {
+            dstInfo.colorSpace()->toProfile(&fDstProfile);
             const auto* srcProfile = fEncodedInfo.profile();
             if (!srcProfile) {
                 srcProfile = skcms_sRGB_profile();
@@ -723,15 +731,6 @@ const char* SkCodec::ResultToString(Result result) {
             SkASSERT(false);
             return "bogus result value";
     }
-}
-
-static SkIRect frame_rect_on_screen(SkIRect frameRect,
-                                    const SkIRect& screenRect) {
-    if (!frameRect.intersect(screenRect)) {
-        return SkIRect::MakeEmpty();
-    }
-
-    return frameRect;
 }
 
 static bool independent(const SkFrame& frame) {

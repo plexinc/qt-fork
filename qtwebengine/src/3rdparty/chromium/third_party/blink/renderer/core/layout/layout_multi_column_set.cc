@@ -449,11 +449,8 @@ void LayoutMultiColumnSet::UpdateLayout() {
   }
 }
 
-void LayoutMultiColumnSet::ComputeIntrinsicLogicalWidths(
-    LayoutUnit& min_logical_width,
-    LayoutUnit& max_logical_width) const {
-  min_logical_width = flow_thread_->MinPreferredLogicalWidth();
-  max_logical_width = flow_thread_->MaxPreferredLogicalWidth();
+MinMaxSizes LayoutMultiColumnSet::ComputeIntrinsicLogicalWidths() const {
+  return MinMaxSizes();
 }
 
 void LayoutMultiColumnSet::ComputeLogicalHeight(
@@ -534,12 +531,16 @@ void LayoutMultiColumnSet::ComputeVisualOverflow(
     AddVisualOverflowFromFloats();
 
   if (VisualOverflowRect() != previous_visual_overflow_rect) {
+    InvalidateIntersectionObserverCachedRects();
     SetShouldCheckForPaintInvalidation();
     GetFrameView()->SetIntersectionObservationState(LocalFrameView::kDesired);
   }
 }
 
 void LayoutMultiColumnSet::AddVisualOverflowFromChildren() {
+  if (LayoutBlockedByDisplayLock(DisplayLockLifecycleTarget::kChildren))
+    return;
+
   // It's useless to calculate overflow if we haven't determined the page
   // logical height yet.
   if (!IsPageLogicalHeightKnown())
@@ -554,6 +555,9 @@ void LayoutMultiColumnSet::AddVisualOverflowFromChildren() {
 }
 
 void LayoutMultiColumnSet::AddLayoutOverflowFromChildren() {
+  if (LayoutBlockedByDisplayLock(DisplayLockLifecycleTarget::kChildren))
+    return;
+
   // It's useless to calculate overflow if we haven't determined the page
   // logical height yet.
   if (!IsPageLogicalHeightKnown())

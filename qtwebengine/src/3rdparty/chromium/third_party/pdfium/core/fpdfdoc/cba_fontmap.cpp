@@ -10,7 +10,6 @@
 #include <utility>
 
 #include "constants/annotation_common.h"
-#include "core/fpdfapi/cpdf_modulemgr.h"
 #include "core/fpdfapi/font/cpdf_font.h"
 #include "core/fpdfapi/font/cpdf_fontencoding.h"
 #include "core/fpdfapi/page/cpdf_docpagedata.h"
@@ -53,19 +52,25 @@ bool FindNativeTrueTypeFont(ByteString sFontFaceName) {
   return false;
 }
 
-CPDF_Font* AddNativeTrueTypeFontToPDF(CPDF_Document* pDoc,
-                                      ByteString sFontFaceName,
-                                      uint8_t nCharset) {
+RetainPtr<CPDF_Font> AddNativeTrueTypeFontToPDF(CPDF_Document* pDoc,
+                                                ByteString sFontFaceName,
+                                                uint8_t nCharset) {
   if (!pDoc)
     return nullptr;
 
   auto pFXFont = pdfium::MakeUnique<CFX_Font>();
   pFXFont->LoadSubst(sFontFaceName, true, 0, 0, 0,
                      FX_GetCodePageFromCharset(nCharset), false);
-  return CPDF_DocPageData::FromDocument(pDoc)->AddFont(pFXFont.get(), nCharset);
+
+  auto* pDocPageData = CPDF_DocPageData::FromDocument(pDoc);
+  return pDocPageData->AddFont(std::move(pFXFont), nCharset);
 }
 
 }  // namespace
+
+CBA_FontMap::Data::Data() = default;
+
+CBA_FontMap::Data::~Data() = default;
 
 CBA_FontMap::CBA_FontMap(CPDF_Document* pDocument, CPDF_Dictionary* pAnnotDict)
     : m_pDocument(pDocument), m_pAnnotDict(pAnnotDict) {
@@ -73,10 +78,10 @@ CBA_FontMap::CBA_FontMap(CPDF_Document* pDocument, CPDF_Dictionary* pAnnotDict)
 }
 
 CBA_FontMap::~CBA_FontMap() {
-  Empty();
+  Clear();
 }
 
-CPDF_Font* CBA_FontMap::GetPDFFont(int32_t nFontIndex) {
+RetainPtr<CPDF_Font> CBA_FontMap::GetPDFFont(int32_t nFontIndex) {
   if (pdfium::IndexInBounds(m_Data, nFontIndex))
     return m_Data[nFontIndex]->pFont;
   return nullptr;
@@ -151,25 +156,9 @@ int32_t CBA_FontMap::GetNativeCharset() {
 }
 
 void CBA_FontMap::Reset() {
-  Empty();
+  Clear();
   m_pDefaultFont = nullptr;
   m_sDefaultFontName.clear();
-}
-
-void CBA_FontMap::SetDefaultFont(CPDF_Font* pFont,
-                                 const ByteString& sFontName) {
-  ASSERT(pFont);
-
-  if (m_pDefaultFont)
-    return;
-
-  m_pDefaultFont = pFont;
-  m_sDefaultFontName = sFontName;
-
-  int32_t nCharset = FX_CHARSET_Default;
-  if (const CFX_SubstFont* pSubstFont = m_pDefaultFont->GetSubstFont())
-    nCharset = pSubstFont->m_Charset;
-  AddFontData(m_pDefaultFont.Get(), m_sDefaultFontName, nCharset);
 }
 
 void CBA_FontMap::SetAPType(const ByteString& sAPType) {
@@ -196,8 +185,8 @@ void CBA_FontMap::Initialize() {
         else
           nCharset = FX_CHARSET_ANSI;
       }
-      AddFontData(m_pDefaultFont.Get(), m_sDefaultFontName, nCharset);
-      AddFontToAnnotDict(m_pDefaultFont.Get(), m_sDefaultFontName);
+      AddFontData(m_pDefaultFont, m_sDefaultFontName, nCharset);
+      AddFontToAnnotDict(m_pDefaultFont, m_sDefaultFontName);
     }
   }
 
@@ -205,8 +194,8 @@ void CBA_FontMap::Initialize() {
     GetFontIndex(CFX_Font::kDefaultAnsiFontName, FX_CHARSET_ANSI, false);
 }
 
-CPDF_Font* CBA_FontMap::FindFontSameCharset(ByteString* sFontAlias,
-                                            int32_t nCharset) {
+RetainPtr<CPDF_Font> CBA_FontMap::FindFontSameCharset(ByteString* sFontAlias,
+                                                      int32_t nCharset) {
   if (m_pAnnotDict->GetStringFor(pdfium::annotation::kSubtype) != "Widget")
     return nullptr;
 
@@ -225,9 +214,10 @@ CPDF_Font* CBA_FontMap::FindFontSameCharset(ByteString* sFontAlias,
   return FindResFontSameCharset(pDRDict, sFontAlias, nCharset);
 }
 
-CPDF_Font* CBA_FontMap::FindResFontSameCharset(const CPDF_Dictionary* pResDict,
-                                               ByteString* sFontAlias,
-                                               int32_t nCharset) {
+RetainPtr<CPDF_Font> CBA_FontMap::FindResFontSameCharset(
+    const CPDF_Dictionary* pResDict,
+    ByteString* sFontAlias,
+    int32_t nCharset) {
   if (!pResDict)
     return nullptr;
 
@@ -235,7 +225,7 @@ CPDF_Font* CBA_FontMap::FindResFontSameCharset(const CPDF_Dictionary* pResDict,
   if (!pFonts)
     return nullptr;
 
-  CPDF_Font* pFind = nullptr;
+  RetainPtr<CPDF_Font> pFind;
   CPDF_DictionaryLocker locker(pFonts);
   for (const auto& it : locker) {
     const ByteString& csKey = it.first;
@@ -247,7 +237,7 @@ CPDF_Font* CBA_FontMap::FindResFontSameCharset(const CPDF_Dictionary* pResDict,
       continue;
 
     auto* pData = CPDF_DocPageData::FromDocument(m_pDocument.Get());
-    CPDF_Font* pFont = pData->GetFont(pElement);
+    RetainPtr<CPDF_Font> pFont = pData->GetFont(pElement);
     if (!pFont)
       continue;
 
@@ -257,13 +247,13 @@ CPDF_Font* CBA_FontMap::FindResFontSameCharset(const CPDF_Dictionary* pResDict,
 
     if (pSubst->m_Charset == nCharset) {
       *sFontAlias = csKey;
-      pFind = pFont;
+      pFind = std::move(pFont);
     }
   }
   return pFind;
 }
 
-CPDF_Font* CBA_FontMap::GetAnnotDefaultFont(ByteString* sAlias) {
+RetainPtr<CPDF_Font> CBA_FontMap::GetAnnotDefaultFont(ByteString* sAlias) {
   CPDF_Dictionary* pAcroFormDict = nullptr;
   const bool bWidget =
       (m_pAnnotDict->GetStringFor(pdfium::annotation::kSubtype) == "Widget");
@@ -274,13 +264,14 @@ CPDF_Font* CBA_FontMap::GetAnnotDefaultFont(ByteString* sAlias) {
   }
 
   ByteString sDA;
-  const CPDF_Object* pObj = FPDF_GetFieldAttr(m_pAnnotDict.Get(), "DA");
+  const CPDF_Object* pObj =
+      CPDF_FormField::GetFieldAttr(m_pAnnotDict.Get(), "DA");
   if (pObj)
     sDA = pObj->GetString();
 
   if (bWidget) {
     if (sDA.IsEmpty()) {
-      pObj = FPDF_GetFieldAttr(pAcroFormDict, "DA");
+      pObj = CPDF_FormField::GetFieldAttr(pAcroFormDict, "DA");
       sDA = pObj ? pObj->GetString() : ByteString();
     }
   }
@@ -315,7 +306,7 @@ CPDF_Font* CBA_FontMap::GetAnnotDefaultFont(ByteString* sAlias) {
   return CPDF_DocPageData::FromDocument(m_pDocument.Get())->GetFont(pFontDict);
 }
 
-void CBA_FontMap::AddFontToAnnotDict(CPDF_Font* pFont,
+void CBA_FontMap::AddFontToAnnotDict(const RetainPtr<CPDF_Font>& pFont,
                                      const ByteString& sAlias) {
   if (!pFont)
     return;
@@ -365,7 +356,7 @@ bool CBA_FontMap::KnowWord(int32_t nFontIndex, uint16_t word) {
          CharCodeFromUnicode(nFontIndex, word) >= 0;
 }
 
-void CBA_FontMap::Empty() {
+void CBA_FontMap::Clear() {
   m_Data.clear();
   m_NativeFont.clear();
 }
@@ -378,17 +369,18 @@ int32_t CBA_FontMap::GetFontIndex(const ByteString& sFontName,
     return nFontIndex;
 
   ByteString sAlias;
-  CPDF_Font* pFont = bFind ? FindFontSameCharset(&sAlias, nCharset) : nullptr;
+  RetainPtr<CPDF_Font> pFont =
+      bFind ? FindFontSameCharset(&sAlias, nCharset) : nullptr;
   if (!pFont) {
     ByteString sTemp = sFontName;
-    pFont = AddFontToDocument(m_pDocument.Get(), sTemp, nCharset);
+    pFont = AddFontToDocument(sTemp, nCharset);
     sAlias = EncodeFontAlias(sTemp, nCharset);
   }
   AddFontToAnnotDict(pFont, sAlias);
   return AddFontData(pFont, sAlias, nCharset);
 }
 
-int32_t CBA_FontMap::AddFontData(CPDF_Font* pFont,
+int32_t CBA_FontMap::AddFontData(const RetainPtr<CPDF_Font>& pFont,
                                  const ByteString& sFontAlias,
                                  int32_t nCharset) {
   auto pNewData = pdfium::MakeUnique<Data>();
@@ -450,13 +442,12 @@ ByteString CBA_FontMap::GetCachedNativeFontName(int32_t nCharset) {
   return sNew;
 }
 
-CPDF_Font* CBA_FontMap::AddFontToDocument(CPDF_Document* pDoc,
-                                          ByteString& sFontName,
-                                          uint8_t nCharset) {
+RetainPtr<CPDF_Font> CBA_FontMap::AddFontToDocument(ByteString sFontName,
+                                                    uint8_t nCharset) {
   if (IsStandardFont(sFontName))
-    return AddStandardFont(pDoc, sFontName);
+    return AddStandardFont(sFontName);
 
-  return AddSystemFont(pDoc, sFontName, nCharset);
+  return AddSystemFont(sFontName, nCharset);
 }
 
 bool CBA_FontMap::IsStandardFont(const ByteString& sFontName) {
@@ -478,37 +469,25 @@ bool CBA_FontMap::IsStandardFont(const ByteString& sFontName) {
     if (sFontName == name)
       return true;
   }
-
   return false;
 }
 
-CPDF_Font* CBA_FontMap::AddStandardFont(CPDF_Document* pDoc,
-                                        ByteString& sFontName) {
-  if (!pDoc)
-    return nullptr;
+RetainPtr<CPDF_Font> CBA_FontMap::AddStandardFont(ByteString sFontName) {
+  auto* pPageData = CPDF_DocPageData::FromDocument(m_pDocument.Get());
+  if (sFontName == "ZapfDingbats")
+    return pPageData->AddStandardFont(sFontName, nullptr);
 
-  CPDF_Font* pFont = nullptr;
-  auto* pPageData = CPDF_DocPageData::FromDocument(pDoc);
-  if (sFontName == "ZapfDingbats") {
-    pFont = pPageData->AddStandardFont(sFontName.c_str(), nullptr);
-  } else {
-    CPDF_FontEncoding fe(PDFFONT_ENCODING_WINANSI);
-    pFont = pPageData->AddStandardFont(sFontName.c_str(), &fe);
-  }
-  return pFont;
+  static const CPDF_FontEncoding fe(PDFFONT_ENCODING_WINANSI);
+  return pPageData->AddStandardFont(sFontName, &fe);
 }
 
-CPDF_Font* CBA_FontMap::AddSystemFont(CPDF_Document* pDoc,
-                                      ByteString& sFontName,
-                                      uint8_t nCharset) {
-  if (!pDoc)
-    return nullptr;
-
+RetainPtr<CPDF_Font> CBA_FontMap::AddSystemFont(ByteString sFontName,
+                                                uint8_t nCharset) {
   if (sFontName.IsEmpty())
     sFontName = GetNativeFontName(nCharset);
 
   if (nCharset == FX_CHARSET_Default)
     nCharset = GetNativeCharset();
 
-  return AddNativeTrueTypeFontToPDF(pDoc, sFontName, nCharset);
+  return AddNativeTrueTypeFontToPDF(m_pDocument.Get(), sFontName, nCharset);
 }

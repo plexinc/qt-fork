@@ -563,6 +563,72 @@ const [one, ...rest] = [1, 2, 3];
 
 ---
 
+### Modules
+
+Support for exporting/importing values from/to modules without global
+namespace pollution.
+
+**Usage Example:**
+
+```js
+// lib/rect.js
+export function getArea() {...};
+export {width, height, unimportant};
+
+// app.js
+import {getArea, width, height} from './lib/rect.js';
+```
+
+**Documentation:** [link](https://developers.google.com/web/fundamentals/primers/modules)
+
+**Discussion Notes / Link to Thread:**
+Dynamic Import [link](https://v8.dev/features/dynamic-import) are not allowed
+yet, see separate entry in the [Features To Be Discussed](##es2015-support-in-chromium-features-to-be-discussed)
+section.
+
+---
+
+### Object Literal Extensions
+
+Convenient new ways for object property definition.
+
+**Usage Example:**
+
+```js
+// Computed property name
+const prop = 'foo';
+const o = {
+  [prop]: 'hey',
+  ['b' + 'ar']: 'there',
+};
+console.log(o);  // {foo: 'hey', bar: 'there'}
+
+// Shorthand property
+const foo = 1;
+const bar = 2;
+const o = {foo, bar};
+console.log(o);  // {foo: 1, bar: 2}
+
+// Method property
+const clearSky = {
+  // Basically the same as clouds: function() { return 0; }.
+  clouds() { return 0; },
+  color() { return 'blue'; },
+};
+console.log(clearSky.color());  // 'blue'
+console.log(clearSky.clouds());  // 0
+```
+
+**Documentation:** [link](https://tc39.github.io/ecma262/#sec-object-initialiser)
+[link](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/Object_initializer)
+
+**Discussion Notes / Link to Thread:**
+https://groups.google.com/a/chromium.org/d/msg/chromium-dev/RqOdTlxuGVg/M7I0CTryDQAJ
+
+Note: clang-format has some issues formatting complex computed property names.
+
+---
+
 ## Banned Features
 
 The following features are banned for Chromium development.
@@ -630,44 +696,6 @@ hide(document.body, false);  // Not animated.
 
 ---
 
-### Object Literal Extensions
-
-Convenient new ways for object property definition.
-
-**Usage Example:**
-
-```js
-// Computed property name
-const prop = 'foo';
-const o = {
-  [prop]: 'hey',
-  ['b' + 'ar']: 'there',
-};
-console.log(o);  // {foo: 'hey', bar: 'there'}
-
-// Shorthand property
-const foo = 1;
-const bar = 2;
-const o = {foo, bar};
-console.log(o);  // {foo: 1, bar: 2}
-
-// Method property
-const clearSky = {
-  // Basically the same as clouds: function() { return 0; }.
-  clouds() { return 0; },
-  color() { return 'blue'; },
-};
-console.log(clearSky.color());  // 'blue'
-console.log(clearSky.clouds());  // 0
-```
-
-**Documentation:** [link](https://tc39.github.io/ecma262/#sec-object-initialiser)
-[link](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/Object_initializer)
-
-**Discussion Notes / Link to Thread:**
-
----
-
 ### Binary & Octal Literals
 
 **Usage Example:**
@@ -730,12 +758,10 @@ result === 'yy' && re.lastIndex === 5;  // true
 
 **Discussion Notes / Link to Thread:**
 
----
+### Dynamic Import
 
-### Modules
-
-Support for exporting/importing values from/to modules without global
-namespace pollution.
+Dynamic import() introduces a new function-like form of import that returns a
+promise for the module namespace object of the requested module.
 
 **Usage Example:**
 
@@ -745,10 +771,14 @@ export function getArea() {...};
 export {width, height, unimportant};
 
 // app.js
-import {getArea, width, height} from './lib/rect.js';
+if (calculateArea) {
+  import('./lib/rect.js').then(rect => {
+    rect.getArea(...);
+  });
+}
 ```
 
-**Documentation:** [link](https://developers.google.com/web/fundamentals/primers/modules)
+**Documentation:** [link](https://v8.dev/features/dynamic-import)
 
 **Discussion Notes / Link to Thread:**
 

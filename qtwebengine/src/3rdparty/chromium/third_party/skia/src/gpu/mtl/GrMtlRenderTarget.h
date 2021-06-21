@@ -8,9 +8,10 @@
 #ifndef GrMtlRenderTarget_DEFINED
 #define GrMtlRenderTarget_DEFINED
 
-#include "include/gpu/GrRenderTarget.h"
+#include "src/gpu/GrRenderTarget.h"
 
 #include "include/gpu/GrBackendSurface.h"
+#include "src/gpu/GrGpu.h"
 
 #import <Metal/Metal.h>
 
@@ -19,19 +20,11 @@ class GrMtlGpu;
 class GrMtlRenderTarget: public GrRenderTarget {
 public:
     static sk_sp<GrMtlRenderTarget> MakeWrappedRenderTarget(GrMtlGpu*,
-                                                            const GrSurfaceDesc&,
+                                                            SkISize,
                                                             int sampleCnt,
                                                             id<MTLTexture>);
 
     ~GrMtlRenderTarget() override;
-
-    // override of GrRenderTarget
-    ResolveType getResolveType() const override {
-        if (this->numSamples() > 1) {
-            return kCanResolve_ResolveType;
-        }
-        return kAutoResolves_ResolveType;
-    }
 
     bool canAttemptStencilAttachment() const override {
         return true;
@@ -46,14 +39,12 @@ public:
 
 protected:
     GrMtlRenderTarget(GrMtlGpu* gpu,
-                      const GrSurfaceDesc& desc,
+                      SkISize,
                       int sampleCnt,
                       id<MTLTexture> colorTexture,
                       id<MTLTexture> resolveTexture);
 
-    GrMtlRenderTarget(GrMtlGpu* gpu,
-                      const GrSurfaceDesc& desc,
-                      id<MTLTexture> colorTexture);
+    GrMtlRenderTarget(GrMtlGpu* gpu, SkISize, id<MTLTexture> colorTexture);
 
     GrMtlGpu* getMtlGpu() const;
 
@@ -69,7 +60,8 @@ protected:
         if (numColorSamples > 1) {
             ++numColorSamples;
         }
-        return GrSurface::ComputeSize(this->config(), this->width(), this->height(),
+        const GrCaps& caps = *this->getGpu()->caps();
+        return GrSurface::ComputeSize(caps, this->backendFormat(), this->dimensions(),
                                       numColorSamples, GrMipMapped::kNo);
     }
 
@@ -80,15 +72,12 @@ private:
     // Extra param to disambiguate from constructor used by subclasses.
     enum Wrapped { kWrapped };
     GrMtlRenderTarget(GrMtlGpu* gpu,
-                      const GrSurfaceDesc& desc,
+                      SkISize,
                       int sampleCnt,
                       id<MTLTexture> colorTexture,
                       id<MTLTexture> resolveTexture,
                       Wrapped);
-    GrMtlRenderTarget(GrMtlGpu* gpu,
-                      const GrSurfaceDesc& desc,
-                      id<MTLTexture> colorTexture,
-                      Wrapped);
+    GrMtlRenderTarget(GrMtlGpu* gpu, SkISize, id<MTLTexture> colorTexture, Wrapped);
 
     bool completeStencilAttachment() override;
 

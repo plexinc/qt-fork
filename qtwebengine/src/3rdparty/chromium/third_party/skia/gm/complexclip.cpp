@@ -20,6 +20,7 @@
 #include "include/core/SkTypeface.h"
 #include "include/core/SkTypes.h"
 #include "src/core/SkClipOpPriv.h"
+#include "tools/Resources.h"
 #include "tools/ToolUtils.h"
 
 #include <string.h>
@@ -68,9 +69,9 @@ protected:
             .lineTo(50,  150)
             .close();
         if (fInvertDraw) {
-            path.setFillType(SkPath::kInverseEvenOdd_FillType);
+            path.setFillType(SkPathFillType::kInverseEvenOdd);
         } else {
-            path.setFillType(SkPath::kEvenOdd_FillType);
+            path.setFillType(SkPathFillType::kEvenOdd);
         }
         SkPaint pathPaint;
         pathPaint.setAntiAlias(true);
@@ -126,10 +127,10 @@ protected:
                 bool doInvB = SkToBool(invBits & 2);
                 canvas->save();
                     // set clip
-                    clipA.setFillType(doInvA ? SkPath::kInverseEvenOdd_FillType :
-                                      SkPath::kEvenOdd_FillType);
-                    clipB.setFillType(doInvB ? SkPath::kInverseEvenOdd_FillType :
-                                      SkPath::kEvenOdd_FillType);
+                    clipA.setFillType(doInvA ? SkPathFillType::kInverseEvenOdd :
+                                      SkPathFillType::kEvenOdd);
+                    clipB.setFillType(doInvB ? SkPathFillType::kInverseEvenOdd :
+                                      SkPathFillType::kEvenOdd);
                     canvas->clipPath(clipA, fDoAAClip);
                     canvas->clipPath(clipB, gOps[op].fOp, fDoAAClip);
 
@@ -208,4 +209,56 @@ DEF_GM(return new ComplexClipGM(true, false, false);)
 DEF_GM(return new ComplexClipGM(true, false, true);)
 DEF_GM(return new ComplexClipGM(true, true, false);)
 DEF_GM(return new ComplexClipGM(true, true, true);)
+}
+
+DEF_SIMPLE_GM(clip_shader, canvas, 840, 650) {
+    auto img = GetResourceAsImage("images/yellow_rose.png");
+    auto sh = img->makeShader();
+
+    SkRect r = SkRect::MakeIWH(img->width(), img->height());
+    SkPaint p;
+
+    canvas->translate(10, 10);
+    canvas->drawImage(img, 0, 0, nullptr);
+
+    canvas->save();
+    canvas->translate(img->width() + 10, 0);
+    canvas->clipShader(sh, SkClipOp::kIntersect);
+    p.setColor(SK_ColorRED);
+    canvas->drawRect(r, p);
+    canvas->restore();
+
+    canvas->save();
+    canvas->translate(0, img->height() + 10);
+    canvas->clipShader(sh, SkClipOp::kDifference);
+    p.setColor(SK_ColorGREEN);
+    canvas->drawRect(r, p);
+    canvas->restore();
+
+    canvas->save();
+    canvas->translate(img->width() + 10, img->height() + 10);
+    canvas->clipShader(sh, SkClipOp::kIntersect);
+    canvas->save();
+    SkMatrix lm = SkMatrix::MakeScale(1.0f / 5);
+    canvas->clipShader(img->makeShader(SkTileMode::kRepeat, SkTileMode::kRepeat, &lm));
+    canvas->drawImage(img, 0, 0, nullptr);
+
+    canvas->restore();
+    canvas->restore();
+}
+
+DEF_SIMPLE_GM(clip_shader_layer, canvas, 430, 320) {
+    auto img = GetResourceAsImage("images/yellow_rose.png");
+    auto sh = img->makeShader();
+
+    SkRect r = SkRect::MakeIWH(img->width(), img->height());
+
+    canvas->translate(10, 10);
+    // now add the cool clip
+    canvas->clipRect(r);
+    canvas->clipShader(sh);
+    // now draw a layer with the same image, and watch it get restored w/ the clip
+    canvas->saveLayer(&r, nullptr);
+    canvas->drawColor(0xFFFF0000);
+    canvas->restore();
 }

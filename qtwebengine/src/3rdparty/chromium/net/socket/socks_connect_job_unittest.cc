@@ -7,13 +7,14 @@
 #include "base/callback.h"
 #include "base/containers/span.h"
 #include "base/run_loop.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "net/base/load_states.h"
 #include "net/base/load_timing_info.h"
 #include "net/base/load_timing_info_test_util.h"
 #include "net/base/net_errors.h"
+#include "net/base/network_isolation_key.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/log/net_log.h"
 #include "net/socket/client_socket_factory.h"
@@ -22,9 +23,10 @@
 #include "net/socket/socket_tag.h"
 #include "net/socket/socket_test_util.h"
 #include "net/socket/socks_connect_job.h"
+#include "net/socket/transport_client_socket_pool_test_util.h"
 #include "net/socket/transport_connect_job.h"
 #include "net/test/gtest_util.h"
-#include "net/test/test_with_scoped_task_environment.h"
+#include "net/test/test_with_task_environment.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -37,8 +39,7 @@ const int kProxyPort = 4321;
 
 constexpr base::TimeDelta kTinyTime = base::TimeDelta::FromMicroseconds(1);
 
-class SOCKSConnectJobTest : public testing::Test,
-                            public WithScopedTaskEnvironment {
+class SOCKSConnectJobTest : public testing::Test, public WithTaskEnvironment {
  public:
   enum class SOCKSVersion {
     V4,
@@ -46,8 +47,7 @@ class SOCKSConnectJobTest : public testing::Test,
   };
 
   SOCKSConnectJobTest()
-      : WithScopedTaskEnvironment(
-            base::test::ScopedTaskEnvironment::TimeSource::MOCK_TIME_AND_NOW),
+      : WithTaskEnvironment(base::test::TaskEnvironment::TimeSource::MOCK_TIME),
         common_connect_job_params_(
             &client_socket_factory_,
             &host_resolver_,
@@ -61,33 +61,33 @@ class SOCKSConnectJobTest : public testing::Test,
             nullptr /* ssl_client_context */,
             nullptr /* socket_performance_watcher_factory */,
             nullptr /* network_quality_estimator */,
-            &net_log_,
+            NetLog::Get(),
             nullptr /* websocket_endpoint_lock_manager */) {}
 
   ~SOCKSConnectJobTest() override {}
 
   static scoped_refptr<SOCKSSocketParams> CreateSOCKSParams(
-      SOCKSVersion socks_version) {
+      SOCKSVersion socks_version,
+      bool disable_secure_dns = false) {
     return base::MakeRefCounted<SOCKSSocketParams>(
         base::MakeRefCounted<TransportSocketParams>(
-            HostPortPair(kProxyHostName, kProxyPort),
-            OnHostResolutionCallback()),
+            HostPortPair(kProxyHostName, kProxyPort), NetworkIsolationKey(),
+            disable_secure_dns, OnHostResolutionCallback()),
         socks_version == SOCKSVersion::V5,
         socks_version == SOCKSVersion::V4
             ? HostPortPair(kSOCKS4TestHost, kSOCKS4TestPort)
             : HostPortPair(kSOCKS5TestHost, kSOCKS5TestPort),
-        TRAFFIC_ANNOTATION_FOR_TESTS);
+        NetworkIsolationKey(), TRAFFIC_ANNOTATION_FOR_TESTS);
   }
 
  protected:
-  NetLog net_log_;
   MockHostResolver host_resolver_;
   MockTaggingClientSocketFactory client_socket_factory_;
   const CommonConnectJobParams common_connect_job_params_;
 };
 
 TEST_F(SOCKSConnectJobTest, HostResolutionFailure) {
-  host_resolver_.rules()->AddSimulatedFailure(kProxyHostName);
+  host_resolver_.rules()->AddSimulatedTimeoutFailure(kProxyHostName);
 
   for (bool failure_synchronous : {false, true}) {
     host_resolver_.set_synchronous_mode(failure_synchronous);
@@ -98,6 +98,39 @@ TEST_F(SOCKSConnectJobTest, HostResolutionFailure) {
                                       &test_delegate, nullptr /* net_log */);
     test_delegate.StartJobExpectingResult(
         &socks_connect_job, ERR_PROXY_CONNECTION_FAILED, failure_synchronous);
+    EXPECT_THAT(socks_connect_job.GetResolveErrorInfo().error,
+                test::IsError(ERR_DNS_TIMED_OUT));
+  }
+}
+
+TEST_F(SOCKSConnectJobTest, HostResolutionFailureSOCKS4Endpoint) {
+  const char hostname[] = "google.com";
+  host_resolver_.rules()->AddSimulatedTimeoutFailure(hostname);
+
+  for (bool failure_synchronous : {false, true}) {
+    host_resolver_.set_synchronous_mode(failure_synchronous);
+
+    SequencedSocketData sequenced_socket_data{base::span<MockRead>(),
+                                              base::span<MockWrite>()};
+    sequenced_socket_data.set_connect_data(MockConnect(SYNCHRONOUS, OK));
+    client_socket_factory_.AddSocketDataProvider(&sequenced_socket_data);
+
+    scoped_refptr<SOCKSSocketParams> socket_params =
+        base::MakeRefCounted<SOCKSSocketParams>(
+            base::MakeRefCounted<TransportSocketParams>(
+                HostPortPair(kProxyHostName, kProxyPort), NetworkIsolationKey(),
+                false /* disable_secure_dns */, OnHostResolutionCallback()),
+            false /* socks_v5 */, HostPortPair(hostname, kSOCKS4TestPort),
+            NetworkIsolationKey(), TRAFFIC_ANNOTATION_FOR_TESTS);
+
+    TestConnectJobDelegate test_delegate;
+    SOCKSConnectJob socks_connect_job(
+        DEFAULT_PRIORITY, SocketTag(), &common_connect_job_params_,
+        socket_params, &test_delegate, nullptr /* net_log */);
+    test_delegate.StartJobExpectingResult(
+        &socks_connect_job, ERR_NAME_NOT_RESOLVED, failure_synchronous);
+    EXPECT_THAT(socks_connect_job.GetResolveErrorInfo().error,
+                test::IsError(ERR_DNS_TIMED_OUT));
   }
 }
 
@@ -344,6 +377,23 @@ TEST_F(SOCKSConnectJobTest, Priority) {
       socks_connect_job.ChangePriority(
           static_cast<RequestPriority>(initial_priority));
       EXPECT_EQ(initial_priority, host_resolver_.request_priority(request_id));
+    }
+  }
+}
+
+TEST_F(SOCKSConnectJobTest, DisableSecureDns) {
+  for (bool disable_secure_dns : {false, true}) {
+    TestConnectJobDelegate test_delegate;
+    SOCKSConnectJob socks_connect_job(
+        DEFAULT_PRIORITY, SocketTag(), &common_connect_job_params_,
+        CreateSOCKSParams(SOCKSVersion::V4, disable_secure_dns), &test_delegate,
+        nullptr /* net_log */);
+    ASSERT_THAT(socks_connect_job.Connect(), test::IsError(ERR_IO_PENDING));
+    EXPECT_EQ(disable_secure_dns,
+              host_resolver_.last_secure_dns_mode_override().has_value());
+    if (disable_secure_dns) {
+      EXPECT_EQ(net::DnsConfig::SecureDnsMode::OFF,
+                host_resolver_.last_secure_dns_mode_override().value());
     }
   }
 }

@@ -12,10 +12,11 @@
 #include "net/third_party/quiche/src/quic/core/crypto/crypto_utils.h"
 #include "net/third_party/quiche/src/quic/core/quic_socket_address_coder.h"
 #include "net/third_party/quiche/src/quic/core/quic_utils.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_endian.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_map_util.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_str_cat.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_text_utils.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_endian.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_str_cat.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_text_utils.h"
 
 namespace quic {
 
@@ -57,7 +58,7 @@ void CryptoHandshakeMessage::Clear() {
 }
 
 const QuicData& CryptoHandshakeMessage::GetSerialized() const {
-  if (!serialized_.get()) {
+  if (!serialized_) {
     serialized_ = CryptoFramer::ConstructHandshakeMessage(*this);
   }
   return *serialized_;
@@ -73,18 +74,19 @@ void CryptoHandshakeMessage::SetVersionVector(
   QuicVersionLabelVector version_labels;
   for (ParsedQuicVersion version : versions) {
     version_labels.push_back(
-        QuicEndian::HostToNet32(CreateQuicVersionLabel(version)));
+        quiche::QuicheEndian::HostToNet32(CreateQuicVersionLabel(version)));
   }
   SetVector(tag, version_labels);
 }
 
 void CryptoHandshakeMessage::SetVersion(QuicTag tag,
                                         ParsedQuicVersion version) {
-  SetValue(tag, QuicEndian::HostToNet32(CreateQuicVersionLabel(version)));
+  SetValue(tag,
+           quiche::QuicheEndian::HostToNet32(CreateQuicVersionLabel(version)));
 }
 
 void CryptoHandshakeMessage::SetStringPiece(QuicTag tag,
-                                            QuicStringPiece value) {
+                                            quiche::QuicheStringPiece value) {
   tag_value_map_[tag] = std::string(value);
 }
 
@@ -128,7 +130,7 @@ QuicErrorCode CryptoHandshakeMessage::GetVersionLabelList(
   }
 
   for (size_t i = 0; i < out->size(); ++i) {
-    (*out)[i] = QuicEndian::HostToNet32((*out)[i]);
+    (*out)[i] = quiche::QuicheEndian::HostToNet32((*out)[i]);
   }
 
   return QUIC_NO_ERROR;
@@ -142,12 +144,13 @@ QuicErrorCode CryptoHandshakeMessage::GetVersionLabel(
     return error;
   }
 
-  *out = QuicEndian::HostToNet32(*out);
+  *out = quiche::QuicheEndian::HostToNet32(*out);
   return QUIC_NO_ERROR;
 }
 
-bool CryptoHandshakeMessage::GetStringPiece(QuicTag tag,
-                                            QuicStringPiece* out) const {
+bool CryptoHandshakeMessage::GetStringPiece(
+    QuicTag tag,
+    quiche::QuicheStringPiece* out) const {
   auto it = tag_value_map_.find(tag);
   if (it == tag_value_map_.end()) {
     return false;
@@ -163,8 +166,8 @@ bool CryptoHandshakeMessage::HasStringPiece(QuicTag tag) const {
 QuicErrorCode CryptoHandshakeMessage::GetNthValue24(
     QuicTag tag,
     unsigned index,
-    QuicStringPiece* out) const {
-  QuicStringPiece value;
+    quiche::QuicheStringPiece* out) const {
+  quiche::QuicheStringPiece value;
   if (!GetStringPiece(tag, &value)) {
     return QUIC_CRYPTO_MESSAGE_PARAMETER_NOT_FOUND;
   }
@@ -189,7 +192,7 @@ QuicErrorCode CryptoHandshakeMessage::GetNthValue24(
     }
 
     if (i == index) {
-      *out = QuicStringPiece(value.data(), size);
+      *out = quiche::QuicheStringPiece(value.data(), size);
       return QUIC_NO_ERROR;
     }
 
@@ -278,11 +281,12 @@ std::string CryptoHandshakeMessage::DebugStringInternal(size_t indent) const {
       case kMIBS:
       case kSCLS:
       case kTCID:
+      case kMAD:
         // uint32_t value
         if (it->second.size() == 4) {
           uint32_t value;
           memcpy(&value, it->second.data(), sizeof(value));
-          ret += QuicTextUtils::Uint64ToString(value);
+          ret += quiche::QuicheTextUtils::Uint64ToString(value);
           done = true;
         }
         break;
@@ -343,8 +347,8 @@ std::string CryptoHandshakeMessage::DebugStringInternal(size_t indent) const {
         }
         break;
       case kPAD:
-        ret += QuicStringPrintf("(%d bytes of padding)",
-                                static_cast<int>(it->second.size()));
+        ret += quiche::QuicheStringPrintf("(%d bytes of padding)",
+                                          static_cast<int>(it->second.size()));
         done = true;
         break;
       case kSNI:
@@ -357,7 +361,7 @@ std::string CryptoHandshakeMessage::DebugStringInternal(size_t indent) const {
     if (!done) {
       // If there's no specific format for this tag, or the value is invalid,
       // then just use hex.
-      ret += "0x" + QuicTextUtils::HexEncode(it->second);
+      ret += "0x" + quiche::QuicheTextUtils::HexEncode(it->second);
     }
     ret += "\n";
   }

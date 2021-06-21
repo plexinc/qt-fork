@@ -13,14 +13,16 @@
 #include "base/strings/string16.h"
 #include "content/common/content_export.h"
 #include "content/public/common/previews_state.h"
-#include "content/public/common/resource_type.h"
 #include "ipc/ipc_listener.h"
 #include "ipc/ipc_sender.h"
 #include "mojo/public/cpp/bindings/scoped_interface_endpoint_handle.h"
 #include "mojo/public/cpp/system/message_pipe.h"
+#include "services/network/public/mojom/url_response_head.mojom-forward.h"
+#include "third_party/blink/public/common/loader/loading_behavior_flag.h"
+#include "third_party/blink/public/mojom/loader/resource_load_info.mojom-shared.h"
+#include "third_party/blink/public/mojom/use_counter/css_property_id.mojom.h"
 #include "third_party/blink/public/mojom/web_client_hints/web_client_hints_types.mojom.h"
 #include "third_party/blink/public/mojom/web_feature/web_feature.mojom.h"
-#include "third_party/blink/public/platform/web_loading_behavior_flag.h"
 #include "third_party/blink/public/platform/web_vector.h"
 #include "third_party/blink/public/web/web_local_frame_client.h"
 #include "third_party/blink/public/web/web_meaningful_layout.h"
@@ -36,12 +38,10 @@ class WebDocumentLoader;
 class WebElement;
 class WebFormElement;
 class WebString;
-struct WebURLError;
 class WebWorkerFetchContext;
 }
 
 namespace network {
-struct ResourceResponseHead;
 struct URLLoaderCompletionStatus;
 }  // namespace network
 
@@ -71,14 +71,12 @@ class CONTENT_EXPORT RenderFrameObserver : public IPC::Listener,
   virtual void WasHidden() {}
   virtual void WasShown() {}
 
-  // Called when associated widget is about to close.
-  virtual void WidgetWillClose() {}
-
   // Navigation callbacks.
   //
   // Each navigation starts with a DidStartNavigation call. Then it may be
   // followed by a ReadyToCommitNavigation (if the navigation has succeeded),
   // and should always end with a DidFinishNavigation.
+  // TODO(dgozman): ReadyToCommitNavigation will be removed soon.
   //
   // Unfortunately, this is currently a mess. For example, some started
   // navigations which did not commit won't receive any further notifications.
@@ -97,8 +95,11 @@ class CONTENT_EXPORT RenderFrameObserver : public IPC::Listener,
       const GURL& url,
       base::Optional<blink::WebNavigationType> navigation_type) {}
 
-  // Called when a navigation is about to be committed and |document_loader|
+  // Called when a navigation has just committed and |document_loader|
   // will start loading a new document in the RenderFrame.
+  // TODO(dgozman): the name does not match functionality anymore, we should
+  // merge this with DidCommitProvisionalLoad, which will become
+  // DidFinishNavigation.
   virtual void ReadyToCommitNavigation(
       blink::WebDocumentLoader* document_loader) {}
 
@@ -108,14 +109,14 @@ class CONTENT_EXPORT RenderFrameObserver : public IPC::Listener,
   // TODO(dgozman): replace next two methods with DidFinishNavigation.
   virtual void DidCommitProvisionalLoad(bool is_same_document_navigation,
                                         ui::PageTransition transition) {}
-  virtual void DidFailProvisionalLoad(const blink::WebURLError& error) {}
+  virtual void DidFailProvisionalLoad() {}
   virtual void DidFinishLoad() {}
   virtual void DidFinishDocumentLoad() {}
   virtual void DidHandleOnloadEvents() {}
   virtual void DidCreateScriptContext(v8::Local<v8::Context> context,
-                                      int world_id) {}
+                                      int32_t world_id) {}
   virtual void WillReleaseScriptContext(v8::Local<v8::Context> context,
-                                        int world_id) {}
+                                        int32_t world_id) {}
   virtual void DidClearWindowObject() {}
   virtual void DidChangeScrollOffset() {}
   virtual void WillSendSubmitEvent(const blink::WebFormElement& form) {}
@@ -151,20 +152,23 @@ class CONTENT_EXPORT RenderFrameObserver : public IPC::Listener,
   // Notifications when |PerformanceTiming| data becomes available
   virtual void DidChangePerformanceTiming() {}
 
+  // Notifications When an input delay data becomes available.
+  virtual void DidObserveInputDelay(base::TimeDelta input_delay) {}
+
   // Notifications when a cpu timing update becomes available, when a frame
   // has performed at least 100ms of tasks.
   virtual void DidChangeCpuTiming(base::TimeDelta time) {}
 
   // Notification when the renderer uses a particular code path during a page
   // load. This is used for metrics collection.
-  virtual void DidObserveLoadingBehavior(
-      blink::WebLoadingBehaviorFlag behavior) {}
+  virtual void DidObserveLoadingBehavior(blink::LoadingBehaviorFlag behavior) {}
 
   // Notification when the renderer observes a new use counter usage during a
   // page load. This is used for UseCounter metrics.
   virtual void DidObserveNewFeatureUsage(blink::mojom::WebFeature feature) {}
-  virtual void DidObserveNewCssPropertyUsage(int css_property,
-                                             bool is_animated) {}
+  virtual void DidObserveNewCssPropertyUsage(
+      blink::mojom::CSSSampleId css_property,
+      bool is_animated) {}
 
   // Reports that visible elements in the frame shifted (bit.ly/lsm-explainer).
   // This is called once for each animation frame containing any layout shift,
@@ -190,8 +194,8 @@ class CONTENT_EXPORT RenderFrameObserver : public IPC::Listener,
   virtual void DidStartResponse(
       const GURL& response_url,
       int request_id,
-      const network::ResourceResponseHead& response_head,
-      content::ResourceType resource_type,
+      const network::mojom::URLResponseHead& response_head,
+      network::mojom::RequestDestination request_destination,
       PreviewsState previews_state) {}
   virtual void DidCompleteResponse(
       int request_id,
@@ -228,6 +232,10 @@ class CONTENT_EXPORT RenderFrameObserver : public IPC::Listener,
 
   // Called when a worker fetch context will be created.
   virtual void WillCreateWorkerFetchContext(blink::WebWorkerFetchContext*) {}
+
+  // Called when a frame's intersection with the root frame changes.
+  virtual void OnMainFrameDocumentIntersectionChanged(
+      const blink::WebRect& intersect_rect) {}
 
   // Called to give the embedder an opportunity to bind an interface request
   // for a frame. If the request can be bound, |interface_pipe| will be taken.

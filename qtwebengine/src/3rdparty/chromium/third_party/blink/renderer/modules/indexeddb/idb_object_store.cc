@@ -28,7 +28,9 @@
 #include <memory>
 
 #include "base/feature_list.h"
+#include "base/memory/ptr_util.h"
 #include "base/memory/scoped_refptr.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/numerics/safe_conversions.h"
 #include "third_party/blink/public/platform/web_blob_info.h"
 #include "third_party/blink/renderer/bindings/core/v8/serialization/serialized_script_value_factory.h"
@@ -48,8 +50,7 @@
 #include "third_party/blink/renderer/modules/indexeddb/web_idb_database.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
-#include "third_party/blink/renderer/platform/instrumentation/histogram.h"
-#include "third_party/blink/renderer/platform/shared_buffer.h"
+#include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
 #include "v8/include/v8.h"
 
 namespace blink {
@@ -61,7 +62,7 @@ IDBObjectStore::IDBObjectStore(scoped_refptr<IDBObjectStoreMetadata> metadata,
   DCHECK(metadata_.get());
 }
 
-void IDBObjectStore::Trace(blink::Visitor* visitor) {
+void IDBObjectStore::Trace(Visitor* visitor) {
   visitor->Trace(transaction_);
   visitor->Trace(index_map_);
   ScriptWrappable::Trace(visitor);
@@ -300,38 +301,49 @@ IDBRequest* IDBObjectStore::getAllKeys(ScriptState* script_state,
 
 static Vector<std::unique_ptr<IDBKey>> GenerateIndexKeysForValue(
     v8::Isolate* isolate,
+    const IDBObjectStoreMetadata& store_metadata,
     const IDBIndexMetadata& index_metadata,
     const ScriptValue& object_value) {
   NonThrowableExceptionState exception_state;
+
+  // Look up the key using the index's key path.
   std::unique_ptr<IDBKey> index_key = ScriptValue::To<std::unique_ptr<IDBKey>>(
-      isolate, object_value, exception_state, index_metadata.key_path);
+      isolate, object_value, exception_state, store_metadata.key_path,
+      index_metadata.key_path);
+
+  // No match. (In the special case for a store with a key generator and in-line
+  // keys and where the store and index key paths match, the back-end will
+  // synthesize an index key.)
   if (!index_key)
     return Vector<std::unique_ptr<IDBKey>>();
 
-  DEFINE_THREAD_SAFE_STATIC_LOCAL(
-      EnumerationHistogram, key_type_histogram,
-      ("WebCore.IndexedDB.ObjectStore.IndexEntry.KeyType",
-       static_cast<int>(mojom::IDBKeyType::kMaxValue)));
-
-  if (!index_metadata.multi_entry ||
-      index_key->GetType() != mojom::IDBKeyType::Array) {
-    if (!index_key->IsValid())
-      return Vector<std::unique_ptr<IDBKey>>();
-
-    Vector<std::unique_ptr<IDBKey>> index_keys;
-    index_keys.ReserveInitialCapacity(1);
-    index_keys.emplace_back(std::move(index_key));
-    key_type_histogram.Count(static_cast<int>(index_keys[0]->GetType()));
-    return index_keys;
-  } else {
-    DCHECK(index_metadata.multi_entry);
-    DCHECK_EQ(index_key->GetType(), mojom::IDBKeyType::Array);
-    Vector<std::unique_ptr<IDBKey>> index_keys =
-        IDBKey::ToMultiEntryArray(std::move(index_key));
-    for (std::unique_ptr<IDBKey>& key : index_keys)
-      key_type_histogram.Count(static_cast<int>(key->GetType()));
-    return index_keys;
+  // Special case for multi-entry indexes, per spec: if an index's multiEntry
+  // flag is true the computed index key is an array, then an index entry is
+  // created for each subkey, with duplicate and invalid subkeys removed.
+  // https://w3c.github.io/IndexedDB/#store-a-record-into-an-object-store
+  // https://w3c.github.io/IndexedDB/#convert-a-value-to-a-multientry-key
+  if (index_metadata.multi_entry &&
+      index_key->GetType() == mojom::IDBKeyType::Array) {
+    return IDBKey::ToMultiEntryArray(std::move(index_key));
   }
+
+  // Otherwise, invalid index keys are simply ignored.
+  if (!index_key->IsValid())
+    return Vector<std::unique_ptr<IDBKey>>();
+
+  // And a single key is added for the record in the index.
+  Vector<std::unique_ptr<IDBKey>> index_keys;
+  index_keys.ReserveInitialCapacity(1);
+  index_keys.emplace_back(std::move(index_key));
+  return index_keys;
+}
+
+IDBRequest* IDBObjectStore::add(ScriptState* script_state,
+                                const ScriptValue& value,
+                                ExceptionState& exception_state) {
+  v8::Isolate* isolate = script_state->GetIsolate();
+  return add(script_state, value, ScriptValue(isolate, v8::Undefined(isolate)),
+             exception_state);
 }
 
 IDBRequest* IDBObjectStore::add(ScriptState* script_state,
@@ -342,6 +354,14 @@ IDBRequest* IDBObjectStore::add(ScriptState* script_state,
              metadata_->name.Utf8());
   return DoPut(script_state, mojom::IDBPutMode::AddOnly, value, key,
                exception_state);
+}
+
+IDBRequest* IDBObjectStore::put(ScriptState* script_state,
+                                const ScriptValue& value,
+                                ExceptionState& exception_state) {
+  v8::Isolate* isolate = script_state->GetIsolate();
+  return put(script_state, value, ScriptValue(isolate, v8::Undefined(isolate)),
+             exception_state);
 }
 
 IDBRequest* IDBObjectStore::put(ScriptState* script_state,
@@ -544,23 +564,15 @@ IDBRequest* IDBObjectStore::DoPut(ScriptState* script_state,
     return nullptr;
   }
 
-  if (key && uses_in_line_keys) {
-    DEFINE_THREAD_SAFE_STATIC_LOCAL(
-        EnumerationHistogram, key_type_histogram,
-        ("WebCore.IndexedDB.ObjectStore.Record.KeyType",
-         static_cast<int>(mojom::IDBKeyType::kMaxValue)));
-    key_type_histogram.Count(static_cast<int>(key->GetType()));
-  }
-
   Vector<IDBIndexKeys> index_keys;
   index_keys.ReserveInitialCapacity(Metadata().indexes.size());
   for (const auto& it : Metadata().indexes) {
     if (clone.IsEmpty())
       value_wrapper.Clone(script_state, &clone);
-    index_keys.emplace_back(
-        IDBIndexKeys{it.key,
-                     GenerateIndexKeysForValue(
-                         script_state->GetIsolate(), *it.value, clone)});
+    index_keys.emplace_back(IDBIndexKeys{
+        it.key,
+        GenerateIndexKeysForValue(script_state->GetIsolate(),
+                                  Metadata(), *it.value, clone)});
   }
   // Records 1KB to 1GB.
   UMA_HISTOGRAM_COUNTS_1M(
@@ -576,13 +588,15 @@ IDBRequest* IDBObjectStore::DoPut(ScriptState* script_state,
   if (base::FeatureList::IsEnabled(kIndexedDBLargeValueWrapping))
     value_wrapper.WrapIfBiggerThan(IDBValueWrapper::kWrapThreshold);
 
-  auto idb_value = std::make_unique<IDBValue>(value_wrapper.TakeWireBytes(),
-                                              value_wrapper.TakeBlobInfo());
+  auto idb_value = std::make_unique<IDBValue>(
+      value_wrapper.TakeWireBytes(), value_wrapper.TakeBlobInfo(),
+      value_wrapper.TakeNativeFileSystemTransferTokens());
 
   request->transit_blob_handles() = value_wrapper.TakeBlobDataHandles();
   transaction_->transaction_backend()->Put(
       Id(), std::move(idb_value), IDBKey::Clone(key), put_mode,
-      request->CreateWebCallbacks().release(), std::move(index_keys));
+      base::WrapUnique(request->CreateWebCallbacks().release()),
+      std::move(index_keys));
 
   return request;
 }
@@ -701,22 +715,27 @@ class IndexPopulator final : public NativeEventListener {
                  IDBDatabase* database,
                  int64_t transaction_id,
                  int64_t object_store_id,
+                 scoped_refptr<const IDBObjectStoreMetadata> store_metadata,
                  scoped_refptr<const IDBIndexMetadata> index_metadata)
       : script_state_(script_state),
         database_(database),
         transaction_id_(transaction_id),
         object_store_id_(object_store_id),
+        store_metadata_(store_metadata),
         index_metadata_(std::move(index_metadata)) {
     DCHECK(index_metadata_.get());
   }
 
-  void Trace(blink::Visitor* visitor) override {
+  void Trace(Visitor* visitor) override {
     visitor->Trace(script_state_);
     visitor->Trace(database_);
     NativeEventListener::Trace(visitor);
   }
 
  private:
+  const IDBObjectStoreMetadata& ObjectStoreMetadata() const {
+    return *store_metadata_;
+  }
   const IDBIndexMetadata& IndexMetadata() const { return *index_metadata_; }
 
   void Invoke(ExecutionContext* execution_context, Event* event) override {
@@ -751,6 +770,7 @@ class IndexPopulator final : public NativeEventListener {
       index_keys.emplace_back(IDBIndexKeys{
           IndexMetadata().id,
           GenerateIndexKeysForValue(script_state_->GetIsolate(),
+                                    ObjectStoreMetadata(),
                                     IndexMetadata(), value)});
 
       database_->Backend()->SetIndexKeys(transaction_id_, object_store_id_,
@@ -771,6 +791,7 @@ class IndexPopulator final : public NativeEventListener {
   Member<IDBDatabase> database_;
   const int64_t transaction_id_;
   const int64_t object_store_id_;
+  scoped_refptr<const IDBObjectStoreMetadata> store_metadata_;
   scoped_refptr<const IDBIndexMetadata> index_metadata_;
 };
 }  // namespace
@@ -852,7 +873,7 @@ IDBIndex* IDBObjectStore::createIndex(ScriptState* script_state,
   // This is kept alive by being the success handler of the request, which is in
   // turn kept alive by the owning transaction.
   auto* index_populator = MakeGarbageCollected<IndexPopulator>(
-      script_state, transaction()->db(), transaction_->Id(), Id(),
+      script_state, transaction()->db(), transaction_->Id(), Id(), metadata_,
       std::move(index_metadata));
   index_request->setOnsuccess(index_populator);
   return index;

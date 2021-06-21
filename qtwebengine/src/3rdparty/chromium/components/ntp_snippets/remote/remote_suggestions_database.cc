@@ -10,6 +10,7 @@
 #include "base/files/file_path.h"
 #include "base/system/sys_info.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "components/leveldb_proto/public/proto_database_provider.h"
 #include "components/ntp_snippets/remote/proto/ntp_snippets.pb.h"
 
@@ -31,7 +32,7 @@ RemoteSuggestionsDatabase::RemoteSuggestionsDatabase(
     : RemoteSuggestionsDatabase(
           proto_database_provider,
           database_dir,
-          base::CreateSequencedTaskRunnerWithTraits(
+          base::ThreadPool::CreateSequencedTaskRunner(
               {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
                base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN})) {}
 
@@ -81,7 +82,7 @@ bool RemoteSuggestionsDatabase::IsErrorState() const {
 }
 
 void RemoteSuggestionsDatabase::SetErrorCallback(
-    const base::Closure& error_callback) {
+    const base::RepeatingClosure& error_callback) {
   error_callback_ = error_callback;
 }
 
@@ -94,6 +95,11 @@ void RemoteSuggestionsDatabase::LoadSnippets(SnippetsCallback callback) {
 }
 
 void RemoteSuggestionsDatabase::SaveSnippet(const RemoteSuggestion& snippet) {
+  if (IsErrorState()) {
+    DVLOG(0) << "Attempted save snippet but db is in an error state, aborting";
+    return;
+  }
+
   std::unique_ptr<KeyEntryVector> entries_to_save(new KeyEntryVector());
   // OnDatabaseLoaded relies on the detail that the primary snippet id goes
   // first in the protocol representation.
@@ -104,6 +110,11 @@ void RemoteSuggestionsDatabase::SaveSnippet(const RemoteSuggestion& snippet) {
 
 void RemoteSuggestionsDatabase::SaveSnippets(
     const RemoteSuggestion::PtrVector& snippets) {
+  if (IsErrorState()) {
+    DVLOG(0) << "Attempted save snippets but db is in an error state, aborting";
+    return;
+  }
+
   std::unique_ptr<KeyEntryVector> entries_to_save(new KeyEntryVector());
   for (const std::unique_ptr<RemoteSuggestion>& snippet : snippets) {
     // OnDatabaseLoaded relies on the detail that the primary snippet id goes
@@ -120,7 +131,11 @@ void RemoteSuggestionsDatabase::DeleteSnippet(const std::string& snippet_id) {
 
 void RemoteSuggestionsDatabase::DeleteSnippets(
     std::unique_ptr<std::vector<std::string>> snippet_ids) {
-  DCHECK(IsInitialized());
+  if (IsErrorState()) {
+    DVLOG(0)
+        << "Attempted delete snippets but db is in an error state, aborting";
+    return;
+  }
 
   std::unique_ptr<KeyEntryVector> entries_to_save(new KeyEntryVector());
   database_->UpdateEntries(
@@ -140,7 +155,10 @@ void RemoteSuggestionsDatabase::LoadImage(const std::string& snippet_id,
 
 void RemoteSuggestionsDatabase::SaveImage(const std::string& snippet_id,
                                           const std::string& image_data) {
-  DCHECK(IsInitialized());
+  if (IsErrorState()) {
+    DVLOG(0) << "Attempted save image but db is in an error state, aborting";
+    return;
+  }
 
   SnippetImageProto image_proto;
   image_proto.set_data(image_data);
@@ -161,7 +179,10 @@ void RemoteSuggestionsDatabase::DeleteImage(const std::string& snippet_id) {
 
 void RemoteSuggestionsDatabase::DeleteImages(
     std::unique_ptr<std::vector<std::string>> snippet_ids) {
-  DCHECK(IsInitialized());
+  if (IsErrorState()) {
+    DVLOG(0) << "Attempted delete images but db is in an error state, aborting";
+    return;
+  }
   image_database_->UpdateEntries(
       std::make_unique<ImageKeyEntryVector>(), std::move(snippet_ids),
       base::BindOnce(&RemoteSuggestionsDatabase::OnImageDatabaseSaved,
@@ -170,7 +191,10 @@ void RemoteSuggestionsDatabase::DeleteImages(
 
 void RemoteSuggestionsDatabase::GarbageCollectImages(
     std::unique_ptr<std::set<std::string>> alive_snippet_ids) {
-  DCHECK(image_database_initialized_);
+  if (IsErrorState()) {
+    DVLOG(0) << "Attempted gc but db is in an error state, aborting";
+    return;
+  }
   image_database_->LoadKeys(base::BindOnce(
       &RemoteSuggestionsDatabase::DeleteUnreferencedImages,
       weak_ptr_factory_.GetWeakPtr(), std::move(alive_snippet_ids)));

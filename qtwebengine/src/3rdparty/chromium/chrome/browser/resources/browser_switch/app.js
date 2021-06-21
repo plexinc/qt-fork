@@ -2,9 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-'use strict';
+import 'chrome://resources/cr_elements/icons.m.js';
+import 'chrome://resources/cr_elements/shared_vars_css.m.js';
+import 'chrome://resources/polymer/v3_0/iron-icon/iron-icon.js';
+import './strings.m.js';
 
-(function() {
+import {I18nBehavior} from 'chrome://resources/js/i18n_behavior.m.js';
+import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
+import {html, Polymer} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {BrowserSwitchProxyImpl} from './browser_switch_proxy.js';
 
 /** @type {number} */
 const MS_PER_SECOND = 1000;
@@ -18,6 +25,8 @@ const LaunchError = {
 Polymer({
   is: 'browser-switch-app',
 
+  _template: html`{__html_template__}`,
+
   behaviors: [I18nBehavior],
 
   properties: {
@@ -27,7 +36,7 @@ Polymer({
      */
     url_: {
       type: String,
-      value: function() {
+      value() {
         return (new URLSearchParams(window.location.search)).get('url') || '';
       },
     },
@@ -53,7 +62,7 @@ Polymer({
   },
 
   /** @override */
-  attached: function() {
+  attached() {
     // If '?done=...' is specified in the URL, this tab was-reopened, or the
     // entire browser was closed by LBS and re-opened. In that case, go to NTP
     // instead.
@@ -77,7 +86,7 @@ Polymer({
   },
 
   /** @private */
-  launchAndCloseTab_: function() {
+  launchAndCloseTab_() {
     // Mark this page with '?done=...' so that restoring the tab doesn't
     // immediately re-trigger LBS.
     history.pushState({}, '', '/?done=true');
@@ -91,7 +100,7 @@ Polymer({
    * @param {number} seconds
    * @private
    */
-  startCountdown_: function(seconds) {
+  startCountdown_(seconds) {
     this.secondCounter_ = seconds;
     const intervalId = setInterval(() => {
       this.secondCounter_--;
@@ -105,7 +114,7 @@ Polymer({
    * @return {string}
    * @private
    */
-  computeTitle_: function() {
+  computeTitle_() {
     if (this.error_) {
       return this.i18n('errorTitle', getBrowserName());
     }
@@ -119,7 +128,7 @@ Polymer({
    * @return {string}
    * @private
    */
-  computeDescription_: function() {
+  computeDescription_() {
     if (this.error_) {
       return this.i18n(
           this.error_, getUrlHostname(this.url_), getBrowserName());
@@ -141,6 +150,5 @@ function getUrlHostname(url) {
 }
 
 function getProxy() {
-  return browser_switch.BrowserSwitchProxyImpl.getInstance();
+  return BrowserSwitchProxyImpl.getInstance();
 }
-})();

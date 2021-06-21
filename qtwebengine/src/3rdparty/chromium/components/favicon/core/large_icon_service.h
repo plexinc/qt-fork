@@ -20,8 +20,6 @@ class GURL;
 
 namespace favicon {
 
-class FaviconServerFetcherParams;
-
 // The large icon service provides methods to access large icons.
 class LargeIconService : public KeyedService {
  public:
@@ -68,6 +66,16 @@ class LargeIconService : public KeyedService {
       favicon_base::LargeIconCallback callback,
       base::CancelableTaskTracker* tracker) = 0;
 
+  // Requests the best icon for the page at |page_url|. Fallbacks to the host's
+  // favicon, and resizes the most similar bitmat to |desired_size_in_pizel| if
+  // no exact match is found.
+  virtual base::CancelableTaskTracker::TaskId
+  GetIconRawBitmapOrFallbackStyleForPageUrl(
+      const GURL& page_url,
+      int desired_size_in_pixel,
+      favicon_base::LargeIconCallback callback,
+      base::CancelableTaskTracker* tracker) = 0;
+
   // Fetches the best large icon for the page at |page_url| from a Google
   // favicon server and stores the result in the FaviconService database
   // (implemented in HistoryService). The write will be a no-op if the local
@@ -101,7 +109,7 @@ class LargeIconService : public KeyedService {
   // TODO(victorvianna): Consider moving |may_page_url_be_private| and/or
   // |should_trim_page_url_path| inside the parameters struct.
   virtual void GetLargeIconOrFallbackStyleFromGoogleServerSkippingLocalCache(
-      std::unique_ptr<FaviconServerFetcherParams> params,
+      const GURL& page_url,
       bool may_page_url_be_private,
       bool should_trim_page_url_path,
       const net::NetworkTrafficAnnotationTag& traffic_annotation,

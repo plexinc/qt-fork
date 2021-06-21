@@ -16,7 +16,7 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
+#include "base/message_loop/message_pump_type.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread.h"
@@ -304,7 +304,9 @@ mojom::BatteryStatus ComputeWebBatteryStatus(BatteryProperties* properties) {
     case UPOWER_DEVICE_STATE_FULL: {
       break;
     }
-    default: { status.charging_time = std::numeric_limits<double>::infinity(); }
+    default: {
+      status.charging_time = std::numeric_limits<double>::infinity();
+    }
   }
   return status;
 }
@@ -345,13 +347,13 @@ class BatteryStatusManagerLinux::BatteryStatusNotificationThread
         system_bus_.get(), UPowerObject::PropertyChangedCallback());
     upower_->proxy()->ConnectToSignal(
         kUPowerServiceName, kUPowerSignalDeviceAdded,
-        base::Bind(&BatteryStatusNotificationThread::DeviceAdded,
-                   base::Unretained(this)),
+        base::BindRepeating(&BatteryStatusNotificationThread::DeviceAdded,
+                            base::Unretained(this)),
         base::DoNothing());
     upower_->proxy()->ConnectToSignal(
         kUPowerServiceName, kUPowerSignalDeviceRemoved,
-        base::Bind(&BatteryStatusNotificationThread::DeviceRemoved,
-                   base::Unretained(this)),
+        base::BindRepeating(&BatteryStatusNotificationThread::DeviceRemoved,
+                            base::Unretained(this)),
         base::DoNothing());
 
     FindBatteryDevice();
@@ -460,8 +462,8 @@ class BatteryStatusManagerLinux::BatteryStatusNotificationThread
       // to the Changed signal.
       battery_->proxy()->ConnectToSignal(
           kUPowerDeviceInterfaceName, kUPowerDeviceSignalChanged,
-          base::Bind(&BatteryStatusNotificationThread::BatteryChanged,
-                     base::Unretained(this)),
+          base::BindRepeating(&BatteryStatusNotificationThread::BatteryChanged,
+                              base::Unretained(this)),
           base::DoNothing());
     }
   }
@@ -486,8 +488,9 @@ class BatteryStatusManagerLinux::BatteryStatusNotificationThread
       const dbus::ObjectPath& device_path) {
     return std::make_unique<BatteryObject>(
         system_bus_.get(), device_path,
-        base::Bind(&BatteryStatusNotificationThread::BatteryPropertyChanged,
-                   base::Unretained(this)));
+        base::BindRepeating(
+            &BatteryStatusNotificationThread::BatteryPropertyChanged,
+            base::Unretained(this)));
   }
 
   void DeviceAdded(dbus::Signal* /* signal */) {
@@ -603,7 +606,7 @@ bool BatteryStatusManagerLinux::StartNotifierThreadIfNecessary() {
   if (notifier_thread_)
     return true;
 
-  base::Thread::Options thread_options(base::MessageLoop::TYPE_IO, 0);
+  base::Thread::Options thread_options(base::MessagePumpType::IO, 0);
   auto notifier_thread =
       std::make_unique<BatteryStatusNotificationThread>(callback_);
   if (!notifier_thread->StartWithOptions(thread_options)) {

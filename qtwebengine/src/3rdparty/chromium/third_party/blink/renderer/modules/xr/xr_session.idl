@@ -7,7 +7,7 @@
 enum XRSessionMode {
   "inline",
   "immersive-vr",
-  /* [RuntimeEnabled=WebXRHitTest OR RuntimeEnabled=WebXRPlaneDetection] */ "immersive-ar",
+  "immersive-ar",
 };
 
 enum XREnvironmentBlendMode {
@@ -16,37 +16,50 @@ enum XREnvironmentBlendMode {
   "alpha-blend",
 };
 
+enum XRVisibilityState {
+  "visible",
+  "visible-blurred",
+  "hidden",
+};
+
 [
     ActiveScriptWrappable,
     SecureContext,
     Exposed=Window,
     RuntimeEnabled=WebXR
 ] interface XRSession : EventTarget {
-  readonly attribute XREnvironmentBlendMode environmentBlendMode;
+  [RuntimeEnabled=WebXRARModule] readonly attribute XREnvironmentBlendMode environmentBlendMode;
+  readonly attribute XRVisibilityState visibilityState;
   [SameObject] readonly attribute XRRenderState renderState;
   [MeasureAs=XRSessionGetInputSources, SameObject] readonly attribute XRInputSourceArray inputSources;
+  [SameObject] readonly attribute XRDOMOverlayState domOverlayState;
 
-  attribute EventHandler onblur;
-  attribute EventHandler onfocus;
   attribute EventHandler onend;
   attribute EventHandler onselect;
   attribute EventHandler oninputsourceschange;
   attribute EventHandler onselectstart;
   attribute EventHandler onselectend;
+  attribute EventHandler onvisibilitychange;
+  attribute EventHandler onsqueeze;
+  attribute EventHandler onsqueezestart;
+  attribute EventHandler onsqueezeend;
 
-  [RaisesException] void updateRenderState(optional XRRenderStateInit init);
+  [RaisesException] void updateRenderState(optional XRRenderStateInit init = {});
 
-  [CallWith=ScriptState] Promise<XRReferenceSpace> requestReferenceSpace(XRReferenceSpaceType type);
+  [CallWith=ScriptState, RaisesException] Promise<XRReferenceSpace> requestReferenceSpace(XRReferenceSpaceType type);
 
   long requestAnimationFrame(XRFrameRequestCallback callback);
   void cancelAnimationFrame(long handle);
 
-
-  [RuntimeEnabled=WebXRHitTest, CallWith=ScriptState] Promise<FrozenArray<XRHitResult>> requestHitTest(XRRay ray, XRSpace space);
-
   // https://github.com/immersive-web/real-world-geometry/blob/master/plane-detection-explainer.md
-  [RuntimeEnabled=WebXRPlaneDetection] readonly attribute XRWorldTrackingState worldTrackingState;
-  [RuntimeEnabled=WebXRPlaneDetection, RaisesException] void updateWorldTrackingState(optional XRWorldTrackingStateInit state);
+  [RuntimeEnabled=WebXRIncubations] readonly attribute XRWorldTrackingState worldTrackingState;
+  [RuntimeEnabled=WebXRIncubations, RaisesException] void updateWorldTrackingState(optional XRWorldTrackingStateInit state = {});
 
-  [CallWith=ScriptState, Measure] Promise<void> end();
+  [CallWith=ScriptState, Measure, RaisesException] Promise<void> end();
+
+  // https://github.com/immersive-web/hit-test/blob/master/hit-testing-explainer.md
+  [RuntimeEnabled=WebXRHitTest, CallWith=ScriptState, MeasureAs=XRSessionRequestHitTestSource, RaisesException]
+  Promise<XRHitTestSource> requestHitTestSource(XRHitTestOptionsInit options);
+  [RuntimeEnabled=WebXRHitTest, CallWith=ScriptState, MeasureAs=XRSessionRequestHitTestSourceForTransientInput, RaisesException]
+  Promise<XRTransientInputHitTestSource> requestHitTestSourceForTransientInput(XRTransientInputHitTestOptionsInit options);
 };

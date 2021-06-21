@@ -4,10 +4,13 @@
 
 #include "osp/impl/service_listener_impl.h"
 
-#include "platform/api/logging.h"
+#include <algorithm>
+
 #include "platform/base/error.h"
+#include "util/logging.h"
 
 namespace openscreen {
+namespace osp {
 namespace {
 
 bool IsTransitionValid(ServiceListener::State from, ServiceListener::State to) {
@@ -150,10 +153,6 @@ bool ServiceListenerImpl::SearchNow() {
   return true;
 }
 
-void ServiceListenerImpl::RunTasks() {
-  delegate_->RunTasksListener();
-}
-
 void ServiceListenerImpl::AddObserver(Observer* observer) {
   OSP_DCHECK(observer);
   observers_.push_back(observer);
@@ -206,4 +205,5 @@ void ServiceListenerImpl::MaybeNotifyObservers() {
   }
 }
 
+}  // namespace osp
 }  // namespace openscreen

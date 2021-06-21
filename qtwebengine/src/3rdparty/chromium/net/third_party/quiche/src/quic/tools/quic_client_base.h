@@ -17,12 +17,13 @@
 #include "net/third_party/quiche/src/quic/core/quic_config.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_macros.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_socket_address.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_string_piece.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 
 class ProofVerifier;
 class QuicServerId;
+class SessionCache;
 
 // QuicClientBase handles establishing a connection to the passed in
 // server id, including ensuring that it supports the passed in versions
@@ -64,7 +65,8 @@ class QuicClientBase {
                  QuicConnectionHelperInterface* helper,
                  QuicAlarmFactory* alarm_factory,
                  std::unique_ptr<NetworkHelper> network_helper,
-                 std::unique_ptr<ProofVerifier> proof_verifier);
+                 std::unique_ptr<ProofVerifier> proof_verifier,
+                 std::unique_ptr<SessionCache> session_cache);
   QuicClientBase(const QuicClientBase&) = delete;
   QuicClientBase& operator=(const QuicClientBase&) = delete;
 
@@ -152,6 +154,18 @@ class QuicClientBase {
   // The number of client hellos sent.
   int GetNumSentClientHellos();
 
+  // Returns true if early data (0-RTT data) was sent and the server accepted
+  // it.
+  virtual bool EarlyDataAccepted() = 0;
+
+  // Returns true if the handshake was delayed one round trip by the server
+  // because the server wanted proof the client controls its source address
+  // before progressing further. In Google QUIC, this would be due to an
+  // inchoate REJ in the QUIC Crypto handshake; in IETF QUIC this would be due
+  // to a Retry packet.
+  // TODO(nharper): Consider a better name for this method.
+  virtual bool ReceivedInchoateReject() = 0;
+
   // Gather the stats for the last session and update the stats for the overall
   // connection.
   void UpdateStats();
@@ -207,8 +221,13 @@ class QuicClientBase {
 
   bool initialized() const { return initialized_; }
 
-  void SetPreSharedKey(QuicStringPiece key) {
+  void SetPreSharedKey(quiche::QuicheStringPiece key) {
     crypto_config_.set_pre_shared_key(key);
+  }
+
+  void set_connection_debug_visitor(
+      QuicConnectionDebugVisitor* connection_debug_visitor) {
+    connection_debug_visitor_ = connection_debug_visitor;
   }
 
  protected:
@@ -329,6 +348,10 @@ class QuicClientBase {
   // The network helper used to create sockets and manage the event loop.
   // Not owned by this class.
   std::unique_ptr<NetworkHelper> network_helper_;
+
+  // The debug visitor set on the connection right after it is constructed.
+  // Not owned, must be valid for the lifetime of the QuicClientBase instance.
+  QuicConnectionDebugVisitor* connection_debug_visitor_;
 };
 
 }  // namespace quic

@@ -22,40 +22,27 @@
 
 #include <inttypes.h>
 
-#include "perfetto/trace/interned_data/interned_data.pbzero.h"
-#include "perfetto/trace/profiling/profile_common.pbzero.h"
-#include "perfetto/trace/profiling/profile_packet.pbzero.h"
-#include "perfetto/trace/trace_packet.pbzero.h"
+#include "protos/perfetto/trace/interned_data/interned_data.pbzero.h"
+#include "protos/perfetto/trace/profiling/profile_common.pbzero.h"
+#include "protos/perfetto/trace/profiling/profile_packet.pbzero.h"
+#include "protos/perfetto/trace/trace_packet.pbzero.h"
 
 #include "perfetto/ext/tracing/core/trace_writer.h"
 
+#include "src/profiling/common/interner.h"
+#include "src/profiling/common/interning_output.h"
 #include "src/profiling/memory/bookkeeping.h"
-#include "src/profiling/memory/interner.h"
 
 namespace perfetto {
 namespace profiling {
 
-void WriteFixedInternings(TraceWriter* trace_writer);
-
 class DumpState {
  public:
-  class InternState {
-   private:
-    friend class DumpState;
-
-    std::set<InternID> dumped_strings_;
-    std::set<InternID> dumped_frames_;
-    std::set<InternID> dumped_mappings_;
-    std::set<uint64_t> dumped_callstacks_;
-
-    uint64_t next_index_ = 0;
-  };
-
   DumpState(
       TraceWriter* trace_writer,
       std::function<void(protos::pbzero::ProfilePacket::ProcessHeapSamples*)>
           process_fill_header,
-      InternState* intern_state)
+      InterningOutputTracker* intern_state)
       : trace_writer_(trace_writer),
         intern_state_(intern_state),
         current_process_fill_header_(std::move(process_fill_header)) {
@@ -69,7 +56,7 @@ class DumpState {
   DumpState(DumpState&&) = delete;
   DumpState& operator=(DumpState&&) = delete;
 
-  void AddIdleBytes(uintptr_t callstack_id, uint64_t bytes);
+  void AddIdleBytes(uint64_t callstack_id, uint64_t bytes);
 
   void WriteAllocation(const HeapTracker::CallstackAllocations& alloc,
                        bool dump_at_max_mode);
@@ -99,7 +86,8 @@ class DumpState {
     MakeTracePacket();
 
     current_profile_packet_ = current_trace_packet_->set_profile_packet();
-    current_profile_packet_->set_index(intern_state_->next_index_++);
+    uint64_t* next_index = intern_state_->HeapprofdNextIndexMutable();
+    current_profile_packet_->set_index((*next_index)++);
   }
 
   uint64_t currently_written() {
@@ -113,7 +101,7 @@ class DumpState {
   std::set<GlobalCallstackTrie::Node*> callstacks_to_dump_;
 
   TraceWriter* trace_writer_;
-  InternState* intern_state_;
+  InterningOutputTracker* intern_state_;
 
   protos::pbzero::ProfilePacket* current_profile_packet_ = nullptr;
   protos::pbzero::InternedData* current_interned_data_ = nullptr;
@@ -122,7 +110,7 @@ class DumpState {
       current_process_heap_samples_ = nullptr;
   std::function<void(protos::pbzero::ProfilePacket::ProcessHeapSamples*)>
       current_process_fill_header_;
-  std::map<uintptr_t /* callstack_id */, uint64_t> current_process_idle_allocs_;
+  std::map<uint64_t /* callstack_id */, uint64_t> current_process_idle_allocs_;
 
   uint64_t last_written_ = 0;
 };

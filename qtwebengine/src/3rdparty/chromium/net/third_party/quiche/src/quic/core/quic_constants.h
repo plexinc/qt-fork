@@ -47,6 +47,12 @@ const QuicByteCount kMaxIncomingPacketSize = kMaxV4PacketSize;
 const QuicByteCount kMaxOutgoingPacketSize = kMaxV6PacketSize;
 // ETH_MAX_MTU - MAX(sizeof(iphdr), sizeof(ip6_hdr)) - sizeof(udphdr).
 const QuicByteCount kMaxGsoPacketSize = 65535 - 40 - 8;
+// The maximal IETF DATAGRAM frame size we'll accept. Choosing 2^16 ensures
+// that it is greater than the biggest frame we could ever fit in a QUIC packet.
+const QuicByteCount kMaxAcceptedDatagramFrameSize = 65536;
+// Default value of the max_packet_size transport parameter if it is not
+// transmitted.
+const QuicByteCount kDefaultMaxPacketSizeTransportParam = 65527;
 // Default maximum packet size used in the Linux TCP implementation.
 // Used in QUIC for congestion window computations in bytes.
 const QuicByteCount kDefaultTCPMSS = 1460;
@@ -79,11 +85,6 @@ const QuicByteCount kSessionReceiveWindowLimit = 24 * 1024 * 1024;  // 24 MB
 // TODO(bnc): Move this constant to quic/core/http/.
 const QuicByteCount kDefaultMaxUncompressedHeaderSize = 16 * 1024;  // 16 KB
 
-// Default maximum dynamic table capacity, communicated via
-// SETTINGS_QPACK_MAX_TABLE_CAPACITY.
-// TODO(bnc): Move this constant to quic/core/http/.
-const QuicByteCount kDefaultQpackMaxDynamicTableCapacity = 64 * 1024;  // 64 KB
-
 // Minimum size of the CWND, in packets, when doing bandwidth resumption.
 const QuicPacketCount kMinCongestionWindowForBandwidthResumption = 10;
 
@@ -104,6 +105,10 @@ const size_t kPublicFlagsSize = 1;
 // Number of bytes reserved for version number in the packet header.
 const size_t kQuicVersionSize = 4;
 
+// Length of the retry integrity tag in bytes.
+// https://tools.ietf.org/html/draft-ietf-quic-transport-25#section-17.2.5
+const size_t kRetryIntegrityTagLength = 16;
+
 // Signifies that the QuicPacket will contain version of the protocol.
 const bool kIncludeVersion = true;
 // Signifies that the QuicPacket will include a diversification nonce.
@@ -117,6 +122,9 @@ QUIC_EXPORT_PRIVATE extern const char* const kFinalOffsetHeaderKey;
 // Uses a 25ms delayed ack timer. Helps with better signaling
 // in low-bandwidth (< ~384 kbps), where an ack is sent per packet.
 const int64_t kDefaultDelayedAckTimeMs = 25;
+
+// Default shift of the ACK delay in the IETF QUIC ACK frame.
+const uint32_t kDefaultAckDelayExponent = 3;
 
 // Minimum tail loss probe time in ms.
 static const int64_t kMinTailLossProbeTimeoutMs = 10;
@@ -222,7 +230,6 @@ const QuicByteCount kMaxStreamLength = (UINT64_C(1) << 62) - 1;
 const uint64_t kMaxIetfVarInt = UINT64_C(0x3fffffffffffffff);
 
 // The maximum stream id value that is supported - (2^32)-1
-// TODO(fkastenholz): Should update this to 64 bits for IETF Quic.
 const QuicStreamId kMaxQuicStreamId = 0xffffffff;
 
 // The maximum value that can be stored in a 32-bit QuicStreamCount.
@@ -242,6 +249,25 @@ const size_t kMaxNewTokenTokenLength = 0xffff;
 
 // Default initial rtt used before any samples are received.
 const int kInitialRttMs = 100;
+
+// Default fraction (1/4) of an RTT the algorithm waits before determining a
+// packet is lost due to early retransmission by time based loss detection.
+static const int kDefaultLossDelayShift = 2;
+
+// Default fraction (1/8) of an RTT when doing IETF loss detection.
+static const int kDefaultIetfLossDelayShift = 3;
+
+// Maximum number of retransmittable packets received before sending an ack.
+const QuicPacketCount kDefaultRetransmittablePacketsBeforeAck = 2;
+// Wait for up to 10 retransmittable packets before sending an ack.
+const QuicPacketCount kMaxRetransmittablePacketsBeforeAck = 10;
+// Minimum number of packets received before ack decimation is enabled.
+// This intends to avoid the beginning of slow start, when CWNDs may be
+// rapidly increasing.
+const QuicPacketCount kMinReceivedBeforeAckDecimation = 100;
+
+// The default alarm granularity assumed by QUIC code.
+const QuicTime::Delta kAlarmGranularity = QuicTime::Delta::FromMilliseconds(1);
 
 // Packet number of first sending packet of a connection. Please note, this
 // cannot be used as first received packet because peer can choose its starting

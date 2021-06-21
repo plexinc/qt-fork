@@ -4,18 +4,19 @@
 
 #include <SensorsApi.h>
 #include <sensors.h>
+#include <wrl/implements.h>
 
 #include "base/bind.h"
-#include "base/message_loop/message_loop.h"
+#include "base/numerics/math_constants.h"
 #include "base/run_loop.h"
-#include "base/test/scoped_task_environment.h"
-#include "base/win/iunknown_impl.h"
+#include "base/test/task_environment.h"
 #include "base/win/propvarutil.h"
 #include "base/win/scoped_com_initializer.h"
 #include "base/win/scoped_propvariant.h"
 #include "services/device/generic_sensor/fake_platform_sensor_and_provider.h"
 #include "services/device/generic_sensor/generic_sensor_consts.h"
 #include "services/device/generic_sensor/platform_sensor_provider_win.h"
+#include "services/device/generic_sensor/platform_sensor_util.h"
 #include "services/device/public/mojom/sensor_provider.mojom.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -32,28 +33,11 @@ namespace device {
 
 using mojom::SensorType;
 
-template <class Interface>
-class MockCOMInterface : public Interface, public base::win::IUnknownImpl {
- public:
-  // IUnknown interface
-  ULONG STDMETHODCALLTYPE AddRef() override { return IUnknownImpl::AddRef(); }
-  ULONG STDMETHODCALLTYPE Release() override { return IUnknownImpl::Release(); }
-
-  STDMETHODIMP QueryInterface(REFIID riid, void** ppv) override {
-    if (riid == __uuidof(Interface)) {
-      *ppv = static_cast<Interface*>(this);
-      AddRef();
-      return S_OK;
-    }
-    return IUnknownImpl::QueryInterface(riid, ppv);
-  }
-
- protected:
-  ~MockCOMInterface() override = default;
-};
-
 // Mock class for ISensorManager COM interface.
-class MockISensorManager : public MockCOMInterface<ISensorManager> {
+class MockISensorManager
+    : public Microsoft::WRL::RuntimeClass<
+          Microsoft::WRL::RuntimeClassFlags<Microsoft::WRL::ClassicCom>,
+          ISensorManager> {
  public:
   // ISensorManager interface
   MOCK_METHOD2_WITH_CALLTYPE(STDMETHODCALLTYPE,
@@ -81,7 +65,10 @@ class MockISensorManager : public MockCOMInterface<ISensorManager> {
 };
 
 // Mock class for ISensorCollection COM interface.
-class MockISensorCollection : public MockCOMInterface<ISensorCollection> {
+class MockISensorCollection
+    : public Microsoft::WRL::RuntimeClass<
+          Microsoft::WRL::RuntimeClassFlags<Microsoft::WRL::ClassicCom>,
+          ISensorCollection> {
  public:
   // ISensorCollection interface
   MOCK_METHOD2_WITH_CALLTYPE(STDMETHODCALLTYPE,
@@ -104,7 +91,10 @@ class MockISensorCollection : public MockCOMInterface<ISensorCollection> {
 };
 
 // Mock class for ISensor COM interface.
-class MockISensor : public MockCOMInterface<ISensor> {
+class MockISensor
+    : public Microsoft::WRL::RuntimeClass<
+          Microsoft::WRL::RuntimeClassFlags<Microsoft::WRL::ClassicCom>,
+          ISensor> {
  public:
   // ISensor interface
   MOCK_METHOD1_WITH_CALLTYPE(STDMETHODCALLTYPE, GetID, HRESULT(SENSOR_ID* id));
@@ -161,7 +151,10 @@ class MockISensor : public MockCOMInterface<ISensor> {
 };
 
 // Mock class for ISensorDataReport COM interface.
-class MockISensorDataReport : public MockCOMInterface<ISensorDataReport> {
+class MockISensorDataReport
+    : public Microsoft::WRL::RuntimeClass<
+          Microsoft::WRL::RuntimeClassFlags<Microsoft::WRL::ClassicCom>,
+          ISensorDataReport> {
  public:
   // ISensorDataReport interface
   MOCK_METHOD1_WITH_CALLTYPE(STDMETHODCALLTYPE,
@@ -191,13 +184,13 @@ class MockISensorDataReport : public MockCOMInterface<ISensorDataReport> {
 class PlatformSensorAndProviderTestWin : public ::testing::Test {
  public:
   PlatformSensorAndProviderTestWin()
-      : scoped_task_environment_(
-            base::test::ScopedTaskEnvironment::MainThreadType::IO) {}
+      : task_environment_(base::test::TaskEnvironment::MainThreadType::IO) {}
 
   void SetUp() override {
-    sensor_ = new NiceMock<MockISensor>();
-    sensor_collection_ = new NiceMock<MockISensorCollection>();
-    sensor_manager_ = new NiceMock<MockISensorManager>();
+    sensor_ = Microsoft::WRL::Make<NiceMock<MockISensor>>();
+    sensor_collection_ =
+        Microsoft::WRL::Make<NiceMock<MockISensorCollection>>();
+    sensor_manager_ = Microsoft::WRL::Make<NiceMock<MockISensorManager>>();
     Microsoft::WRL::ComPtr<ISensorManager> manager;
     sensor_manager_->QueryInterface(IID_PPV_ARGS(&manager));
 
@@ -217,8 +210,8 @@ class PlatformSensorAndProviderTestWin : public ::testing::Test {
   scoped_refptr<PlatformSensor> CreateSensor(mojom::SensorType type) {
     run_loop_ = std::make_unique<base::RunLoop>();
     provider_->CreateSensor(
-        type, base::Bind(&PlatformSensorAndProviderTestWin::SensorCreated,
-                         base::Unretained(this)));
+        type, base::BindOnce(&PlatformSensorAndProviderTestWin::SensorCreated,
+                             base::Unretained(this)));
     run_loop_->Run();
     scoped_refptr<PlatformSensor> sensor;
     sensor.swap(platform_sensor_);
@@ -242,7 +235,7 @@ class PlatformSensorAndProviderTestWin : public ::testing::Test {
   void QuitInnerLoop() { run_loop_->Quit(); }
 
   void SetUnsupportedSensor(REFSENSOR_TYPE_ID sensor) {
-    EXPECT_CALL(*sensor_manager_, GetSensorsByType(sensor, _))
+    EXPECT_CALL(*(sensor_manager_.Get()), GetSensorsByType(sensor, _))
         .WillRepeatedly(
             Invoke([](REFSENSOR_TYPE_ID type, ISensorCollection** collection) {
               return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
@@ -253,7 +246,7 @@ class PlatformSensorAndProviderTestWin : public ::testing::Test {
   // ISensorMager and it will be present in ISensorCollection.
   void SetSupportedSensor(REFSENSOR_TYPE_ID sensor) {
     // Returns mock ISensorCollection.
-    EXPECT_CALL(*sensor_manager_, GetSensorsByType(sensor, _))
+    EXPECT_CALL(*(sensor_manager_.Get()), GetSensorsByType(sensor, _))
         .WillOnce(Invoke(
             [this](REFSENSOR_TYPE_ID type, ISensorCollection** collection) {
               sensor_collection_->QueryInterface(
@@ -264,14 +257,14 @@ class PlatformSensorAndProviderTestWin : public ::testing::Test {
 
     // Returns number of ISensor objects in ISensorCollection, at the moment
     // only one ISensor interface instance is suported.
-    EXPECT_CALL(*sensor_collection_, GetCount(_))
+    EXPECT_CALL(*(sensor_collection_.Get()), GetCount(_))
         .WillOnce(Invoke([](ULONG* count) {
           *count = 1;
           return S_OK;
         }));
 
     // Returns ISensor interface instance at index 0.
-    EXPECT_CALL(*sensor_collection_, GetAt(0, _))
+    EXPECT_CALL(*(sensor_collection_.Get()), GetAt(0, _))
         .WillOnce(Invoke([this](ULONG index, ISensor** sensor) {
           sensor_->QueryInterface(__uuidof(ISensor),
                                   reinterpret_cast<void**>(sensor));
@@ -282,12 +275,12 @@ class PlatformSensorAndProviderTestWin : public ::testing::Test {
     // through ISensorEvents interface. ISensorEvents is stored and attached to
     // |sensor_events_| that is used later to generate fake error, state and
     // data change events.
-    ON_CALL(*sensor_, SetEventSink(NotNull()))
+    ON_CALL(*(sensor_.Get()), SetEventSink(NotNull()))
         .WillByDefault(Invoke([this](ISensorEvents* events) {
           events->AddRef();
           sensor_events_.Attach(events);
           if (this->run_loop_) {
-            scoped_task_environment_.GetMainThreadTaskRunner()->PostTask(
+            task_environment_.GetMainThreadTaskRunner()->PostTask(
                 FROM_HERE,
                 base::BindOnce(&PlatformSensorAndProviderTestWin::QuitInnerLoop,
                                base::Unretained(this)));
@@ -297,11 +290,11 @@ class PlatformSensorAndProviderTestWin : public ::testing::Test {
 
     // When |SetEventSink| is called with nullptr, it means that client is no
     // longer interested in sensor events and ISensorEvents can be released.
-    ON_CALL(*sensor_, SetEventSink(IsNull()))
+    ON_CALL(*(sensor_.Get()), SetEventSink(IsNull()))
         .WillByDefault(Invoke([this](ISensorEvents* events) {
           sensor_events_.Reset();
           if (this->run_loop_) {
-            scoped_task_environment_.GetMainThreadTaskRunner()->PostTask(
+            task_environment_.GetMainThreadTaskRunner()->PostTask(
                 FROM_HERE,
                 base::BindOnce(&PlatformSensorAndProviderTestWin::QuitInnerLoop,
                                base::Unretained(this)));
@@ -311,13 +304,17 @@ class PlatformSensorAndProviderTestWin : public ::testing::Test {
   }
 
   // Sets minimal reporting frequency for the mock sensor.
-  void SetSupportedReportingFrequency(double frequency) {
-    ON_CALL(*sensor_, GetProperty(SENSOR_PROPERTY_MIN_REPORT_INTERVAL, _))
+  void SetSupportedReportingFrequency(int frequency) {
+    ON_CALL(*(sensor_.Get()),
+            GetProperty(SENSOR_PROPERTY_MIN_REPORT_INTERVAL, _))
         .WillByDefault(
             Invoke([frequency](REFPROPERTYKEY key, PROPVARIANT* pProperty) {
               pProperty->vt = VT_UI4;
-              pProperty->ulVal =
-                  (1 / frequency) * base::Time::kMillisecondsPerSecond;
+              pProperty->ulVal = 0;
+              if (frequency != 0) {
+                pProperty->ulVal =
+                    (1.0 / frequency) * base::Time::kMillisecondsPerSecond;
+              }
               return S_OK;
             }));
   }
@@ -333,7 +330,7 @@ class PlatformSensorAndProviderTestWin : public ::testing::Test {
   void GenerateStateChangeEvent(SensorState state) {
     if (!sensor_events_)
       return;
-    sensor_events_->OnStateChanged(sensor_.get(), state);
+    sensor_events_->OnStateChanged(sensor_.Get(), state);
   }
 
   struct PropertyKeyCompare {
@@ -353,21 +350,17 @@ class PlatformSensorAndProviderTestWin : public ::testing::Test {
     if (!sensor_events_)
       return;
 
-    // MockISensorDataReport implements IUnknown that provides ref counting.
-    // IUnknown::QueryInterface increases refcount if an object implements
-    // requested interface. ComPtr wraps received interface and destructs
-    // it when there are not more references.
-    auto* mock_report = new NiceMock<MockISensorDataReport>();
+    auto mock_report = Microsoft::WRL::Make<NiceMock<MockISensorDataReport>>();
     Microsoft::WRL::ComPtr<ISensorDataReport> data_report;
-    mock_report->QueryInterface(IID_PPV_ARGS(&data_report));
+    mock_report.As(&data_report);
 
-    EXPECT_CALL(*mock_report, GetTimestamp(_))
+    EXPECT_CALL(*(mock_report.Get()), GetTimestamp(_))
         .WillOnce(Invoke([](SYSTEMTIME* timestamp) {
           GetSystemTime(timestamp);
           return S_OK;
         }));
 
-    EXPECT_CALL(*mock_report, GetSensorValue(_, _))
+    EXPECT_CALL(*(mock_report.Get()), GetSensorValue(_, _))
         .WillRepeatedly(WithArgs<0, 1>(
             Invoke([&values](REFPROPERTYKEY key, PROPVARIANT* variant) {
               auto it = values.find(key);
@@ -378,14 +371,14 @@ class PlatformSensorAndProviderTestWin : public ::testing::Test {
               return S_OK;
             })));
 
-    sensor_events_->OnDataUpdated(sensor_.get(), data_report.Get());
+    sensor_events_->OnDataUpdated(sensor_.Get(), data_report.Get());
   }
 
   base::win::ScopedCOMInitializer com_initializer_;
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
-  scoped_refptr<MockISensorManager> sensor_manager_;
-  scoped_refptr<MockISensorCollection> sensor_collection_;
-  scoped_refptr<MockISensor> sensor_;
+  base::test::TaskEnvironment task_environment_;
+  Microsoft::WRL::ComPtr<MockISensorManager> sensor_manager_;
+  Microsoft::WRL::ComPtr<MockISensorCollection> sensor_collection_;
+  Microsoft::WRL::ComPtr<MockISensor> sensor_;
   std::unique_ptr<PlatformSensorProviderWin> provider_;
   Microsoft::WRL::ComPtr<ISensorEvents> sensor_events_;
   scoped_refptr<PlatformSensor> platform_sensor_;
@@ -393,10 +386,19 @@ class PlatformSensorAndProviderTestWin : public ::testing::Test {
   std::unique_ptr<base::RunLoop> run_loop_;
 };
 
+double RoundAccelerometerValue(double value) {
+  return RoundToMultiple(value, kAccelerometerRoundingMultiple);
+}
+
+double RoundGyroscopeValue(double value) {
+  return RoundToMultiple(value, kGyroscopeRoundingMultiple);
+}
+
 // Tests that PlatformSensorManager returns null sensor when sensor
 // is not implemented.
 TEST_F(PlatformSensorAndProviderTestWin, SensorIsNotImplemented) {
-  EXPECT_CALL(*sensor_manager_, GetSensorsByType(SENSOR_TYPE_PRESSURE, _))
+  EXPECT_CALL(*(sensor_manager_.Get()),
+              GetSensorsByType(SENSOR_TYPE_PRESSURE, _))
       .Times(0);
   EXPECT_FALSE(CreateSensor(SensorType::PRESSURE));
 }
@@ -404,7 +406,8 @@ TEST_F(PlatformSensorAndProviderTestWin, SensorIsNotImplemented) {
 // Tests that PlatformSensorManager returns null sensor when sensor
 // is implemented, but not supported by the hardware.
 TEST_F(PlatformSensorAndProviderTestWin, SensorIsNotSupported) {
-  EXPECT_CALL(*sensor_manager_, GetSensorsByType(SENSOR_TYPE_AMBIENT_LIGHT, _))
+  EXPECT_CALL(*(sensor_manager_.Get()),
+              GetSensorsByType(SENSOR_TYPE_AMBIENT_LIGHT, _))
       .WillOnce(Invoke([](REFSENSOR_TYPE_ID, ISensorCollection** result) {
         *result = nullptr;
         return E_FAIL;
@@ -442,9 +445,9 @@ TEST_F(PlatformSensorAndProviderTestWin, SensorStarted) {
   SetSupportedReportingFrequency(10);
   SetSupportedSensor(SENSOR_TYPE_AMBIENT_LIGHT);
 
-  EXPECT_CALL(*sensor_, SetEventSink(NotNull())).Times(1);
-  EXPECT_CALL(*sensor_, SetEventSink(IsNull())).Times(1);
-  EXPECT_CALL(*sensor_, SetProperties(NotNull(), _))
+  EXPECT_CALL(*(sensor_.Get()), SetEventSink(NotNull())).Times(1);
+  EXPECT_CALL(*(sensor_.Get()), SetEventSink(IsNull())).Times(1);
+  EXPECT_CALL(*(sensor_.Get()), SetProperties(NotNull(), _))
       .WillRepeatedly(Invoke(
           [](IPortableDeviceValues* props, IPortableDeviceValues** result) {
             ULONG value = 0;
@@ -566,9 +569,12 @@ TEST_F(PlatformSensorAndProviderTestWin, CheckAccelerometerReadingConversion) {
   base::RunLoop().RunUntilIdle();
   SensorReadingSharedBuffer* buffer =
       static_cast<SensorReadingSharedBuffer*>(mapping.get());
-  EXPECT_THAT(buffer->reading.accel.x, -x_accel * kMeanGravity);
-  EXPECT_THAT(buffer->reading.accel.y, -y_accel * kMeanGravity);
-  EXPECT_THAT(buffer->reading.accel.z, -z_accel * kMeanGravity);
+  EXPECT_THAT(buffer->reading.accel.x,
+              RoundAccelerometerValue(-x_accel * base::kMeanGravityDouble));
+  EXPECT_THAT(buffer->reading.accel.y,
+              RoundAccelerometerValue(-y_accel * base::kMeanGravityDouble));
+  EXPECT_THAT(buffer->reading.accel.z,
+              RoundAccelerometerValue(-z_accel * base::kMeanGravityDouble));
   EXPECT_TRUE(sensor->StopListening(client.get(), configuration));
 }
 
@@ -605,9 +611,12 @@ TEST_F(PlatformSensorAndProviderTestWin, CheckGyroscopeReadingConversion) {
   base::RunLoop().RunUntilIdle();
   SensorReadingSharedBuffer* buffer =
       static_cast<SensorReadingSharedBuffer*>(mapping.get());
-  EXPECT_THAT(buffer->reading.gyro.x, gfx::DegToRad(x_ang_accel));
-  EXPECT_THAT(buffer->reading.gyro.y, gfx::DegToRad(y_ang_accel));
-  EXPECT_THAT(buffer->reading.gyro.z, gfx::DegToRad(z_ang_accel));
+  EXPECT_THAT(buffer->reading.gyro.x,
+              RoundGyroscopeValue(gfx::DegToRad(x_ang_accel)));
+  EXPECT_THAT(buffer->reading.gyro.y,
+              RoundGyroscopeValue(gfx::DegToRad(y_ang_accel)));
+  EXPECT_THAT(buffer->reading.gyro.z,
+              RoundGyroscopeValue(gfx::DegToRad(z_ang_accel)));
   EXPECT_TRUE(sensor->StopListening(client.get(), configuration));
 }
 
@@ -711,11 +720,15 @@ TEST_F(PlatformSensorAndProviderTestWin,
   EXPECT_TRUE(StartListening(sensor, client.get(), configuration));
   EXPECT_CALL(*client, OnSensorReadingChanged(sensor->GetType())).Times(1);
 
-  double x = -0.5;
-  double y = -0.5;
-  double z = 0.5;
-  double w = 0.5;
-  float quat_elements[4] = {x, y, z, w};
+  // The axis (unit vector) around which to rotate.
+  const double axis[3] = {1.0 / std::sqrt(3), 1.0 / std::sqrt(3),
+                          -1.0 / std::sqrt(3)};
+
+  // Create the unit quaternion manually.
+  const double theta = 2.0943951023931953;  // 120 degrees in radians.
+  const float quat_elements[4] = {
+      axis[0] * std::sin(theta / 2.0), axis[1] * std::sin(theta / 2.0),
+      axis[2] * std::sin(theta / 2.0), std::cos(theta / 2.0)};
 
   base::win::ScopedPropVariant pvQuat;
 
@@ -733,10 +746,11 @@ TEST_F(PlatformSensorAndProviderTestWin,
   SensorReadingSharedBuffer* buffer =
       static_cast<SensorReadingSharedBuffer*>(mapping.get());
 
-  EXPECT_THAT(buffer->reading.orientation_quat.x, x);
-  EXPECT_THAT(buffer->reading.orientation_quat.y, y);
-  EXPECT_THAT(buffer->reading.orientation_quat.z, z);
-  EXPECT_THAT(buffer->reading.orientation_quat.w, w);
+  const float epsilon = 1.0e-3;
+  EXPECT_NEAR(buffer->reading.orientation_quat.x, quat_elements[0], epsilon);
+  EXPECT_NEAR(buffer->reading.orientation_quat.y, quat_elements[1], epsilon);
+  EXPECT_NEAR(buffer->reading.orientation_quat.z, quat_elements[2], epsilon);
+  EXPECT_FLOAT_EQ(buffer->reading.orientation_quat.w, quat_elements[3]);
   EXPECT_TRUE(sensor->StopListening(client.get(), configuration));
 }
 

@@ -13,10 +13,12 @@
 #include "chrome/grit/browser_resources.h"
 #include "chrome/grit/generated_resources.h"
 #include "chromeos/audio/cras_audio_handler.h"
+#include "chromeos/services/assistant/public/cpp/assistant_prefs.h"
 #include "chromeos/services/assistant/public/features.h"
 #include "components/arc/arc_prefs.h"
 #include "components/consent_auditor/consent_auditor.h"
 #include "components/prefs/pref_service.h"
+#include "components/signin/public/identity_manager/consent_level.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/user_manager/user_manager.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -39,12 +41,12 @@ bool IsPreferenceDefaultEnabled(const PrefService* prefs,
 
 bool IsScreenContextDefaultEnabled(PrefService* prefs) {
   return IsPreferenceDefaultEnabled(
-      prefs, arc::prefs::kVoiceInteractionContextEnabled);
+      prefs, chromeos::assistant::prefs::kAssistantContextEnabled);
 }
 
 bool IsScreenContextToggleDisabled(PrefService* prefs) {
   return prefs->IsManagedPreference(
-      arc::prefs::kVoiceInteractionContextEnabled);
+      chromeos::assistant::prefs::kAssistantContextEnabled);
 }
 
 }  // namespace
@@ -110,7 +112,7 @@ base::Value CreateZippyData(const SettingZippyList& zippy_list) {
     data.SetKey("iconUri", base::Value(setting_zippy.icon_uri()));
     data.SetKey("popupLink", base::Value(l10n_util::GetStringUTF16(
                                  IDS_ASSISTANT_ACTIVITY_CONTROL_POPUP_LINK)));
-    zippy_data.GetList().push_back(std::move(data));
+    zippy_data.Append(std::move(data));
   }
   return zippy_data;
 }
@@ -130,7 +132,7 @@ base::Value CreateDisclosureData(const SettingZippyList& disclosure_list) {
                   base::Value(disclosure.additional_info_paragraph(0)));
     }
     data.SetKey("iconUri", base::Value(disclosure.icon_uri()));
-    disclosure_data.GetList().push_back(std::move(data));
+    disclosure_data.Append(std::move(data));
   }
   return disclosure_data;
 }
@@ -156,7 +158,7 @@ base::Value CreateGetMoreData(bool email_optin_needed,
       "iconUri",
       base::Value("https://www.gstatic.com/images/icons/material/system/"
                   "2x/screen_search_desktop_grey600_24dp.png"));
-  get_more_data.GetList().push_back(std::move(context_data));
+  get_more_data.Append(std::move(context_data));
 
   // Process email optin data.
   if (email_optin_needed) {
@@ -168,7 +170,7 @@ base::Value CreateGetMoreData(bool email_optin_needed,
                 base::Value(email_optin_ui.default_enabled()));
     data.SetKey("iconUri", base::Value(email_optin_ui.icon_uri()));
     data.SetKey("legalText", base::Value(email_optin_ui.legal_text()));
-    get_more_data.GetList().push_back(std::move(data));
+    get_more_data.Append(std::move(data));
   }
 
   return get_more_data;
@@ -219,14 +221,17 @@ base::Value GetSettingsUiStrings(const assistant::SettingsUi& settings_ui,
   return dictionary;
 }
 
-using sync_pb::UserConsentTypes;
 void RecordActivityControlConsent(Profile* profile,
                                   std::string ui_audit_key,
                                   bool opted_in) {
   auto* identity_manager = IdentityManagerFactory::GetForProfile(profile);
-  DCHECK(identity_manager->HasPrimaryAccount());
-  const std::string account_id = identity_manager->GetPrimaryAccountId();
+  // This function doesn't care about browser sync consent.
+  DCHECK(
+      identity_manager->HasPrimaryAccount(signin::ConsentLevel::kNotRequired));
+  const CoreAccountId account_id =
+      identity_manager->GetPrimaryAccountId(signin::ConsentLevel::kNotRequired);
 
+  using sync_pb::UserConsentTypes;
   UserConsentTypes::AssistantActivityControlConsent consent;
   consent.set_ui_audit_key(ui_audit_key);
   consent.set_status(opted_in ? UserConsentTypes::GIVEN
@@ -244,8 +249,8 @@ bool IsVoiceMatchEnforcedOff(const PrefService* prefs) {
   // If the hotword preference is managed to always disabled, then we should not
   // show Voice Match flow.
   return prefs->IsManagedPreference(
-             arc::prefs::kVoiceInteractionHotwordEnabled) &&
-         !prefs->GetBoolean(arc::prefs::kVoiceInteractionHotwordEnabled);
+             assistant::prefs::kAssistantHotwordEnabled) &&
+         !prefs->GetBoolean(assistant::prefs::kAssistantHotwordEnabled);
 }
 
 }  // namespace chromeos

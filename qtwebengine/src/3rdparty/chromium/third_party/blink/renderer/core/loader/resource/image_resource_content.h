@@ -23,13 +23,13 @@
 
 namespace blink {
 
+class ExecutionContext;
 class FetchParameters;
 class ImageResourceInfo;
 class ImageResourceObserver;
 class ResourceError;
 class ResourceFetcher;
 class ResourceResponse;
-class SecurityContext;
 
 // ImageResourceContent is a container that holds fetch result of
 // an ImageResource in a decoded form.
@@ -42,7 +42,7 @@ class SecurityContext;
 // TODO(hiroshige): Rename local variables of type ImageResourceContent to
 // e.g. |imageContent|. Currently they have Resource-like names.
 class CORE_EXPORT ImageResourceContent final
-    : public GarbageCollectedFinalized<ImageResourceContent>,
+    : public GarbageCollected<ImageResourceContent>,
       public ImageObserver {
   USING_GARBAGE_COLLECTED_MIXIN(ImageResourceContent);
 
@@ -79,8 +79,6 @@ class CORE_EXPORT ImageResourceContent final
   IntSize IntrinsicSize(
       RespectImageOrientationEnum should_respect_image_orientation) const;
 
-  void UpdateImageAnimationPolicy();
-
   void AddObserver(ImageResourceObserver*);
   void RemoveObserver(ImageResourceObserver*);
 
@@ -88,7 +86,7 @@ class CORE_EXPORT ImageResourceContent final
     return size_available_ != Image::kSizeUnavailable;
   }
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
 
   // Content status and deriving predicates.
   // https://docs.google.com/document/d/1O-fB83mrE0B_V8gzXNqHgmRLCvstTB4MMi3RnVLr8bE/edit#heading=h.6cyqmir0f30h
@@ -184,9 +182,12 @@ class CORE_EXPORT ImageResourceContent final
   // extraneous metadata). "well-compressed" is determined by comparing the
   // image's compression ratio against a specific value that is defined by an
   // unoptimized image feature policy on |context|.
-  bool IsAcceptableCompressionRatio(const SecurityContext& context);
+  bool IsAcceptableCompressionRatio(ExecutionContext& context);
 
   void LoadDeferredImage(ResourceFetcher* fetcher);
+
+  // Returns whether the resource request has been tagged as an ad.
+  bool IsAdResource() const;
 
  private:
   using CanDeferInvalidation = ImageResourceObserver::CanDeferInvalidation;
@@ -202,10 +203,10 @@ class CORE_EXPORT ImageResourceContent final
 
   enum NotifyFinishOption { kShouldNotifyFinish, kDoNotNotifyFinish };
 
-  // If not null, changeRect is the changed part of the image.
   void NotifyObservers(NotifyFinishOption, CanDeferInvalidation);
-  void MarkObserverFinished(ImageResourceObserver*);
+  void HandleObserverFinished(ImageResourceObserver*);
   void UpdateToLoadedContentStatus(ResourceStatus);
+  void UpdateImageAnimationPolicy();
 
   class ProhibitAddRemoveObserverInScope : public base::AutoReset<bool> {
    public:

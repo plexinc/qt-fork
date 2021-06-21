@@ -15,20 +15,15 @@ static_library("quarantine") {
     "quarantine_impl.cc",
     "quarantine_impl.h",
     "quarantine_mac.mm",
-    "quarantine_service.cc",
-    "quarantine_service.h",
     "quarantine_win.cc",
   ]
 
-  public_deps = [
-    "//components/services/quarantine/public/mojom",
-  ]
+  public_deps = [ "//components/services/quarantine/public/mojom" ]
 
   deps = [
     ":common",
     "//base",
     "//net",
-    "//services/service_manager/public/cpp",
     "//url",
   ]
 
@@ -118,8 +113,6 @@ source_set("unit_tests") {
     "//base/test:test_support",
     "//components/services/quarantine/public/mojom",
     "//net",
-    "//services/service_manager/public/cpp:cpp",
-    "//services/service_manager/public/cpp/test:test_support",
     "//testing/gmock",
     "//testing/gtest",
     "//url",

@@ -8,9 +8,10 @@
 #include "base/command_line.h"
 #include "base/memory/platform_shared_memory_region.h"
 #include "base/run_loop.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/threading/thread.h"
 #include "media/base/media_switches.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "mojo/public/cpp/system/platform_handle.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -31,32 +32,33 @@ class MojoMjpegDecodeAcceleratorServiceTest : public ::testing::Test {
         switches::kUseFakeMjpegDecodeAccelerator);
   }
 
-  void OnInitializeDone(const base::Closure& continuation, bool success) {
+  void OnInitializeDone(base::OnceClosure continuation, bool success) {
     EXPECT_TRUE(success);
-    continuation.Run();
+    std::move(continuation).Run();
   }
 
-  void OnDecodeAck(const base::Closure& continuation,
+  void OnDecodeAck(base::OnceClosure continuation,
                    int32_t bitstream_buffer_id,
                    MjpegDecodeAccelerator::Error error) {
     EXPECT_EQ(kArbitraryBitstreamBufferId, bitstream_buffer_id);
-    continuation.Run();
+    std::move(continuation).Run();
   }
 
  private:
   // This is required to allow base::ThreadTaskRunnerHandle::Get() from the
   // test execution thread.
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::TaskEnvironment task_environment_;
 };
 
 TEST_F(MojoMjpegDecodeAcceleratorServiceTest, InitializeAndDecode) {
-  chromeos_camera::mojom::MjpegDecodeAcceleratorPtr jpeg_decoder;
-  MojoMjpegDecodeAcceleratorService::Create(mojo::MakeRequest(&jpeg_decoder));
+  mojo::Remote<chromeos_camera::mojom::MjpegDecodeAccelerator> jpeg_decoder;
+  MojoMjpegDecodeAcceleratorService::Create(
+      jpeg_decoder.BindNewPipeAndPassReceiver());
 
   base::RunLoop run_loop;
   jpeg_decoder->Initialize(
-      base::Bind(&MojoMjpegDecodeAcceleratorServiceTest::OnInitializeDone,
-                 base::Unretained(this), run_loop.QuitClosure()));
+      base::BindOnce(&MojoMjpegDecodeAcceleratorServiceTest::OnInitializeDone,
+                     base::Unretained(this), run_loop.QuitClosure()));
   run_loop.Run();
 
   const size_t kInputBufferSizeInBytes = 512;
@@ -73,8 +75,12 @@ TEST_F(MojoMjpegDecodeAcceleratorServiceTest, InitializeAndDecode) {
       base::subtle::PlatformSharedMemoryRegion::CreateUnsafe(
           kInputBufferSizeInBytes);
 
+  // mojo::SharedBufferHandle::Create will make a writable region, but an unsafe
+  // one is needed.
   mojo::ScopedSharedBufferHandle output_frame_handle =
-      mojo::SharedBufferHandle::Create(kOutputFrameSizeInBytes);
+      mojo::WrapPlatformSharedMemoryRegion(
+          base::subtle::PlatformSharedMemoryRegion::CreateUnsafe(
+              kOutputFrameSizeInBytes));
 
   media::BitstreamBuffer bitstream_buffer(kArbitraryBitstreamBufferId,
                                           std::move(shm_region),
@@ -85,8 +91,8 @@ TEST_F(MojoMjpegDecodeAcceleratorServiceTest, InitializeAndDecode) {
       std::move(bitstream_buffer), kDummyFrameCodedSize,
       std::move(output_frame_handle),
       base::checked_cast<uint32_t>(kOutputFrameSizeInBytes),
-      base::Bind(&MojoMjpegDecodeAcceleratorServiceTest::OnDecodeAck,
-                 base::Unretained(this), run_loop2.QuitClosure()));
+      base::BindOnce(&MojoMjpegDecodeAcceleratorServiceTest::OnDecodeAck,
+                     base::Unretained(this), run_loop2.QuitClosure()));
   run_loop2.Run();
 }
 

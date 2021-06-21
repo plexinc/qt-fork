@@ -21,7 +21,8 @@ class VULKAN_EXPORT VulkanCommandBuffer {
  public:
   VulkanCommandBuffer(VulkanDeviceQueue* device_queue,
                       VulkanCommandPool* command_pool,
-                      bool primary);
+                      bool primary,
+                      bool use_protected_memory);
   ~VulkanCommandBuffer();
 
   bool Initialize();
@@ -46,9 +47,12 @@ class VULKAN_EXPORT VulkanCommandBuffer {
   // is finished.
   bool SubmissionFinished();
 
-  void TransitionImageLayout(VkImage image,
-                             VkImageLayout old_layout,
-                             VkImageLayout new_layout);
+  void TransitionImageLayout(
+      VkImage image,
+      VkImageLayout old_layout,
+      VkImageLayout new_layout,
+      uint32_t src_queue_family_index = VK_QUEUE_FAMILY_IGNORED,
+      uint32_t dst_queue_family_index = VK_QUEUE_FAMILY_IGNORED);
   void CopyBufferToImage(VkBuffer buffer,
                          VkImage image,
                          uint32_t buffer_width,
@@ -81,6 +85,7 @@ class VULKAN_EXPORT VulkanCommandBuffer {
   void ResetIfDirty();
 
   const bool primary_;
+  const bool use_protected_memory_;
   bool recording_ = false;
   RecordType record_type_ = RECORD_TYPE_EMPTY;
   VulkanDeviceQueue* device_queue_;

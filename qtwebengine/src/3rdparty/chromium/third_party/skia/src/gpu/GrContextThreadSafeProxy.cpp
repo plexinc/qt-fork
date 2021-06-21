@@ -12,7 +12,7 @@
 #include "include/gpu/GrContext.h"
 #include "src/gpu/GrBaseContextPriv.h"
 #include "src/gpu/GrCaps.h"
-#include "src/gpu/GrSkSLFPFactoryCache.h"
+#include "src/gpu/effects/GrSkSLFP.h"
 #include "src/image/SkSurface_Gpu.h"
 
 #ifdef SK_VULKAN
@@ -27,9 +27,8 @@ GrContextThreadSafeProxy::GrContextThreadSafeProxy(GrBackendApi backend,
 
 GrContextThreadSafeProxy::~GrContextThreadSafeProxy() = default;
 
-bool GrContextThreadSafeProxy::init(sk_sp<const GrCaps> caps,
-                                    sk_sp<GrSkSLFPFactoryCache> FPFactoryCache) {
-    return INHERITED::init(std::move(caps), std::move(FPFactoryCache));
+bool GrContextThreadSafeProxy::init(sk_sp<const GrCaps> caps) {
+    return INHERITED::init(std::move(caps));
 }
 
 SkSurfaceCharacterization GrContextThreadSafeProxy::createCharacterization(
@@ -54,26 +53,24 @@ SkSurfaceCharacterization GrContextThreadSafeProxy::createCharacterization(
         isMipMapped = false;
     }
 
-    if (!SkSurface_Gpu::Valid(this->caps(), backendFormat)) {
-        return SkSurfaceCharacterization(); // return an invalid characterization
-    }
-
     GrColorType grColorType = SkColorTypeToGrColorType(ii.colorType());
 
     if (!this->caps()->areColorTypeAndFormatCompatible(grColorType, backendFormat)) {
         return SkSurfaceCharacterization(); // return an invalid characterization
     }
 
-    sampleCnt = this->caps()->getRenderTargetSampleCount(sampleCnt, grColorType, backendFormat);
-    if (!sampleCnt) {
+    if (!this->caps()->isFormatAsColorTypeRenderable(grColorType, backendFormat, sampleCnt)) {
         return SkSurfaceCharacterization(); // return an invalid characterization
     }
+
+    sampleCnt = this->caps()->getRenderTargetSampleCount(sampleCnt, backendFormat);
+    SkASSERT(sampleCnt);
 
     if (willUseGLFBO0 && isTextureable) {
         return SkSurfaceCharacterization(); // return an invalid characterization
     }
 
-    if (isTextureable && !this->caps()->isFormatTexturable(grColorType, backendFormat)) {
+    if (isTextureable && !this->caps()->isFormatTexturable(backendFormat)) {
         // Skia doesn't agree that this is textureable.
         return SkSurfaceCharacterization(); // return an invalid characterization
     }
@@ -105,20 +102,15 @@ SkSurfaceCharacterization GrContextThreadSafeProxy::createCharacterization(
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-sk_sp<GrSkSLFPFactoryCache> GrContextThreadSafeProxyPriv::fpFactoryCache() {
-    return fProxy->fpFactoryCache();
-}
-
 sk_sp<GrContextThreadSafeProxy> GrContextThreadSafeProxyPriv::Make(
                              GrBackendApi backend,
                              const GrContextOptions& options,
                              uint32_t contextID,
-                             sk_sp<const GrCaps> caps,
-                             sk_sp<GrSkSLFPFactoryCache> cache) {
+                             sk_sp<const GrCaps> caps) {
     sk_sp<GrContextThreadSafeProxy> proxy(new GrContextThreadSafeProxy(backend, options,
                                                                        contextID));
 
-    if (!proxy->init(std::move(caps), std::move(cache))) {
+    if (!proxy->init(std::move(caps))) {
         return nullptr;
     }
     return proxy;

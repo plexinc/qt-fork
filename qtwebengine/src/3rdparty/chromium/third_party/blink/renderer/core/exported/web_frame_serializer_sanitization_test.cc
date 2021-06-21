@@ -31,7 +31,6 @@
 #include "third_party/blink/public/web/web_frame_serializer.h"
 
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/web_string.h"
 #include "third_party/blink/public/platform/web_url.h"
 #include "third_party/blink/public/platform/web_url_loader_mock_factory.h"
@@ -69,9 +68,7 @@ class WebFrameSerializerSanitizationTest : public testing::Test {
   WebFrameSerializerSanitizationTest() { helper_.Initialize(); }
 
   ~WebFrameSerializerSanitizationTest() override {
-    Platform::Current()
-        ->GetURLLoaderMockFactory()
-        ->UnregisterAllURLsAndClearMemoryCache();
+    url_test_helpers::UnregisterAllURLsAndClearMemoryCache();
   }
 
   String GenerateMHTMLFromHtml(const String& url, const String& file_name) {
@@ -92,7 +89,7 @@ class WebFrameSerializerSanitizationTest : public testing::Test {
     RegisterMockedFileURLLoad(parsed_url, file_path, mime_type);
     frame_test_helpers::LoadFrame(MainFrameImpl(), url.Utf8().c_str());
     MainFrameImpl()->GetFrame()->View()->UpdateAllLifecyclePhases(
-        DocumentLifecycle::LifecycleUpdateReason::kTest);
+        DocumentUpdateReason::kTest);
     MainFrameImpl()->GetFrame()->GetDocument()->UpdateStyleAndLayoutTree();
     test::RunPendingTasks();
   }
@@ -112,16 +109,18 @@ class WebFrameSerializerSanitizationTest : public testing::Test {
           &host_element->AttachShadowRootInternal(shadow_type, delegates_focus);
     }
     shadow_root->SetDelegatesFocus(delegates_focus);
-    shadow_root->SetInnerHTMLFromString(String::FromUTF8(shadow_content),
-                                        ASSERT_NO_EXCEPTION);
+    shadow_root->setInnerHTML(String::FromUTF8(shadow_content),
+                              ASSERT_NO_EXCEPTION);
     scope.GetDocument().View()->UpdateAllLifecyclePhases(
-        DocumentLifecycle::LifecycleUpdateReason::kTest);
+        DocumentUpdateReason::kTest);
     return shadow_root;
   }
 
   void RegisterMockedFileURLLoad(const KURL& url,
                                  const String& file_path,
                                  const String& mime_type = "image/png") {
+    // TODO(crbug.com/751425): We should use the mock functionality
+    // via |helper_|.
     url_test_helpers::RegisterMockedURLLoad(
         url, test::CoreTestDataPath(file_path.Utf8().c_str()), mime_type);
   }

@@ -9,40 +9,46 @@
 #include "base/trace_event/trace_event.h"
 
 namespace base {
+namespace internal {
 
-#if defined(OS_WIN)
-// Enable the boost of thread priority when the code may load a library. The
-// thread priority boost is required to avoid priority inversion on the loader
-// lock.
-const base::Feature kBoostThreadPriorityOnLibraryLoading{
-    "BoostThreadPriorityOnLibraryLoading", base::FEATURE_DISABLED_BY_DEFAULT};
-#endif  // OS_WIN
-
-ScopedThreadMayLoadLibraryOnBackgroundThread::
-    ScopedThreadMayLoadLibraryOnBackgroundThread(const Location& from_here) {
-  TRACE_EVENT_BEGIN2("base", "ScopedThreadMayLoadLibraryOnBackgroundThread",
+ScopedMayLoadLibraryAtBackgroundPriority::
+    ScopedMayLoadLibraryAtBackgroundPriority(const Location& from_here) {
+  TRACE_EVENT_BEGIN2("base", "ScopedMayLoadLibraryAtBackgroundPriority",
                      "file_name", from_here.file_name(), "function_name",
                      from_here.function_name());
+}
 
+bool ScopedMayLoadLibraryAtBackgroundPriority::OnScopeFirstEntered() {
 #if defined(OS_WIN)
-  if (!base::FeatureList::IsEnabled(kBoostThreadPriorityOnLibraryLoading))
-    return;
-
-  base::ThreadPriority priority = PlatformThread::GetCurrentThreadPriority();
+  const base::ThreadPriority priority =
+      PlatformThread::GetCurrentThreadPriority();
   if (priority == base::ThreadPriority::BACKGROUND) {
     original_thread_priority_ = priority;
     PlatformThread::SetCurrentThreadPriority(base::ThreadPriority::NORMAL);
+
+    TRACE_EVENT_BEGIN0(
+        "base",
+        "ScopedMayLoadLibraryAtBackgroundPriority : Priority Increased");
   }
 #endif  // OS_WIN
+
+  return true;
 }
 
-ScopedThreadMayLoadLibraryOnBackgroundThread::
-    ~ScopedThreadMayLoadLibraryOnBackgroundThread() {
-  TRACE_EVENT_END0("base", "ScopedThreadMayLoadLibraryOnBackgroundThread");
+ScopedMayLoadLibraryAtBackgroundPriority::
+    ~ScopedMayLoadLibraryAtBackgroundPriority() {
+  // Trace events must be closed in reverse order of opening so that they nest
+  // correctly.
 #if defined(OS_WIN)
-  if (original_thread_priority_)
+  if (original_thread_priority_) {
+    TRACE_EVENT_END0(
+        "base",
+        "ScopedMayLoadLibraryAtBackgroundPriority : Priority Increased");
     PlatformThread::SetCurrentThreadPriority(original_thread_priority_.value());
+  }
 #endif  // OS_WIN
+  TRACE_EVENT_END0("base", "ScopedMayLoadLibraryAtBackgroundPriority");
 }
 
+}  // namespace internal
 }  // namespace base

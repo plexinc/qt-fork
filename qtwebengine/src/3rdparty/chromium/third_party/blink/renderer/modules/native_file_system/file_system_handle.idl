@@ -6,6 +6,7 @@
 [
     Exposed=(Window,Worker),
     SecureContext,
+    Serializable,
     RuntimeEnabled=NativeFileSystem,
     ImplementedAs=NativeFileSystemHandle
 ] interface FileSystemHandle {
@@ -17,8 +18,10 @@
 
     readonly attribute USVString name;
 
-    [CallWith = ScriptState] Promise<PermissionState> queryPermission(
-        optional FileSystemHandlePermissionDescriptor descriptor);
-    [CallWith = ScriptState] Promise<PermissionState> requestPermission(
-        optional FileSystemHandlePermissionDescriptor descriptor);
+    [CallWith=ScriptState] Promise<PermissionState> queryPermission(
+        optional FileSystemHandlePermissionDescriptor descriptor = {});
+    [CallWith=ScriptState] Promise<PermissionState> requestPermission(
+        optional FileSystemHandlePermissionDescriptor descriptor = {});
+
+    [CallWith=ScriptState, Measure] Promise<boolean> isSameEntry(FileSystemHandle other);
 };

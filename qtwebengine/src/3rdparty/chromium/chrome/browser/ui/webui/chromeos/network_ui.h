@@ -6,7 +6,8 @@
 #define CHROME_BROWSER_UI_WEBUI_CHROMEOS_NETWORK_UI_H_
 
 #include "base/macros.h"
-#include "chromeos/services/network_config/public/mojom/cros_network_config.mojom.h"
+#include "chromeos/services/network_config/public/mojom/cros_network_config.mojom-forward.h"
+#include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "ui/webui/mojo_web_ui_controller.h"
 
 namespace base {
@@ -23,9 +24,13 @@ class NetworkUI : public ui::MojoWebUIController {
 
   static void GetLocalizedStrings(base::DictionaryValue* localized_strings);
 
+  // Instantiates implementor of the mojom::CrosNetworkConfig mojo interface
+  // passing the pending receiver that will be internally bound.
+  void BindInterface(
+      mojo::PendingReceiver<network_config::mojom::CrosNetworkConfig> receiver);
+
  private:
-  void BindCrosNetworkConfig(
-      network_config::mojom::CrosNetworkConfigRequest request);
+  WEB_UI_CONTROLLER_TYPE_DECL();
 
   DISALLOW_COPY_AND_ASSIGN(NetworkUI);
 };

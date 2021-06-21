@@ -29,12 +29,12 @@
 
 #include <cstdint>
 #include <limits>
+#include <string>
 
 #include "net/third_party/quiche/src/http2/decoder/decode_buffer.h"
 #include "net/third_party/quiche/src/http2/decoder/decode_status.h"
-#include "net/third_party/quiche/src/http2/platform/api/http2_export.h"
 #include "net/third_party/quiche/src/http2/platform/api/http2_logging.h"
-#include "net/third_party/quiche/src/http2/platform/api/http2_string.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_export.h"
 
 namespace http2 {
 
@@ -55,7 +55,7 @@ const uint8_t kHpackVarintDecoderOffsetDone =
 // needed. Start and StartExtended handles the initialization of member
 // variables. This is necessary in order for HpackVarintDecoder to be part
 // of a union.
-class HTTP2_EXPORT_PRIVATE HpackVarintDecoder {
+class QUICHE_EXPORT_PRIVATE HpackVarintDecoder {
  public:
   // |prefix_value| is the first byte of the encoded varint.
   // |prefix_length| is number of bits in the first byte that are used for
@@ -83,7 +83,7 @@ class HTTP2_EXPORT_PRIVATE HpackVarintDecoder {
 
   // All the public methods below are for supporting assertions and tests.
 
-  Http2String DebugString() const;
+  std::string DebugString() const;
 
   // For benchmarking, these methods ensure the decoder
   // is NOT inlined into the caller.

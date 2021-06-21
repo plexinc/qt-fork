@@ -9,7 +9,8 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/ui/webui/chromeos/add_supervision/add_supervision.mojom.h"
-#include "mojo/public/cpp/bindings/binding.h"
+#include "mojo/public/cpp/bindings/pending_receiver.h"
+#include "mojo/public/cpp/bindings/receiver.h"
 
 namespace content {
 class WebUI;
@@ -35,12 +36,20 @@ class AddSupervisionHandler
     // the request to close the Add Supervision dialog and return
     // a boolean to indicate whether the dialog is closing.
     virtual bool CloseDialog() = 0;
+
+    // Allows controlling the behavior of the Add Supervision dialog when
+    // the user presses Escape (if enabled, Escape closes the dialog).
+    // Disabling the Escape key allows using it for actions inside the
+    // webview itself (e.g., as an accessibility shortcut).
+    virtual void SetCloseOnEscape(bool) = 0;
   };
 
   // |delegate| is owned by the caller and its lifetime must outlive |this|.
   AddSupervisionHandler(
-      add_supervision::mojom::AddSupervisionHandlerRequest request,
+      mojo::PendingReceiver<add_supervision::mojom::AddSupervisionHandler>
+          receiver,
       content::WebUI* web_ui,
+      signin::IdentityManager* identity_manager,
       Delegate* delegate);
   ~AddSupervisionHandler() override;
 
@@ -50,6 +59,7 @@ class AddSupervisionHandler
   void GetOAuthToken(GetOAuthTokenCallback callback) override;
   void LogOut() override;
   void NotifySupervisionEnabled() override;
+  void SetCloseOnEscape(bool enabled) override;
 
  private:
   void OnAccessTokenFetchComplete(GetOAuthTokenCallback callback,
@@ -63,7 +73,7 @@ class AddSupervisionHandler
   signin::IdentityManager* identity_manager_;
   std::unique_ptr<signin::AccessTokenFetcher> oauth2_access_token_fetcher_;
 
-  mojo::Binding<add_supervision::mojom::AddSupervisionHandler> binding_;
+  mojo::Receiver<add_supervision::mojom::AddSupervisionHandler> receiver_;
 
   Delegate* delegate_;
 

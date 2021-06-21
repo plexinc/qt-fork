@@ -7,6 +7,7 @@
 #include "gpu/command_buffer/service/memory_tracking.h"
 #include "gpu/command_buffer/service/shared_context_state.h"
 #include "gpu/command_buffer/service/shared_image_representation.h"
+#include "gpu/command_buffer/service/texture_manager.h"
 
 namespace gpu {
 
@@ -35,11 +36,9 @@ void SharedImageBacking::OnContextLost() {
   have_context_ = false;
 }
 
-#if defined(OS_WIN)
 bool SharedImageBacking::PresentSwapChain() {
   return false;
 }
-#endif  // OS_WIN
 
 std::unique_ptr<SharedImageRepresentationGLTexture>
 SharedImageBacking::ProduceGLTexture(SharedImageManager* manager,
@@ -69,7 +68,13 @@ std::unique_ptr<SharedImageRepresentationSkia> SharedImageBacking::ProduceSkia(
 std::unique_ptr<SharedImageRepresentationDawn> SharedImageBacking::ProduceDawn(
     SharedImageManager* manager,
     MemoryTypeTracker* tracker,
-    DawnDevice device) {
+    WGPUDevice device) {
+  return nullptr;
+}
+
+std::unique_ptr<SharedImageRepresentationOverlay>
+SharedImageBacking::ProduceOverlay(SharedImageManager* manager,
+                                   MemoryTypeTracker* tracker) {
   return nullptr;
 }
 
@@ -105,9 +110,6 @@ void SharedImageBacking::ReleaseRef(SharedImageRepresentation* representation) {
     refs_[0]->tracker()->TrackMemAlloc(estimated_size_);
     return;
   }
-
-  // Last ref deleted, clean up.
-  Destroy();
 }
 
 bool SharedImageBacking::HasAnyRefs() const {
@@ -116,21 +118,25 @@ bool SharedImageBacking::HasAnyRefs() const {
   return !refs_.empty();
 }
 
+void SharedImageBacking::OnReadSucceeded() {
+  AutoLock auto_lock(this);
+  if (scoped_write_uma_) {
+    scoped_write_uma_->SetConsumed();
+    scoped_write_uma_.reset();
+  }
+}
+
+void SharedImageBacking::OnWriteSucceeded() {
+  AutoLock auto_lock(this);
+  scoped_write_uma_.emplace();
+}
+
 size_t SharedImageBacking::EstimatedSizeForMemTracking() const {
   return estimated_size_;
 }
 
 bool SharedImageBacking::have_context() const {
-  AssertLockedIfNecessary();
-
-  DCHECK(refs_.empty());
-
   return have_context_;
-}
-
-void SharedImageBacking::AssertLockedIfNecessary() const {
-  if (lock_)
-    lock_->AssertAcquired();
 }
 
 SharedImageBacking::AutoLock::AutoLock(
@@ -145,6 +151,46 @@ base::Lock* SharedImageBacking::AutoLock::InitializeLock(
     return nullptr;
 
   return &shared_image_backing->lock_.value();
+}
+
+ClearTrackingSharedImageBacking::ClearTrackingSharedImageBacking(
+    const Mailbox& mailbox,
+    viz::ResourceFormat format,
+    const gfx::Size& size,
+    const gfx::ColorSpace& color_space,
+    uint32_t usage,
+    size_t estimated_size,
+    bool is_thread_safe)
+    : SharedImageBacking(mailbox,
+                         format,
+                         size,
+                         color_space,
+                         usage,
+                         estimated_size,
+                         is_thread_safe) {}
+
+gfx::Rect ClearTrackingSharedImageBacking::ClearedRect() const {
+  AutoLock auto_lock(this);
+  return ClearedRectInternal();
+}
+
+void ClearTrackingSharedImageBacking::SetClearedRect(
+    const gfx::Rect& cleared_rect) {
+  AutoLock auto_lock(this);
+  SetClearedRectInternal(cleared_rect);
+}
+
+gfx::Rect ClearTrackingSharedImageBacking::ClearedRectInternal() const {
+  return cleared_rect_;
+}
+
+void ClearTrackingSharedImageBacking::SetClearedRectInternal(
+    const gfx::Rect& cleared_rect) {
+  cleared_rect_ = cleared_rect;
+}
+
+scoped_refptr<gfx::NativePixmap> SharedImageBacking::GetNativePixmap() {
+  return nullptr;
 }
 
 }  // namespace gpu

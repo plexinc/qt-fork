@@ -103,7 +103,7 @@ ScopedVAImage::~ScopedVAImage() {
     base::AutoLock auto_lock(*lock_);
 
     // |va_buffer_| has to be deleted before vaDestroyImage().
-    va_buffer_.release();
+    va_buffer_.reset();
     vaDestroyImage(va_display_, image_->image_id);
   }
 }
@@ -129,7 +129,7 @@ bool ScopedVASurface::IsValid() const {
          va_rt_format_ != kInvalidVaRtFormat;
 }
 
-bool FillVP8DataStructures(const scoped_refptr<VaapiWrapper>& vaapi_wrapper,
+bool FillVP8DataStructures(VaapiWrapper* vaapi_wrapper,
                            VASurfaceID va_surface_id,
                            const Vp8FrameHeader& frame_header,
                            const Vp8ReferenceFrameVector& reference_frames) {
@@ -241,9 +241,7 @@ bool FillVP8DataStructures(const scoped_refptr<VaapiWrapper>& vaapi_wrapper,
       }
     }
 
-    // Clamp to [0..63] range.
-    lf_level = std::min(std::max(lf_level, 0), 63);
-    pic_param.loop_filter_level[i] = lf_level;
+    pic_param.loop_filter_level[i] = base::ClampToRange(lf_level, 0, 63);
   }
 
   static_assert(
@@ -302,5 +300,4 @@ bool FillVP8DataStructures(const scoped_refptr<VaapiWrapper>& vaapi_wrapper,
   return vaapi_wrapper->SubmitBuffer(
       VASliceDataBufferType, frame_header.frame_size, frame_header.data);
 }
-
 }  // namespace media

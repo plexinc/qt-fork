@@ -78,7 +78,9 @@ class ParameterizedLayoutTextTest : public testing::WithParamInterface<bool>,
   ParameterizedLayoutTextTest() : ScopedLayoutNGForTest(GetParam()) {}
 
  protected:
-  bool LayoutNGEnabled() const { return GetParam(); }
+  bool LayoutNGEnabled() const {
+    return RuntimeEnabledFeatures::LayoutNGEnabled();
+  }
 };
 
 INSTANTIATE_TEST_SUITE_P(All, ParameterizedLayoutTextTest, testing::Bool());
@@ -252,7 +254,7 @@ TEST_P(ParameterizedLayoutTextTest, CharacterAfterWhitespaceCollapsing) {
 
   SetBodyInnerHTML("a <span id=target> </span>b");
   layout_text = GetLayoutTextById("target");
-  DCHECK(!layout_text->HasTextBoxes());
+  DCHECK(!layout_text->HasInlineFragments());
   EXPECT_EQ(0, layout_text->FirstCharacterAfterWhitespaceCollapsing());
   EXPECT_EQ(0, layout_text->LastCharacterAfterWhitespaceCollapsing());
 
@@ -268,7 +270,7 @@ TEST_P(ParameterizedLayoutTextTest, CharacterAfterWhitespaceCollapsing) {
   EXPECT_EQ(' ', layout_text->LastCharacterAfterWhitespaceCollapsing());
   layout_text =
       ToLayoutText(GetLayoutObjectByElementId("target")->NextSibling());
-  DCHECK(!layout_text->HasTextBoxes());
+  DCHECK(!layout_text->HasInlineFragments());
   EXPECT_EQ(0, layout_text->FirstCharacterAfterWhitespaceCollapsing());
   EXPECT_EQ(0, layout_text->LastCharacterAfterWhitespaceCollapsing());
 
@@ -490,6 +492,37 @@ TEST_P(ParameterizedLayoutTextTest, GetTextBoxInfoWithEllipsis) {
   EXPECT_EQ(9u, boxes[1].dom_start_offset);
   EXPECT_EQ(5u, boxes[1].dom_length);
   EXPECT_EQ(LayoutRect(60, 0, 50, 10), boxes[1].local_rect);
+}
+
+// For http://crbug.com/1003413
+TEST_P(ParameterizedLayoutTextTest, GetTextBoxInfoWithEllipsisForPseudoAfter) {
+  LoadAhem();
+  SetBodyInnerHTML(R"HTML(
+    <style>
+      #sample {
+        box-sizing: border-box;
+        font: 10px/1 Ahem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        width: 5ch;
+      }
+      b::after { content: ","; }
+    </style>
+    <div id=sample><b id=target>abc</b><b>xyz</b></div>
+  )HTML");
+  const Element& target = *GetElementById("target");
+  const Element& after = *target.GetPseudoElement(kPseudoIdAfter);
+  // Set |layout_text| to "," in <pseudo::after>,</pseudo::after>
+  const LayoutText& layout_text =
+      *ToLayoutText(after.GetLayoutObject()->SlowFirstChild());
+
+  auto boxes = layout_text.GetTextBoxInfo();
+  EXPECT_EQ(1u, boxes.size());
+
+  EXPECT_EQ(0u, boxes[0].dom_start_offset);
+  EXPECT_EQ(1u, boxes[0].dom_length);
+  EXPECT_EQ(LayoutRect(30, 0, 10, 10), boxes[0].local_rect);
 }
 
 TEST_P(ParameterizedLayoutTextTest,

@@ -43,20 +43,21 @@ CSSValue* ConsumeAnimationValue(CSSPropertyID property,
                                 bool use_legacy_parsing) {
   switch (property) {
     case CSSPropertyID::kAnimationDelay:
-      return css_property_parser_helpers::ConsumeTime(range, kValueRangeAll);
+      return css_property_parser_helpers::ConsumeTime(range, context,
+                                                      kValueRangeAll);
     case CSSPropertyID::kAnimationDirection:
       return css_property_parser_helpers::ConsumeIdent<
           CSSValueID::kNormal, CSSValueID::kAlternate, CSSValueID::kReverse,
           CSSValueID::kAlternateReverse>(range);
     case CSSPropertyID::kAnimationDuration:
-      return css_property_parser_helpers::ConsumeTime(range,
+      return css_property_parser_helpers::ConsumeTime(range, context,
                                                       kValueRangeNonNegative);
     case CSSPropertyID::kAnimationFillMode:
       return css_property_parser_helpers::ConsumeIdent<
           CSSValueID::kNone, CSSValueID::kForwards, CSSValueID::kBackwards,
           CSSValueID::kBoth>(range);
     case CSSPropertyID::kAnimationIterationCount:
-      return css_parsing_utils::ConsumeAnimationIterationCount(range);
+      return css_parsing_utils::ConsumeAnimationIterationCount(range, context);
     case CSSPropertyID::kAnimationName:
       return css_parsing_utils::ConsumeAnimationName(range, context,
                                                      use_legacy_parsing);
@@ -65,7 +66,7 @@ CSSValue* ConsumeAnimationValue(CSSPropertyID property,
                                                        CSSValueID::kPaused>(
           range);
     case CSSPropertyID::kAnimationTimingFunction:
-      return css_parsing_utils::ConsumeAnimationTimingFunction(range);
+      return css_parsing_utils::ConsumeAnimationTimingFunction(range, context);
     default:
       NOTREACHED();
       return nullptr;
@@ -105,7 +106,6 @@ const CSSValue* Animation::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject*,
-    const Node*,
     bool allow_visited_style) const {
   const CSSAnimationData* animation_data = style.Animations();
   if (animation_data) {
@@ -172,10 +172,9 @@ const CSSValue* Background::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
-  return ComputedStyleUtils::ValuesForBackgroundShorthand(
-      style, layout_object, styled_node, allow_visited_style);
+  return ComputedStyleUtils::ValuesForBackgroundShorthand(style, layout_object,
+                                                          allow_visited_style);
 }
 
 bool BackgroundPosition::ParseShorthand(
@@ -211,7 +210,6 @@ const CSSValue* BackgroundPosition::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject*,
-    const Node*,
     bool allow_visited_style) const {
   return ComputedStyleUtils::BackgroundPositionOrWebkitMaskPosition(
       *this, style, &style.BackgroundLayers());
@@ -251,7 +249,6 @@ const CSSValue* BackgroundRepeat::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject*,
-    const Node*,
     bool allow_visited_style) const {
   return ComputedStyleUtils::BackgroundRepeatOrWebkitMaskRepeat(
       &style.BackgroundLayers());
@@ -271,11 +268,9 @@ const CSSValue* BorderBlockColor::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValuesForInlineBlockShorthand(
-      borderBlockColorShorthand(), style, layout_object, styled_node,
-      allow_visited_style);
+      borderBlockColorShorthand(), style, layout_object, allow_visited_style);
 }
 
 bool BorderBlock::ParseShorthand(
@@ -307,14 +302,13 @@ const CSSValue* BorderBlock::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   const CSSValue* value_start =
       GetCSSPropertyBorderBlockStart().CSSValueFromComputedStyle(
-          style, layout_object, styled_node, allow_visited_style);
+          style, layout_object, allow_visited_style);
   const CSSValue* value_end =
       GetCSSPropertyBorderBlockEnd().CSSValueFromComputedStyle(
-          style, layout_object, styled_node, allow_visited_style);
+          style, layout_object, allow_visited_style);
   if (!DataEquivalent(value_start, value_end)) {
     return nullptr;
   }
@@ -355,11 +349,9 @@ const CSSValue* BorderBlockStyle::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValuesForInlineBlockShorthand(
-      borderBlockStyleShorthand(), style, layout_object, styled_node,
-      allow_visited_style);
+      borderBlockStyleShorthand(), style, layout_object, allow_visited_style);
 }
 
 bool BorderBlockWidth::ParseShorthand(
@@ -376,11 +368,9 @@ const CSSValue* BorderBlockWidth::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValuesForInlineBlockShorthand(
-      borderBlockWidthShorthand(), style, layout_object, styled_node,
-      allow_visited_style);
+      borderBlockWidthShorthand(), style, layout_object, allow_visited_style);
 }
 
 bool BorderBottom::ParseShorthand(
@@ -397,11 +387,9 @@ const CSSValue* BorderBottom::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValuesForShorthandProperty(
-      borderBottomShorthand(), style, layout_object, styled_node,
-      allow_visited_style);
+      borderBottomShorthand(), style, layout_object, allow_visited_style);
 }
 
 bool BorderColor::ParseShorthand(
@@ -418,11 +406,9 @@ const CSSValue* BorderColor::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValuesForSidesShorthand(
-      borderColorShorthand(), style, layout_object, styled_node,
-      allow_visited_style);
+      borderColorShorthand(), style, layout_object, allow_visited_style);
 }
 
 bool Border::ParseShorthand(
@@ -457,16 +443,15 @@ const CSSValue* Border::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   const CSSValue* value = GetCSSPropertyBorderTop().CSSValueFromComputedStyle(
-      style, layout_object, styled_node, allow_visited_style);
+      style, layout_object, allow_visited_style);
   static const CSSProperty* kProperties[3] = {&GetCSSPropertyBorderRight(),
                                               &GetCSSPropertyBorderBottom(),
                                               &GetCSSPropertyBorderLeft()};
   for (size_t i = 0; i < base::size(kProperties); ++i) {
     const CSSValue* value_for_side = kProperties[i]->CSSValueFromComputedStyle(
-        style, layout_object, styled_node, allow_visited_style);
+        style, layout_object, allow_visited_style);
     if (!DataEquivalent(value, value_for_side)) {
       return nullptr;
     }
@@ -533,9 +518,9 @@ const CSSValue* BorderImage::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject*,
-    const Node*,
     bool allow_visited_style) const {
-  return ComputedStyleUtils::ValueForNinePieceImage(style.BorderImage(), style);
+  return ComputedStyleUtils::ValueForNinePieceImage(style.BorderImage(), style,
+                                                    allow_visited_style);
 }
 
 bool BorderInlineColor::ParseShorthand(
@@ -552,11 +537,9 @@ const CSSValue* BorderInlineColor::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValuesForInlineBlockShorthand(
-      borderInlineColorShorthand(), style, layout_object, styled_node,
-      allow_visited_style);
+      borderInlineColorShorthand(), style, layout_object, allow_visited_style);
 }
 
 bool BorderInline::ParseShorthand(
@@ -588,14 +571,13 @@ const CSSValue* BorderInline::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   const CSSValue* value_start =
       GetCSSPropertyBorderInlineStart().CSSValueFromComputedStyle(
-          style, layout_object, styled_node, allow_visited_style);
+          style, layout_object, allow_visited_style);
   const CSSValue* value_end =
       GetCSSPropertyBorderInlineEnd().CSSValueFromComputedStyle(
-          style, layout_object, styled_node, allow_visited_style);
+          style, layout_object, allow_visited_style);
   if (!DataEquivalent(value_start, value_end)) {
     return nullptr;
   }
@@ -636,11 +618,9 @@ const CSSValue* BorderInlineStyle::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValuesForInlineBlockShorthand(
-      borderInlineStyleShorthand(), style, layout_object, styled_node,
-      allow_visited_style);
+      borderInlineStyleShorthand(), style, layout_object, allow_visited_style);
 }
 
 bool BorderInlineWidth::ParseShorthand(
@@ -657,11 +637,9 @@ const CSSValue* BorderInlineWidth::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValuesForInlineBlockShorthand(
-      borderInlineWidthShorthand(), style, layout_object, styled_node,
-      allow_visited_style);
+      borderInlineWidthShorthand(), style, layout_object, allow_visited_style);
 }
 
 bool BorderLeft::ParseShorthand(
@@ -678,11 +656,9 @@ const CSSValue* BorderLeft::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValuesForShorthandProperty(
-      borderLeftShorthand(), style, layout_object, styled_node,
-      allow_visited_style);
+      borderLeftShorthand(), style, layout_object, allow_visited_style);
 }
 
 bool BorderRadius::ParseShorthand(
@@ -695,7 +671,7 @@ bool BorderRadius::ParseShorthand(
   CSSValue* vertical_radii[4] = {nullptr};
 
   if (!css_parsing_utils::ConsumeRadii(horizontal_radii, vertical_radii, range,
-                                       context.Mode(),
+                                       context,
                                        local_context.UseAliasParsing()))
     return false;
 
@@ -734,7 +710,6 @@ const CSSValue* BorderRadius::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject*,
-    const Node*,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValueForBorderRadiusShorthand(style);
 }
@@ -753,11 +728,9 @@ const CSSValue* BorderRight::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValuesForShorthandProperty(
-      borderRightShorthand(), style, layout_object, styled_node,
-      allow_visited_style);
+      borderRightShorthand(), style, layout_object, allow_visited_style);
 }
 
 bool BorderSpacing::ParseShorthand(
@@ -767,14 +740,14 @@ bool BorderSpacing::ParseShorthand(
     const CSSParserLocalContext&,
     HeapVector<CSSPropertyValue, 256>& properties) const {
   CSSValue* horizontal_spacing =
-      ConsumeLength(range, context.Mode(), kValueRangeNonNegative,
+      ConsumeLength(range, context, kValueRangeNonNegative,
                     css_property_parser_helpers::UnitlessQuirk::kAllow);
   if (!horizontal_spacing)
     return false;
   CSSValue* vertical_spacing = horizontal_spacing;
   if (!range.AtEnd()) {
     vertical_spacing =
-        ConsumeLength(range, context.Mode(), kValueRangeNonNegative,
+        ConsumeLength(range, context, kValueRangeNonNegative,
                       css_property_parser_helpers::UnitlessQuirk::kAllow);
   }
   if (!vertical_spacing || !range.AtEnd())
@@ -796,7 +769,6 @@ const CSSValue* BorderSpacing::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject*,
-    const Node*,
     bool allow_visited_style) const {
   CSSValueList* list = CSSValueList::CreateSpaceSeparated();
   list->Append(*ZoomAdjustedPixelValue(style.HorizontalBorderSpacing(), style));
@@ -818,11 +790,9 @@ const CSSValue* BorderStyle::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValuesForSidesShorthand(
-      borderStyleShorthand(), style, layout_object, styled_node,
-      allow_visited_style);
+      borderStyleShorthand(), style, layout_object, allow_visited_style);
 }
 
 bool BorderTop::ParseShorthand(
@@ -839,11 +809,9 @@ const CSSValue* BorderTop::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValuesForShorthandProperty(
-      borderTopShorthand(), style, layout_object, styled_node,
-      allow_visited_style);
+      borderTopShorthand(), style, layout_object, allow_visited_style);
 }
 
 bool BorderWidth::ParseShorthand(
@@ -860,11 +828,9 @@ const CSSValue* BorderWidth::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValuesForSidesShorthand(
-      borderWidthShorthand(), style, layout_object, styled_node,
-      allow_visited_style);
+      borderWidthShorthand(), style, layout_object, allow_visited_style);
 }
 
 bool ColumnRule::ParseShorthand(
@@ -881,25 +847,23 @@ const CSSValue* ColumnRule::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValuesForShorthandProperty(
-      columnRuleShorthand(), style, layout_object, styled_node,
-      allow_visited_style);
+      columnRuleShorthand(), style, layout_object, allow_visited_style);
 }
 
 bool Columns::ParseShorthand(
     bool important,
     CSSParserTokenRange& range,
-    const CSSParserContext&,
+    const CSSParserContext& context,
     const CSSParserLocalContext&,
     HeapVector<CSSPropertyValue, 256>& properties) const {
   CSSValue* column_width = nullptr;
   CSSValue* column_count = nullptr;
-  if (!css_parsing_utils::ConsumeColumnWidthOrCount(range, column_width,
-                                                    column_count))
+  if (!css_parsing_utils::ConsumeColumnWidthOrCount(range, context,
+                                                    column_width, column_count))
     return false;
-  css_parsing_utils::ConsumeColumnWidthOrCount(range, column_width,
+  css_parsing_utils::ConsumeColumnWidthOrCount(range, context, column_width,
                                                column_count);
   if (!range.AtEnd())
     return false;
@@ -922,11 +886,9 @@ const CSSValue* Columns::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValuesForShorthandProperty(
-      columnsShorthand(), style, layout_object, styled_node,
-      allow_visited_style);
+      columnsShorthand(), style, layout_object, allow_visited_style);
 }
 
 bool Flex::ParseShorthand(bool important,
@@ -948,7 +910,7 @@ bool Flex::ParseShorthand(bool important,
     unsigned index = 0;
     while (!range.AtEnd() && index++ < 3) {
       double num;
-      if (css_property_parser_helpers::ConsumeNumberRaw(range, num)) {
+      if (css_property_parser_helpers::ConsumeNumberRaw(range, context, num)) {
         if (num < 0)
           return false;
         if (flex_grow == kUnsetValue) {
@@ -969,7 +931,7 @@ bool Flex::ParseShorthand(bool important,
           flex_basis = css_property_parser_helpers::ConsumeIdent(range);
         if (!flex_basis) {
           flex_basis = css_property_parser_helpers::ConsumeLengthOrPercent(
-              range, context.Mode(), kValueRangeNonNegative);
+              range, context, kValueRangeNonNegative);
         }
         if (index == 2 && !range.AtEnd())
           return false;
@@ -1014,10 +976,9 @@ const CSSValue* Flex::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValuesForShorthandProperty(
-      flexShorthand(), style, layout_object, styled_node, allow_visited_style);
+      flexShorthand(), style, layout_object, allow_visited_style);
 }
 
 bool FlexFlow::ParseShorthand(
@@ -1034,11 +995,9 @@ const CSSValue* FlexFlow::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValuesForShorthandProperty(
-      flexFlowShorthand(), style, layout_object, styled_node,
-      allow_visited_style);
+      flexFlowShorthand(), style, layout_object, allow_visited_style);
 }
 namespace {
 
@@ -1137,7 +1096,7 @@ bool ConsumeFont(bool important,
     }
     if (!font_style &&
         (id == CSSValueID::kItalic || id == CSSValueID::kOblique)) {
-      font_style = css_parsing_utils::ConsumeFontStyle(range, context.Mode());
+      font_style = css_parsing_utils::ConsumeFontStyle(range, context);
       if (!font_style)
         return false;
       continue;
@@ -1151,7 +1110,7 @@ bool ConsumeFont(bool important,
         continue;
     }
     if (!font_weight) {
-      font_weight = css_parsing_utils::ConsumeFontWeight(range, context.Mode());
+      font_weight = css_parsing_utils::ConsumeFontWeight(range, context);
       if (font_weight)
         continue;
     }
@@ -1224,7 +1183,7 @@ bool ConsumeFont(bool important,
 
   if (css_property_parser_helpers::ConsumeSlashIncludingWhitespace(range)) {
     CSSValue* line_height =
-        css_parsing_utils::ConsumeLineHeight(range, context.Mode());
+        css_parsing_utils::ConsumeLineHeight(range, context);
     if (!line_height)
       return false;
     css_property_parser_helpers::AddProperty(
@@ -1275,7 +1234,6 @@ const CSSValue* Font::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject*,
-    const Node*,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValueForFont(style);
 }
@@ -1385,10 +1343,9 @@ const CSSValue* FontVariant::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
-  return ComputedStyleUtils::ValuesForFontVariantProperty(
-      style, layout_object, styled_node, allow_visited_style);
+  return ComputedStyleUtils::ValuesForFontVariantProperty(style, layout_object,
+                                                          allow_visited_style);
 }
 
 bool Gap::ParseShorthand(bool important,
@@ -1418,10 +1375,9 @@ const CSSValue* Gap::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
-  return ComputedStyleUtils::ValuesForShorthandProperty(
-      gapShorthand(), style, layout_object, styled_node, allow_visited_style);
+  return ComputedStyleUtils::ValuesForGapShorthand(
+      gapShorthand(), style, layout_object, allow_visited_style);
 }
 
 bool GridArea::ParseShorthand(
@@ -1497,11 +1453,9 @@ const CSSValue* GridArea::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
-  return ComputedStyleUtils::ValuesForGridShorthand(gridAreaShorthand(), style,
-                                                    layout_object, styled_node,
-                                                    allow_visited_style);
+  return ComputedStyleUtils::ValuesForGridShorthand(
+      gridAreaShorthand(), style, layout_object, allow_visited_style);
 }
 
 bool GridColumn::ParseShorthand(
@@ -1539,11 +1493,9 @@ const CSSValue* GridColumn::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValuesForGridShorthand(
-      gridColumnShorthand(), style, layout_object, styled_node,
-      allow_visited_style);
+      gridColumnShorthand(), style, layout_object, allow_visited_style);
 }
 
 bool GridColumnGap::ParseShorthand(
@@ -1567,11 +1519,9 @@ const CSSValue* GridColumnGap::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValuesForShorthandProperty(
-      gridColumnGapShorthand(), style, layout_object, styled_node,
-      allow_visited_style);
+      gridColumnGapShorthand(), style, layout_object, allow_visited_style);
 }
 
 namespace {
@@ -1679,23 +1629,22 @@ bool Grid::ParseShorthand(bool important,
       auto_rows_value = CSSInitialValue::Create();
     } else {
       auto_rows_value = css_parsing_utils::ConsumeGridTrackList(
-          range, context, context.Mode(),
-          css_parsing_utils::TrackListType::kGridAuto);
+          range, context, css_parsing_utils::TrackListType::kGridAuto);
       if (!auto_rows_value)
         return false;
       if (!css_property_parser_helpers::ConsumeSlashIncludingWhitespace(range))
         return false;
     }
     if (!(template_columns =
-              css_parsing_utils::ConsumeGridTemplatesRowsOrColumns(
-                  range, context, context.Mode())))
+              css_parsing_utils::ConsumeGridTemplatesRowsOrColumns(range,
+                                                                   context)))
       return false;
     template_rows = CSSInitialValue::Create();
     auto_columns_value = CSSInitialValue::Create();
   } else {
     // 3- <grid-template-rows> / [ auto-flow && dense? ] <grid-auto-columns>?
-    template_rows = css_parsing_utils::ConsumeGridTemplatesRowsOrColumns(
-        range, context, context.Mode());
+    template_rows =
+        css_parsing_utils::ConsumeGridTemplatesRowsOrColumns(range, context);
     if (!template_rows)
       return false;
     if (!css_property_parser_helpers::ConsumeSlashIncludingWhitespace(range))
@@ -1708,8 +1657,7 @@ bool Grid::ParseShorthand(bool important,
       auto_columns_value = CSSInitialValue::Create();
     } else {
       auto_columns_value = css_parsing_utils::ConsumeGridTrackList(
-          range, context, context.Mode(),
-          css_parsing_utils::TrackListType::kGridAuto);
+          range, context, css_parsing_utils::TrackListType::kGridAuto);
       if (!auto_columns_value)
         return false;
     }
@@ -1762,10 +1710,9 @@ const CSSValue* Grid::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValuesForGridShorthand(
-      gridShorthand(), style, layout_object, styled_node, allow_visited_style);
+      gridShorthand(), style, layout_object, allow_visited_style);
 }
 
 bool GridGap::ParseShorthand(
@@ -1796,11 +1743,9 @@ const CSSValue* GridGap::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValuesForShorthandProperty(
-      gridGapShorthand(), style, layout_object, styled_node,
-      allow_visited_style);
+      gridGapShorthand(), style, layout_object, allow_visited_style);
 }
 
 bool GridRow::ParseShorthand(
@@ -1838,11 +1783,9 @@ const CSSValue* GridRow::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
-  return ComputedStyleUtils::ValuesForGridShorthand(gridRowShorthand(), style,
-                                                    layout_object, styled_node,
-                                                    allow_visited_style);
+  return ComputedStyleUtils::ValuesForGridShorthand(
+      gridRowShorthand(), style, layout_object, allow_visited_style);
 }
 
 bool GridRowGap::ParseShorthand(
@@ -1866,11 +1809,9 @@ const CSSValue* GridRowGap::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValuesForShorthandProperty(
-      gridRowGapShorthand(), style, layout_object, styled_node,
-      allow_visited_style);
+      gridRowGapShorthand(), style, layout_object, allow_visited_style);
 }
 
 bool GridTemplate::ParseShorthand(
@@ -1919,11 +1860,9 @@ const CSSValue* GridTemplate::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValuesForGridShorthand(
-      gridTemplateShorthand(), style, layout_object, styled_node,
-      allow_visited_style);
+      gridTemplateShorthand(), style, layout_object, allow_visited_style);
 }
 
 bool InsetBlock::ParseShorthand(
@@ -1940,11 +1879,9 @@ const CSSValue* InsetBlock::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValuesForInlineBlockShorthand(
-      insetBlockShorthand(), style, layout_object, styled_node,
-      allow_visited_style);
+      insetBlockShorthand(), style, layout_object, allow_visited_style);
 }
 
 bool Inset::ParseShorthand(
@@ -1961,10 +1898,9 @@ const CSSValue* Inset::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValuesForSidesShorthand(
-      insetShorthand(), style, layout_object, styled_node, allow_visited_style);
+      insetShorthand(), style, layout_object, allow_visited_style);
 }
 
 bool InsetInline::ParseShorthand(
@@ -1981,11 +1917,9 @@ const CSSValue* InsetInline::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValuesForInlineBlockShorthand(
-      insetInlineShorthand(), style, layout_object, styled_node,
-      allow_visited_style);
+      insetInlineShorthand(), style, layout_object, allow_visited_style);
 }
 
 bool ListStyle::ParseShorthand(
@@ -2080,11 +2014,9 @@ const CSSValue* ListStyle::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValuesForShorthandProperty(
-      listStyleShorthand(), style, layout_object, styled_node,
-      allow_visited_style);
+      listStyleShorthand(), style, layout_object, allow_visited_style);
 }
 
 bool MarginBlock::ParseShorthand(
@@ -2101,11 +2033,9 @@ const CSSValue* MarginBlock::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValuesForInlineBlockShorthand(
-      marginBlockShorthand(), style, layout_object, styled_node,
-      allow_visited_style);
+      marginBlockShorthand(), style, layout_object, allow_visited_style);
 }
 
 bool Margin::ParseShorthand(
@@ -2130,11 +2060,9 @@ const CSSValue* Margin::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
-  return ComputedStyleUtils::ValuesForSidesShorthand(marginShorthand(), style,
-                                                     layout_object, styled_node,
-                                                     allow_visited_style);
+  return ComputedStyleUtils::ValuesForSidesShorthand(
+      marginShorthand(), style, layout_object, allow_visited_style);
 }
 
 bool MarginInline::ParseShorthand(
@@ -2151,11 +2079,9 @@ const CSSValue* MarginInline::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValuesForInlineBlockShorthand(
-      marginInlineShorthand(), style, layout_object, styled_node,
-      allow_visited_style);
+      marginInlineShorthand(), style, layout_object, allow_visited_style);
 }
 
 bool Marker::ParseShorthand(
@@ -2184,6 +2110,22 @@ bool Marker::ParseShorthand(
   return true;
 }
 
+const CSSValue* Marker::CSSValueFromComputedStyleInternal(
+    const ComputedStyle& style,
+    const SVGComputedStyle& svg_style,
+    const LayoutObject* layout_object,
+    bool allow_visited_style) const {
+  const CSSValue* marker_start =
+      ComputedStyleUtils::ValueForSVGResource(svg_style.MarkerStartResource());
+  if (*marker_start == *ComputedStyleUtils::ValueForSVGResource(
+                           svg_style.MarkerMidResource()) &&
+      *marker_start == *ComputedStyleUtils::ValueForSVGResource(
+                           svg_style.MarkerEndResource())) {
+    return marker_start;
+  }
+  return nullptr;
+}
+
 bool Offset::ParseShorthand(
     bool important,
     CSSParserTokenRange& range,
@@ -2203,11 +2145,11 @@ bool Offset::ParseShorthand(
   const CSSValue* offset_rotate = nullptr;
   if (offset_path) {
     offset_distance = css_property_parser_helpers::ConsumeLengthOrPercent(
-        range, context.Mode(), kValueRangeAll);
+        range, context, kValueRangeAll);
     offset_rotate = css_parsing_utils::ConsumeOffsetRotate(range, context);
     if (offset_rotate && !offset_distance) {
       offset_distance = css_property_parser_helpers::ConsumeLengthOrPercent(
-          range, context.Mode(), kValueRangeAll);
+          range, context, kValueRangeAll);
     }
   }
   const CSSValue* offset_anchor = nullptr;
@@ -2302,9 +2244,8 @@ const CSSValue* Offset::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
-  return ComputedStyleUtils::ValueForOffset(style, layout_object, styled_node,
+  return ComputedStyleUtils::ValueForOffset(style, layout_object,
                                             allow_visited_style);
 }
 
@@ -2322,11 +2263,9 @@ const CSSValue* Outline::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValuesForShorthandProperty(
-      outlineShorthand(), style, layout_object, styled_node,
-      allow_visited_style);
+      outlineShorthand(), style, layout_object, allow_visited_style);
 }
 
 bool Overflow::ParseShorthand(
@@ -2343,7 +2282,6 @@ const CSSValue* Overflow::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject*,
-    const Node*,
     bool allow_visited_style) const {
   CSSValueList* list = CSSValueList::CreateSpaceSeparated();
   list->Append(*CSSIdentifierValue::Create(style.OverflowX()));
@@ -2367,7 +2305,6 @@ const CSSValue* OverscrollBehavior::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject*,
-    const Node*,
     bool allow_visited_style) const {
   CSSValueList* list = CSSValueList::CreateSpaceSeparated();
   list->Append(*CSSIdentifierValue::Create(style.OverscrollBehaviorX()));
@@ -2391,11 +2328,9 @@ const CSSValue* PaddingBlock::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValuesForInlineBlockShorthand(
-      paddingBlockShorthand(), style, layout_object, styled_node,
-      allow_visited_style);
+      paddingBlockShorthand(), style, layout_object, allow_visited_style);
 }
 
 bool Padding::ParseShorthand(
@@ -2420,11 +2355,9 @@ const CSSValue* Padding::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
-  return ComputedStyleUtils::ValuesForSidesShorthand(paddingShorthand(), style,
-                                                     layout_object, styled_node,
-                                                     allow_visited_style);
+  return ComputedStyleUtils::ValuesForSidesShorthand(
+      paddingShorthand(), style, layout_object, allow_visited_style);
 }
 
 bool PaddingInline::ParseShorthand(
@@ -2441,11 +2374,9 @@ const CSSValue* PaddingInline::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValuesForInlineBlockShorthand(
-      paddingInlineShorthand(), style, layout_object, styled_node,
-      allow_visited_style);
+      paddingInlineShorthand(), style, layout_object, allow_visited_style);
 }
 
 bool PageBreakAfter::ParseShorthand(
@@ -2472,7 +2403,6 @@ const CSSValue* PageBreakAfter::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject*,
-    const Node*,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValueForPageBreakBetween(style.BreakAfter());
 }
@@ -2501,7 +2431,6 @@ const CSSValue* PageBreakBefore::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject*,
-    const Node*,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValueForPageBreakBetween(style.BreakBefore());
 }
@@ -2529,7 +2458,6 @@ const CSSValue* PageBreakInside::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject*,
-    const Node*,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValueForPageBreakInside(style.BreakInside());
 }
@@ -2553,8 +2481,9 @@ bool PlaceContent::ParseShorthand(
   const CSSValue* justify_content_value = nullptr;
   if (range.AtEnd()) {
     if (is_baseline) {
-      justify_content_value = MakeGarbageCollected<CSSContentDistributionValue>(
-          CSSValueID::kInvalid, CSSValueID::kStart, CSSValueID::kInvalid);
+      justify_content_value =
+          MakeGarbageCollected<cssvalue::CSSContentDistributionValue>(
+              CSSValueID::kInvalid, CSSValueID::kStart, CSSValueID::kInvalid);
     } else {
       range = range_copy;
     }
@@ -2589,11 +2518,9 @@ const CSSValue* PlaceContent::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValuesForPlaceShorthand(
-      placeContentShorthand(), style, layout_object, styled_node,
-      allow_visited_style);
+      placeContentShorthand(), style, layout_object, allow_visited_style);
 }
 
 bool PlaceItems::ParseShorthand(
@@ -2641,11 +2568,9 @@ const CSSValue* PlaceItems::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValuesForPlaceShorthand(
-      placeItemsShorthand(), style, layout_object, styled_node,
-      allow_visited_style);
+      placeItemsShorthand(), style, layout_object, allow_visited_style);
 }
 
 bool PlaceSelf::ParseShorthand(
@@ -2692,11 +2617,9 @@ const CSSValue* PlaceSelf::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValuesForPlaceShorthand(
-      placeSelfShorthand(), style, layout_object, styled_node,
-      allow_visited_style);
+      placeSelfShorthand(), style, layout_object, allow_visited_style);
 }
 
 bool ScrollMarginBlock::ParseShorthand(
@@ -2713,11 +2636,9 @@ const CSSValue* ScrollMarginBlock::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValuesForInlineBlockShorthand(
-      scrollMarginBlockShorthand(), style, layout_object, styled_node,
-      allow_visited_style);
+      scrollMarginBlockShorthand(), style, layout_object, allow_visited_style);
 }
 
 bool ScrollMargin::ParseShorthand(
@@ -2734,11 +2655,9 @@ const CSSValue* ScrollMargin::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValuesForSidesShorthand(
-      scrollMarginShorthand(), style, layout_object, styled_node,
-      allow_visited_style);
+      scrollMarginShorthand(), style, layout_object, allow_visited_style);
 }
 
 bool ScrollMarginInline::ParseShorthand(
@@ -2755,11 +2674,9 @@ const CSSValue* ScrollMarginInline::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValuesForInlineBlockShorthand(
-      scrollMarginInlineShorthand(), style, layout_object, styled_node,
-      allow_visited_style);
+      scrollMarginInlineShorthand(), style, layout_object, allow_visited_style);
 }
 
 bool ScrollPaddingBlock::ParseShorthand(
@@ -2776,11 +2693,9 @@ const CSSValue* ScrollPaddingBlock::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValuesForInlineBlockShorthand(
-      scrollPaddingBlockShorthand(), style, layout_object, styled_node,
-      allow_visited_style);
+      scrollPaddingBlockShorthand(), style, layout_object, allow_visited_style);
 }
 
 bool ScrollPadding::ParseShorthand(
@@ -2797,11 +2712,9 @@ const CSSValue* ScrollPadding::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValuesForSidesShorthand(
-      scrollPaddingShorthand(), style, layout_object, styled_node,
-      allow_visited_style);
+      scrollPaddingShorthand(), style, layout_object, allow_visited_style);
 }
 
 bool ScrollPaddingInline::ParseShorthand(
@@ -2818,10 +2731,9 @@ const CSSValue* ScrollPaddingInline::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValuesForInlineBlockShorthand(
-      scrollPaddingInlineShorthand(), style, layout_object, styled_node,
+      scrollPaddingInlineShorthand(), style, layout_object,
       allow_visited_style);
 }
 
@@ -2839,11 +2751,9 @@ const CSSValue* TextDecoration::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject* layout_object,
-    const Node* styled_node,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValuesForShorthandProperty(
-      textDecorationShorthand(), style, layout_object, styled_node,
-      allow_visited_style);
+      textDecorationShorthand(), style, layout_object, allow_visited_style);
 }
 
 namespace {
@@ -2854,14 +2764,15 @@ CSSValue* ConsumeTransitionValue(CSSPropertyID property,
                                  bool use_legacy_parsing) {
   switch (property) {
     case CSSPropertyID::kTransitionDelay:
-      return css_property_parser_helpers::ConsumeTime(range, kValueRangeAll);
+      return css_property_parser_helpers::ConsumeTime(range, context,
+                                                      kValueRangeAll);
     case CSSPropertyID::kTransitionDuration:
-      return css_property_parser_helpers::ConsumeTime(range,
+      return css_property_parser_helpers::ConsumeTime(range, context,
                                                       kValueRangeNonNegative);
     case CSSPropertyID::kTransitionProperty:
       return css_parsing_utils::ConsumeTransitionProperty(range, context);
     case CSSPropertyID::kTransitionTimingFunction:
-      return css_parsing_utils::ConsumeAnimationTimingFunction(range);
+      return css_parsing_utils::ConsumeAnimationTimingFunction(range, context);
     default:
       NOTREACHED();
       return nullptr;
@@ -2909,7 +2820,6 @@ const CSSValue* Transition::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject*,
-    const Node*,
     bool allow_visited_style) const {
   const CSSTransitionData* transition_data = style.Transitions();
   if (transition_data) {
@@ -2969,7 +2879,6 @@ const CSSValue* WebkitColumnBreakAfter::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject*,
-    const Node*,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValueForWebkitColumnBreakBetween(
       style.BreakAfter());
@@ -2998,7 +2907,6 @@ const CSSValue* WebkitColumnBreakBefore::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject*,
-    const Node*,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValueForWebkitColumnBreakBetween(
       style.BreakBefore());
@@ -3027,49 +2935,9 @@ const CSSValue* WebkitColumnBreakInside::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject*,
-    const Node*,
     bool allow_visited_style) const {
   return ComputedStyleUtils::ValueForWebkitColumnBreakInside(
       style.BreakInside());
-}
-
-bool WebkitMarginCollapse::ParseShorthand(
-    bool important,
-    CSSParserTokenRange& range,
-    const CSSParserContext& context,
-    const CSSParserLocalContext&,
-    HeapVector<CSSPropertyValue, 256>& properties) const {
-  CSSValueID id = range.ConsumeIncludingWhitespace().Id();
-  if (!CSSParserFastPaths::IsValidKeywordPropertyAndValue(
-          CSSPropertyID::kWebkitMarginBeforeCollapse, id, context.Mode()))
-    return false;
-
-  CSSValue* before_collapse = CSSIdentifierValue::Create(id);
-  css_property_parser_helpers::AddProperty(
-      CSSPropertyID::kWebkitMarginBeforeCollapse,
-      CSSPropertyID::kWebkitMarginCollapse, *before_collapse, important,
-      css_property_parser_helpers::IsImplicitProperty::kNotImplicit,
-      properties);
-
-  if (range.AtEnd()) {
-    css_property_parser_helpers::AddProperty(
-        CSSPropertyID::kWebkitMarginAfterCollapse,
-        CSSPropertyID::kWebkitMarginCollapse, *before_collapse, important,
-        css_property_parser_helpers::IsImplicitProperty::kNotImplicit,
-        properties);
-    return true;
-  }
-
-  id = range.ConsumeIncludingWhitespace().Id();
-  if (!CSSParserFastPaths::IsValidKeywordPropertyAndValue(
-          CSSPropertyID::kWebkitMarginAfterCollapse, id, context.Mode()))
-    return false;
-  css_property_parser_helpers::AddProperty(
-      CSSPropertyID::kWebkitMarginAfterCollapse,
-      CSSPropertyID::kWebkitMarginCollapse, *CSSIdentifierValue::Create(id),
-      important, css_property_parser_helpers::IsImplicitProperty::kNotImplicit,
-      properties);
-  return true;
 }
 
 bool WebkitMaskBoxImage::ParseShorthand(
@@ -3128,10 +2996,9 @@ const CSSValue* WebkitMaskBoxImage::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject*,
-    const Node*,
     bool allow_visited_style) const {
-  return ComputedStyleUtils::ValueForNinePieceImage(style.MaskBoxImage(),
-                                                    style);
+  return ComputedStyleUtils::ValueForNinePieceImage(style.MaskBoxImage(), style,
+                                                    allow_visited_style);
 }
 
 bool WebkitMask::ParseShorthand(
@@ -3177,7 +3044,6 @@ const CSSValue* WebkitMaskPosition::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject*,
-    const Node*,
     bool allow_visited_style) const {
   return ComputedStyleUtils::BackgroundPositionOrWebkitMaskPosition(
       *this, style, &style.MaskLayers());
@@ -3217,7 +3083,6 @@ const CSSValue* WebkitMaskRepeat::CSSValueFromComputedStyleInternal(
     const ComputedStyle& style,
     const SVGComputedStyle&,
     const LayoutObject*,
-    const Node*,
     bool allow_visited_style) const {
   return ComputedStyleUtils::BackgroundRepeatOrWebkitMaskRepeat(
       &style.MaskLayers());

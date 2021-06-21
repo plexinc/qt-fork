@@ -14,6 +14,9 @@
 
 namespace blink {
 
+class ExecutionContext;
+enum class CSSValueID;
+
 enum CSSParserTokenType {
   kIdentToken = 0,
   kFunctionToken,
@@ -147,6 +150,7 @@ class CORE_EXPORT CSSParserToken {
   bool HasStringBacking() const;
 
   CSSPropertyID ParseAsUnresolvedCSSPropertyID(
+      const ExecutionContext* execution_context,
       CSSParserMode mode = kHTMLStandardMode) const;
   AtRuleDescriptorID ParseAsAtRuleDescriptorID() const;
 

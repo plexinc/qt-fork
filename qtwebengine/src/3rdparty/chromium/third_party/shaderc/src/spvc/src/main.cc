@@ -21,7 +21,7 @@
 #include "libshaderc_util/args.h"
 #include "libshaderc_util/string_piece.h"
 #include "shaderc/env.h"
-#include "shaderc/spvc.hpp"
+#include "spvc/spvc.hpp"
 #include "shaderc/status.h"
 #include "spirv-tools/libspirv.h"
 
@@ -43,6 +43,8 @@ Options:
   -o <output file>         '-' means standard output.
   --no-validate            Disable validating input and intermediate source.
                              Validation is by default enabled.
+  --no-optimize            Disable optimizing input and intermediate source.
+                             Optimization is by default enabled.
   --source-env=<env>       Execution environment of the input source.
                              <env> is vulkan1.0 (the default), vulkan1.1,
                              or webgpu0
@@ -65,6 +67,8 @@ Options:
                            Defined transforms:
                              webgpu0 -> vulkan1.1
                              vulkan1.1 -> webgpu0
+   --use-spvc-parser       Use the built in parser for generating spirv-cross IR
+                           instead of spirv-cross.
 
 
   The following flags behave as in spirv-cross:
@@ -84,6 +88,7 @@ Options:
   --msl-domain-lower-left
   --msl-argument-buffers
   --msl-discrete-descriptor-set=<number>
+  --emit-line-directives
   --hlsl-enable-compat
   --shader-model=<model>
 )";
@@ -115,18 +120,68 @@ bool ReadFile(const std::string& path, std::vector<uint32_t>* out) {
   return true;
 }
 
+bool StringPieceToEnvEnum(const string_piece& str, shaderc_spvc_spv_env* env) {
+  if (!env) {
+    std::cerr << "spvc: error: internal error calling StringPieceToEnvEnum"
+              << std::endl;
+    return false;
+  }
+
+  if (str == "vulkan1.0") {
+    *env = shaderc_spvc_spv_env_vulkan_1_0;
+  } else if (str == "vulkan1.1") {
+    *env = shaderc_spvc_spv_env_vulkan_1_1;
+  } else if (str == "webgpu0") {
+    *env = shaderc_spvc_spv_env_webgpu_0;
+  } else {
+    std::cerr << "spvc: error: invalid value '" << str
+              << "' in --source-env= or --target-env=" << std::endl;
+    return false;
+  }
+  return true;
+}
+
 }  // anonymous namespace
 
 int main(int argc, char** argv) {
-  shaderc_spvc::Compiler compiler;
-  shaderc_spvc::CompileOptions options;
+  shaderc_spvc::Context context;
   std::vector<uint32_t> input;
   std::vector<uint32_t> msl_discrete_descriptor;
   string_piece output_path;
   string_piece output_language;
-  string_piece source_env = "vulkan1.0";
-  string_piece target_env = "";
+  string_piece source_str = "vulkan1.0";
+  string_piece target_str = "";
 
+  // Scan and find any source and target env flags, since we need to know those
+  // to create options.
+  for (int i = 1; i < argc; ++i) {
+    const string_piece arg = argv[i];
+    if (arg.starts_with("--source-env=")) {
+      string_piece env;
+      shaderc_util::GetOptionArgument(argc, argv, &i, "--source-env=", &env);
+      source_str = env;
+    } else if (arg.starts_with("--target-env=")) {
+      string_piece env;
+      shaderc_util::GetOptionArgument(argc, argv, &i, "--target-env=", &env);
+      target_str = env;
+    }
+  }
+
+  if (target_str == "") {
+    target_str = source_str;
+  }
+
+  shaderc_spvc_spv_env source_env;
+  if (!StringPieceToEnvEnum(source_str, &source_env)) {
+    return 1;
+  }
+
+  shaderc_spvc_spv_env target_env;
+  if (!StringPieceToEnvEnum(target_str, &target_env)) {
+    return 1;
+  }
+
+  shaderc_spvc::CompileOptions options(source_env, target_env);
   for (int i = 1; i < argc; ++i) {
     const string_piece arg = argv[i];
     if (arg == "--help") {
@@ -175,13 +230,19 @@ int main(int argc, char** argv) {
       shaderc_util::GetOptionArgument(argc, argv, &i,
                                       "--language=", &output_language);
       if (!(output_language == "glsl" || output_language == "msl" ||
-            output_language == "hlsl")) {
+            output_language == "hlsl" || output_language == "vulkan")) {
         std::cerr << "spvc: error: invalid value '" << output_language
                   << "' in --language=" << std::endl;
         return 1;
       }
     } else if (arg == "--remove-unused-variables") {
       options.SetRemoveUnusedVariables(true);
+    } else if (arg == "--no-validate"){
+      options.SetValidate(false);
+    } else if (arg == "--no-optimize"){
+      options.SetOptimize(false);
+    } else if (arg == "--robust-buffer-access-pass"){
+      options.SetRobustBufferAccessPass(true);
     } else if (arg == "--vulkan-semantics") {
       options.SetVulkanSemantics(true);
     } else if (arg == "--separate-shader-objects") {
@@ -232,6 +293,8 @@ int main(int argc, char** argv) {
         return 1;
       }
       msl_discrete_descriptor.push_back(descriptor_num);
+    } else if (arg == "--emit-line-directives") {
+      options.SetEmitLineDirectives(true);
     } else if (arg.starts_with("--shader-model=")) {
       string_piece shader_model_str;
       shaderc_util::GetOptionArgument(argc, argv, &i,
@@ -245,41 +308,11 @@ int main(int argc, char** argv) {
       }
       options.SetHLSLShaderModel(shader_model_num);
     } else if (arg.starts_with("--source-env=")) {
-      string_piece env;
-      shaderc_util::GetOptionArgument(argc, argv, &i, "--source-env=", &env);
-      source_env = env;
-      if (env == "vulkan1.0") {
-        options.SetSourceEnvironment(shaderc_target_env_vulkan,
-                                     shaderc_env_version_vulkan_1_0);
-      } else if (env == "vulkan1.1") {
-        options.SetSourceEnvironment(shaderc_target_env_vulkan,
-                                     shaderc_env_version_vulkan_1_1);
-      } else if (env == "webgpu0") {
-        options.SetSourceEnvironment(shaderc_target_env_webgpu,
-                                     shaderc_env_version_webgpu);
-      } else {
-        std::cerr << "spvc: error: invalid value '" << env
-                  << "' in --source-env=" << std::endl;
-        return 1;
-      }
+      // Parsed in the previous iteration
     } else if (arg.starts_with("--target-env=")) {
-      string_piece env;
-      shaderc_util::GetOptionArgument(argc, argv, &i, "--target-env=", &env);
-      target_env = env;
-      if (env == "vulkan1.0") {
-        options.SetTargetEnvironment(shaderc_target_env_vulkan,
-                                     shaderc_env_version_vulkan_1_0);
-      } else if (env == "vulkan1.1") {
-        options.SetTargetEnvironment(shaderc_target_env_vulkan,
-                                     shaderc_env_version_vulkan_1_1);
-      } else if (env == "webgpu0") {
-        options.SetTargetEnvironment(shaderc_target_env_webgpu,
-                                     shaderc_env_version_webgpu);
-      } else {
-        std::cerr << "spvc: error: invalid value '" << env
-                  << "' in --target-env=" << std::endl;
-        return 1;
-      }
+      // Parsed in the previous iteration
+    } else if (arg == "--use-spvc-parser") {
+      context.SetUseSpvcParser(true);
     } else {
       if (!ReadFile(arg.str(), &input)) {
         std::cerr << "spvc: error: could not read file" << std::endl;
@@ -288,57 +321,73 @@ int main(int argc, char** argv) {
     }
   }
 
-  if (target_env == "") {
-    if (source_env == "vulkan1.0") {
-      options.SetTargetEnvironment(shaderc_target_env_vulkan,
-                                   shaderc_env_version_vulkan_1_0);
-    } else if (source_env == "vulkan1.1") {
-      options.SetTargetEnvironment(shaderc_target_env_vulkan,
-                                   shaderc_env_version_vulkan_1_1);
-    } else if (source_env == "webgpu0") {
-      options.SetTargetEnvironment(shaderc_target_env_webgpu,
-                                   shaderc_env_version_webgpu);
-    } else {
-      // This should be caught above when parsing --source-target=
-      std::cerr << "spvc: error: invalid value '" << source_env
-                << "' in --source-env=" << std::endl;
-      return 1;
-    }
-  }
-
   options.SetMSLDiscreteDescriptorSets(msl_discrete_descriptor);
 
   shaderc_spvc::CompilationResult result;
+  shaderc_spvc_status status = shaderc_spvc_status_configuration_error;
+
   if (output_language == "glsl") {
-    result = compiler.CompileSpvToGlsl((const uint32_t*)input.data(),
+    status = context.InitializeForGlsl((const uint32_t*)input.data(),
                                        input.size(), options);
   } else if (output_language == "msl") {
-    result = compiler.CompileSpvToMsl((const uint32_t*)input.data(),
+    status = context.InitializeForMsl((const uint32_t*)input.data(),
                                       input.size(), options);
   } else if (output_language == "hlsl") {
-    result = compiler.CompileSpvToHlsl((const uint32_t*)input.data(),
+    status = context.InitializeForHlsl((const uint32_t*)input.data(),
                                        input.size(), options);
-  }
-  auto status = result.GetCompilationStatus();
-  if (status == shaderc_compilation_status_validation_error) {
-    std::cerr << "validation failed:\n" << result.GetMessages() << std::endl;
+  } else if (output_language == "vulkan") {
+    status = context.InitializeForVulkan((const uint32_t*)input.data(),
+                                         input.size(), options);
+  } else {
+    std::cerr << "Attempted to output to unknown language: " << output_language
+              << std::endl;
     return 1;
   }
-  if (status == shaderc_compilation_status_success) {
-    const char* path = output_path.data();
-    if (path && strcmp(path, "-")) {
-      std::basic_ofstream<char>(path) << result.GetOutput();
-    } else {
-      std::cout << result.GetOutput();
+
+  if (status == shaderc_spvc_status_success)
+    status = context.CompileShader(&result);
+
+  switch (status) {
+    case shaderc_spvc_status_validation_error: {
+      std::cerr << "validation failed:\n" << context.GetMessages() << std::endl;
+      return 1;
     }
-    return 0;
-  }
 
-  if (status == shaderc_compilation_status_compilation_error) {
-    std::cerr << "compilation failed:\n" << result.GetMessages() << std::endl;
-    return 1;
-  }
+    case shaderc_spvc_status_success: {
+      const char* path = output_path.data();
+      if (output_language != "vulkan") {
+        std::string string_output;
+        result.GetStringOutput(&string_output);
+        if (path && strcmp(path, "-")) {
+          std::basic_ofstream<char>(path) << string_output;
+        } else {
+          std::cout << string_output;
+        }
+      } else {
+        if (path && strcmp(path, "-")) {
+          std::vector<uint32_t> binary_output;
+          result.GetBinaryOutput(&binary_output);
+          std::ofstream out(path, std::ios::binary);
+          out.write((char*)binary_output.data(),
+                    (sizeof(uint32_t) / sizeof(char)) *
+                        binary_output.size());
+        } else {
+          std::cerr << "Cowardly refusing to output binary result to screen"
+                    << std::endl;
+          return 1;
+        }
+      }
+      return 0;
+    }
 
-  std::cerr << "unexpected error " << status << std::endl;
-  return 1;
+    case shaderc_spvc_status_compilation_error: {
+      std::cerr << "compilation failed:\n"
+                << context.GetMessages() << std::endl;
+      return 1;
+    }
+
+    default:
+      std::cerr << "unexpected error " << status << std::endl;
+      return 1;
+  }
 }

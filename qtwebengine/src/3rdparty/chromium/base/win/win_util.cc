@@ -40,6 +40,7 @@
 #include "base/macros.h"
 #include "base/scoped_native_library.h"
 #include "base/strings/string_util.h"
+#include "base/strings/string_util_win.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/scoped_thread_priority.h"
@@ -52,7 +53,6 @@
 #include "base/win/scoped_hstring.h"
 #include "base/win/scoped_propvariant.h"
 #include "base/win/shlwapi.h"
-#include "base/win/win_client_metrics.h"
 #include "base/win/windows_version.h"
 
 namespace base {
@@ -85,7 +85,7 @@ bool SetPropVariantValueForPropertyStore(
 }
 
 void __cdecl ForceCrashOnSigAbort(int) {
-  *((volatile int*)0) = 0x1337;
+  *((volatile int*)nullptr) = 0x1337;
 }
 
 // Returns the current platform role. We use the PowerDeterminePlatformRoleEx
@@ -158,8 +158,7 @@ bool* GetRegisteredWithManagementStateStorage() {
   static bool state = []() {
     // Mitigate the issues caused by loading DLLs on a background thread
     // (http://crbug/973868).
-    base::ScopedThreadMayLoadLibraryOnBackgroundThread priority_boost(
-        FROM_HERE);
+    SCOPED_MAY_LOAD_LIBRARY_AT_BACKGROUND_PRIORITY();
 
     ScopedNativeLibrary library(
         FilePath(FILE_PATH_LITERAL("MDMRegistration.dll")));
@@ -212,7 +211,7 @@ bool IsWindows10TabletMode(HWND hwnd) {
   ScopedHString view_settings_guid = ScopedHString::Create(
       RuntimeClass_Windows_UI_ViewManagement_UIViewSettings);
   Microsoft::WRL::ComPtr<IUIViewSettingsInterop> view_settings_interop;
-  HRESULT hr = base::win::RoGetActivationFactory(
+  HRESULT hr = win::RoGetActivationFactory(
       view_settings_guid.get(), IID_PPV_ARGS(&view_settings_interop));
   if (FAILED(hr))
     return false;
@@ -234,7 +233,7 @@ bool IsWindows10TabletMode(HWND hwnd) {
 // if the keyboard count is 1 or more.. While this will work in most cases
 // it won't work if there are devices which expose keyboard interfaces which
 // are attached to the machine.
-bool IsKeyboardPresentOnSlate(std::string* reason, HWND hwnd) {
+bool IsKeyboardPresentOnSlate(HWND hwnd, std::string* reason) {
   bool result = false;
 
   if (GetVersion() < Version::WIN8) {
@@ -252,8 +251,8 @@ bool IsKeyboardPresentOnSlate(std::string* reason, HWND hwnd) {
   }
 
   // This function should be only invoked for machines with touch screens.
-  if ((GetSystemMetrics(SM_DIGITIZER) & NID_INTEGRATED_TOUCH)
-        != NID_INTEGRATED_TOUCH) {
+  if ((GetSystemMetrics(SM_DIGITIZER) & NID_INTEGRATED_TOUCH) !=
+      NID_INTEGRATED_TOUCH) {
     if (reason) {
       *reason += "NID_INTEGRATED_TOUCH\n";
       result = true;
@@ -267,14 +266,13 @@ bool IsKeyboardPresentOnSlate(std::string* reason, HWND hwnd) {
     if (reason)
       *reason += "Tablet device.\n";
     return false;
-  } else {
-    if (reason) {
-      *reason += "Not a tablet device";
-      result = true;
-    } else {
-      return true;
-    }
   }
+
+  if (!reason)
+    return true;
+
+  *reason += "Not a tablet device";
+  result = true;
 
   // To determine whether a keyboard is present on the device, we do the
   // following:-
@@ -291,7 +289,7 @@ bool IsKeyboardPresentOnSlate(std::string* reason, HWND hwnd) {
   // 3. If step 1 and 2 fail then we check attached keyboards and return true
   //    if we find ACPI\* or HID\VID* keyboards.
 
-  typedef BOOL (WINAPI* GetAutoRotationState)(PAR_STATE state);
+  using GetAutoRotationState = decltype(&::GetAutoRotationState);
   static const auto get_rotation_state = reinterpret_cast<GetAutoRotationState>(
       GetUser32FunctionPointer("GetAutoRotationState"));
   if (get_rotation_state) {
@@ -302,23 +300,24 @@ bool IsKeyboardPresentOnSlate(std::string* reason, HWND hwnd) {
       // If there is no auto rotation sensor or rotation is not supported in
       // the current configuration, then we can assume that this is a desktop
       // or a traditional laptop.
-      if (reason) {
-        *reason += (auto_rotation_state & AR_NOSENSOR) ? "AR_NOSENSOR\n"
-                                                       : "AR_NOT_SUPPORTED\n";
-        result = true;
-      } else {
+      if (!reason)
         return true;
-      }
+
+      *reason += (auto_rotation_state & AR_NOSENSOR) ? "AR_NOSENSOR\n"
+                                                     : "AR_NOT_SUPPORTED\n";
+      result = true;
     }
   }
 
-  const GUID KEYBOARD_CLASS_GUID =
-      { 0x4D36E96B, 0xE325,  0x11CE,
-          { 0xBF, 0xC1, 0x08, 0x00, 0x2B, 0xE1, 0x03, 0x18 } };
+  const GUID KEYBOARD_CLASS_GUID = {
+      0x4D36E96B,
+      0xE325,
+      0x11CE,
+      {0xBF, 0xC1, 0x08, 0x00, 0x2B, 0xE1, 0x03, 0x18}};
 
   // Query for all the keyboard devices.
-  HDEVINFO device_info =
-      SetupDiGetClassDevs(&KEYBOARD_CLASS_GUID, NULL, NULL, DIGCF_PRESENT);
+  HDEVINFO device_info = SetupDiGetClassDevs(&KEYBOARD_CLASS_GUID, nullptr,
+                                             nullptr, DIGCF_PRESENT);
   if (device_info == INVALID_HANDLE_VALUE) {
     if (reason)
       *reason += "No keyboard info\n";
@@ -329,26 +328,25 @@ bool IsKeyboardPresentOnSlate(std::string* reason, HWND hwnd) {
   // the count is more than 1 we assume that a keyboard is present. This is
   // under the assumption that there will always be one keyboard device.
   for (DWORD i = 0;; ++i) {
-    SP_DEVINFO_DATA device_info_data = { 0 };
+    SP_DEVINFO_DATA device_info_data = {0};
     device_info_data.cbSize = sizeof(device_info_data);
     if (!SetupDiEnumDeviceInfo(device_info, i, &device_info_data))
       break;
 
     // Get the device ID.
-    char16 device_id[MAX_DEVICE_ID_LEN];
-    CONFIGRET status =
-        CM_Get_Device_ID(device_info_data.DevInst, as_writable_wcstr(device_id),
-                         MAX_DEVICE_ID_LEN, 0);
+    wchar_t device_id[MAX_DEVICE_ID_LEN];
+    CONFIGRET status = CM_Get_Device_ID(device_info_data.DevInst, device_id,
+                                        MAX_DEVICE_ID_LEN, 0);
     if (status == CR_SUCCESS) {
       // To reduce the scope of the hack we only look for ACPI and HID\\VID
       // prefixes in the keyboard device ids.
-      if (StartsWith(device_id, STRING16_LITERAL("ACPI"),
+      if (StartsWith(AsStringPiece16(device_id), STRING16_LITERAL("ACPI"),
                      CompareCase::INSENSITIVE_ASCII) ||
-          StartsWith(device_id, STRING16_LITERAL("HID\\VID"),
+          StartsWith(AsStringPiece16(device_id), STRING16_LITERAL("HID\\VID"),
                      CompareCase::INSENSITIVE_ASCII)) {
         if (reason) {
           *reason += "device: ";
-          *reason += UTF16ToUTF8(device_id);
+          *reason += WideToUTF8(device_id);
           *reason += '\n';
         }
         // The heuristic we are using is to check the count of keyboards and
@@ -364,20 +362,9 @@ bool IsKeyboardPresentOnSlate(std::string* reason, HWND hwnd) {
 
 static bool g_crash_on_process_detach = false;
 
-void GetNonClientMetrics(NONCLIENTMETRICS_XP* metrics) {
-  DCHECK(metrics);
-  metrics->cbSize = sizeof(*metrics);
-  const bool success = !!SystemParametersInfo(
-      SPI_GETNONCLIENTMETRICS,
-      metrics->cbSize,
-      reinterpret_cast<NONCLIENTMETRICS*>(metrics),
-      0);
-  DCHECK(success);
-}
-
-bool GetUserSidString(string16* user_sid) {
+bool GetUserSidString(std::wstring* user_sid) {
   // Get the current token.
-  HANDLE token = NULL;
+  HANDLE token = nullptr;
   if (!::OpenProcessToken(::GetCurrentProcess(), TOKEN_QUERY, &token))
     return false;
   ScopedHandle token_scoped(token);
@@ -397,7 +384,7 @@ bool GetUserSidString(string16* user_sid) {
   if (!::ConvertSidToStringSid(user->User.Sid, &sid_string))
     return false;
 
-  *user_sid = as_u16cstr(sid_string);
+  *user_sid = sid_string;
 
   ::LocalFree(sid_string);
 
@@ -410,14 +397,11 @@ bool UserAccountControlIsEnabled() {
   //   http://code.google.com/p/chromium/issues/detail?id=61644
   ThreadRestrictions::ScopedAllowIO allow_io;
 
-  RegKey key(
-      HKEY_LOCAL_MACHINE,
-      STRING16_LITERAL(
-          "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System"),
-      KEY_READ);
+  RegKey key(HKEY_LOCAL_MACHINE,
+             L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+             KEY_READ);
   DWORD uac_enabled;
-  if (key.ReadValueDW(STRING16_LITERAL("EnableLUA"), &uac_enabled) !=
-      ERROR_SUCCESS) {
+  if (key.ReadValueDW(L"EnableLUA", &uac_enabled) != ERROR_SUCCESS) {
     return true;
   }
   // Users can set the EnableLUA value to something arbitrary, like 2, which
@@ -434,22 +418,20 @@ bool SetBooleanValueForPropertyStore(IPropertyStore* property_store,
     return false;
   }
 
-  return SetPropVariantValueForPropertyStore(property_store,
-                                             property_key,
+  return SetPropVariantValueForPropertyStore(property_store, property_key,
                                              property_value);
 }
 
 bool SetStringValueForPropertyStore(IPropertyStore* property_store,
                                     const PROPERTYKEY& property_key,
-                                    const char16* property_string_value) {
+                                    const wchar_t* property_string_value) {
   ScopedPropVariant property_value;
-  if (FAILED(InitPropVariantFromString(as_wcstr(property_string_value),
+  if (FAILED(InitPropVariantFromString(property_string_value,
                                        property_value.Receive()))) {
     return false;
   }
 
-  return SetPropVariantValueForPropertyStore(property_store,
-                                             property_key,
+  return SetPropVariantValueForPropertyStore(property_store, property_key,
                                              property_value);
 }
 
@@ -467,36 +449,36 @@ bool SetClsidForPropertyStore(IPropertyStore* property_store,
 }
 
 bool SetAppIdForPropertyStore(IPropertyStore* property_store,
-                              const char16* app_id) {
+                              const wchar_t* app_id) {
   // App id should be less than 64 chars and contain no space. And recommended
   // format is CompanyName.ProductName[.SubProduct.ProductNumber].
   // See http://msdn.microsoft.com/en-us/library/dd378459%28VS.85%29.aspx
-  DCHECK_LT(lstrlen(as_wcstr(app_id)), 64);
-  DCHECK_EQ(wcschr(as_wcstr(app_id), L' '), nullptr);
+  DCHECK_LT(lstrlen(app_id), 64);
+  DCHECK_EQ(wcschr(app_id, L' '), nullptr);
 
-  return SetStringValueForPropertyStore(property_store,
-                                        PKEY_AppUserModel_ID,
+  return SetStringValueForPropertyStore(property_store, PKEY_AppUserModel_ID,
                                         app_id);
 }
 
-static const char16 kAutoRunKeyPath[] =
-    STRING16_LITERAL("Software\\Microsoft\\Windows\\CurrentVersion\\Run");
+static const wchar_t kAutoRunKeyPath[] =
+    L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 
-bool AddCommandToAutoRun(HKEY root_key, const string16& name,
-                         const string16& command) {
+bool AddCommandToAutoRun(HKEY root_key,
+                         const std::wstring& name,
+                         const std::wstring& command) {
   RegKey autorun_key(root_key, kAutoRunKeyPath, KEY_SET_VALUE);
   return (autorun_key.WriteValue(name.c_str(), command.c_str()) ==
-      ERROR_SUCCESS);
+          ERROR_SUCCESS);
 }
 
-bool RemoveCommandFromAutoRun(HKEY root_key, const string16& name) {
+bool RemoveCommandFromAutoRun(HKEY root_key, const std::wstring& name) {
   RegKey autorun_key(root_key, kAutoRunKeyPath, KEY_SET_VALUE);
   return (autorun_key.DeleteValue(name.c_str()) == ERROR_SUCCESS);
 }
 
 bool ReadCommandFromAutoRun(HKEY root_key,
-                            const string16& name,
-                            string16* command) {
+                            const std::wstring& name,
+                            std::wstring* command) {
   RegKey autorun_key(root_key, kAutoRunKeyPath, KEY_QUERY_VALUE);
   return (autorun_key.ReadValue(name.c_str(), command) == ERROR_SUCCESS);
 }
@@ -568,7 +550,7 @@ bool IsDeviceUsedAsATablet(std::string* reason) {
   // a convertible or a detachable.
   // See
   // https://msdn.microsoft.com/en-us/library/windows/desktop/dn629263(v=vs.85).aspx
-  typedef decltype(GetAutoRotationState)* GetAutoRotationStateType;
+  using GetAutoRotationStateType = decltype(GetAutoRotationState)*;
   static const auto get_auto_rotation_state_func =
       reinterpret_cast<GetAutoRotationStateType>(
           GetUser32FunctionPointer("GetAutoRotationState"));
@@ -619,8 +601,8 @@ bool IsUser32AndGdi32Available() {
     if (GetVersion() < Version::WIN8)
       return true;
 
-    typedef decltype(
-        GetProcessMitigationPolicy)* GetProcessMitigationPolicyType;
+    using GetProcessMitigationPolicyType =
+        decltype(GetProcessMitigationPolicy)*;
     GetProcessMitigationPolicyType get_process_mitigation_policy_func =
         reinterpret_cast<GetProcessMitigationPolicyType>(GetProcAddress(
             GetModuleHandle(L"kernel32.dll"), "GetProcessMitigationPolicy"));
@@ -675,7 +657,7 @@ bool GetLoadedModulesSnapshot(HANDLE process, std::vector<HMODULE>* snapshot) {
       // Buffer size was too small. Try again with a larger buffer. A little
       // more room is given to avoid multiple expensive calls to
       // ::EnumProcessModules() just because one module has been added.
-      snapshot->resize(num_modules + 8, NULL);
+      snapshot->resize(num_modules + 8, nullptr);
     }
   } while (--retries_remaining);
 
@@ -689,8 +671,8 @@ void EnableFlicks(HWND hwnd) {
 
 void DisableFlicks(HWND hwnd) {
   ::SetProp(hwnd, MICROSOFT_TABLETPENSERVICE_PROPERTY,
-      reinterpret_cast<HANDLE>(TABLET_DISABLE_FLICKS |
-          TABLET_DISABLE_FLICKFALLBACKKEYS));
+            reinterpret_cast<HANDLE>(TABLET_DISABLE_FLICKS |
+                                     TABLET_DISABLE_FLICKFALLBACKKEYS));
 }
 
 bool IsProcessPerMonitorDpiAware() {
@@ -767,9 +749,9 @@ void* GetUser32FunctionPointer(const char* function_name,
   return nullptr;
 }
 
-string16 GetWindowObjectName(HANDLE handle) {
+std::wstring GetWindowObjectName(HANDLE handle) {
   // Get the size of the name.
-  string16 object_name;
+  std::wstring object_name;
 
   DWORD size = 0;
   ::GetUserObjectInformation(handle, UOI_NAME, nullptr, 0, &size);
@@ -790,13 +772,14 @@ string16 GetWindowObjectName(HANDLE handle) {
   return object_name;
 }
 
-bool IsRunningUnderDesktopName(StringPiece16 desktop_name) {
+bool IsRunningUnderDesktopName(WStringPiece desktop_name) {
   HDESK thread_desktop = ::GetThreadDesktop(::GetCurrentThreadId());
   if (!thread_desktop)
     return false;
 
-  string16 current_desktop_name = GetWindowObjectName(thread_desktop);
-  return EqualsCaseInsensitiveASCII(current_desktop_name, desktop_name);
+  std::wstring current_desktop_name = GetWindowObjectName(thread_desktop);
+  return EqualsCaseInsensitiveASCII(AsStringPiece16(current_desktop_name),
+                                    AsStringPiece16(desktop_name));
 }
 
 // This method is used to detect whether current session is a remote session.
@@ -813,7 +796,7 @@ bool IsCurrentSessionRemote() {
 
   static constexpr wchar_t kRdpSettingsKeyName[] =
       L"SYSTEM\\CurrentControlSet\\Control\\Terminal Server";
-  base::win::RegKey key(HKEY_LOCAL_MACHINE, kRdpSettingsKeyName, KEY_READ);
+  RegKey key(HKEY_LOCAL_MACHINE, kRdpSettingsKeyName, KEY_READ);
   if (!key.Valid())
     return false;
 

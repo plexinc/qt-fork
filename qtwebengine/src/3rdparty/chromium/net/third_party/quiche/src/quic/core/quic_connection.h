@@ -26,16 +26,20 @@
 
 #include "net/third_party/quiche/src/quic/core/crypto/quic_decrypter.h"
 #include "net/third_party/quiche/src/quic/core/crypto/quic_encrypter.h"
+#include "net/third_party/quiche/src/quic/core/frames/quic_max_streams_frame.h"
 #include "net/third_party/quiche/src/quic/core/proto/cached_network_parameters_proto.h"
 #include "net/third_party/quiche/src/quic/core/quic_alarm.h"
 #include "net/third_party/quiche/src/quic/core/quic_alarm_factory.h"
 #include "net/third_party/quiche/src/quic/core/quic_blocked_writer_interface.h"
+#include "net/third_party/quiche/src/quic/core/quic_circular_deque.h"
 #include "net/third_party/quiche/src/quic/core/quic_connection_id.h"
 #include "net/third_party/quiche/src/quic/core/quic_connection_stats.h"
 #include "net/third_party/quiche/src/quic/core/quic_framer.h"
+#include "net/third_party/quiche/src/quic/core/quic_idle_network_detector.h"
+#include "net/third_party/quiche/src/quic/core/quic_mtu_discovery.h"
+#include "net/third_party/quiche/src/quic/core/quic_network_blackhole_detector.h"
 #include "net/third_party/quiche/src/quic/core/quic_one_block_arena.h"
 #include "net/third_party/quiche/src/quic/core/quic_packet_creator.h"
-#include "net/third_party/quiche/src/quic/core/quic_packet_generator.h"
 #include "net/third_party/quiche/src/quic/core/quic_packet_writer.h"
 #include "net/third_party/quiche/src/quic/core/quic_packets.h"
 #include "net/third_party/quiche/src/quic/core/quic_sent_packet_manager.h"
@@ -45,7 +49,8 @@
 #include "net/third_party/quiche/src/quic/platform/api/quic_containers.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_socket_address.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_string_piece.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_str_cat.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 
@@ -57,35 +62,6 @@ class QuicRandom;
 namespace test {
 class QuicConnectionPeer;
 }  // namespace test
-
-// The initial number of packets between MTU probes.  After each attempt the
-// number is doubled.
-const QuicPacketCount kPacketsBetweenMtuProbesBase = 100;
-
-// The number of MTU probes that get sent before giving up.
-const size_t kMtuDiscoveryAttempts = 3;
-
-// Ensure that exponential back-off does not result in an integer overflow.
-// The number of packets can be potentially capped, but that is not useful at
-// current kMtuDiscoveryAttempts value, and hence is not implemented at present.
-static_assert(kMtuDiscoveryAttempts + 8 < 8 * sizeof(QuicPacketNumber),
-              "The number of MTU discovery attempts is too high");
-static_assert(kPacketsBetweenMtuProbesBase < (1 << 8),
-              "The initial number of packets between MTU probes is too high");
-
-// The incresed packet size targeted when doing path MTU discovery.
-const QuicByteCount kMtuDiscoveryTargetPacketSizeHigh = 1450;
-const QuicByteCount kMtuDiscoveryTargetPacketSizeLow = 1430;
-
-static_assert(kMtuDiscoveryTargetPacketSizeLow <= kMaxOutgoingPacketSize,
-              "MTU discovery target is too large");
-static_assert(kMtuDiscoveryTargetPacketSizeHigh <= kMaxOutgoingPacketSize,
-              "MTU discovery target is too large");
-
-static_assert(kMtuDiscoveryTargetPacketSizeLow > kDefaultMaxPacketSize,
-              "MTU discovery target does not exceed the default packet size");
-static_assert(kMtuDiscoveryTargetPacketSizeHigh > kDefaultMaxPacketSize,
-              "MTU discovery target does not exceed the default packet size");
 
 // Class that receives callbacks from the connection when frames are received
 // and when other interesting events happen.
@@ -114,7 +90,10 @@ class QUIC_EXPORT_PRIVATE QuicConnectionVisitorInterface {
   virtual void OnGoAway(const QuicGoAwayFrame& frame) = 0;
 
   // Called when |message| has been received.
-  virtual void OnMessageReceived(QuicStringPiece message) = 0;
+  virtual void OnMessageReceived(quiche::QuicheStringPiece message) = 0;
+
+  // Called when a HANDSHAKE_DONE frame has been received.
+  virtual void OnHandshakeDoneReceived() = 0;
 
   // Called when a MAX_STREAMS frame has been received from the peer.
   virtual bool OnMaxStreamsFrame(const QuicMaxStreamsFrame& frame) = 0;
@@ -134,10 +113,14 @@ class QUIC_EXPORT_PRIVATE QuicConnectionVisitorInterface {
   virtual void OnSuccessfulVersionNegotiation(
       const ParsedQuicVersion& version) = 0;
 
-  // Called when a connectivity probe has been received by the connection.
-  virtual void OnConnectivityProbeReceived(
-      const QuicSocketAddress& self_address,
-      const QuicSocketAddress& peer_address) = 0;
+  // Called when a packet has been received by the connection, after being
+  // validated and parsed. Only called when the client receives a valid packet
+  // or the server receives a connectivity probing packet.
+  // |is_connectivity_probe| is true if the received packet is a connectivity
+  // probe.
+  virtual void OnPacketReceived(const QuicSocketAddress& self_address,
+                                const QuicSocketAddress& peer_address,
+                                bool is_connectivity_probe) = 0;
 
   // Called when a blocked socket becomes writable.
   virtual void OnCanWrite() = 0;
@@ -183,12 +166,21 @@ class QUIC_EXPORT_PRIVATE QuicConnectionVisitorInterface {
   // change is allowed.
   virtual bool AllowSelfAddressChange() const = 0;
 
+  // Called to get current handshake state.
+  virtual HandshakeState GetHandshakeState() const = 0;
+
   // Called when an ACK is received with a larger |largest_acked| than
   // previously observed.
   virtual void OnForwardProgressConfirmed() = 0;
 
   // Called when a STOP_SENDING frame has been received.
-  virtual bool OnStopSendingFrame(const QuicStopSendingFrame& frame) = 0;
+  virtual void OnStopSendingFrame(const QuicStopSendingFrame& frame) = 0;
+
+  // Called when a packet of encryption |level| has been successfully decrypted.
+  virtual void OnPacketDecrypted(EncryptionLevel level) = 0;
+
+  // Called when a 1RTT packet has been acknowledged.
+  virtual void OnOneRttPacketAcknowledged() = 0;
 };
 
 // Interface which gets callbacks from the QuicConnection at interesting
@@ -201,9 +193,13 @@ class QUIC_EXPORT_PRIVATE QuicConnectionDebugVisitor
 
   // Called when a packet has been sent.
   virtual void OnPacketSent(const SerializedPacket& /*serialized_packet*/,
-                            QuicPacketNumber /*original_packet_number*/,
                             TransmissionType /*transmission_type*/,
                             QuicTime /*sent_time*/) {}
+
+  // Called when a coalesced packet has been sent.
+  virtual void OnCoalescedPacketSent(
+      const QuicCoalescedPacket& /*coalesced_packet*/,
+      size_t /*length*/) {}
 
   // Called when a PING frame has been sent.
   virtual void OnPingSent() {}
@@ -237,6 +233,9 @@ class QUIC_EXPORT_PRIVATE QuicConnectionDebugVisitor
   // Called when a StreamFrame has been parsed.
   virtual void OnStreamFrame(const QuicStreamFrame& /*frame*/) {}
 
+  // Called when a CRYPTO frame containing handshake data is received.
+  virtual void OnCryptoFrame(const QuicCryptoFrame& /*frame*/) {}
+
   // Called when a StopWaitingFrame has been parsed.
   virtual void OnStopWaitingFrame(const QuicStopWaitingFrame& /*frame*/) {}
 
@@ -265,8 +264,22 @@ class QUIC_EXPORT_PRIVATE QuicConnectionDebugVisitor
   // Called when a BlockedFrame has been parsed.
   virtual void OnBlockedFrame(const QuicBlockedFrame& /*frame*/) {}
 
+  // Called when a NewConnectionIdFrame has been parsed.
+  virtual void OnNewConnectionIdFrame(
+      const QuicNewConnectionIdFrame& /*frame*/) {}
+
+  // Called when a RetireConnectionIdFrame has been parsed.
+  virtual void OnRetireConnectionIdFrame(
+      const QuicRetireConnectionIdFrame& /*frame*/) {}
+
+  // Called when a NewTokenFrame has been parsed.
+  virtual void OnNewTokenFrame(const QuicNewTokenFrame& /*frame*/) {}
+
   // Called when a MessageFrame has been parsed.
   virtual void OnMessageFrame(const QuicMessageFrame& /*frame*/) {}
+
+  // Called when a HandshakeDoneFrame has been parsed.
+  virtual void OnHandshakeDoneFrame(const QuicHandshakeDoneFrame& /*frame*/) {}
 
   // Called when a public reset packet has been received.
   virtual void OnPublicResetPacket(const QuicPublicResetPacket& /*packet*/) {}
@@ -301,6 +314,22 @@ class QUIC_EXPORT_PRIVATE QuicConnectionDebugVisitor
 
   // Called when a StopSendingFrame has been parsed.
   virtual void OnStopSendingFrame(const QuicStopSendingFrame& /*frame*/) {}
+
+  // Called when a PathChallengeFrame has been parsed.
+  virtual void OnPathChallengeFrame(const QuicPathChallengeFrame& /*frame*/) {}
+
+  // Called when a PathResponseFrame has been parsed.
+  virtual void OnPathResponseFrame(const QuicPathResponseFrame& /*frame*/) {}
+
+  // Called when a StreamsBlockedFrame has been parsed.
+  virtual void OnStreamsBlockedFrame(const QuicStreamsBlockedFrame& /*frame*/) {
+  }
+
+  // Called when a MaxStreamsFrame has been parsed.
+  virtual void OnMaxStreamsFrame(const QuicMaxStreamsFrame& /*frame*/) {}
+
+  // Called when |count| packet numbers have been skipped.
+  virtual void OnNPacketNumbersSkipped(QuicPacketCount /*count*/) {}
 };
 
 class QUIC_EXPORT_PRIVATE QuicConnectionHelperInterface {
@@ -320,8 +349,10 @@ class QUIC_EXPORT_PRIVATE QuicConnectionHelperInterface {
 class QUIC_EXPORT_PRIVATE QuicConnection
     : public QuicFramerVisitorInterface,
       public QuicBlockedWriterInterface,
-      public QuicPacketGenerator::DelegateInterface,
-      public QuicSentPacketManager::NetworkChangeVisitor {
+      public QuicPacketCreator::DelegateInterface,
+      public QuicSentPacketManager::NetworkChangeVisitor,
+      public QuicNetworkBlackholeDetector::Delegate,
+      public QuicIdleNetworkDetector::Delegate {
  public:
   // Constructs a new QuicConnection for |connection_id| and
   // |initial_peer_address| using |writer| to write packets. |owns_writer|
@@ -360,9 +391,17 @@ class QUIC_EXPORT_PRIVATE QuicConnection
 
   // Allows the client to adjust network parameters based on external
   // information.
+  void AdjustNetworkParameters(
+      const SendAlgorithmInterface::NetworkParams& params);
   void AdjustNetworkParameters(QuicBandwidth bandwidth,
                                QuicTime::Delta rtt,
                                bool allow_cwnd_to_decrease);
+
+  // Install a loss detection tuner. Must be called before OnConfigNegotiated.
+  void SetLossDetectionTuner(
+      std::unique_ptr<LossDetectionTunerInterface> tuner);
+  // Called by the session when session->is_configured() becomes true.
+  void OnConfigNegotiated();
 
   // Returns the max pacing rate for the connection.
   virtual QuicBandwidth MaxPacingRate() const;
@@ -401,6 +440,11 @@ class QUIC_EXPORT_PRIVATE QuicConnection
 
   // Returns statistics tracked for this connection.
   const QuicConnectionStats& GetStats();
+
+  // Mark stats_.has_non_app_limited_sample as false.
+  // TODO(b/151166631) Remove this once the proper fix in b/151166631 is rolled
+  // out.
+  void ResetHasNonAppLimitedSampleAfterHandshakeCompletion();
 
   // Processes an incoming UDP packet (consisting of a QuicEncryptedPacket) from
   // the peer.
@@ -461,6 +505,15 @@ class QUIC_EXPORT_PRIVATE QuicConnection
     return framer_.supported_versions();
   }
 
+  // Mark version negotiated for this connection. Once called, the connection
+  // will ignore received version negotiation packets.
+  void SetVersionNegotiated() {
+    version_negotiated_ = true;
+    if (perspective_ == Perspective::IS_SERVER) {
+      framer_.InferPacketHeaderTypeFromVersion();
+    }
+  }
+
   // From QuicFramerVisitorInterface
   void OnError(QuicFramer* framer) override;
   bool OnProtocolVersionMismatch(ParsedQuicVersion received_version) override;
@@ -470,12 +523,17 @@ class QUIC_EXPORT_PRIVATE QuicConnection
       const QuicVersionNegotiationPacket& packet) override;
   void OnRetryPacket(QuicConnectionId original_connection_id,
                      QuicConnectionId new_connection_id,
-                     QuicStringPiece retry_token) override;
+                     quiche::QuicheStringPiece retry_token,
+                     quiche::QuicheStringPiece retry_integrity_tag,
+                     quiche::QuicheStringPiece retry_without_tag) override;
   bool OnUnauthenticatedPublicHeader(const QuicPacketHeader& header) override;
   bool OnUnauthenticatedHeader(const QuicPacketHeader& header) override;
   void OnDecryptedPacket(EncryptionLevel level) override;
   bool OnPacketHeader(const QuicPacketHeader& header) override;
   void OnCoalescedPacket(const QuicEncryptedPacket& packet) override;
+  void OnUndecryptablePacket(const QuicEncryptedPacket& packet,
+                             EncryptionLevel decryption_level,
+                             bool has_decryption_key) override;
   bool OnStreamFrame(const QuicStreamFrame& frame) override;
   bool OnCryptoFrame(const QuicCryptoFrame& frame) override;
   bool OnAckFrameStart(QuicPacketNumber largest_acked,
@@ -502,17 +560,16 @@ class QUIC_EXPORT_PRIVATE QuicConnection
       const QuicRetireConnectionIdFrame& frame) override;
   bool OnNewTokenFrame(const QuicNewTokenFrame& frame) override;
   bool OnMessageFrame(const QuicMessageFrame& frame) override;
+  bool OnHandshakeDoneFrame(const QuicHandshakeDoneFrame& frame) override;
   void OnPacketComplete() override;
   bool IsValidStatelessResetToken(QuicUint128 token) const override;
   void OnAuthenticatedIetfStatelessResetPacket(
       const QuicIetfStatelessResetPacket& packet) override;
 
-  // QuicPacketGenerator::DelegateInterface
+  // QuicPacketCreator::DelegateInterface
   bool ShouldGeneratePacket(HasRetransmittableData retransmittable,
                             IsHandshake handshake) override;
   const QuicFrames MaybeBundleAckOpportunistically() override;
-
-  // QuicPacketCreator::DelegateInterface
   char* GetPacketBuffer() override;
   void OnSerializedPacket(SerializedPacket* packet) override;
   void OnUnrecoverableError(QuicErrorCode error,
@@ -522,13 +579,22 @@ class QUIC_EXPORT_PRIVATE QuicConnection
   void OnCongestionChange() override;
   void OnPathMtuIncreased(QuicPacketLength packet_size) override;
 
+  // QuicNetworkBlackholeDetector::Delegate
+  void OnPathDegradingDetected() override;
+  void OnBlackholeDetected() override;
+
+  // QuicIdleNetworkDetector::Delegate
+  void OnHandshakeTimeout() override;
+  void OnIdleNetworkDetected() override;
+
   // Please note, this is not a const function. For logging purpose, please use
   // ack_frame().
   const QuicFrame GetUpdatedAckFrame();
 
-  // Called by the crypto stream when the handshake completes. In the server's
-  // case this is when the SHLO has been ACKed. Clients call this on receipt of
-  // the SHLO.
+  // Called when the handshake completes. On the client side, handshake
+  // completes on receipt of SHLO. On the server side, handshake completes when
+  // SHLO gets ACKed (or a forward secure packet gets decrypted successfully).
+  // TODO(fayang): Add a guard that this only gets called once.
   void OnHandshakeComplete();
 
   // Accessors
@@ -545,21 +611,21 @@ class QUIC_EXPORT_PRIVATE QuicConnection
     DCHECK(!ping_alarm_->IsSet());
     ping_timeout_ = ping_timeout;
   }
-  const QuicTime::Delta ping_timeout() { return ping_timeout_; }
+  const QuicTime::Delta ping_timeout() const { return ping_timeout_; }
   // Used in Chromium, but not internally.
-  // Sets a timeout for the ping alarm when there is no retransmittable data
-  // in flight, allowing for a more aggressive ping alarm in that case.
-  void set_retransmittable_on_wire_timeout(
+  // Sets an initial timeout for the ping alarm when there is no retransmittable
+  // data in flight, allowing for a more aggressive ping alarm in that case.
+  void set_initial_retransmittable_on_wire_timeout(
       QuicTime::Delta retransmittable_on_wire_timeout) {
     DCHECK(!ping_alarm_->IsSet());
-    retransmittable_on_wire_timeout_ = retransmittable_on_wire_timeout;
+    initial_retransmittable_on_wire_timeout_ = retransmittable_on_wire_timeout;
   }
-  const QuicTime::Delta retransmittable_on_wire_timeout() {
-    return retransmittable_on_wire_timeout_;
+  const QuicTime::Delta initial_retransmittable_on_wire_timeout() const {
+    return initial_retransmittable_on_wire_timeout_;
   }
   // Used in Chromium, but not internally.
   void set_creator_debug_delegate(QuicPacketCreator::DebugDelegate* visitor) {
-    packet_generator_.set_debug_delegate(visitor);
+    packet_creator_.set_debug_delegate(visitor);
   }
   const QuicSocketAddress& self_address() const { return self_address_; }
   const QuicSocketAddress& peer_address() const { return direct_peer_address_; }
@@ -587,7 +653,7 @@ class QUIC_EXPORT_PRIVATE QuicConnection
   }
 
   // Testing only.
-  size_t NumQueuedPackets() const { return queued_packets_.size(); }
+  size_t NumQueuedPackets() const { return buffered_packets_.size(); }
 
   // Returns true if the underlying UDP socket is writable, there is
   // no queued data and the connection is not congestion-control
@@ -633,6 +699,9 @@ class QUIC_EXPORT_PRIVATE QuicConnection
   // Changes the encrypter used for level |level| to |encrypter|.
   void SetEncrypter(EncryptionLevel level,
                     std::unique_ptr<QuicEncrypter> encrypter);
+
+  // Called to remove encrypter of encryption |level|.
+  void RemoveEncrypter(EncryptionLevel level);
 
   // SetNonceForPublicHeader sets the nonce that will be transmitted in the
   // header of each packet encrypted at the initial encryption level decrypted.
@@ -683,6 +752,10 @@ class QUIC_EXPORT_PRIVATE QuicConnection
   // Returns the underlying sent packet manager.
   QuicSentPacketManager& sent_packet_manager() { return sent_packet_manager_; }
 
+  UberReceivedPacketManager& received_packet_manager() {
+    return uber_received_packet_manager_;
+  }
+
   bool CanWrite(HasRetransmittableData retransmittable);
 
   // When the flusher is out of scope, only the outermost flusher will cause a
@@ -726,8 +799,7 @@ class QUIC_EXPORT_PRIVATE QuicConnection
   virtual void SendConnectivityProbingResponsePacket(
       const QuicSocketAddress& peer_address);
 
-  // Sends an MTU discovery packet of size |mtu_discovery_target_| and updates
-  // the MTU discovery alarm.
+  // Sends an MTU discovery packet and updates the MTU discovery alarm.
   void DiscoverMtu();
 
   // Sets the session notifier on the SentPacketManager.
@@ -740,8 +812,11 @@ class QUIC_EXPORT_PRIVATE QuicConnection
   void SetTransmissionType(TransmissionType type);
 
   // Tries to send |message| and returns the message status.
+  // If |flush| is false, this will return a MESSAGE_STATUS_BLOCKED
+  // when the connection is deemed unwritable.
   virtual MessageStatus SendMessage(QuicMessageId message_id,
-                                    QuicMemSliceSpan message);
+                                    QuicMemSliceSpan message,
+                                    bool flush);
 
   // Returns the largest payload that will fit into a single MESSAGE frame.
   // Because overhead can vary during a connection, this method should be
@@ -764,13 +839,11 @@ class QUIC_EXPORT_PRIVATE QuicConnection
   QuicConnectionHelperInterface* helper() { return helper_; }
   QuicAlarmFactory* alarm_factory() { return alarm_factory_; }
 
-  QuicStringPiece GetCurrentPacket();
+  quiche::QuicheStringPiece GetCurrentPacket();
 
   const QuicFramer& framer() const { return framer_; }
 
-  const QuicPacketGenerator& packet_generator() const {
-    return packet_generator_;
-  }
+  const QuicPacketCreator& packet_creator() const { return packet_creator_; }
 
   EncryptionLevel encryption_level() const { return encryption_level_; }
   EncryptionLevel last_decrypted_level() const {
@@ -794,12 +867,12 @@ class QUIC_EXPORT_PRIVATE QuicConnection
   // This setting should never be set to false in public facing endpoints. It
   // can only be set to false if there is some other mechanism of preventing
   // amplification attacks, such as ICE (plus its a non-standard quic).
-  void set_fully_pad_crypto_hadshake_packets(bool new_value) {
-    packet_generator_.set_fully_pad_crypto_hadshake_packets(new_value);
+  void set_fully_pad_crypto_handshake_packets(bool new_value) {
+    packet_creator_.set_fully_pad_crypto_handshake_packets(new_value);
   }
 
   bool fully_pad_during_crypto_handshake() const {
-    return packet_generator_.fully_pad_crypto_handshake_packets();
+    return packet_creator_.fully_pad_crypto_handshake_packets();
   }
 
   size_t min_received_before_ack_decimation() const;
@@ -814,8 +887,6 @@ class QUIC_EXPORT_PRIVATE QuicConnection
   void set_defer_send_in_response_to_packets(bool defer) {
     defer_send_in_response_to_packets_ = defer;
   }
-
-  bool session_decides_what_to_write() const;
 
   // Sets the current per-packet options for the connection. The QuicConnection
   // does not take ownership of |options|; |options| must live for as long as
@@ -845,10 +916,11 @@ class QUIC_EXPORT_PRIVATE QuicConnection
     NOT_PADDED_PING,  // Set if the packet is not {PING, PADDING}.
   };
 
-  // Whether the handshake is confirmed from this connection's perspective.
-  bool IsHandshakeConfirmed() const {
-    return sent_packet_manager_.handshake_confirmed();
-  }
+  // Whether the handshake completes from this connection's perspective.
+  bool IsHandshakeComplete() const;
+
+  // Whether peer completes handshake. Only used with TLS handshake.
+  bool IsHandshakeConfirmed() const;
 
   // Returns the largest received packet number sent by peer.
   QuicPacketNumber GetLargestReceivedPacket() const;
@@ -872,6 +944,9 @@ class QUIC_EXPORT_PRIVATE QuicConnection
   // |connection_id| as the first client-sent destination connection ID,
   // or the one sent after an IETF Retry.
   void InstallInitialCrypters(QuicConnectionId connection_id);
+
+  // Called when version is considered negotiated.
+  void OnSuccessfulVersionNegotiation();
 
  protected:
   // Calls cancel() on all the alarms owned by this connection.
@@ -954,12 +1029,38 @@ class QUIC_EXPORT_PRIVATE QuicConnection
 
   typedef std::list<SerializedPacket> QueuedPacketList;
 
+  // BufferedPacket stores necessary information (encrypted buffer and self/peer
+  // addresses) of those packets which are serialized but failed to send because
+  // socket is blocked. From unacked packet map and send algorithm's
+  // perspective, buffered packets are treated as sent.
+  struct QUIC_EXPORT_PRIVATE BufferedPacket {
+    BufferedPacket(const SerializedPacket& packet,
+                   const QuicSocketAddress& self_address,
+                   const QuicSocketAddress& peer_address);
+    BufferedPacket(char* encrypted_buffer,
+                   QuicPacketLength encrypted_length,
+                   const QuicSocketAddress& self_address,
+                   const QuicSocketAddress& peer_address);
+    BufferedPacket(const BufferedPacket& other) = delete;
+    BufferedPacket(const BufferedPacket&& other) = delete;
+
+    ~BufferedPacket();
+
+    // encrypted_buffer is owned by buffered packet.
+    quiche::QuicheStringPiece encrypted_buffer;
+    // Self and peer addresses when the packet is serialized.
+    const QuicSocketAddress self_address;
+    const QuicSocketAddress peer_address;
+  };
+
   // Notifies the visitor of the close and marks the connection as disconnected.
   // Does not send a connection close frame to the peer. It should only be
   // called by CloseConnection or OnConnectionCloseFrame, OnPublicResetPacket,
   // and OnAuthenticatedIetfStatelessResetPacket.
   void TearDownLocalConnectionState(QuicErrorCode error,
                                     const std::string& details,
+                                    ConnectionCloseSource source);
+  void TearDownLocalConnectionState(const QuicConnectionCloseFrame& frame,
                                     ConnectionCloseSource source);
 
   // Writes the given packet to socket, encrypted with packet's
@@ -980,7 +1081,7 @@ class QUIC_EXPORT_PRIVATE QuicConnection
       const QuicStopWaitingFrame& stop_waiting);
 
   // Sends a version negotiation packet to the peer.
-  void SendVersionNegotiationPacket(bool ietf_quic);
+  void SendVersionNegotiationPacket(bool ietf_quic, bool has_length_prefix);
 
   // Clears any accumulated frames from the last received packet.
   void ClearLastFrames();
@@ -995,9 +1096,6 @@ class QUIC_EXPORT_PRIVATE QuicConnection
   // Writes as many queued packets as possible.  The connection must not be
   // blocked when this is called.
   void WriteQueuedPackets();
-
-  // Writes as many pending retransmissions as possible.
-  void WritePendingRetransmissions();
 
   // Writes new data if congestion control allows.
   void WriteNewData();
@@ -1029,9 +1127,6 @@ class QUIC_EXPORT_PRIVATE QuicConnection
   // Sets the MTU discovery alarm if necessary.
   // |sent_packet_number| is the recently sent packet number.
   void MaybeSetMtuAlarm(QuicPacketNumber sent_packet_number);
-
-  // Sets ack alarm to |time| if ack alarm is not set or the deadline > time.
-  void MaybeSetAckAlarmTo(QuicTime time);
 
   HasRetransmittableData IsRetransmittable(const SerializedPacket& packet);
   bool IsTerminationPacket(const SerializedPacket& packet);
@@ -1066,9 +1161,6 @@ class QUIC_EXPORT_PRIVATE QuicConnection
   // effective peer address change.
   void UpdatePacketContent(PacketContent type);
 
-  // Enables session decide what to write based on version and flags.
-  void MaybeEnableSessionDecidesWhatToWrite();
-
   // Called when last received ack frame has been processed.
   // |send_stop_waiting| indicates whether a stop waiting needs to be sent.
   // |acked_new_packet| is true if a previously-unacked packet was acked.
@@ -1094,11 +1186,21 @@ class QUIC_EXPORT_PRIVATE QuicConnection
   // num_retransmittable_packets_received_since_last_ack_sent_ etc.
   void ResetAckStates();
 
+  // Returns true if the ACK frame should be bundled with ACK-eliciting frame.
+  bool ShouldBundleRetransmittableFrameWithAck() const;
+
   void PopulateStopWaitingFrame(QuicStopWaitingFrame* stop_waiting);
 
   // Enables multiple packet number spaces support based on handshake protocol
   // and flags.
   void MaybeEnableMultiplePacketNumberSpacesSupport();
+
+  // Returns packet fate when trying to write a packet via WritePacket().
+  SerializedPacketFate DeterminePacketFate(bool is_mtu_discovery);
+
+  // Serialize and send coalesced_packet. Returns false if serialization fails
+  // or the write causes errors, otherwise, returns true.
+  bool FlushCoalescedPacket();
 
   // Returns the encryption level the connection close packet should be sent at,
   // which is the highest encryption level that peer can guarantee to process.
@@ -1119,6 +1221,35 @@ class QUIC_EXPORT_PRIVATE QuicConnection
 
   // Whether incoming_connection_ids_ contains connection_id.
   bool HasIncomingConnectionId(QuicConnectionId connection_id);
+
+  // Whether connection enforces anti-amplification limit.
+  bool EnforceAntiAmplificationLimit() const;
+
+  // Whether connection is limited by amplification factor.
+  bool LimitedByAmplificationFactor() const;
+
+  // We've got a packet write error, should we ignore it?
+  // NOTE: This is not a const function - if return true, the max packet size is
+  // reverted to a previous(smaller) value to avoid write errors in the future.
+  bool ShouldIgnoreWriteError();
+
+  // Returns path degrading deadline. QuicTime::Zero() means no path degrading
+  // detection is needed.
+  QuicTime GetPathDegradingDeadline() const;
+
+  // Returns true if path degrading should be detected.
+  bool ShouldDetectPathDegrading() const;
+
+  // Returns network blackhole deadline. QuicTime::Zero() means no blackhole
+  // detection is needed.
+  QuicTime GetNetworkBlackholeDeadline() const;
+
+  // Returns true if network blackhole should be detected.
+  bool ShouldDetectBlackhole() const;
+
+  // Remove these two when deprecating quic_use_idle_network_detector.
+  QuicTime::Delta GetHandshakeTimeout() const;
+  QuicTime GetTimeOfLastReceivedPacket() const;
 
   QuicFramer framer_;
 
@@ -1200,11 +1331,13 @@ class QUIC_EXPORT_PRIVATE QuicConnection
   // established, but which could not be decrypted.  We buffer these on
   // the assumption that they could not be processed because they were
   // sent with the INITIAL encryption and the CHLO message was lost.
-  QuicDeque<std::unique_ptr<QuicEncryptedPacket>> undecryptable_packets_;
+  QuicCircularDeque<std::unique_ptr<QuicEncryptedPacket>>
+      undecryptable_packets_;
 
   // Collection of coalesced packets which were received while processing
   // the current packet.
-  QuicDeque<std::unique_ptr<QuicEncryptedPacket>> coalesced_packets_;
+  QuicCircularDeque<std::unique_ptr<QuicEncryptedPacket>>
+      received_coalesced_packets_;
 
   // Maximum number of undecryptable packets the connection will store.
   size_t max_undecryptable_packets_;
@@ -1217,13 +1350,7 @@ class QUIC_EXPORT_PRIVATE QuicConnection
   bool pending_version_negotiation_packet_;
   // Used when pending_version_negotiation_packet_ is true.
   bool send_ietf_version_negotiation_packet_;
-
-  // When packets could not be sent because the socket was not writable,
-  // they are added to this list.  All corresponding frames are in
-  // unacked_packets_ if they are to be retransmitted.  Packets encrypted_buffer
-  // fields are owned by the QueuedPacketList, in order to ensure they outlast
-  // the original scope of the SerializedPacket.
-  QueuedPacketList queued_packets_;
+  bool send_version_negotiation_packet_with_prefixed_lengths_;
 
   // Contains the connection close packets if the connection has been closed.
   std::unique_ptr<std::vector<std::unique_ptr<QuicEncryptedPacket>>>
@@ -1243,7 +1370,7 @@ class QUIC_EXPORT_PRIVATE QuicConnection
 
   // Indicates how many consecutive times an ack has arrived which indicates
   // the peer needs to stop waiting for some packets.
-  // TODO(fayang): remove this when deprecating quic_simplify_stop_waiting.
+  // TODO(fayang): remove this when deprecating QUIC_VERSION_43.
   int stop_waiting_count_;
 
   // Indicates the retransmission alarm needs to be set.
@@ -1256,8 +1383,12 @@ class QUIC_EXPORT_PRIVATE QuicConnection
   // The timeout for PING.
   QuicTime::Delta ping_timeout_;
 
-  // Timeout for how long the wire can have no retransmittable packets.
-  QuicTime::Delta retransmittable_on_wire_timeout_;
+  // Initial timeout for how long the wire can have no retransmittable packets.
+  QuicTime::Delta initial_retransmittable_on_wire_timeout_;
+
+  // Indicates how many retransmittable-on-wire pings have been emitted without
+  // receiving any new data in between.
+  int consecutive_retransmittable_on_wire_ping_count_;
 
   // Arena to store class implementations within the QuicConnection.
   QuicConnectionArena arena_;
@@ -1272,12 +1403,15 @@ class QUIC_EXPORT_PRIVATE QuicConnection
   // An alarm that is scheduled when the connection can still write and there
   // may be more data to send.
   // An alarm that fires when the connection may have timed out.
+  // TODO(fayang): Remove this when deprecating quic_use_idle_network_detector.
   QuicArenaScopedPtr<QuicAlarm> timeout_alarm_;
   // An alarm that fires when a ping should be sent.
   QuicArenaScopedPtr<QuicAlarm> ping_alarm_;
   // An alarm that fires when an MTU probe should be sent.
   QuicArenaScopedPtr<QuicAlarm> mtu_discovery_alarm_;
   // An alarm that fires when this connection is considered degrading.
+  // TODO(fayang): Remove this when deprecating quic_use_blackhole_detector
+  // flag.
   QuicArenaScopedPtr<QuicAlarm> path_degrading_alarm_;
   // An alarm that fires to process undecryptable packets when new decyrption
   // keys are available.
@@ -1286,8 +1420,10 @@ class QUIC_EXPORT_PRIVATE QuicConnection
   QuicConnectionVisitorInterface* visitor_;
   QuicConnectionDebugVisitor* debug_visitor_;
 
-  QuicPacketGenerator packet_generator_;
+  QuicPacketCreator packet_creator_;
 
+  // TODO(fayang): Remove these two when deprecating
+  // quic_use_idle_network_detector.
   // Network idle time before this connection is closed.
   QuicTime::Delta idle_network_timeout_;
   // The connection will wait this long for the handshake to complete.
@@ -1299,6 +1435,8 @@ class QUIC_EXPORT_PRIVATE QuicConnection
   // Timestamps used for timeouts.
   // The time of the first retransmittable packet that was sent after the most
   // recently received packet.
+  // TODO(fayang): Remove these two when deprecating
+  // quic_use_idle_network_detector.
   QuicTime time_of_first_packet_sent_after_receiving_;
   // The time that a packet is received for this connection. Initialized to
   // connection creation time.
@@ -1311,6 +1449,7 @@ class QUIC_EXPORT_PRIVATE QuicConnection
   QuicSentPacketManager sent_packet_manager_;
 
   // Indicates whether connection version has been negotiated.
+  // Always true for server connections.
   bool version_negotiated_;
 
   // Tracks if the connection was created by the server or the client.
@@ -1334,25 +1473,26 @@ class QUIC_EXPORT_PRIVATE QuicConnection
   // version negotiation packet.
   ParsedQuicVersionVector server_supported_versions_;
 
-  // The size of the packet we are targeting while doing path MTU discovery.
-  QuicByteCount mtu_discovery_target_;
-
   // The number of MTU probes already sent.
   size_t mtu_probe_count_;
 
-  // The number of packets between MTU probes.
-  QuicPacketCount packets_between_mtu_probes_;
-
-  // The packet number of the packet after which the next MTU probe will be
-  // sent.
-  QuicPacketNumber next_mtu_probe_at_;
-
+  // The value of |long_term_mtu_| prior to the last successful MTU increase.
+  // 0 means either
+  // - MTU discovery has never been enabled, or
+  // - MTU discovery has been enabled, but the connection got a packet write
+  //   error with a new (successfully probed) MTU, so it reverted
+  //   |long_term_mtu_| to the value before the last increase.
+  QuicPacketLength previous_validated_mtu_;
   // The value of the MTU regularly used by the connection. This is different
   // from the value returned by max_packet_size(), as max_packet_size() returns
   // the value of the MTU as currently used by the serializer, so if
   // serialization of an MTU probe is in progress, those two values will be
   // different.
   QuicByteCount long_term_mtu_;
+
+  // The maximum UDP payload size that our peer has advertised support for.
+  // Defaults to kDefaultMaxPacketSizeTransportParam until received from peer.
+  QuicByteCount peer_max_packet_size_;
 
   // The size of the largest packet received from peer.
   QuicByteCount largest_received_packet_size_;
@@ -1371,6 +1511,10 @@ class QUIC_EXPORT_PRIVATE QuicConnection
   // retransmittable frame(a WINDOW_UPDATE) will be created to solicit an ack
   // from the peer. Default to kMaxConsecutiveNonRetransmittablePackets.
   size_t max_consecutive_num_packets_with_no_retransmittable_frames_;
+
+  // If true, bundle an ack-eliciting frame with an ACK if the PTO or RTO alarm
+  // have previously fired.
+  bool bundle_retransmittable_with_pto_ack_;
 
   // If true, the connection will fill up the pipe with extra data whenever the
   // congestion controller needs it in order to make a bandwidth estimate.  This
@@ -1415,15 +1559,57 @@ class QUIC_EXPORT_PRIVATE QuicConnection
   // Deque because the peer might no be using this implementation, and others
   // might send a packet with more than one PATH_CHALLENGE, so all need to be
   // saved and responded to.
-  QuicDeque<QuicPathFrameBuffer> received_path_challenge_payloads_;
+  QuicCircularDeque<QuicPathFrameBuffer> received_path_challenge_payloads_;
 
   // Set of connection IDs that should be accepted as destination on
   // received packets. This is conceptually a set but is implemented as a
   // vector to improve performance since it is expected to be very small.
   std::vector<QuicConnectionId> incoming_connection_ids_;
 
-  // Indicates whether a RETRY packet has been parsed.
-  bool retry_has_been_parsed_;
+  // Indicates whether received RETRY packets should be dropped.
+  bool drop_incoming_retry_packets_;
+
+  // If max_consecutive_ptos_ > 0, close connection if consecutive PTOs is
+  // greater than max_consecutive_ptos.
+  size_t max_consecutive_ptos_;
+
+  // Bytes received before address validation. Only used when
+  // EnforceAntiAmplificationLimit returns true.
+  size_t bytes_received_before_address_validation_;
+
+  // Bytes sent before address validation. Only used when
+  // EnforceAntiAmplificationLimit returns true.
+  size_t bytes_sent_before_address_validation_;
+
+  // True if peer address has been validated. Address is considered validated
+  // when 1) an address token is received and validated, or 2) a HANDSHAKE
+  // packet has been successfully processed. Only used when
+  // EnforceAntiAmplificationLimit returns true.
+  bool address_validated_;
+
+  // Used to store content of packets which cannot be sent because of write
+  // blocked. Packets' encrypted buffers are copied and owned by
+  // buffered_packets_. From unacked_packet_map (and congestion control)'s
+  // perspective, those packets are considered sent.
+  std::list<BufferedPacket> buffered_packets_;
+
+  // Used to coalesce packets of different encryption level into the same UDP
+  // datagram. Connection stops trying to coalesce packets if a forward secure
+  // packet gets acknowledged.
+  QuicCoalescedPacket coalesced_packet_;
+
+  QuicConnectionMtuDiscoverer mtu_discoverer_;
+
+  QuicNetworkBlackholeDetector blackhole_detector_;
+
+  QuicIdleNetworkDetector idle_network_detector_;
+
+  const bool use_blackhole_detector_ =
+      GetQuicReloadableFlag(quic_use_blackhole_detector);
+
+  const bool use_idle_network_detector_ =
+      use_blackhole_detector_ &&
+      GetQuicReloadableFlag(quic_use_idle_network_detector);
 };
 
 }  // namespace quic

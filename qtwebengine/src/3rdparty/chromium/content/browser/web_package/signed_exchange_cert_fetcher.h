@@ -16,6 +16,9 @@
 #include "content/browser/web_package/signed_exchange_certificate_chain.h"
 #include "content/browser/web_package/signed_exchange_error.h"
 #include "content/common/content_export.h"
+#include "mojo/public/cpp/bindings/pending_receiver.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
+#include "net/base/network_isolation_key.h"
 #include "services/network/public/mojom/url_loader.mojom.h"
 
 namespace network {
@@ -29,12 +32,15 @@ namespace mojo {
 class SimpleWatcher;
 }  // namespace mojo
 
+namespace blink {
+class ThrottlingURLLoader;
+class URLLoaderThrottle;
+}  // namespace blink
+
 namespace content {
 
 class SignedExchangeDevToolsProxy;
 class SignedExchangeReporter;
-class ThrottlingURLLoader;
-class URLLoaderThrottle;
 
 class CONTENT_EXPORT SignedExchangeCertFetcher
     : public network::mojom::URLLoaderClient {
@@ -53,13 +59,14 @@ class CONTENT_EXPORT SignedExchangeCertFetcher
   // calling this.
   static std::unique_ptr<SignedExchangeCertFetcher> CreateAndStart(
       scoped_refptr<network::SharedURLLoaderFactory> shared_url_loader_factory,
-      std::vector<std::unique_ptr<URLLoaderThrottle>> throttles,
+      std::vector<std::unique_ptr<blink::URLLoaderThrottle>> throttles,
       const GURL& cert_url,
       bool force_fetch,
       CertificateCallback callback,
       SignedExchangeDevToolsProxy* devtools_proxy,
       SignedExchangeReporter* reporter,
-      const base::Optional<base::UnguessableToken>& throttling_profile_id);
+      const base::Optional<base::UnguessableToken>& throttling_profile_id,
+      base::Optional<net::NetworkIsolationKey> network_isolation_key);
 
   ~SignedExchangeCertFetcher() override;
 
@@ -75,13 +82,14 @@ class CONTENT_EXPORT SignedExchangeCertFetcher
 
   SignedExchangeCertFetcher(
       scoped_refptr<network::SharedURLLoaderFactory> shared_url_loader_factory,
-      std::vector<std::unique_ptr<URLLoaderThrottle>> throttles,
+      std::vector<std::unique_ptr<blink::URLLoaderThrottle>> throttles,
       const GURL& cert_url,
       bool force_fetch,
       CertificateCallback callback,
       SignedExchangeDevToolsProxy* devtools_proxy,
       SignedExchangeReporter* reporter,
-      const base::Optional<base::UnguessableToken>& throttling_profile_id);
+      const base::Optional<base::UnguessableToken>& throttling_profile_id,
+      base::Optional<net::NetworkIsolationKey> network_isolation_key);
   void Start();
   void Abort();
   void OnHandleReady(MojoResult result);
@@ -91,9 +99,9 @@ class CONTENT_EXPORT SignedExchangeCertFetcher
       const network::URLLoaderCompletionStatus& status);
 
   // network::mojom::URLLoaderClient
-  void OnReceiveResponse(const network::ResourceResponseHead& head) override;
+  void OnReceiveResponse(network::mojom::URLResponseHeadPtr head) override;
   void OnReceiveRedirect(const net::RedirectInfo& redirect_info,
-                         const network::ResourceResponseHead& head) override;
+                         network::mojom::URLResponseHeadPtr head) override;
   void OnUploadProgress(int64_t current_position,
                         int64_t total_size,
                         OnUploadProgressCallback callback) override;
@@ -104,15 +112,15 @@ class CONTENT_EXPORT SignedExchangeCertFetcher
   void OnComplete(const network::URLLoaderCompletionStatus& status) override;
 
   void OnDataURLRequest(const network::ResourceRequest& resource_request,
-                        network::mojom::URLLoaderRequest,
-                        network::mojom::URLLoaderClientPtr);
+                        mojo::PendingReceiver<network::mojom::URLLoader>,
+                        mojo::PendingRemote<network::mojom::URLLoaderClient>);
 
   scoped_refptr<network::SharedURLLoaderFactory> shared_url_loader_factory_;
-  std::vector<std::unique_ptr<URLLoaderThrottle>> throttles_;
+  std::vector<std::unique_ptr<blink::URLLoaderThrottle>> throttles_;
   std::unique_ptr<network::ResourceRequest> resource_request_;
   CertificateCallback callback_;
 
-  std::unique_ptr<ThrottlingURLLoader> url_loader_;
+  std::unique_ptr<blink::ThrottlingURLLoader> url_loader_;
   mojo::ScopedDataPipeConsumerHandle body_;
   std::unique_ptr<mojo::SimpleWatcher> handle_watcher_;
   std::string body_string_;

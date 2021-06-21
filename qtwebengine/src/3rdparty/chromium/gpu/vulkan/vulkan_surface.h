@@ -31,7 +31,9 @@ class VULKAN_EXPORT VulkanSurface {
     DEFAULT_SURFACE_FORMAT = FORMAT_RGBA_32
   };
 
-  VulkanSurface(VkInstance vk_instance, VkSurfaceKHR surface);
+  VulkanSurface(VkInstance vk_instance,
+                VkSurfaceKHR surface,
+                bool enforce_protected_memory);
 
   virtual ~VulkanSurface();
 
@@ -41,6 +43,7 @@ class VULKAN_EXPORT VulkanSurface {
   void Destroy();
 
   gfx::SwapResult SwapBuffers();
+  gfx::SwapResult PostSubBuffer(const gfx::Rect& rect);
 
   void Finish();
 
@@ -54,6 +57,7 @@ class VULKAN_EXPORT VulkanSurface {
   uint32_t swap_chain_generation() const { return swap_chain_generation_; }
   const gfx::Size& image_size() const { return image_size_; }
   gfx::OverlayTransform transform() const { return transform_; }
+  uint32_t image_count() const { return image_count_; }
   VkSurfaceFormatKHR surface_format() const { return surface_format_; }
 
  private:
@@ -65,6 +69,8 @@ class VULKAN_EXPORT VulkanSurface {
   VkSurfaceFormatKHR surface_format_ = {};
   VulkanDeviceQueue* device_queue_ = nullptr;
 
+  const bool enforce_protected_memory_;
+
   // The generation of |swap_chain_|, it will be increasted if a new
   // |swap_chain_| is created due to resizing, etec.
   uint32_t swap_chain_generation_ = 0u;
@@ -74,6 +80,9 @@ class VULKAN_EXPORT VulkanSurface {
 
   // Swap chain pre-transform.
   gfx::OverlayTransform transform_ = gfx::OVERLAY_TRANSFORM_INVALID;
+
+  // Swap chain image count.
+  uint32_t image_count_ = 0u;
 
   std::unique_ptr<VulkanSwapChain> swap_chain_;
 

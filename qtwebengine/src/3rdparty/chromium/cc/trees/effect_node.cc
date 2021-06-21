@@ -20,7 +20,7 @@ EffectNode::EffectNode()
       cache_render_surface(false),
       has_copy_request(false),
       hidden_by_backface_visibility(false),
-      double_sided(false),
+      double_sided(true),
       trilinear_filtering(false),
       is_drawn(true),
       subtree_hidden(false),
@@ -31,7 +31,6 @@ EffectNode::EffectNode()
       is_currently_animating_backdrop_filter(false),
       is_currently_animating_opacity(false),
       has_masking_child(false),
-      is_masked(false),
       effect_changed(false),
       subtree_has_copy_request(false),
       is_fast_rounded_corner(false),
@@ -39,7 +38,6 @@ EffectNode::EffectNode()
       transform_id(0),
       clip_id(0),
       target_id(1),
-      mask_layer_id(Layer::INVALID_ID),
       closest_ancestor_with_cached_render_surface_id(-1),
       closest_ancestor_with_copy_request_id(-1) {}
 
@@ -66,7 +64,6 @@ bool EffectNode::operator==(const EffectNode& other) const {
          HasRenderSurface() == other.HasRenderSurface() &&
          blend_mode == other.blend_mode &&
          surface_contents_scale == other.surface_contents_scale &&
-         unscaled_mask_target_size == other.unscaled_mask_target_size &&
          hidden_by_backface_visibility == other.hidden_by_backface_visibility &&
          double_sided == other.double_sided &&
          trilinear_filtering == other.trilinear_filtering &&
@@ -83,11 +80,10 @@ bool EffectNode::operator==(const EffectNode& other) const {
          is_currently_animating_opacity ==
              other.is_currently_animating_opacity &&
          has_masking_child == other.has_masking_child &&
-         is_masked == other.is_masked &&
          effect_changed == other.effect_changed &&
          subtree_has_copy_request == other.subtree_has_copy_request &&
          transform_id == other.transform_id && clip_id == other.clip_id &&
-         target_id == other.target_id && mask_layer_id == other.mask_layer_id &&
+         target_id == other.target_id &&
          closest_ancestor_with_cached_render_surface_id ==
              other.closest_ancestor_with_cached_render_surface_id &&
          closest_ancestor_with_copy_request_id ==
@@ -102,6 +98,8 @@ const char* RenderSurfaceReasonToString(RenderSurfaceReason reason) {
       return "root";
     case RenderSurfaceReason::k3dTransformFlattening:
       return "3d transform flattening";
+    case RenderSurfaceReason::kBackdropScope:
+      return "backdrop scope";
     case RenderSurfaceReason::kBlendMode:
       return "blend mode";
     case RenderSurfaceReason::kBlendModeDstIn:
@@ -126,8 +124,6 @@ const char* RenderSurfaceReasonToString(RenderSurfaceReason reason) {
       return "clip axis alignment";
     case RenderSurfaceReason::kMask:
       return "mask";
-    case RenderSurfaceReason::kRootOrIsolatedGroup:
-      return "root or isolated group";
     case RenderSurfaceReason::kTrilinearFiltering:
       return "trilinear filtering";
     case RenderSurfaceReason::kCache:
@@ -144,14 +140,15 @@ const char* RenderSurfaceReasonToString(RenderSurfaceReason reason) {
 
 void EffectNode::AsValueInto(base::trace_event::TracedValue* value) const {
   value->SetInteger("backdrop_mask_element_id",
-                    backdrop_mask_element_id.GetInternalValue());
+                    backdrop_mask_element_id.GetStableId());
   value->SetInteger("id", id);
   value->SetInteger("parent_id", parent_id);
   value->SetInteger("stable_id", stable_id);
   value->SetDouble("opacity", opacity);
-  if (!backdrop_filters.IsEmpty()) {
+  if (!filters.IsEmpty())
+    value->SetString("filters", filters.ToString());
+  if (!backdrop_filters.IsEmpty())
     value->SetString("backdrop_filters", backdrop_filters.ToString());
-  }
   value->SetDouble("backdrop_filter_quality", backdrop_filter_quality);
   value->SetBoolean("is_fast_rounded_corner", is_fast_rounded_corner);
   if (!rounded_corner_bounds.IsEmpty()) {
@@ -162,6 +159,8 @@ void EffectNode::AsValueInto(base::trace_event::TracedValue* value) const {
   value->SetBoolean("cache_render_surface", cache_render_surface);
   value->SetBoolean("has_copy_request", has_copy_request);
   value->SetBoolean("double_sided", double_sided);
+  value->SetBoolean("hidden_by_backface_visibility",
+                    hidden_by_backface_visibility);
   value->SetBoolean("trilinear_filtering", trilinear_filtering);
   value->SetBoolean("is_drawn", is_drawn);
   value->SetBoolean("has_potential_filter_animation",
@@ -171,7 +170,6 @@ void EffectNode::AsValueInto(base::trace_event::TracedValue* value) const {
   value->SetBoolean("has_potential_opacity_animation",
                     has_potential_opacity_animation);
   value->SetBoolean("has_masking_child", has_masking_child);
-  value->SetBoolean("is_masked", is_masked);
   value->SetBoolean("effect_changed", effect_changed);
   value->SetBoolean("subtree_has_copy_request", subtree_has_copy_request);
   value->SetString("render_surface_reason",
@@ -179,7 +177,6 @@ void EffectNode::AsValueInto(base::trace_event::TracedValue* value) const {
   value->SetInteger("transform_id", transform_id);
   value->SetInteger("clip_id", clip_id);
   value->SetInteger("target_id", target_id);
-  value->SetInteger("mask_layer_id", mask_layer_id);
   value->SetInteger("closest_ancestor_with_cached_render_surface_id",
                     closest_ancestor_with_cached_render_surface_id);
   value->SetInteger("closest_ancestor_with_copy_request_id",

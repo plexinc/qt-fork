@@ -17,20 +17,22 @@
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/post_task.h"
 #include "build/build_config.h"
 #include "content/browser/browser_child_process_host_impl.h"
 #include "content/browser/plugin_service_impl.h"
 #include "content/browser/renderer_host/render_message_filter.h"
 #include "content/common/child_process_host_impl.h"
 #include "content/common/content_switches_internal.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/network_service_instance.h"
+#include "content/public/common/content_client.h"
 #include "content/public/common/content_constants.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/pepper_plugin_info.h"
 #include "content/public/common/process_type.h"
 #include "content/public/common/sandboxed_process_launcher_delegate.h"
-#include "content/public/common/service_names.mojom.h"
 #include "ppapi/proxy/ppapi_messages.h"
 #include "ppapi/shared_impl/ppapi_permissions.h"
 #include "services/network/public/cpp/network_connection_tracker.h"
@@ -132,10 +134,14 @@ class PpapiPluginSandboxedProcessLauncherDelegate
   service_manager::SandboxType GetSandboxType() override {
 #if defined(OS_WIN)
     if (is_broker_)
-      return service_manager::SANDBOX_TYPE_NO_SANDBOX;
+      return service_manager::SandboxType::kNoSandbox;
 #endif  // OS_WIN
-    return service_manager::SANDBOX_TYPE_PPAPI;
+    return service_manager::SandboxType::kPpapi;
   }
+
+#if defined(OS_MACOSX)
+  bool DisclaimResponsibility() override { return true; }
+#endif
 
  private:
 #if BUILDFLAG(USE_ZYGOTE_HANDLE) || defined(OS_WIN)
@@ -315,7 +321,7 @@ PpapiPluginProcessHost::PpapiPluginProcessHost(
   permissions_ = ppapi::PpapiPermissions::GetForCommandLine(base_permissions);
 
   process_ = std::make_unique<BrowserChildProcessHostImpl>(
-      PROCESS_TYPE_PPAPI_PLUGIN, this, mojom::kPluginServiceName);
+      PROCESS_TYPE_PPAPI_PLUGIN, this, ChildProcessHost::IpcMode::kNormal);
 
   host_impl_ = std::make_unique<BrowserPpapiHostImpl>(
       this, permissions_, info.name, info.path, profile_data_directory,
@@ -334,7 +340,7 @@ PpapiPluginProcessHost::PpapiPluginProcessHost(
 
 PpapiPluginProcessHost::PpapiPluginProcessHost() : is_broker_(true) {
   process_ = std::make_unique<BrowserChildProcessHostImpl>(
-      PROCESS_TYPE_PPAPI_BROKER, this, mojom::kPluginServiceName);
+      PROCESS_TYPE_PPAPI_BROKER, this, ChildProcessHost::IpcMode::kNormal);
 
   ppapi::PpapiPermissions permissions;  // No permissions.
   // The plugin name, path and profile data directory shouldn't be needed for
@@ -363,7 +369,10 @@ bool PpapiPluginProcessHost::Init(const PepperPluginInfo& info) {
   int flags = plugin_launcher.empty() ? ChildProcessHost::CHILD_ALLOW_SELF :
                                         ChildProcessHost::CHILD_NORMAL;
 #elif defined(OS_MACOSX)
-  int flags = ChildProcessHost::CHILD_PLUGIN;
+  // Flash needs to JIT, but other plugins do not.
+  int flags = permissions_.HasPermission(ppapi::PERMISSION_FLASH)
+                  ? ChildProcessHost::CHILD_PLUGIN
+                  : ChildProcessHost::CHILD_NORMAL;
 #else
   int flags = ChildProcessHost::CHILD_NORMAL;
 #endif
@@ -476,7 +485,11 @@ void PpapiPluginProcessHost::OnProcessLaunched() {
 
 void PpapiPluginProcessHost::OnProcessCrashed(int exit_code) {
   VLOG(1) << "ppapi plugin process crashed.";
-  PluginServiceImpl::GetInstance()->RegisterPluginCrash(plugin_path_);
+  base::PostTask(
+      FROM_HERE, {BrowserThread::UI},
+      base::BindOnce(&PluginServiceImpl::RegisterPluginCrash,
+                     base::Unretained(PluginServiceImpl::GetInstance()),
+                     plugin_path_));
 }
 
 bool PpapiPluginProcessHost::OnMessageReceived(const IPC::Message& msg) {

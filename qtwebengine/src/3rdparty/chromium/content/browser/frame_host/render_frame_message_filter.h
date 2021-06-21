@@ -8,12 +8,12 @@
 #include <stdint.h>
 
 #include <set>
+#include <string>
 
 #include "base/optional.h"
 #include "content/common/frame_replication_state.h"
 #include "content/public/browser/browser_associated_interface.h"
 #include "content/public/browser/browser_message_filter.h"
-#include "content/public/common/three_d_api_types.h"
 #include "ppapi/buildflags/buildflags.h"
 #include "services/network/public/mojom/network_service.mojom.h"
 #include "third_party/blink/public/mojom/blob/blob_url_store.mojom.h"
@@ -26,12 +26,7 @@
 
 struct FrameHostMsg_CreateChildFrame_Params;
 struct FrameHostMsg_CreateChildFrame_Params_Reply;
-struct FrameHostMsg_DownloadUrl_Params;
 class GURL;
-
-namespace net {
-class URLRequestContextGetter;
-}
 
 namespace url {
 class Origin;
@@ -40,7 +35,6 @@ class Origin;
 namespace content {
 class BrowserContext;
 class PluginServiceImpl;
-struct Referrer;
 class RenderWidgetHelper;
 class ResourceContext;
 class StoragePartition;
@@ -63,24 +57,11 @@ class CONTENT_EXPORT RenderFrameMessageFilter : public BrowserMessageFilter {
   // BrowserMessageFilter methods:
   bool OnMessageReceived(const IPC::Message& message) override;
   void OnDestruct() const override;
+  void OverrideThreadForMessage(const IPC::Message& message,
+                                BrowserThread::ID* thread) override;
 
   // Clears |resource_context_| to prevent accessing it after deletion.
   void ClearResourceContext();
-
- protected:
-  friend class TestSaveImageFromDataURL;
-
-  // This method will be overridden by TestSaveImageFromDataURL class for test.
-  virtual void DownloadUrl(
-      int render_view_id,
-      int render_frame_id,
-      const GURL& url,
-      const Referrer& referrer,
-      const url::Origin& initiator,
-      const base::string16& suggested_name,
-      const bool use_prompt,
-      network::mojom::RedirectMode cross_origin_redirects,
-      blink::mojom::BlobURLTokenPtrInfo blob_url_token) const;
 
  private:
   friend class BrowserThread;
@@ -97,17 +78,6 @@ class CONTENT_EXPORT RenderFrameMessageFilter : public BrowserMessageFilter {
       const FrameHostMsg_CreateChildFrame_Params& params,
       FrameHostMsg_CreateChildFrame_Params_Reply* params_reply);
 
-  void OnDownloadUrl(const FrameHostMsg_DownloadUrl_Params& params);
-
-  void OnSaveImageFromDataURL(int render_view_id,
-                              int render_frame_id,
-                              const std::string& url_str);
-
-  void OnAre3DAPIsBlocked(int render_frame_id,
-                          const GURL& top_origin_url,
-                          ThreeDAPIType requester,
-                          bool* blocked);
-
   void OnRenderProcessGone();
 
 #if BUILDFLAG(ENABLE_PLUGINS)
@@ -119,6 +89,7 @@ class CONTENT_EXPORT RenderFrameMessageFilter : public BrowserMessageFilter {
                        WebPluginInfo* info,
                        std::string* actual_mime_type);
   void OnOpenChannelToPepperPlugin(
+      const url::Origin& embedder_origin,
       const base::FilePath& path,
       const base::Optional<url::Origin>& origin_lock,
       IPC::Message* reply_msg);
@@ -130,8 +101,7 @@ class CONTENT_EXPORT RenderFrameMessageFilter : public BrowserMessageFilter {
   void OnDidDeleteOutOfProcessPepperInstance(int plugin_child_id,
                                              int32_t pp_instance,
                                              bool is_external);
-  void OnOpenChannelToPpapiBroker(int routing_id,
-                                  const base::FilePath& path);
+  void OnOpenChannelToPpapiBroker(int routing_id, const base::FilePath& path);
   void OnPluginInstanceThrottleStateChange(int plugin_child_id,
                                            int32_t pp_instance,
                                            bool is_throttled);
@@ -144,9 +114,6 @@ class CONTENT_EXPORT RenderFrameMessageFilter : public BrowserMessageFilter {
   // Initialized to 0, accessed on FILE thread only.
   base::TimeTicks last_plugin_refresh_time_;
 #endif  // ENABLE_PLUGINS
-
-  // Contextual information to be used for requests created here.
-  scoped_refptr<net::URLRequestContextGetter> request_context_;
 
   // The ResourceContext which is to be used on the IO thread.
   ResourceContext* resource_context_;

@@ -8,6 +8,34 @@
 
 namespace blink {
 
+namespace {
+
+void NoopFunctionCallback(const v8::FunctionCallbackInfo<v8::Value>&) {}
+
+// Creating a new v8::Promise::Resolver to create a new promise can fail. If
+// JavaScript will no longer execute, then we can safely return the original
+// promise. Otherwise we have no choice but to crash.
+v8::Local<v8::Promise> AttemptToReturnDummyPromise(
+    v8::Local<v8::Context> context,
+    v8::Local<v8::Promise> original_promise) {
+  v8::Local<v8::Promise::Resolver> resolver;
+  if (!v8::Promise::Resolver::New(context).ToLocal(&resolver)) {
+    if (!context->GetIsolate()->IsExecutionTerminating()) {
+      // It's not safe to leak |original_promise| unless we have a guarantee
+      // that no further JavaScript will run.
+      LOG(FATAL) << "Cannot recover from failure to create a new "
+                    "v8::Promise::Resolver object (OOM?)";
+    }
+
+    // We are probably in the process of worker termination.
+    return original_promise;
+  }
+
+  return resolver->GetPromise();
+}
+
+}  // namespace
+
 PromiseHandler::PromiseHandler(ScriptState* script_state)
     : PromiseHandlerBase(script_state) {}
 
@@ -33,7 +61,19 @@ v8::Local<v8::Promise> StreamThenPromise(v8::Local<v8::Context> context,
   v8::MaybeLocal<v8::Promise> result_maybe;
   if (!on_fulfilled) {
     DCHECK(on_rejected);
-    result_maybe = promise->Catch(context, on_rejected->BindToV8Function());
+    // v8::Promise::Catch is not safe as it calls promise.then() which can be
+    // tampered with by JavaScript. v8::Promise::Then won't accept an undefined
+    // value for on_fulfilled, it has to be a function. So we pass a no-op
+    // function, which gives us approximately the semantics we need.
+    // TODO(ricea): Add a safe variant of v8::Promise::Catch to V8.
+    v8::Local<v8::Function> noop;
+    if (!v8::Function::New(context, NoopFunctionCallback).ToLocal(&noop)) {
+      DVLOG(3) << "Assuming that the failure of v8::Function::New() is caused "
+               << "by shutdown and ignoring it";
+      return AttemptToReturnDummyPromise(context, promise);
+    }
+    result_maybe =
+        promise->Then(context, noop, on_rejected->BindToV8Function());
   } else if (on_rejected) {
     result_maybe = promise->Then(context, on_fulfilled->BindToV8Function(),
                                  on_rejected->BindToV8Function());
@@ -46,10 +86,7 @@ v8::Local<v8::Promise> StreamThenPromise(v8::Local<v8::Context> context,
     DVLOG(3)
         << "assuming that failure of promise->Then() is caused by shutdown and"
            "ignoring it";
-    // Try to create a dummy promise so that the calling code can continue. If
-    // we can't create one, then we can't return to the calling context so we
-    // have to crash. This shouldn't happen except on OOM.
-    result = v8::Promise::Resolver::New(context).ToLocalChecked()->GetPromise();
+    result = AttemptToReturnDummyPromise(context, promise);
   }
   return result;
 }

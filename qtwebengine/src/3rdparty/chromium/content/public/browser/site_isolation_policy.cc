@@ -12,19 +12,14 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/feature_list.h"
-#include "base/macros.h"
 #include "base/metrics/field_trial_params.h"
-#include "base/metrics/histogram_macros.h"
-#include "base/no_destructor.h"
 #include "base/strings/string_split.h"
-#include "base/timer/timer.h"
 #include "build/build_config.h"
 #include "content/public/browser/child_process_security_policy.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/common/content_client.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
-#include "content/public/common/resource_type.h"
 #include "url/gurl.h"
 
 namespace content {
@@ -45,6 +40,8 @@ bool IsSiteIsolationDisabled() {
   }
 #endif
 
+  // Check with the embedder.  In particular, chrome/ uses this to disable site
+  // isolation when below a memory threshold.
   return GetContentClient() &&
          GetContentClient()->browser()->ShouldDisableSiteIsolation();
 }
@@ -90,6 +87,16 @@ bool SiteIsolationPolicy::AreIsolatedOriginsEnabled() {
 
 // static
 bool SiteIsolationPolicy::IsStrictOriginIsolationEnabled() {
+  // If the feature is explicitly enabled by the user (e.g., from
+  // chrome://flags), honor this regardless of checks to disable site isolation
+  // below.  This means this takes precedence over memory thresholds or
+  // switches to disable site isolation.
+  if (base::FeatureList::GetInstance()->IsFeatureOverriddenFromCommandLine(
+          features::kStrictOriginIsolation.name,
+          base::FeatureList::OVERRIDE_ENABLE_FEATURE)) {
+    return true;
+  }
+
   // TODO(wjmaclean): Figure out what should happen when this feature is
   // combined with --isolate-origins.
   if (IsSiteIsolationDisabled())
@@ -170,35 +177,6 @@ void SiteIsolationPolicy::ApplyGlobalIsolatedOrigins() {
   policy->AddIsolatedOrigins(
       from_embedder,
       ChildProcessSecurityPolicy::IsolatedOriginSource::BUILT_IN);
-}
-
-// static
-void SiteIsolationPolicy::StartRecordingSiteIsolationFlagUsage() {
-  RecordSiteIsolationFlagUsage();
-  // Record the flag usage metrics every 24 hours.  Even though site isolation
-  // flags can't change dynamically at runtime, collecting these stats daily
-  // helps determine the overall population of users who run with a given flag
-  // on any given day.
-  static base::NoDestructor<base::RepeatingTimer> update_stats_timer;
-  update_stats_timer->Start(
-      FROM_HERE, base::TimeDelta::FromHours(24),
-      base::BindRepeating(&SiteIsolationPolicy::RecordSiteIsolationFlagUsage));
-}
-
-// static
-void SiteIsolationPolicy::RecordSiteIsolationFlagUsage() {
-  // For --site-per-process and --isolate-origins, include flags specified on
-  // command-line, in chrome://flags, and via enterprise policy (i.e., include
-  // switches::kSitePerProcess and switches::kIsolateOrigins).  Exclude these
-  // modes being set through field trials (i.e., exclude
-  // features::kSitePerProcess and features::IsolateOrigins).
-  UMA_HISTOGRAM_BOOLEAN("SiteIsolation.Flags.IsolateOrigins",
-                        base::CommandLine::ForCurrentProcess()->HasSwitch(
-                            switches::kIsolateOrigins));
-
-  UMA_HISTOGRAM_BOOLEAN("SiteIsolation.Flags.SitePerProcess",
-                        base::CommandLine::ForCurrentProcess()->HasSwitch(
-                            switches::kSitePerProcess));
 }
 
 }  // namespace content

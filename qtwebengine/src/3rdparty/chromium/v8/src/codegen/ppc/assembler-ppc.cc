@@ -36,7 +36,7 @@
 
 #include "src/codegen/ppc/assembler-ppc.h"
 
-#if V8_TARGET_ARCH_PPC
+#if V8_TARGET_ARCH_PPC || V8_TARGET_ARCH_PPC64
 
 #include "src/base/bits.h"
 #include "src/base/cpu.h"
@@ -123,6 +123,11 @@ void CpuFeatures::PrintTarget() {
 
 void CpuFeatures::PrintFeatures() {
   printf("FPU=%d\n", CpuFeatures::IsSupported(FPU));
+  printf("FPR_GPR_MOV=%d\n", CpuFeatures::IsSupported(FPR_GPR_MOV));
+  printf("LWSYNC=%d\n", CpuFeatures::IsSupported(LWSYNC));
+  printf("ISELECT=%d\n", CpuFeatures::IsSupported(ISELECT));
+  printf("VSX=%d\n", CpuFeatures::IsSupported(VSX));
+  printf("MODULO=%d\n", CpuFeatures::IsSupported(MODULO));
 }
 
 Register ToRegister(int num) {
@@ -200,8 +205,8 @@ void Assembler::AllocateAndInstallRequestedHeapObjects(Isolate* isolate) {
     Handle<HeapObject> object;
     switch (request.kind()) {
       case HeapObjectRequest::kHeapNumber: {
-        object = isolate->factory()->NewHeapNumber(request.heap_number(),
-                                                   AllocationType::kOld);
+        object = isolate->factory()->NewHeapNumber<AllocationType::kOld>(
+            request.heap_number());
         break;
       }
       case HeapObjectRequest::kStringConstant: {
@@ -1121,20 +1126,6 @@ void Assembler::divdu(Register dst, Register src1, Register src2, OEBit o,
 }
 #endif
 
-// Function descriptor for AIX.
-// Code address skips the function descriptor "header".
-// TOC and static chain are ignored and set to 0.
-void Assembler::function_descriptor() {
-  if (ABI_USES_FUNCTION_DESCRIPTORS) {
-    Label instructions;
-    DCHECK_EQ(pc_offset(), 0);
-    emit_label_addr(&instructions);
-    dp(0);
-    dp(0);
-    bind(&instructions);
-  }
-}
-
 int Assembler::instructions_required_for_mov(Register dst,
                                              const Operand& src) const {
   bool canOptimize =
@@ -1969,4 +1960,4 @@ Register UseScratchRegisterScope::Acquire() {
 }  // namespace internal
 }  // namespace v8
 
-#endif  // V8_TARGET_ARCH_PPC
+#endif  // V8_TARGET_ARCH_PPC || V8_TARGET_ARCH_PPC64

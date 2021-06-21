@@ -57,7 +57,9 @@ class FakeAutofillAgent : public mojom::AutofillAgent {
                              std::move(handle)));
   }
 
-  void SetQuitLoopClosure(base::Closure closure) { quit_closure_ = closure; }
+  void SetQuitLoopClosure(base::OnceClosure closure) {
+    quit_closure_ = std::move(closure);
+  }
 
   // Returns the id and formdata received via
   // mojo interface method mojom::AutofillAgent::FillForm().
@@ -143,10 +145,8 @@ class FakeAutofillAgent : public mojom::AutofillAgent {
 
  private:
   void CallDone() {
-    if (!quit_closure_.is_null()) {
-      quit_closure_.Run();
-      quit_closure_.Reset();
-    }
+    if (!quit_closure_.is_null())
+      std::move(quit_closure_).Run();
   }
 
   // mojom::AutofillAgent:
@@ -188,8 +188,11 @@ class FakeAutofillAgent : public mojom::AutofillAgent {
     CallDone();
   }
 
-  void SetSuggestionAvailability(bool value) override {
-    suggestions_available_ = value;
+  void SetSuggestionAvailability(const mojom::AutofillState state) override {
+    if (state == mojom::AutofillState::kAutofillAvailable)
+      suggestions_available_ = true;
+    else if (state == mojom::AutofillState::kNoSuggestions)
+      suggestions_available_ = false;
     CallDone();
   }
 
@@ -203,9 +206,6 @@ class FakeAutofillAgent : public mojom::AutofillAgent {
 
   void PreviewPasswordSuggestion(const base::string16& username,
                                  const base::string16& password) override {}
-
-  void ShowInitialPasswordAccountSuggestions(
-      const PasswordFormFillData& form_data) override {}
 
   void SetUserGestureRequired(bool required) override {}
 
@@ -221,7 +221,7 @@ class FakeAutofillAgent : public mojom::AutofillAgent {
 
   mojo::AssociatedReceiverSet<mojom::AutofillAgent> receivers_;
 
-  base::Closure quit_closure_;
+  base::OnceClosure quit_closure_;
 
   // Records data received from FillForm() call.
   int32_t fill_form_id_;

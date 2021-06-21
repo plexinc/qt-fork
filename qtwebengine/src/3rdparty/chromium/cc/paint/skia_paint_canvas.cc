@@ -9,6 +9,7 @@
 #include "cc/paint/paint_recorder.h"
 #include "cc/paint/scoped_raster_flags.h"
 #include "third_party/skia/include/core/SkAnnotation.h"
+#include "third_party/skia/include/docs/SkPDFDocument.h"
 
 namespace cc {
 SkiaPaintCanvas::ContextFlushes::ContextFlushes()
@@ -24,17 +25,26 @@ SkiaPaintCanvas::SkiaPaintCanvas(SkCanvas* canvas,
 SkiaPaintCanvas::SkiaPaintCanvas(const SkBitmap& bitmap,
                                  ImageProvider* image_provider)
     : canvas_(new SkCanvas(bitmap)),
+      bitmap_(bitmap),
       owned_(canvas_),
       image_provider_(image_provider) {}
 
 SkiaPaintCanvas::SkiaPaintCanvas(const SkBitmap& bitmap,
                                  const SkSurfaceProps& props)
-    : canvas_(new SkCanvas(bitmap, props)), owned_(canvas_) {}
+    : canvas_(new SkCanvas(bitmap, props)), bitmap_(bitmap), owned_(canvas_) {}
 
 SkiaPaintCanvas::~SkiaPaintCanvas() = default;
 
 SkImageInfo SkiaPaintCanvas::imageInfo() const {
   return canvas_->imageInfo();
+}
+
+void* SkiaPaintCanvas::accessTopLayerPixels(SkImageInfo* info,
+                                            size_t* rowBytes,
+                                            SkIPoint* origin) {
+  if (bitmap_.isNull() || bitmap_.isImmutable())
+    return nullptr;
+  return canvas_->accessTopLayerPixels(info, rowBytes, origin);
 }
 
 void SkiaPaintCanvas::flush() {
@@ -308,7 +318,11 @@ void SkiaPaintCanvas::drawTextBlob(sk_sp<SkTextBlob> blob,
                                    SkScalar y,
                                    NodeId node_id,
                                    const PaintFlags& flags) {
+  if (node_id)
+    SkPDF::SetNodeId(canvas_, node_id);
   drawTextBlob(blob, x, y, flags);
+  if (node_id)
+    SkPDF::SetNodeId(canvas_, 0);
 }
 
 void SkiaPaintCanvas::drawPicture(sk_sp<const PaintRecord> record) {
@@ -319,11 +333,7 @@ bool SkiaPaintCanvas::isClipEmpty() const {
   return canvas_->isClipEmpty();
 }
 
-bool SkiaPaintCanvas::isClipRect() const {
-  return canvas_->isClipRect();
-}
-
-const SkMatrix& SkiaPaintCanvas::getTotalMatrix() const {
+SkMatrix SkiaPaintCanvas::getTotalMatrix() const {
   return canvas_->getTotalMatrix();
 }
 
@@ -343,6 +353,10 @@ void SkiaPaintCanvas::Annotate(AnnotationType type,
       break;
     }
   }
+}
+
+void SkiaPaintCanvas::setNodeId(int node_id) {
+  SkPDF::SetNodeId(canvas_, node_id);
 }
 
 void SkiaPaintCanvas::drawPicture(

@@ -8,6 +8,7 @@
 #include <string>
 #include <utility>
 
+#include "ash/public/cpp/network_config_service.h"
 #include "base/bind.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
@@ -27,14 +28,13 @@
 #include "chromeos/network/network_state.h"
 #include "chromeos/network/network_state_handler.h"
 #include "chromeos/network/onc/onc_utils.h"
-#include "chromeos/services/network_config/public/mojom/constants.mojom.h"
+#include "chromeos/services/network_config/public/mojom/cros_network_config.mojom.h"
 #include "components/device_event_log/device_event_log.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_data_source.h"
 #include "content/public/browser/web_ui_message_handler.h"
-#include "services/service_manager/public/cpp/connector.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
 #include "ui/base/l10n/l10n_util.h"
 
@@ -45,6 +45,7 @@ namespace {
 constexpr char kAddNetwork[] = "addNetwork";
 constexpr char kGetNetworkProperties[] = "getShillNetworkProperties";
 constexpr char kGetDeviceProperties[] = "getShillDeviceProperties";
+constexpr char kGetEthernetEAP[] = "getShillEthernetEAP";
 constexpr char kOpenCellularActivationUi[] = "openCellularActivationUi";
 constexpr char kShowNetworkDetails[] = "showNetworkDetails";
 constexpr char kShowNetworkConfig[] = "showNetworkConfig";
@@ -88,7 +89,7 @@ void SetDeviceProperties(base::DictionaryValue* dictionary) {
 
 class NetworkConfigMessageHandler : public content::WebUIMessageHandler {
  public:
-  NetworkConfigMessageHandler() : weak_ptr_factory_(this) {}
+  NetworkConfigMessageHandler() {}
   ~NetworkConfigMessageHandler() override {}
 
   // WebUIMessageHandler implementation.
@@ -107,6 +108,10 @@ class NetworkConfigMessageHandler : public content::WebUIMessageHandler {
         base::BindRepeating(
             &NetworkConfigMessageHandler::GetShillDeviceProperties,
             base::Unretained(this)));
+    web_ui()->RegisterMessageCallback(
+        kGetEthernetEAP,
+        base::BindRepeating(&NetworkConfigMessageHandler::GetShillEthernetEAP,
+                            base::Unretained(this)));
     web_ui()->RegisterMessageCallback(
         kOpenCellularActivationUi,
         base::BindRepeating(
@@ -185,11 +190,33 @@ class NetworkConfigMessageHandler : public content::WebUIMessageHandler {
     }
     NetworkHandler::Get()->network_device_handler()->GetDeviceProperties(
         device->path(),
-        base::Bind(
+        base::BindOnce(
             &NetworkConfigMessageHandler::GetShillDevicePropertiesSuccess,
             weak_ptr_factory_.GetWeakPtr()),
         base::Bind(&NetworkConfigMessageHandler::ErrorCallback,
                    weak_ptr_factory_.GetWeakPtr(), type, kGetDeviceProperties));
+  }
+
+  void GetShillEthernetEAP(const base::ListValue* arg_list) {
+    NetworkStateHandler::NetworkStateList list;
+    NetworkHandler::Get()->network_state_handler()->GetNetworkListByType(
+        NetworkTypePattern::Primitive(shill::kTypeEthernetEap),
+        true /* configured_only */, false /* visible_only */, 1 /* limit */,
+        &list);
+
+    AllowJavascript();
+    if (list.empty()) {
+      CallJavascriptFunction(
+          base::StringPrintf("NetworkUI.%sResult", kGetEthernetEAP));
+      return;
+    }
+    const NetworkState* eap = list.front();
+    base::Value properties(base::Value::Type::DICTIONARY);
+    properties.SetStringKey("guid", eap->guid());
+    properties.SetStringKey("name", eap->name());
+    properties.SetStringKey("type", eap->type());
+    CallJavascriptFunction(
+        base::StringPrintf("NetworkUI.%sResult", kGetEthernetEAP), properties);
   }
 
   void OpenCellularActivationUi(const base::ListValue* arg_list) {
@@ -253,12 +280,12 @@ class NetworkConfigMessageHandler : public content::WebUIMessageHandler {
                      std::unique_ptr<base::DictionaryValue> /* error_data */) {
     NET_LOG(ERROR) << "Shill Error: " << error_name << " id=" << guid_or_type;
     base::ListValue return_arg_list;
-    std::unique_ptr<base::DictionaryValue> dictionary;
+    base::Value dictionary(base::Value::Type::DICTIONARY);
     std::string key = function_name == kGetDeviceProperties
                           ? shill::kTypeProperty
                           : shill::kGuidProperty;
-    dictionary->SetKey(key, base::Value(guid_or_type));
-    dictionary->SetKey("ShillError", base::Value(error_name));
+    dictionary.SetKey(key, base::Value(guid_or_type));
+    dictionary.SetKey("ShillError", base::Value(error_name));
     return_arg_list.Append(std::move(dictionary));
 
     AllowJavascript();
@@ -273,7 +300,7 @@ class NetworkConfigMessageHandler : public content::WebUIMessageHandler {
     InternetConfigDialog::ShowDialogForNetworkType(onc_type);
   }
 
-  base::WeakPtrFactory<NetworkConfigMessageHandler> weak_ptr_factory_;
+  base::WeakPtrFactory<NetworkConfigMessageHandler> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(NetworkConfigMessageHandler);
 };
@@ -326,6 +353,9 @@ void NetworkUI::GetLocalizedStrings(base::DictionaryValue* localized_strings) {
       "favoriteNetworksLabel",
       l10n_util::GetStringUTF16(IDS_NETWORK_UI_FAVORITE_NETWORKS));
   localized_strings->SetString(
+      "ethernetEapNetworkLabel",
+      l10n_util::GetStringUTF16(IDS_NETWORK_UI_ETHERNET_EAP));
+  localized_strings->SetString(
       "devicesLabel", l10n_util::GetStringUTF16(IDS_NETWORK_UI_DEVICES));
 
   localized_strings->SetString(
@@ -363,24 +393,22 @@ NetworkUI::NetworkUI(content::WebUI* web_ui)
 
   network_element::AddLocalizedStrings(html);
 
-  html->SetJsonPath("strings.js");
+  html->UseStringsJs();
   html->AddResourcePath("network_ui.css", IDR_NETWORK_UI_CSS);
   html->AddResourcePath("network_ui.js", IDR_NETWORK_UI_JS);
   html->SetDefaultResource(IDR_NETWORK_UI_HTML);
 
   content::WebUIDataSource::Add(web_ui->GetWebContents()->GetBrowserContext(),
                                 html);
-  AddHandlerToRegistry(base::BindRepeating(&NetworkUI::BindCrosNetworkConfig,
-                                           base::Unretained(this)));
 }
 
 NetworkUI::~NetworkUI() {}
 
-void NetworkUI::BindCrosNetworkConfig(
-    network_config::mojom::CrosNetworkConfigRequest request) {
-  content::BrowserContext::GetConnectorFor(
-      web_ui()->GetWebContents()->GetBrowserContext())
-      ->BindInterface(network_config::mojom::kServiceName, std::move(request));
+void NetworkUI::BindInterface(
+    mojo::PendingReceiver<network_config::mojom::CrosNetworkConfig> receiver) {
+  ash::GetNetworkConfigService(std::move(receiver));
 }
+
+WEB_UI_CONTROLLER_TYPE_IMPL(NetworkUI)
 
 }  // namespace chromeos

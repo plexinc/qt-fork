@@ -4,10 +4,13 @@
 
 #include "third_party/blink/renderer/platform/fonts/win/font_unique_name_lookup_win.h"
 
+#include <memory>
+#include <utility>
+
 #include "base/files/file_path.h"
 #include "mojo/public/mojom/base/shared_memory.mojom-blink.h"
+#include "third_party/blink/public/common/thread_safe_browser_interface_broker_proxy.h"
 #include "third_party/blink/public/mojom/dwrite_font_proxy/dwrite_font_proxy.mojom-blink.h"
-#include "third_party/blink/public/platform/interface_provider.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/platform/instrumentation/histogram.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
@@ -162,8 +165,8 @@ bool FontUniqueNameLookupWin::IsFontUniqueNameLookupReadyForSyncLookup() {
 void FontUniqueNameLookupWin::EnsureServiceConnected() {
   if (service_)
     return;
-  Platform::Current()->GetInterfaceProvider()->GetInterface(
-      mojo::MakeRequest(&service_));
+  Platform::Current()->GetBrowserInterfaceBroker()->GetInterface(
+      service_.BindNewPipeAndPassReceiver());
 }
 
 void FontUniqueNameLookupWin::PrepareFontUniqueNameLookup(

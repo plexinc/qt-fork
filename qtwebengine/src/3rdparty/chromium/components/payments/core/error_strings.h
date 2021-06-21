@@ -35,9 +35,6 @@ extern const char kCannotUpdateWithoutInit[];
 // Mojo call PaymentRequest::Show() must precede PaymentRequest::UpdateWith().
 extern const char kCannotUpdateWithoutShow[];
 
-// A message about unsupported payment method.
-extern const char kGenericPaymentMethodNotSupportedMessage[];
-
 // Used when an invalid state is encountered generically.
 extern const char kInvalidState[];
 
@@ -50,6 +47,10 @@ extern const char kProhibitedOrigin[];
 // A long form explanation of Chrome"s behavior in the case of kProhibitedOrigin
 // or kInvalidSslCertificate error.
 extern const char kProhibitedOriginOrInvalidSslExplanation[];
+
+// Used when rejecting show() with NotSupportedError, because the user did not
+// have all valid autofill data.
+extern const char kStrictBasicCardShowReject[];
 
 // Used when "total": {"label": "Total", "amount": {"currency": "USD", "value":
 // "0.01"}} is required, bot not provided.

@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/unguessable_token.h"
@@ -15,17 +16,19 @@
 #include "content/public/browser/browser_thread.h"
 #include "extensions/browser/api/serial/serial_api.h"
 #include "extensions/browser/api/serial/serial_connection.h"
+#include "extensions/browser/api/serial/serial_port_manager.h"
 #include "extensions/browser/extension_function.h"
 #include "extensions/browser/extension_function_registry.h"
 #include "extensions/common/api/serial.h"
 #include "extensions/common/switches.h"
 #include "extensions/test/result_catcher.h"
-#include "mojo/public/cpp/bindings/binding_set.h"
+#include "mojo/public/cpp/bindings/pending_receiver.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
+#include "mojo/public/cpp/bindings/receiver_set.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "mojo/public/cpp/system/data_pipe.h"
 #include "mojo/public/cpp/system/simple_watcher.h"
-#include "services/device/public/mojom/constants.mojom.h"
 #include "services/device/public/mojom/serial.mojom.h"
-#include "services/service_manager/public/cpp/service_binding.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
 // Disable SIMULATE_SERIAL_PORTS only if all the following are true:
@@ -75,8 +78,8 @@ class FakeSerialPort : public device::mojom::SerialPort {
 
   const device::mojom::SerialPortInfo& info() { return *info_; }
 
-  void Bind(device::mojom::SerialPortRequest request) {
-    bindings_.AddBinding(this, std::move(request));
+  void Bind(mojo::PendingReceiver<device::mojom::SerialPort> receiver) {
+    receivers_.Add(this, std::move(receiver));
   }
 
  private:
@@ -84,7 +87,7 @@ class FakeSerialPort : public device::mojom::SerialPort {
   void Open(device::mojom::SerialConnectionOptionsPtr options,
             mojo::ScopedDataPipeConsumerHandle in_stream,
             mojo::ScopedDataPipeProducerHandle out_stream,
-            device::mojom::SerialPortClientPtr client,
+            mojo::PendingRemote<device::mojom::SerialPortClient> client,
             OpenCallback callback) override {
     if (client_) {
       // Port is already open.
@@ -94,7 +97,7 @@ class FakeSerialPort : public device::mojom::SerialPort {
 
     DoConfigurePort(*options);
     DCHECK(client);
-    client_ = std::move(client);
+    client_.Bind(std::move(client));
     SetUpInStreamPipe(std::move(in_stream));
     SetUpOutStreamPipe(std::move(out_stream));
     std::move(callback).Run(true);
@@ -137,12 +140,6 @@ class FakeSerialPort : public device::mojom::SerialPort {
     info->stop_bits = options_.stop_bits;
     info->cts_flow_control = options_.cts_flow_control;
     std::move(callback).Run(std::move(info));
-  }
-  void SetBreak(SetBreakCallback callback) override {
-    std::move(callback).Run(true);
-  }
-  void ClearBreak(ClearBreakCallback callback) override {
-    std::move(callback).Run(true);
   }
 
   void Close(CloseCallback callback) override {
@@ -269,14 +266,14 @@ class FakeSerialPort : public device::mojom::SerialPort {
   }
 
   device::mojom::SerialPortInfoPtr info_;
-  mojo::BindingSet<device::mojom::SerialPort> bindings_;
+  mojo::ReceiverSet<device::mojom::SerialPort> receivers_;
 
   // Currently applied connection options.
   device::mojom::SerialConnectionOptions options_;
   std::vector<uint8_t> buffer_;
   int read_step_ = 0;
   int write_step_ = 0;
-  device::mojom::SerialPortClientPtr client_;
+  mojo::Remote<device::mojom::SerialPortClient> client_;
   mojo::ScopedDataPipeConsumerHandle in_stream_;
   mojo::SimpleWatcher in_stream_watcher_;
   mojo::ScopedDataPipeProducerHandle out_stream_;
@@ -294,12 +291,17 @@ class FakeSerialPortManager : public device::mojom::SerialPortManager {
 
   ~FakeSerialPortManager() override = default;
 
-  void Bind(device::mojom::SerialPortManagerRequest request) {
-    bindings_.AddBinding(this, std::move(request));
+  void Bind(mojo::PendingReceiver<device::mojom::SerialPortManager> receiver) {
+    receivers_.Add(this, std::move(receiver));
   }
 
  private:
   // device::mojom::SerialPortManager methods:
+  void SetClient(mojo::PendingRemote<device::mojom::SerialPortManagerClient>
+                     remote) override {
+    NOTIMPLEMENTED();
+  }
+
   void GetDevices(GetDevicesCallback callback) override {
     std::vector<device::mojom::SerialPortInfoPtr> ports;
     for (const auto& port : ports_)
@@ -308,12 +310,13 @@ class FakeSerialPortManager : public device::mojom::SerialPortManager {
   }
 
   void GetPort(const base::UnguessableToken& token,
-               device::mojom::SerialPortRequest request,
-               device::mojom::SerialPortConnectionWatcherPtr watcher) override {
+               mojo::PendingReceiver<device::mojom::SerialPort> receiver,
+               mojo::PendingRemote<device::mojom::SerialPortConnectionWatcher>
+                   watcher) override {
     DCHECK(!watcher);
     auto it = ports_.find(token);
     DCHECK(it != ports_.end());
-    it->second->Bind(std::move(request));
+    it->second->Bind(std::move(receiver));
   }
 
   void AddPort(const base::FilePath& path) {
@@ -325,7 +328,7 @@ class FakeSerialPortManager : public device::mojom::SerialPortManager {
         token, std::make_unique<FakeSerialPort>(std::move(port))));
   }
 
-  mojo::BindingSet<device::mojom::SerialPortManager> bindings_;
+  mojo::ReceiverSet<device::mojom::SerialPortManager> receivers_;
   std::map<base::UnguessableToken, std::unique_ptr<FakeSerialPort>> ports_;
 
   DISALLOW_COPY_AND_ASSIGN(FakeSerialPortManager);
@@ -335,22 +338,14 @@ class SerialApiTest : public ExtensionApiTest {
  public:
   SerialApiTest() {
 #if SIMULATE_SERIAL_PORTS
-    // Because Device Service also runs in this process(browser process), we can
-    // set our binder to intercept requests for
-    // SerialPortManager/SerialPort interfaces to it.
-    service_manager::ServiceBinding::OverrideInterfaceBinderForTesting(
-        device::mojom::kServiceName,
-        base::BindRepeating(&SerialApiTest::BindSerialPortManager,
-                            base::Unretained(this)));
+    api::SerialPortManager::OverrideBinderForTesting(base::BindRepeating(
+        &SerialApiTest::BindSerialPortManager, base::Unretained(this)));
 #endif
   }
 
   ~SerialApiTest() override {
 #if SIMULATE_SERIAL_PORTS
-    service_manager::ServiceBinding::ClearInterfaceBinderOverrideForTesting<
-        device::mojom::SerialPortManager>(device::mojom::kServiceName);
-    service_manager::ServiceBinding::ClearInterfaceBinderOverrideForTesting<
-        device::mojom::SerialPort>(device::mojom::kServiceName);
+    api::SerialPortManager::OverrideBinderForTesting(base::NullCallback());
 #endif
   }
 
@@ -362,11 +357,12 @@ class SerialApiTest : public ExtensionApiTest {
   void FailEnumeratorRequest() { fail_enumerator_request_ = true; }
 
  protected:
-  void BindSerialPortManager(device::mojom::SerialPortManagerRequest request) {
+  void BindSerialPortManager(
+      mojo::PendingReceiver<device::mojom::SerialPortManager> receiver) {
     if (fail_enumerator_request_)
       return;
 
-    port_manager_->Bind(std::move(request));
+    port_manager_->Bind(std::move(receiver));
   }
 
   bool fail_enumerator_request_ = false;

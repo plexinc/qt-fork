@@ -4,7 +4,6 @@
 
 /**
  * @fileoverview Externs for objects sent from C++ to chrome://history.
- * @externs
  */
 
 /**
@@ -12,6 +11,7 @@
  * chrome/browser/ui/webui/browsing_history_handler.cc:
  *     BrowsingHistoryHandler::HistoryEntry::ToValue()
  * @typedef {{allTimestamps: Array<number>,
+ *            remoteIconUrlForUma: string,
  *            isUrlInRemoteUserData: boolean,
  *            blockedVisit: boolean,
  *            dateRelativeDay: string,
@@ -28,7 +28,7 @@
  *            title: string,
  *            url: string}}
  */
-let HistoryEntry;
+export let HistoryEntry;
 
 /**
  * The type of the history results info object. The definition is based on
@@ -37,19 +37,20 @@ let HistoryEntry;
  * @typedef {{finished: boolean,
  *            term: string}}
  */
-let HistoryQuery;
+export let HistoryQuery;
 
 /**
  * The type of the foreign session tab object. This definition is based on
  * chrome/browser/ui/webui/foreign_session_handler.cc:
  * @typedef {{direction: string,
+ *            remoteIconUrlForUma: string,
  *            sessionId: number,
  *            timestamp: number,
  *            title: string,
  *            type: string,
  *            url: string}}
  */
-let ForeignSessionTab;
+export let ForeignSessionTab;
 
 /**
  * The type of the foreign session tab object. This definition is based on
@@ -58,7 +59,7 @@ let ForeignSessionTab;
  *            sessionId: number,
  *            tabs: Array<ForeignSessionTab>}}
  */
-let ForeignSessionWindow;
+export let ForeignSessionWindow;
 
 /**
  * The type of the foreign session info object. This definition is based on
@@ -71,27 +72,18 @@ let ForeignSessionWindow;
  *            timestamp: number,
  *            windows: Array<ForeignSessionWindow>}}
  */
-let ForeignSession;
+export let ForeignSession;
 
 /**
  * @typedef {{incremental: boolean,
  *            querying: boolean,
  *            searchTerm: string}}
  */
-let QueryState;
+export let QueryState;
 
 /**
  * @typedef {{info: ?HistoryQuery,
  *            results: ?Array<!HistoryEntry>,
  *            sessionList: ?Array<!ForeignSession>}}
  */
-let QueryResult;
-
-/**
- * @constructor
- * @extends {MouseEvent}
- */
-const DomRepeatClickEvent = function() {};
-
-/** @type {Object} */
-DomRepeatClickEvent.prototype.model;
+export let QueryResult;

@@ -12,7 +12,6 @@
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
-#include "third_party/blink/renderer/platform/wtf/time.h"
 
 namespace blink {
 
@@ -55,6 +54,7 @@ class PLATFORM_EXPORT ThreadHeapStatsObserver {
   V(InvokePreFinalizers)              \
   V(LazySweepInIdle)                  \
   V(LazySweepOnAllocation)            \
+  V(MarkBailOutObjects)               \
   V(MarkInvokeEphemeronCallbacks)     \
   V(MarkProcessWorklist)              \
   V(MarkNotFullyConstructedObjects)   \
@@ -64,15 +64,20 @@ class PLATFORM_EXPORT ThreadHeapStatsObserver {
   V(VisitDOMWrappers)                 \
   V(VisitPersistentRoots)             \
   V(VisitPersistents)                 \
-  V(VisitStackRoots)
+  V(VisitRoots)                       \
+  V(VisitStackRoots)                  \
+  V(VisitRememberedSets)
 
-#define FOR_ALL_CONCURRENT_SCOPES(V) V(ConcurrentSweep)
+#define FOR_ALL_CONCURRENT_SCOPES(V) \
+  V(ConcurrentMarkingStep)           \
+  V(ConcurrentSweepingStep)
 
 // Manages counters and statistics across garbage collection cycles.
 //
 // Usage:
 //   ThreadHeapStatsCollector stats_collector;
-//   stats_collector.NotifyMarkingStarted(<BlinkGC::GCReason>);
+//   stats_collector.NotifyMarkingStarted(<BlinkGC::CollectionType>,
+//                                        <BlinkGC::GCReason>);
 //   // Use tracer.
 //   stats_collector.NotifySweepingCompleted();
 //   // Previous event is available using stats_collector.previous().
@@ -95,12 +100,13 @@ class PLATFORM_EXPORT ThreadHeapStatsCollector {
         kNumConcurrentScopeIds
   };
 
-  constexpr static const char* ToString(Id id) {
+  constexpr static const char* ToString(Id id, BlinkGC::CollectionType type) {
     switch (id) {
-#define CASE(name) \
-  case k##name:    \
-    return "BlinkGC." #name;
-
+#define CASE(name)                                                    \
+  case k##name:                                                       \
+    return type == BlinkGC::CollectionType::kMajor ? "BlinkGC." #name \
+                                                   : "BlinkGC." #name \
+                                                     ".Minor";
       FOR_ALL_SCOPES(CASE)
 #undef CASE
       default:
@@ -110,12 +116,14 @@ class PLATFORM_EXPORT ThreadHeapStatsCollector {
     return nullptr;
   }
 
-  constexpr static const char* ToString(ConcurrentId id) {
+  constexpr static const char* ToString(ConcurrentId id,
+                                        BlinkGC::CollectionType type) {
     switch (id) {
-#define CASE(name) \
-  case k##name:    \
-    return "BlinkGC." #name;
-
+#define CASE(name)                                                    \
+  case k##name:                                                       \
+    return type == BlinkGC::CollectionType::kMajor ? "BlinkGC." #name \
+                                                   : "BlinkGC." #name \
+                                                     ".Minor";
       FOR_ALL_CONCURRENT_SCOPES(CASE)
 #undef CASE
       default:
@@ -141,60 +149,31 @@ class PLATFORM_EXPORT ThreadHeapStatsCollector {
 
    public:
     template <typename... Args>
-    inline InternalScope(ThreadHeapStatsCollector* tracer,
-                         IdType id,
-                         Args... args)
+    InternalScope(ThreadHeapStatsCollector* tracer, IdType id, Args... args)
         : tracer_(tracer), start_time_(base::TimeTicks::Now()), id_(id) {
-      StartTrace(id, args...);
+      StartTrace(args...);
     }
 
-    inline ~InternalScope() {
-      StopTrace(id_);
+    ~InternalScope() {
+      StopTrace();
       IncreaseScopeTime(id_);
     }
 
    private:
-    constexpr static const char* TraceCategory() {
-      switch (trace_category) {
-        case kEnabled:
-          return "blink_gc";
-        case kDisabled:
-          return TRACE_DISABLED_BY_DEFAULT("blink_gc");
-        case kDevTools:
-          return "blink_gc,devtools.timeline";
-      }
-    }
+    inline constexpr static const char* TraceCategory();
 
-    void StartTrace(IdType id) {
-      TRACE_EVENT_BEGIN0(TraceCategory(), ToString(id));
-    }
-
+    inline void StartTrace();
     template <typename Value1>
-    void StartTrace(IdType id, const char* k1, Value1 v1) {
-      TRACE_EVENT_BEGIN1(TraceCategory(), ToString(id), k1, v1);
-    }
-
+    inline void StartTrace(const char* k1, Value1 v1);
     template <typename Value1, typename Value2>
-    void StartTrace(IdType id,
-                    const char* k1,
-                    Value1 v1,
-                    const char* k2,
-                    Value2 v2) {
-      TRACE_EVENT_BEGIN2(TraceCategory(), ToString(id), k1, v1, k2, v2);
-    }
+    inline void StartTrace(const char* k1,
+                           Value1 v1,
+                           const char* k2,
+                           Value2 v2);
+    inline void StopTrace();
 
-    void StopTrace(IdType id) {
-      TRACE_EVENT_END0(TraceCategory(), ToString(id));
-    }
-
-    void IncreaseScopeTime(Id) {
-      tracer_->IncreaseScopeTime(id_, base::TimeTicks::Now() - start_time_);
-    }
-
-    void IncreaseScopeTime(ConcurrentId) {
-      tracer_->IncreaseConcurrentScopeTime(
-          id_, base::TimeTicks::Now() - start_time_);
-    }
+    inline void IncreaseScopeTime(Id);
+    inline void IncreaseScopeTime(ConcurrentId);
 
     ThreadHeapStatsCollector* const tracer_;
     const base::TimeTicks start_time_;
@@ -251,8 +230,17 @@ class PLATFORM_EXPORT ThreadHeapStatsCollector {
     // Time spent in the final atomic pause in sweeping and compacting the heap.
     base::TimeDelta atomic_sweep_and_compact_time() const;
 
+    // Time spent marking the roots.
+    base::TimeDelta roots_marking_time() const;
+
     // Time spent incrementally marking the heap.
     base::TimeDelta incremental_marking_time() const;
+
+    // Time spent in foreground tasks marking the heap.
+    base::TimeDelta foreground_marking_time() const;
+
+    // Time spent in background tasks marking the heap.
+    base::TimeDelta background_marking_time() const;
 
     // Overall time spent marking the heap.
     base::TimeDelta marking_time() const;
@@ -273,19 +261,21 @@ class PLATFORM_EXPORT ThreadHeapStatsCollector {
     size_t marked_bytes = 0;
     size_t compaction_freed_bytes = 0;
     size_t compaction_freed_pages = 0;
+    bool compaction_recorded_events = false;
     base::TimeDelta scope_data[kNumScopeIds];
     base::subtle::Atomic32 concurrent_scope_data[kNumConcurrentScopeIds]{0};
     BlinkGC::GCReason reason = static_cast<BlinkGC::GCReason>(0);
+    BlinkGC::CollectionType collection_type = BlinkGC::CollectionType::kMajor;
     size_t object_size_in_bytes_before_sweeping = 0;
     size_t allocated_space_in_bytes_before_sweeping = 0;
     size_t partition_alloc_bytes_before_sweeping = 0;
     double live_object_rate = 0;
     size_t wrapper_count_before_sweeping = 0;
-    base::TimeDelta gc_nested_in_v8_;
+    base::TimeDelta gc_nested_in_v8;
   };
 
   // Indicates a new garbage collection cycle.
-  void NotifyMarkingStarted(BlinkGC::GCReason);
+  void NotifyMarkingStarted(BlinkGC::CollectionType, BlinkGC::GCReason);
 
   // Indicates that marking of the current garbage collection cycle is
   // completed.
@@ -351,7 +341,6 @@ class PLATFORM_EXPORT ThreadHeapStatsCollector {
   // Statistics for the previously running garbage collection.
   const Event& previous() const { return previous_; }
 
-
   void RegisterObserver(ThreadHeapStatsObserver* observer);
   void UnregisterObserver(ThreadHeapStatsObserver* observer);
 
@@ -400,6 +389,71 @@ class PLATFORM_EXPORT ThreadHeapStatsCollector {
   FRIEND_TEST_ALL_PREFIXES(ThreadHeapStatsCollectorTest, IncreaseScopeTime);
   FRIEND_TEST_ALL_PREFIXES(ThreadHeapStatsCollectorTest, StopResetsCurrent);
 };
+
+template <ThreadHeapStatsCollector::TraceCategory trace_category,
+          ThreadHeapStatsCollector::ScopeContext scope_category>
+constexpr const char*
+ThreadHeapStatsCollector::InternalScope<trace_category,
+                                        scope_category>::TraceCategory() {
+  switch (trace_category) {
+    case kEnabled:
+      return "blink_gc";
+    case kDisabled:
+      return TRACE_DISABLED_BY_DEFAULT("blink_gc");
+    case kDevTools:
+      return "blink_gc,devtools.timeline";
+  }
+}
+
+template <ThreadHeapStatsCollector::TraceCategory trace_category,
+          ThreadHeapStatsCollector::ScopeContext scope_category>
+void ThreadHeapStatsCollector::InternalScope<trace_category,
+                                             scope_category>::StartTrace() {
+  TRACE_EVENT_BEGIN0(TraceCategory(),
+                     ToString(id_, tracer_->current_.collection_type));
+}
+
+template <ThreadHeapStatsCollector::TraceCategory trace_category,
+          ThreadHeapStatsCollector::ScopeContext scope_category>
+template <typename Value1>
+void ThreadHeapStatsCollector::InternalScope<trace_category, scope_category>::
+    StartTrace(const char* k1, Value1 v1) {
+  TRACE_EVENT_BEGIN1(TraceCategory(),
+                     ToString(id_, tracer_->current_.collection_type), k1, v1);
+}
+
+template <ThreadHeapStatsCollector::TraceCategory trace_category,
+          ThreadHeapStatsCollector::ScopeContext scope_category>
+template <typename Value1, typename Value2>
+void ThreadHeapStatsCollector::InternalScope<trace_category, scope_category>::
+    StartTrace(const char* k1, Value1 v1, const char* k2, Value2 v2) {
+  TRACE_EVENT_BEGIN2(TraceCategory(),
+                     ToString(id_, tracer_->current_.collection_type), k1, v1,
+                     k2, v2);
+}
+
+template <ThreadHeapStatsCollector::TraceCategory trace_category,
+          ThreadHeapStatsCollector::ScopeContext scope_category>
+void ThreadHeapStatsCollector::InternalScope<trace_category,
+                                             scope_category>::StopTrace() {
+  TRACE_EVENT_END0(TraceCategory(),
+                   ToString(id_, tracer_->current_.collection_type));
+}
+
+template <ThreadHeapStatsCollector::TraceCategory trace_category,
+          ThreadHeapStatsCollector::ScopeContext scope_category>
+void ThreadHeapStatsCollector::InternalScope<trace_category, scope_category>::
+    IncreaseScopeTime(Id) {
+  tracer_->IncreaseScopeTime(id_, base::TimeTicks::Now() - start_time_);
+}
+
+template <ThreadHeapStatsCollector::TraceCategory trace_category,
+          ThreadHeapStatsCollector::ScopeContext scope_category>
+void ThreadHeapStatsCollector::InternalScope<trace_category, scope_category>::
+    IncreaseScopeTime(ConcurrentId) {
+  tracer_->IncreaseConcurrentScopeTime(id_,
+                                       base::TimeTicks::Now() - start_time_);
+}
 
 #undef FOR_ALL_SCOPES
 #undef FOR_ALL_CONCURRENT_SCOPES

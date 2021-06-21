@@ -30,8 +30,7 @@ class ServiceProcessTracker {
  public:
   ServiceProcessTracker()
       : ui_task_runner_(
-            base::CreateSingleThreadTaskRunnerWithTraits({BrowserThread::UI})) {
-  }
+            base::CreateSingleThreadTaskRunner({BrowserThread::UI})) {}
   ~ServiceProcessTracker() = default;
 
   ServiceProcessInfo AddProcess(const base::Process& process,
@@ -59,6 +58,7 @@ class ServiceProcessTracker {
         FROM_HERE,
         base::BindOnce(&ServiceProcessTracker::NotifyTerminatedOnUIThread,
                        base::Unretained(this), iter->second));
+    processes_.erase(iter);
   }
 
   void NotifyCrashed(ServiceProcessId id) {
@@ -70,6 +70,7 @@ class ServiceProcessTracker {
         FROM_HERE,
         base::BindOnce(&ServiceProcessTracker::NotifyCrashedOnUIThread,
                        base::Unretained(this), iter->second));
+    processes_.erase(iter);
   }
 
   void AddObserver(ServiceProcessHost::Observer* observer) {
@@ -78,7 +79,9 @@ class ServiceProcessTracker {
   }
 
   void RemoveObserver(ServiceProcessHost::Observer* observer) {
-    DCHECK_CURRENTLY_ON(BrowserThread::UI);
+    // NOTE: Some tests may remove observers after BrowserThreads are shut down.
+    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI) ||
+           !BrowserThread::IsThreadInitialized(BrowserThread::UI));
     observers_.RemoveObserver(observer);
   }
 
@@ -109,13 +112,11 @@ class ServiceProcessTracker {
 
   ServiceProcessId GenerateNextId() {
     DCHECK_CURRENTLY_ON(BrowserThread::IO);
-    auto id = next_id_;
-    next_id_ = ServiceProcessId::FromUnsafeValue(next_id_.GetUnsafeValue() + 1);
-    return id;
+    return service_process_id_generator_.GenerateNextId();
   }
 
   const scoped_refptr<base::TaskRunner> ui_task_runner_;
-  ServiceProcessId next_id_{1};
+  ServiceProcessId::Generator service_process_id_generator_;
 
   base::Lock processes_lock_;
   std::map<ServiceProcessId, ServiceProcessInfo> processes_;
@@ -148,16 +149,22 @@ class UtilityProcessClient : public UtilityProcessHost::Client {
 
   void OnProcessTerminatedNormally() override {
     GetServiceProcessTracker().NotifyTerminated(
-        process_info_.service_process_id);
+        process_info_->service_process_id);
   }
 
   void OnProcessCrashed() override {
-    GetServiceProcessTracker().NotifyCrashed(process_info_.service_process_id);
+    // TODO(https://crbug.com/1016027): It is unclear how we can observe
+    // |OnProcessCrashed()| without observing |OnProcessLaunched()| first, but
+    // it can happen on Android. Ignore the notification in this case.
+    if (!process_info_)
+      return;
+
+    GetServiceProcessTracker().NotifyCrashed(process_info_->service_process_id);
   }
 
  private:
   const std::string service_interface_name_;
-  ServiceProcessInfo process_info_;
+  base::Optional<ServiceProcessInfo> process_info_;
 
   DISALLOW_COPY_AND_ASSIGN(UtilityProcessClient);
 };
@@ -173,6 +180,7 @@ void LaunchServiceProcessOnIOThread(mojo::GenericPendingReceiver receiver,
                     : base::UTF8ToUTF16(*receiver.interface_name()));
   host->SetMetricsName(*receiver.interface_name());
   host->SetSandboxType(options.sandbox_type);
+  host->SetExtraCommandLineSwitches(std::move(options.extra_switches));
   if (options.child_flags)
     host->set_child_flags(*options.child_flags);
   host->Start();
@@ -200,7 +208,7 @@ void ServiceProcessHost::RemoveObserver(Observer* observer) {
 void ServiceProcessHost::Launch(mojo::GenericPendingReceiver receiver,
                                 Options options) {
   DCHECK(receiver.interface_name().has_value());
-  base::CreateSingleThreadTaskRunnerWithTraits({BrowserThread::IO})
+  base::CreateSingleThreadTaskRunner({BrowserThread::IO})
       ->PostTask(FROM_HERE,
                  base::BindOnce(&LaunchServiceProcessOnIOThread,
                                 std::move(receiver), std::move(options)));

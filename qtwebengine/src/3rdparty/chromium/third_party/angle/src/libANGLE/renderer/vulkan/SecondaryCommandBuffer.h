@@ -11,7 +11,7 @@
 #ifndef LIBANGLE_RENDERER_VULKAN_SECONDARYCOMMANDBUFFERVK_H_
 #define LIBANGLE_RENDERER_VULKAN_SECONDARYCOMMANDBUFFERVK_H_
 
-#include <vulkan/vulkan.h>
+#include "volk.h"
 
 #include "common/PoolAlloc.h"
 #include "libANGLE/renderer/vulkan/vk_wrapper.h"
@@ -34,8 +34,10 @@ enum class CommandID : uint16_t
     BindDescriptorSets,
     BindGraphicsPipeline,
     BindIndexBuffer,
+    BindTransformFeedbackBuffers,
     BindVertexBuffers,
     BlitImage,
+    BufferBarrier,
     ClearAttachments,
     ClearColorImage,
     ClearDepthStencilImage,
@@ -47,8 +49,14 @@ enum class CommandID : uint16_t
     DispatchIndirect,
     Draw,
     DrawIndexed,
+    DrawIndexedBaseVertex,
     DrawIndexedInstanced,
+    DrawIndexedInstancedBaseVertex,
+    DrawIndexedInstancedBaseVertexBaseInstance,
     DrawInstanced,
+    DrawInstancedBaseInstance,
+    DrawIndirect,
+    DrawIndexedIndirect,
     EndQuery,
     ExecutionBarrier,
     FillBuffer,
@@ -94,6 +102,13 @@ struct BindIndexBufferParams
     VkIndexType indexType;
 };
 VERIFY_4_BYTE_ALIGNMENT(BindIndexBufferParams)
+
+struct BindTransformFeedbackBuffersParams
+{
+    // ANGLE always has firstBinding of 0 so not storing that currently
+    uint32_t bindingCount;
+};
+VERIFY_4_BYTE_ALIGNMENT(BindTransformFeedbackBuffersParams)
 
 struct BindVertexBuffersParams
 {
@@ -196,11 +211,27 @@ struct DrawInstancedParams
 };
 VERIFY_4_BYTE_ALIGNMENT(DrawInstancedParams)
 
+struct DrawInstancedBaseInstanceParams
+{
+    uint32_t vertexCount;
+    uint32_t instanceCount;
+    uint32_t firstVertex;
+    uint32_t firstInstance;
+};
+VERIFY_4_BYTE_ALIGNMENT(DrawInstancedBaseInstanceParams)
+
 struct DrawIndexedParams
 {
     uint32_t indexCount;
 };
 VERIFY_4_BYTE_ALIGNMENT(DrawIndexedParams)
+
+struct DrawIndexedBaseVertexParams
+{
+    uint32_t indexCount;
+    uint32_t vertexOffset;
+};
+VERIFY_4_BYTE_ALIGNMENT(DrawIndexedBaseVertexParams)
 
 struct DrawIndexedInstancedParams
 {
@@ -209,6 +240,31 @@ struct DrawIndexedInstancedParams
 };
 VERIFY_4_BYTE_ALIGNMENT(DrawIndexedInstancedParams)
 
+struct DrawIndexedInstancedBaseVertexParams
+{
+    uint32_t indexCount;
+    uint32_t instanceCount;
+    uint32_t vertexOffset;
+};
+VERIFY_4_BYTE_ALIGNMENT(DrawIndexedInstancedBaseVertexParams)
+
+struct DrawIndexedInstancedBaseVertexBaseInstanceParams
+{
+    uint32_t indexCount;
+    uint32_t instanceCount;
+    uint32_t firstIndex;
+    int32_t vertexOffset;
+    uint32_t firstInstance;
+};
+VERIFY_4_BYTE_ALIGNMENT(DrawIndexedInstancedBaseVertexBaseInstanceParams)
+
+struct DrawIndexedIndirectParams
+{
+    VkBuffer buffer;
+    VkDeviceSize offset;
+};
+VERIFY_4_BYTE_ALIGNMENT(DrawIndexedIndirectParams)
+
 struct DispatchParams
 {
     uint32_t groupCountX;
@@ -216,6 +272,13 @@ struct DispatchParams
     uint32_t groupCountZ;
 };
 VERIFY_4_BYTE_ALIGNMENT(DispatchParams)
+
+struct DrawIndirectParams
+{
+    VkBuffer buffer;
+    VkDeviceSize offset;
+};
+VERIFY_4_BYTE_ALIGNMENT(DrawIndirectParams)
 
 struct DispatchIndirectParams
 {
@@ -257,6 +320,14 @@ struct ExecutionBarrierParams
     VkPipelineStageFlags stageMask;
 };
 VERIFY_4_BYTE_ALIGNMENT(ExecutionBarrierParams)
+
+struct BufferBarrierParams
+{
+    VkPipelineStageFlags srcStageMask;
+    VkPipelineStageFlags dstStageMask;
+    VkBufferMemoryBarrier bufferMemoryBarrier;
+};
+VERIFY_4_BYTE_ALIGNMENT(BufferBarrierParams)
 
 struct ImageBarrierParams
 {
@@ -380,6 +451,11 @@ class SecondaryCommandBuffer final : angle::NonCopyable
 
     void bindIndexBuffer(const Buffer &buffer, VkDeviceSize offset, VkIndexType indexType);
 
+    void bindTransformFeedbackBuffers(uint32_t bindingCount,
+                                      const VkBuffer *buffers,
+                                      const VkDeviceSize *offsets,
+                                      const VkDeviceSize *sizes);
+
     void bindVertexBuffers(uint32_t firstBinding,
                            uint32_t bindingCount,
                            const VkBuffer *buffers,
@@ -392,6 +468,10 @@ class SecondaryCommandBuffer final : angle::NonCopyable
                    uint32_t regionCount,
                    const VkImageBlit *regions,
                    VkFilter filter);
+
+    void bufferBarrier(VkPipelineStageFlags srcStageMask,
+                       VkPipelineStageFlags dstStageMask,
+                       const VkBufferMemoryBarrier *bufferMemoryBarrier);
 
     void clearAttachments(uint32_t attachmentCount,
                           const VkClearAttachment *attachments,
@@ -441,10 +521,32 @@ class SecondaryCommandBuffer final : angle::NonCopyable
     void draw(uint32_t vertexCount, uint32_t firstVertex);
 
     void drawIndexed(uint32_t indexCount);
+    void drawIndexedBaseVertex(uint32_t indexCount, uint32_t vertexOffset);
 
     void drawIndexedInstanced(uint32_t indexCount, uint32_t instanceCount);
+    void drawIndexedInstancedBaseVertex(uint32_t indexCount,
+                                        uint32_t instanceCount,
+                                        uint32_t vertexOffset);
+    void drawIndexedInstancedBaseVertexBaseInstance(uint32_t indexCount,
+                                                    uint32_t instanceCount,
+                                                    uint32_t firstIndex,
+                                                    int32_t vertexOffset,
+                                                    uint32_t firstInstance);
 
     void drawInstanced(uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex);
+    void drawInstancedBaseInstance(uint32_t vertexCount,
+                                   uint32_t instanceCount,
+                                   uint32_t firstVertex,
+                                   uint32_t firstInstance);
+
+    void drawIndirect(const Buffer &buffer,
+                      VkDeviceSize offset,
+                      uint32_t drawCount,
+                      uint32_t stride);
+    void drawIndexedIndirect(const Buffer &buffer,
+                             VkDeviceSize offset,
+                             uint32_t drawCount,
+                             uint32_t stride);
 
     void endQuery(VkQueryPool queryPool, uint32_t query);
 
@@ -457,7 +559,7 @@ class SecondaryCommandBuffer final : angle::NonCopyable
 
     void imageBarrier(VkPipelineStageFlags srcStageMask,
                       VkPipelineStageFlags dstStageMask,
-                      const VkImageMemoryBarrier *imageMemoryBarrier);
+                      const VkImageMemoryBarrier &imageMemoryBarrier);
 
     void memoryBarrier(VkPipelineStageFlags srcStageMask,
                        VkPipelineStageFlags dstStageMask,
@@ -512,6 +614,9 @@ class SecondaryCommandBuffer final : angle::NonCopyable
     // Parse the cmds in this cmd buffer into given primary cmd buffer for execution
     void executeCommands(VkCommandBuffer cmdBuffer);
 
+    // Calculate memory usage of this command buffer for diagnostics.
+    void getMemoryUsageStats(size_t *usedMemoryOut, size_t *allocatedMemoryOut) const;
+
     // Traverse the list of commands and build a summary for diagnostics.
     std::string dumpCommands(const char *separator) const;
 
@@ -529,6 +634,12 @@ class SecondaryCommandBuffer final : angle::NonCopyable
         allocateNewBlock();
         // Set first command to Invalid to start
         reinterpret_cast<CommandHeader *>(mCurrentWritePointer)->id = CommandID::Invalid;
+    }
+
+    void reset()
+    {
+        mCommands.clear();
+        initialize(mAllocator);
     }
 
     // This will cause the SecondaryCommandBuffer to become invalid by clearing its allocator
@@ -685,6 +796,26 @@ ANGLE_INLINE void SecondaryCommandBuffer::bindIndexBuffer(const Buffer &buffer,
     paramStruct->indexType = indexType;
 }
 
+ANGLE_INLINE void SecondaryCommandBuffer::bindTransformFeedbackBuffers(uint32_t bindingCount,
+                                                                       const VkBuffer *buffers,
+                                                                       const VkDeviceSize *offsets,
+                                                                       const VkDeviceSize *sizes)
+{
+    uint8_t *writePtr;
+    size_t buffersSize = bindingCount * sizeof(VkBuffer);
+    size_t offsetsSize = bindingCount * sizeof(VkDeviceSize);
+    size_t sizesSize   = offsetsSize;
+    BindTransformFeedbackBuffersParams *paramStruct =
+        initCommand<BindTransformFeedbackBuffersParams>(CommandID::BindTransformFeedbackBuffers,
+                                                        buffersSize + offsetsSize + sizesSize,
+                                                        &writePtr);
+    // Copy params
+    paramStruct->bindingCount = bindingCount;
+    writePtr                  = storePointerParameter(writePtr, buffers, buffersSize);
+    writePtr                  = storePointerParameter(writePtr, offsets, offsetsSize);
+    storePointerParameter(writePtr, sizes, sizesSize);
+}
+
 ANGLE_INLINE void SecondaryCommandBuffer::bindVertexBuffers(uint32_t firstBinding,
                                                             uint32_t bindingCount,
                                                             const VkBuffer *buffers,
@@ -719,6 +850,17 @@ ANGLE_INLINE void SecondaryCommandBuffer::blitImage(const Image &srcImage,
     paramStruct->dstImage        = dstImage.getHandle();
     paramStruct->filter          = filter;
     paramStruct->region          = regions[0];
+}
+
+ANGLE_INLINE void SecondaryCommandBuffer::bufferBarrier(
+    VkPipelineStageFlags srcStageMask,
+    VkPipelineStageFlags dstStageMask,
+    const VkBufferMemoryBarrier *bufferMemoryBarrier)
+{
+    BufferBarrierParams *paramStruct = initCommand<BufferBarrierParams>(CommandID::BufferBarrier);
+    paramStruct->srcStageMask        = srcStageMask;
+    paramStruct->dstStageMask        = dstStageMask;
+    paramStruct->bufferMemoryBarrier = *bufferMemoryBarrier;
 }
 
 ANGLE_INLINE void SecondaryCommandBuffer::clearAttachments(uint32_t attachmentCount,
@@ -862,6 +1004,15 @@ ANGLE_INLINE void SecondaryCommandBuffer::drawIndexed(uint32_t indexCount)
     paramStruct->indexCount        = indexCount;
 }
 
+ANGLE_INLINE void SecondaryCommandBuffer::drawIndexedBaseVertex(uint32_t indexCount,
+                                                                uint32_t vertexOffset)
+{
+    DrawIndexedBaseVertexParams *paramStruct =
+        initCommand<DrawIndexedBaseVertexParams>(CommandID::DrawIndexedBaseVertex);
+    paramStruct->indexCount   = indexCount;
+    paramStruct->vertexOffset = vertexOffset;
+}
+
 ANGLE_INLINE void SecondaryCommandBuffer::drawIndexedInstanced(uint32_t indexCount,
                                                                uint32_t instanceCount)
 {
@@ -869,6 +1020,35 @@ ANGLE_INLINE void SecondaryCommandBuffer::drawIndexedInstanced(uint32_t indexCou
         initCommand<DrawIndexedInstancedParams>(CommandID::DrawIndexedInstanced);
     paramStruct->indexCount    = indexCount;
     paramStruct->instanceCount = instanceCount;
+}
+
+ANGLE_INLINE void SecondaryCommandBuffer::drawIndexedInstancedBaseVertex(uint32_t indexCount,
+                                                                         uint32_t instanceCount,
+                                                                         uint32_t vertexOffset)
+{
+    DrawIndexedInstancedBaseVertexParams *paramStruct =
+        initCommand<DrawIndexedInstancedBaseVertexParams>(
+            CommandID::DrawIndexedInstancedBaseVertex);
+    paramStruct->indexCount    = indexCount;
+    paramStruct->instanceCount = instanceCount;
+    paramStruct->vertexOffset  = vertexOffset;
+}
+
+ANGLE_INLINE void SecondaryCommandBuffer::drawIndexedInstancedBaseVertexBaseInstance(
+    uint32_t indexCount,
+    uint32_t instanceCount,
+    uint32_t firstIndex,
+    int32_t vertexOffset,
+    uint32_t firstInstance)
+{
+    DrawIndexedInstancedBaseVertexBaseInstanceParams *paramStruct =
+        initCommand<DrawIndexedInstancedBaseVertexBaseInstanceParams>(
+            CommandID::DrawIndexedInstancedBaseVertexBaseInstance);
+    paramStruct->indexCount    = indexCount;
+    paramStruct->instanceCount = instanceCount;
+    paramStruct->firstIndex    = firstIndex;
+    paramStruct->vertexOffset  = vertexOffset;
+    paramStruct->firstInstance = firstInstance;
 }
 
 ANGLE_INLINE void SecondaryCommandBuffer::drawInstanced(uint32_t vertexCount,
@@ -879,6 +1059,45 @@ ANGLE_INLINE void SecondaryCommandBuffer::drawInstanced(uint32_t vertexCount,
     paramStruct->vertexCount         = vertexCount;
     paramStruct->instanceCount       = instanceCount;
     paramStruct->firstVertex         = firstVertex;
+}
+
+ANGLE_INLINE void SecondaryCommandBuffer::drawInstancedBaseInstance(uint32_t vertexCount,
+                                                                    uint32_t instanceCount,
+                                                                    uint32_t firstVertex,
+                                                                    uint32_t firstInstance)
+{
+    DrawInstancedBaseInstanceParams *paramStruct =
+        initCommand<DrawInstancedBaseInstanceParams>(CommandID::DrawInstancedBaseInstance);
+    paramStruct->vertexCount   = vertexCount;
+    paramStruct->instanceCount = instanceCount;
+    paramStruct->firstVertex   = firstVertex;
+    paramStruct->firstInstance = firstInstance;
+}
+
+ANGLE_INLINE void SecondaryCommandBuffer::drawIndirect(const Buffer &buffer,
+                                                       VkDeviceSize offset,
+                                                       uint32_t drawCount,
+                                                       uint32_t stride)
+{
+    DrawIndirectParams *paramStruct = initCommand<DrawIndirectParams>(CommandID::DrawIndirect);
+    paramStruct->buffer             = buffer.getHandle();
+    paramStruct->offset             = offset;
+
+    // OpenGL ES doesn't have a way to specify a drawCount or stride, throw assert if something
+    // changes.
+    ASSERT(drawCount == 1);
+}
+
+ANGLE_INLINE void SecondaryCommandBuffer::drawIndexedIndirect(const Buffer &buffer,
+                                                              VkDeviceSize offset,
+                                                              uint32_t drawCount,
+                                                              uint32_t stride)
+{
+    DrawIndexedIndirectParams *paramStruct =
+        initCommand<DrawIndexedIndirectParams>(CommandID::DrawIndexedIndirect);
+    paramStruct->buffer = buffer.getHandle();
+    paramStruct->offset = offset;
+    ASSERT(drawCount == 1);
 }
 
 ANGLE_INLINE void SecondaryCommandBuffer::endQuery(VkQueryPool queryPool, uint32_t query)
@@ -910,12 +1129,13 @@ ANGLE_INLINE void SecondaryCommandBuffer::fillBuffer(const Buffer &dstBuffer,
 ANGLE_INLINE void SecondaryCommandBuffer::imageBarrier(
     VkPipelineStageFlags srcStageMask,
     VkPipelineStageFlags dstStageMask,
-    const VkImageMemoryBarrier *imageMemoryBarrier)
+    const VkImageMemoryBarrier &imageMemoryBarrier)
 {
     ImageBarrierParams *paramStruct = initCommand<ImageBarrierParams>(CommandID::ImageBarrier);
+    ASSERT(imageMemoryBarrier.pNext == nullptr);
     paramStruct->srcStageMask       = srcStageMask;
     paramStruct->dstStageMask       = dstStageMask;
-    paramStruct->imageMemoryBarrier = *imageMemoryBarrier;
+    paramStruct->imageMemoryBarrier = imageMemoryBarrier;
 }
 
 ANGLE_INLINE void SecondaryCommandBuffer::memoryBarrier(VkPipelineStageFlags srcStageMask,

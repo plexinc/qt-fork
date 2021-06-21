@@ -17,11 +17,11 @@ const char kCannotShowTwice[] = "Attempted show twice.";
 const char kCannotShowWithoutInit[] = "Attempted show without initialization.";
 const char kCannotUpdateWithoutInit[] = "Attempted updateWith without initialization.";
 const char kCannotUpdateWithoutShow[] = "Attempted updateWith without show.";
-const char kGenericPaymentMethodNotSupportedMessage[] = "Payment method not supported.";
 const char kInvalidState[] = "Invalid state.";
 const char kNotInASecureOrigin[] = "Not in a secure origin.";
 const char kProhibitedOrigin[] = "Only localhost, file://, and cryptographic scheme origins allowed.";
 const char kProhibitedOriginOrInvalidSslExplanation[] = "No UI will be shown. CanMakePayment and hasEnrolledInstrument will always return false. Show will be rejected with NotSupportedError.";
+const char kStrictBasicCardShowReject[] = "User does not have valid information on file.";
 const char kTotalRequired[] = "Total required.";
 const char kUserCancelled[] = "User closed the Payment Request UI.";
 

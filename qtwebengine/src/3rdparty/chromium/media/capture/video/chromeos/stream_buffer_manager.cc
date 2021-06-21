@@ -20,6 +20,7 @@
 #include "media/capture/video/chromeos/request_builder.h"
 #include "mojo/public/cpp/platform/platform_handle.h"
 #include "mojo/public/cpp/system/platform_handle.h"
+#include "third_party/libyuv/include/libyuv.h"
 
 namespace media {
 
@@ -29,8 +30,7 @@ StreamBufferManager::StreamBufferManager(
     std::unique_ptr<CameraBufferFactory> camera_buffer_factory)
     : device_context_(device_context),
       video_capture_use_gmb_(video_capture_use_gmb),
-      camera_buffer_factory_(std::move(camera_buffer_factory)),
-      weak_ptr_factory_(this) {
+      camera_buffer_factory_(std::move(camera_buffer_factory)) {
   if (video_capture_use_gmb_) {
     gmb_support_ = std::make_unique<gpu::GpuMemoryBufferSupport>();
   }
@@ -63,7 +63,9 @@ gfx::GpuMemoryBuffer* StreamBufferManager::GetGpuMemoryBufferById(
 
 base::Optional<StreamBufferManager::Buffer>
 StreamBufferManager::AcquireBufferForClientById(StreamType stream_type,
-                                                uint64_t buffer_ipc_id) {
+                                                uint64_t buffer_ipc_id,
+                                                int rotation,
+                                                VideoCaptureFormat* format) {
   DCHECK(stream_context_.count(stream_type));
   auto& stream_context = stream_context_[stream_type];
   auto it = stream_context->buffers.find(GetBufferKey(buffer_ipc_id));
@@ -74,7 +76,106 @@ StreamBufferManager::AcquireBufferForClientById(StreamType stream_type,
   }
   auto buffer_pair = std::move(it->second);
   stream_context->buffers.erase(it);
-  return std::move(buffer_pair.vcd_buffer);
+  *format = GetStreamCaptureFormat(stream_type);
+  // We only support NV12 at the moment.
+  DCHECK_EQ(format->pixel_format, PIXEL_FORMAT_NV12);
+
+  if (rotation == 0) {
+    return std::move(buffer_pair.vcd_buffer);
+  }
+
+  if (rotation == 90 || rotation == 270) {
+    format->frame_size =
+        gfx::Size(format->frame_size.height(), format->frame_size.width());
+  }
+
+  base::Optional<gfx::BufferFormat> gfx_format =
+      PixFormatVideoToGfx(format->pixel_format);
+  DCHECK(gfx_format);
+  const auto& original_gmb = buffer_pair.gmb;
+  if (!original_gmb->Map()) {
+    DLOG(WARNING) << "Failed to map original buffer";
+    return std::move(buffer_pair.vcd_buffer);
+  }
+
+  const size_t original_width = stream_context->buffer_dimension.width();
+  const size_t original_height = stream_context->buffer_dimension.height();
+  const size_t temp_uv_width = (original_width + 1) / 2;
+  const size_t temp_uv_height = (original_height + 1) / 2;
+  const size_t temp_uv_size = temp_uv_width * temp_uv_height;
+  std::vector<uint8_t> temp_uv_buffer(temp_uv_size * 2);
+  uint8_t* temp_u = temp_uv_buffer.data();
+  uint8_t* temp_v = temp_u + temp_uv_size;
+
+  // libyuv currently provides only NV12ToI420Rotate. We achieve NV12 rotation
+  // by NV12ToI420Rotate then merge the I420 U and V planes into the final NV12
+  // UV plane.
+  auto translate_rotation = [](const int rotation) -> libyuv::RotationModeEnum {
+    switch (rotation) {
+      case 0:
+        return libyuv::kRotate0;
+      case 90:
+        return libyuv::kRotate90;
+      case 180:
+        return libyuv::kRotate180;
+      case 270:
+        return libyuv::kRotate270;
+    }
+    return libyuv::kRotate0;
+  };
+
+  if (rotation == 180) {
+    // We can reuse the original buffer in this case because the size is same.
+    // Note that libyuv can in-place rotate the Y-plane by 180 degrees.
+    libyuv::NV12ToI420Rotate(
+        static_cast<uint8_t*>(original_gmb->memory(0)), original_gmb->stride(0),
+        static_cast<uint8_t*>(original_gmb->memory(1)), original_gmb->stride(1),
+        static_cast<uint8_t*>(original_gmb->memory(0)), original_gmb->stride(0),
+        temp_u, temp_uv_width, temp_v, temp_uv_width, original_width,
+        original_height, translate_rotation(rotation));
+    libyuv::MergeUVPlane(temp_u, temp_uv_width, temp_v, temp_uv_width,
+                         static_cast<uint8_t*>(original_gmb->memory(1)),
+                         original_gmb->stride(1), temp_uv_width,
+                         temp_uv_height);
+    original_gmb->Unmap();
+    return std::move(buffer_pair.vcd_buffer);
+  } else {
+    // We have to reserve a new buffer because the size is different.
+    Buffer rotated_buffer;
+    if (!device_context_->ReserveVideoCaptureBufferFromPool(
+            format->frame_size, format->pixel_format, &rotated_buffer)) {
+      DLOG(WARNING) << "Failed to reserve video capture buffer";
+      original_gmb->Unmap();
+      return std::move(buffer_pair.vcd_buffer);
+    }
+
+    base::Optional<gfx::BufferFormat> gfx_format =
+        PixFormatVideoToGfx(format->pixel_format);
+    DCHECK(gfx_format);
+    auto rotated_gmb = gmb_support_->CreateGpuMemoryBufferImplFromHandle(
+        rotated_buffer.handle_provider->GetGpuMemoryBufferHandle(),
+        format->frame_size, *gfx_format,
+        CameraBufferFactory::GetBufferUsage(*gfx_format), base::NullCallback());
+
+    if (!rotated_gmb || !rotated_gmb->Map()) {
+      DLOG(WARNING) << "Failed to map rotated buffer";
+      original_gmb->Unmap();
+      return std::move(buffer_pair.vcd_buffer);
+    }
+
+    libyuv::NV12ToI420Rotate(
+        static_cast<uint8_t*>(original_gmb->memory(0)), original_gmb->stride(0),
+        static_cast<uint8_t*>(original_gmb->memory(1)), original_gmb->stride(1),
+        static_cast<uint8_t*>(rotated_gmb->memory(0)), rotated_gmb->stride(0),
+        temp_u, temp_uv_height, temp_v, temp_uv_height, original_width,
+        original_height, translate_rotation(rotation));
+    libyuv::MergeUVPlane(temp_u, temp_uv_height, temp_v, temp_uv_height,
+                         static_cast<uint8_t*>(rotated_gmb->memory(1)),
+                         rotated_gmb->stride(1), temp_uv_height, temp_uv_width);
+    rotated_gmb->Unmap();
+    original_gmb->Unmap();
+    return std::move(rotated_buffer);
+  }
 }
 
 VideoCaptureFormat StreamBufferManager::GetStreamCaptureFormat(
@@ -175,6 +276,8 @@ void StreamBufferManager::SetUpStreamsAndBuffers(
          ++j) {
       ReserveBuffer(stream_type);
     }
+    CHECK_EQ(stream_context_[stream_type]->free_buffers.size(),
+             stream_context_[stream_type]->stream->max_buffers);
     DVLOG(2) << "Allocated "
              << stream_context_[stream_type]->stream->max_buffers << " buffers";
   }
@@ -317,10 +420,7 @@ void StreamBufferManager::ReserveBufferFromPool(StreamType stream_type) {
   if (!device_context_->ReserveVideoCaptureBufferFromPool(
           stream_context->buffer_dimension,
           stream_context->capture_format.pixel_format, &vcd_buffer)) {
-    device_context_->SetErrorState(
-        media::VideoCaptureError::
-            kCrosHalV3BufferManagerFailedToCreateGpuMemoryBuffer,
-        FROM_HERE, "Failed to reserve video capture buffer");
+    DLOG(WARNING) << "Failed to reserve video capture buffer";
     return;
   }
   auto gmb = gmb_support_->CreateGpuMemoryBufferImplFromHandle(

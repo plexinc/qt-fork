@@ -12,16 +12,16 @@ Are you a Google employee? See
 
 ## System requirements
 
-*   A 64-bit Mac running 10.12+.
-*   [Xcode](https://developer.apple.com/xcode) 8+
-*   The OS X 10.12 SDK. Run
+*   A 64-bit Mac running 10.14+.
+*   [Xcode](https://developer.apple.com/xcode) 11+
+*   The OS X 10.15 SDK. Run
 
     ```shell
     $ ls `xcode-select -p`/Platforms/MacOSX.platform/Developer/SDKs
     ```
 
     to check whether you have it.  Building with a newer SDK works too, but
-    the releases currently use the 10.12 SDK.
+    the releases currently use the 10.15 SDK.
 
 ## Install `depot_tools`
 
@@ -103,7 +103,7 @@ $ gn gen out/Default
   The default will be a debug component build matching the current host
   operating system and CPU.
 * For more info on GN, run `gn help` on the command line or read the
-  [quick start guide](../tools/gn/docs/quick_start.md).
+  [quick start guide](https://gn.googlesource.com/gn/+/master/docs/quick_start.md).
 
 
 ### Faster builds

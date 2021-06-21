@@ -17,6 +17,7 @@
 
 #include "common/Serial.h"
 #include "dawn_native/Error.h"
+#include "dawn_native/Extensions.h"
 #include "dawn_native/Format.h"
 #include "dawn_native/Forward.h"
 #include "dawn_native/ObjectBase.h"
@@ -28,12 +29,14 @@
 #include <memory>
 
 namespace dawn_native {
-
-    using ErrorCallback = void (*)(const char* errorMessage, void* userData);
-
     class AdapterBase;
-    class FenceSignalTracker;
+    class AttachmentState;
+    class AttachmentStateBlueprint;
+    class BindGroupLayoutBase;
     class DynamicUploader;
+    class ErrorScope;
+    class ErrorScopeTracker;
+    class FenceSignalTracker;
     class StagingBufferBase;
 
     class DeviceBase {
@@ -41,7 +44,7 @@ namespace dawn_native {
         DeviceBase(AdapterBase* adapter, const DeviceDescriptor* descriptor);
         virtual ~DeviceBase();
 
-        void HandleError(const char* message);
+        void HandleError(InternalErrorType type, const char* message);
 
         bool ConsumedError(MaybeError maybeError) {
             if (DAWN_UNLIKELY(maybeError.IsError())) {
@@ -51,30 +54,42 @@ namespace dawn_native {
             return false;
         }
 
+        template <typename T>
+        bool ConsumedError(ResultOrError<T> resultOrError, T* result) {
+            if (DAWN_UNLIKELY(resultOrError.IsError())) {
+                ConsumeError(resultOrError.AcquireError());
+                return true;
+            }
+            *result = resultOrError.AcquireSuccess();
+            return false;
+        }
+
         MaybeError ValidateObject(const ObjectBase* object) const;
 
         AdapterBase* GetAdapter() const;
+        dawn_platform::Platform* GetPlatform() const;
 
+        ErrorScopeTracker* GetErrorScopeTracker() const;
         FenceSignalTracker* GetFenceSignalTracker() const;
 
-        // Returns the Format corresponding to the dawn::TextureFormat or an error if the format
-        // isn't a valid dawn::TextureFormat or isn't supported by this device.
+        // Returns the Format corresponding to the wgpu::TextureFormat or an error if the format
+        // isn't a valid wgpu::TextureFormat or isn't supported by this device.
         // The pointer returned has the same lifetime as the device.
-        ResultOrError<const Format*> GetInternalFormat(dawn::TextureFormat format) const;
+        ResultOrError<const Format*> GetInternalFormat(wgpu::TextureFormat format) const;
 
-        // Returns the Format corresponding to the dawn::TextureFormat and assumes the format is
+        // Returns the Format corresponding to the wgpu::TextureFormat and assumes the format is
         // valid and supported.
         // The reference returned has the same lifetime as the device.
-        const Format& GetValidInternalFormat(dawn::TextureFormat format) const;
+        const Format& GetValidInternalFormat(wgpu::TextureFormat format) const;
 
         virtual CommandBufferBase* CreateCommandBuffer(
-            CommandEncoderBase* encoder,
+            CommandEncoder* encoder,
             const CommandBufferDescriptor* descriptor) = 0;
 
         virtual Serial GetCompletedCommandSerial() const = 0;
         virtual Serial GetLastSubmittedCommandSerial() const = 0;
         virtual Serial GetPendingCommandSerial() const = 0;
-        virtual void TickImpl() = 0;
+        virtual MaybeError TickImpl() = 0;
 
         // Many Dawn objects are completely immutable once created which means that if two
         // creations are given the same arguments, they can return the same object. Reusing
@@ -113,29 +128,48 @@ namespace dawn_native {
             const ShaderModuleDescriptor* descriptor);
         void UncacheShaderModule(ShaderModuleBase* obj);
 
+        Ref<AttachmentState> GetOrCreateAttachmentState(AttachmentStateBlueprint* blueprint);
+        Ref<AttachmentState> GetOrCreateAttachmentState(
+            const RenderBundleEncoderDescriptor* descriptor);
+        Ref<AttachmentState> GetOrCreateAttachmentState(const RenderPipelineDescriptor* descriptor);
+        Ref<AttachmentState> GetOrCreateAttachmentState(const RenderPassDescriptor* descriptor);
+        void UncacheAttachmentState(AttachmentState* obj);
+
         // Dawn API
         BindGroupBase* CreateBindGroup(const BindGroupDescriptor* descriptor);
         BindGroupLayoutBase* CreateBindGroupLayout(const BindGroupLayoutDescriptor* descriptor);
         BufferBase* CreateBuffer(const BufferDescriptor* descriptor);
-        DawnCreateBufferMappedResult CreateBufferMapped(const BufferDescriptor* descriptor);
+        WGPUCreateBufferMappedResult CreateBufferMapped(const BufferDescriptor* descriptor);
         void CreateBufferMappedAsync(const BufferDescriptor* descriptor,
-                                     dawn::BufferCreateMappedCallback callback,
+                                     wgpu::BufferCreateMappedCallback callback,
                                      void* userdata);
-        CommandEncoderBase* CreateCommandEncoder(const CommandEncoderDescriptor* descriptor);
+        CommandEncoder* CreateCommandEncoder(const CommandEncoderDescriptor* descriptor);
         ComputePipelineBase* CreateComputePipeline(const ComputePipelineDescriptor* descriptor);
         PipelineLayoutBase* CreatePipelineLayout(const PipelineLayoutDescriptor* descriptor);
         QueueBase* CreateQueue();
+        RenderBundleEncoder* CreateRenderBundleEncoder(
+            const RenderBundleEncoderDescriptor* descriptor);
         RenderPipelineBase* CreateRenderPipeline(const RenderPipelineDescriptor* descriptor);
         SamplerBase* CreateSampler(const SamplerDescriptor* descriptor);
         ShaderModuleBase* CreateShaderModule(const ShaderModuleDescriptor* descriptor);
-        SwapChainBase* CreateSwapChain(const SwapChainDescriptor* descriptor);
+        SwapChainBase* CreateSwapChain(Surface* surface, const SwapChainDescriptor* descriptor);
         TextureBase* CreateTexture(const TextureDescriptor* descriptor);
         TextureViewBase* CreateTextureView(TextureBase* texture,
                                            const TextureViewDescriptor* descriptor);
 
+        void InjectError(wgpu::ErrorType type, const char* message);
+
         void Tick();
 
-        void SetErrorCallback(dawn::DeviceErrorCallback callback, void* userdata);
+        void SetDeviceLostCallback(wgpu::DeviceLostCallback callback, void* userdata);
+        void SetUncapturedErrorCallback(wgpu::ErrorCallback callback, void* userdata);
+        void PushErrorScope(wgpu::ErrorFilter filter);
+        bool PopErrorScope(wgpu::ErrorCallback callback, void* userdata);
+
+        MaybeError ValidateIsAlive() const;
+
+        ErrorScope* GetCurrentErrorScope();
+
         void Reference();
         void Release();
 
@@ -147,16 +181,31 @@ namespace dawn_native {
                                                    uint64_t destinationOffset,
                                                    uint64_t size) = 0;
 
-        ResultOrError<DynamicUploader*> GetDynamicUploader() const;
+        DynamicUploader* GetDynamicUploader() const;
 
+        std::vector<const char*> GetEnabledExtensions() const;
         std::vector<const char*> GetTogglesUsed() const;
+        bool IsExtensionEnabled(Extension extension) const;
         bool IsToggleEnabled(Toggle toggle) const;
+        bool IsValidationEnabled() const;
+        size_t GetLazyClearCountForTesting();
+        void IncrementLazyClearCountForTesting();
+        void LoseForTesting();
+        bool IsLost() const;
 
       protected:
         void SetToggle(Toggle toggle, bool isEnabled);
         void ApplyToggleOverrides(const DeviceDescriptor* deviceDescriptor);
+        void BaseDestructor();
 
         std::unique_ptr<DynamicUploader> mDynamicUploader;
+        // LossStatus::Alive means the device is alive and can be used normally.
+        // LossStatus::BeingLost means the device is in the process of being lost and should not
+        //              accept any new commands.
+        // LossStatus::AlreadyLost means the device has been lost and can no longer be used,
+        //             all resources have been freed.
+        enum class LossStatus { Alive, BeingLost, AlreadyLost };
+        LossStatus mLossStatus = LossStatus::Alive;
 
       private:
         virtual ResultOrError<BindGroupBase*> CreateBindGroupImpl(
@@ -177,6 +226,11 @@ namespace dawn_native {
             const ShaderModuleDescriptor* descriptor) = 0;
         virtual ResultOrError<SwapChainBase*> CreateSwapChainImpl(
             const SwapChainDescriptor* descriptor) = 0;
+        // Note that previousSwapChain may be nullptr, or come from a different backend.
+        virtual ResultOrError<NewSwapChainBase*> CreateSwapChainImpl(
+            Surface* surface,
+            NewSwapChainBase* previousSwapChain,
+            const SwapChainDescriptor* descriptor) = 0;
         virtual ResultOrError<TextureBase*> CreateTextureImpl(
             const TextureDescriptor* descriptor) = 0;
         virtual ResultOrError<TextureViewBase*> CreateTextureViewImpl(
@@ -193,22 +247,46 @@ namespace dawn_native {
         MaybeError CreatePipelineLayoutInternal(PipelineLayoutBase** result,
                                                 const PipelineLayoutDescriptor* descriptor);
         MaybeError CreateQueueInternal(QueueBase** result);
+        MaybeError CreateRenderBundleEncoderInternal(
+            RenderBundleEncoder** result,
+            const RenderBundleEncoderDescriptor* descriptor);
         MaybeError CreateRenderPipelineInternal(RenderPipelineBase** result,
                                                 const RenderPipelineDescriptor* descriptor);
         MaybeError CreateSamplerInternal(SamplerBase** result, const SamplerDescriptor* descriptor);
         MaybeError CreateShaderModuleInternal(ShaderModuleBase** result,
                                               const ShaderModuleDescriptor* descriptor);
         MaybeError CreateSwapChainInternal(SwapChainBase** result,
+                                           Surface* surface,
                                            const SwapChainDescriptor* descriptor);
         MaybeError CreateTextureInternal(TextureBase** result, const TextureDescriptor* descriptor);
         MaybeError CreateTextureViewInternal(TextureViewBase** result,
                                              TextureBase* texture,
                                              const TextureViewDescriptor* descriptor);
 
-        void ConsumeError(ErrorData* error);
+        void ApplyExtensions(const DeviceDescriptor* deviceDescriptor);
+
         void SetDefaultToggles();
 
+        void ConsumeError(std::unique_ptr<ErrorData> error);
+
+        // Destroy is used to clean up and release resources used by device, does not wait for GPU
+        // or check errors.
+        virtual void Destroy() = 0;
+
+        // WaitForIdleForDestruction waits for GPU to finish, checks errors and gets ready for
+        // destruction. This is only used when properly destructing the device. For a real
+        // device loss, this function doesn't need to be called since the driver already closed all
+        // resources.
+        virtual MaybeError WaitForIdleForDestruction() = 0;
+
+        void HandleLoss(const char* message);
+        wgpu::DeviceLostCallback mDeviceLostCallback = nullptr;
+        void* mDeviceLostUserdata;
+
         AdapterBase* mAdapter = nullptr;
+
+        Ref<ErrorScope> mRootErrorScope;
+        Ref<ErrorScope> mCurrentErrorScope;
 
         // The object caches aren't exposed in the header as they would require a lot of
         // additional includes.
@@ -216,22 +294,24 @@ namespace dawn_native {
         std::unique_ptr<Caches> mCaches;
 
         struct DeferredCreateBufferMappedAsync {
-            dawn::BufferCreateMappedCallback callback;
-            DawnBufferMapAsyncStatus status;
-            DawnCreateBufferMappedResult result;
+            wgpu::BufferCreateMappedCallback callback;
+            WGPUBufferMapAsyncStatus status;
+            WGPUCreateBufferMappedResult result;
             void* userdata;
         };
 
+        std::unique_ptr<ErrorScopeTracker> mErrorScopeTracker;
         std::unique_ptr<FenceSignalTracker> mFenceSignalTracker;
         std::vector<DeferredCreateBufferMappedAsync> mDeferredCreateBufferMappedAsyncResults;
 
-        dawn::DeviceErrorCallback mErrorCallback = nullptr;
-        void* mErrorUserdata = 0;
         uint32_t mRefCount = 1;
 
         FormatTable mFormatTable;
 
         TogglesSet mTogglesSet;
+        size_t mLazyClearCountForTesting = 0;
+
+        ExtensionsSet mEnabledExtensions;
     };
 
 }  // namespace dawn_native

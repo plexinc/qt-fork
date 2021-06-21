@@ -21,6 +21,7 @@ const char kGetNetworkStatus[] = "GetNetworkStatus";
 const char kGetPerfOutput[] = "GetPerfOutput";
 const char kGetPerfOutputFd[] = "GetPerfOutputFd";
 const char kStopPerf[] = "StopPerf";
+const char kGetIpAddrs[] = "GetIpAddrs";
 const char kGetRoutes[] = "GetRoutes";
 const char kSetDebugMode[] = "SetDebugMode";
 const char kSystraceStart[] = "SystraceStart";
@@ -29,6 +30,7 @@ const char kSystraceStatus[] = "SystraceStatus";
 const char kGetLog[] = "GetLog";
 const char kGetAllLogs[] = "GetAllLogs";
 const char kGetBigFeedbackLogs[] = "GetBigFeedbackLogs";
+const char kKstaledSetRatio[] = "KstaledSetRatio";
 const char kGetJournalLog[] = "GetJournalLog";
 const char kTestICMP[] = "TestICMP";
 const char kTestICMPWithOptions[] = "TestICMPWithOptions";
@@ -51,6 +53,11 @@ const char kSetRlzPingSent[] = "SetRlzPingSent";
 const char kSetU2fFlags[] = "SetU2fFlags";
 const char kGetU2fFlags[] = "GetU2fFlags";
 const char kSetSchedulerConfiguration[] = "SetSchedulerConfiguration";
+const char kSetSchedulerConfigurationV2[] = "SetSchedulerConfigurationV2";
+const char kSwapSetParameter[] = "SwapSetParameter";
+
+// Properties.
+const char kCrashSenderTestMode[] = "CrashSenderTestMode";
 
 // Values.
 enum DevFeatureFlag {
@@ -89,6 +96,7 @@ constexpr char kU2f[] = "u2f";
 constexpr char kG2f[] = "g2f";
 constexpr char kVerbose[] = "verbose";
 constexpr char kUserKeys[] = "user_keys";
+constexpr char kAllowlistData[] = "allowlist_data";
 }  // namespace u2f_flags
 
 }  // namespace debugd

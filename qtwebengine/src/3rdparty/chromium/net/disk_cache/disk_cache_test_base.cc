@@ -34,7 +34,10 @@ using net::test::IsOk;
 
 DiskCacheTest::DiskCacheTest() {
   CHECK(temp_dir_.CreateUniqueTempDir());
-  cache_path_ = temp_dir_.GetPath();
+  // Put the cache into a subdir of |temp_dir_|, to permit tests to safely
+  // remove the cache directory without risking collisions with other tests.
+  cache_path_ = temp_dir_.GetPath().AppendASCII("cache");
+  CHECK(base::CreateDirectory(cache_path_));
 }
 
 DiskCacheTest::~DiskCacheTest() = default;
@@ -68,9 +71,12 @@ DiskCacheTestWithCache::TestIterator::~TestIterator() = default;
 
 int DiskCacheTestWithCache::TestIterator::OpenNextEntry(
     disk_cache::Entry** next_entry) {
-  net::TestCompletionCallback cb;
-  int rv = iterator_->OpenNextEntry(next_entry, cb.callback());
-  return cb.GetResult(rv);
+  TestEntryResultCompletionCallback cb;
+  disk_cache::EntryResult result =
+      cb.GetResult(iterator_->OpenNextEntry(cb.callback()));
+  int rv = result.net_error();
+  *next_entry = result.ReleaseEntry();
+  return rv;
 }
 
 DiskCacheTestWithCache::DiskCacheTestWithCache()
@@ -133,20 +139,18 @@ void DiskCacheTestWithCache::SetMaxSize(int64_t size, bool should_succeed) {
     EXPECT_EQ(should_succeed, mem_cache_->SetMaxSize(size));
 }
 
-int DiskCacheTestWithCache::OpenOrCreateEntry(
-    const std::string& key,
-    disk_cache::EntryWithOpened* entry_struct) {
-  return OpenOrCreateEntryWithPriority(key, net::HIGHEST, entry_struct);
+disk_cache::EntryResult DiskCacheTestWithCache::OpenOrCreateEntry(
+    const std::string& key) {
+  return OpenOrCreateEntryWithPriority(key, net::HIGHEST);
 }
 
-int DiskCacheTestWithCache::OpenOrCreateEntryWithPriority(
+disk_cache::EntryResult DiskCacheTestWithCache::OpenOrCreateEntryWithPriority(
     const std::string& key,
-    net::RequestPriority request_priority,
-    disk_cache::EntryWithOpened* entry_struct) {
-  net::TestCompletionCallback cb;
-  int rv = cache_->OpenOrCreateEntry(key, request_priority, entry_struct,
-                                     cb.callback());
-  return cb.GetResult(rv);
+    net::RequestPriority request_priority) {
+  TestEntryResultCompletionCallback cb;
+  disk_cache::EntryResult result =
+      cache_->OpenOrCreateEntry(key, request_priority, cb.callback());
+  return cb.GetResult(std::move(result));
 }
 
 int DiskCacheTestWithCache::OpenEntry(const std::string& key,
@@ -158,9 +162,12 @@ int DiskCacheTestWithCache::OpenEntryWithPriority(
     const std::string& key,
     net::RequestPriority request_priority,
     disk_cache::Entry** entry) {
-  net::TestCompletionCallback cb;
-  int rv = cache_->OpenEntry(key, request_priority, entry, cb.callback());
-  return cb.GetResult(rv);
+  TestEntryResultCompletionCallback cb;
+  disk_cache::EntryResult result =
+      cb.GetResult(cache_->OpenEntry(key, request_priority, cb.callback()));
+  int rv = result.net_error();
+  *entry = result.ReleaseEntry();
+  return rv;
 }
 
 int DiskCacheTestWithCache::CreateEntry(const std::string& key,
@@ -172,9 +179,12 @@ int DiskCacheTestWithCache::CreateEntryWithPriority(
     const std::string& key,
     net::RequestPriority request_priority,
     disk_cache::Entry** entry) {
-  net::TestCompletionCallback cb;
-  int rv = cache_->CreateEntry(key, request_priority, entry, cb.callback());
-  return cb.GetResult(rv);
+  TestEntryResultCompletionCallback cb;
+  disk_cache::EntryResult result =
+      cb.GetResult(cache_->CreateEntry(key, request_priority, cb.callback()));
+  int rv = result.net_error();
+  *entry = result.ReleaseEntry();
+  return rv;
 }
 
 int DiskCacheTestWithCache::DoomEntry(const std::string& key) {
@@ -224,22 +234,28 @@ DiskCacheTestWithCache::CreateIterator() {
 }
 
 void DiskCacheTestWithCache::FlushQueueForTest() {
-  if (memory_only_ || !cache_impl_)
+  if (memory_only_)
     return;
 
+  if (simple_cache_impl_) {
+    simple_cache_impl_->FlushWorkerPoolForTesting();
+    return;
+  }
+
+  DCHECK(cache_impl_);
   net::TestCompletionCallback cb;
   int rv = cache_impl_->FlushQueueForTest(cb.callback());
   EXPECT_THAT(cb.GetResult(rv), IsOk());
 }
 
-void DiskCacheTestWithCache::RunTaskForTest(const base::Closure& closure) {
+void DiskCacheTestWithCache::RunTaskForTest(base::OnceClosure closure) {
   if (memory_only_ || !cache_impl_) {
-    closure.Run();
+    std::move(closure).Run();
     return;
   }
 
   net::TestCompletionCallback cb;
-  int rv = cache_impl_->RunTaskForTest(closure, cb.callback());
+  int rv = cache_impl_->RunTaskForTest(std::move(closure), cb.callback());
   EXPECT_THAT(cb.GetResult(rv), IsOk());
 }
 
@@ -295,16 +311,17 @@ void DiskCacheTestWithCache::TrimForTest(bool empty) {
   if (memory_only_ || !cache_impl_)
     return;
 
-  RunTaskForTest(base::Bind(&disk_cache::BackendImpl::TrimForTest,
-                            base::Unretained(cache_impl_), empty));
+  RunTaskForTest(base::BindOnce(&disk_cache::BackendImpl::TrimForTest,
+                                base::Unretained(cache_impl_), empty));
 }
 
 void DiskCacheTestWithCache::TrimDeletedListForTest(bool empty) {
   if (memory_only_ || !cache_impl_)
     return;
 
-  RunTaskForTest(base::Bind(&disk_cache::BackendImpl::TrimDeletedListForTest,
-                            base::Unretained(cache_impl_), empty));
+  RunTaskForTest(
+      base::BindOnce(&disk_cache::BackendImpl::TrimDeletedListForTest,
+                     base::Unretained(cache_impl_), empty));
 }
 
 void DiskCacheTestWithCache::AddDelay() {
@@ -387,9 +404,10 @@ void DiskCacheTestWithCache::CreateBackend(uint32_t flags) {
     cache_ = std::move(simple_backend);
     if (simple_cache_wait_for_index_) {
       net::TestCompletionCallback wait_for_index_cb;
-      rv = simple_cache_impl_->index()->ExecuteWhenReady(
+      simple_cache_impl_->index()->ExecuteWhenReady(
           wait_for_index_cb.callback());
-      ASSERT_THAT(wait_for_index_cb.GetResult(rv), IsOk());
+      rv = wait_for_index_cb.WaitForResult();
+      ASSERT_THAT(rv, IsOk());
     }
     return;
   }

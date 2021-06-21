@@ -77,13 +77,13 @@ SSLHostStateDelegateQt::SSLHostStateDelegateQt() {}
 
 SSLHostStateDelegateQt::~SSLHostStateDelegateQt() {}
 
-void SSLHostStateDelegateQt::AllowCert(const std::string &host, const net::X509Certificate &cert, int error)
+void SSLHostStateDelegateQt::AllowCert(const std::string &host, const net::X509Certificate &cert, int error, content::WebContents *)
 {
     m_certPolicyforHost[host].Allow(cert, error);
 }
 
 // Clear all allow preferences.
-void SSLHostStateDelegateQt::Clear(const base::Callback<bool(const std::string &)> &host_filter)
+void SSLHostStateDelegateQt::Clear(base::RepeatingCallback<bool(const std::string&)> host_filter)
 {
     if (host_filter.is_null()) {
         m_certPolicyforHost.clear();
@@ -105,8 +105,7 @@ void SSLHostStateDelegateQt::Clear(const base::Callback<bool(const std::string &
 // prior to this query, otherwise false.
 content::SSLHostStateDelegate::CertJudgment SSLHostStateDelegateQt::QueryPolicy(const std::string &host,
                                                                                 const net::X509Certificate &cert,
-                                                                                int error,
-                                                                                bool * /*expired_previous_decision*/)
+                                                                                int error, content::WebContents *)
 {
     return m_certPolicyforHost[host].Check(cert, error) ? SSLHostStateDelegate::ALLOWED : SSLHostStateDelegate::DENIED;
 }
@@ -133,7 +132,7 @@ void SSLHostStateDelegateQt::RevokeUserAllowExceptions(const std::string &host)
 // |host|. This does not mean that *all* certificate errors are allowed, just
 // that there exists an exception. To see if a particular certificate and
 // error combination exception is allowed, use QueryPolicy().
-bool SSLHostStateDelegateQt::HasAllowException(const std::string &host)
+bool SSLHostStateDelegateQt::HasAllowException(const std::string &host, content::WebContents *)
 {
     auto policy_iterator = m_certPolicyforHost.find(host);
     return policy_iterator != m_certPolicyforHost.end() &&

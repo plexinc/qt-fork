@@ -23,8 +23,8 @@ Are you a Google employee? See
 
 ### Visual Studio
 
-Chromium requires Visual Studio 2017 (>=15.7.2) or 2019 (>=16.0.0) to build.
-Visual Studio can also be used to debug Chromium and Visual Studio 2019 is
+Chromium requires Visual Studio 2017 (>=15.7.2) to build, but VS2019 (>=16.0.0)
+is preferred. Visual Studio can also be used to debug Chromium, and VS2019 is
 preferred for this as it handles Chromium's large debug information much better.
 The clang-cl compiler is used but Visual Studio's header files, libraries, and
 some tools are required. Visual Studio Community Edition should work if its
@@ -88,9 +88,7 @@ if your system PATH has a Python in it, you will be out of luck.
 
 Also, add a DEPOT_TOOLS_WIN_TOOLCHAIN system variable in the same way, and set
 it to 0. This tells depot_tools to use your locally installed version of Visual
-Studio (by default, depot_tools will try to use a google-internal version). If
-you want to build with Visual Studio 2019 instead of Visual Studio 2017 (the
-default) then set the GYP_MSVS_VERSION environment variable to 2019.
+Studio (by default, depot_tools will try to use a google-internal version).
 
 From a cmd.exe shell, run the command gclient (without arguments). On first
 run, gclient will install all the Windows-specific bits needed to work with
@@ -168,7 +166,8 @@ $ gn gen out/Default
   update the build files as needed.
 * You can replace `Default` with another name, but
   it should be a subdirectory of `out`.
-* For other build arguments, including release settings, see [GN build
+* For other build arguments, including release settings or using an alternate
+  version of Visual Studio, see [GN build
   configuration](https://www.chromium.org/developers/gn-build-configuration).
   The default will be a debug component build matching the current host
   operating system and CPU.
@@ -283,8 +282,8 @@ values? Have you asked on the chromium-dev mailing list to see if your build is
 slower than expected for your machine's specifications?
 
 The next step is to gather some data. If you set the ``NINJA_SUMMARIZE_BUILD``
-environment variable to 1 then ``autoninja`` will do a couple of things. First,
-it will set the [NINJA_STATUS](https://ninja-build.org/manual.html#_environment_variables)
+environment variable to 1 then ``autoninja`` will do three things. First, it
+will set the [NINJA_STATUS](https://ninja-build.org/manual.html#_environment_variables)
 environment variable so that ninja will print additional information while
 building Chrome. It will show how many build processes are running at any given
 time, how many build steps have completed, how many build steps have completed
@@ -307,17 +306,28 @@ steps and slowest build-step types, as shown here:
 ```shell
 $ set NINJA_SUMMARIZE_BUILD=1
 $ autoninja -C out\Default base
-    Longest build steps:
-...
-           1.2 weighted s to build base.dll, base.dll.lib, base.dll.pdb (1.2 s CPU time)
-           8.5 weighted s to build obj/base/base/base_jumbo_38.obj (30.1 s CPU time)
-    Time by build-step type:
-...
-           1.2 s weighted time to generate 1 PEFile (linking) files (1.2 s CPU time)
-          30.3 s weighted time to generate 45 .obj files (688.8 s CPU time)
-    31.8 s weighted time (693.8 s CPU time, 21.8x parallelism)
-    86 build steps completed, average of 2.71/s
+Longest build steps:
+       0.1 weighted s to build obj/base/base/trace_log.obj (6.7 s elapsed time)
+       0.2 weighted s to build nasm.exe, nasm.exe.pdb (0.2 s elapsed time)
+       0.3 weighted s to build obj/base/base/win_util.obj (12.4 s elapsed time)
+       1.2 weighted s to build base.dll, base.dll.lib (1.2 s elapsed time)
+Time by build-step type:
+       0.0 s weighted time to generate 6 .lib files (0.3 s elapsed time sum)
+       0.1 s weighted time to generate 25 .stamp files (1.2 s elapsed time sum)
+       0.2 s weighted time to generate 20 .o files (2.8 s elapsed time sum)
+       1.7 s weighted time to generate 4 PEFile (linking) files (2.0 s elapsed
+time sum)
+      23.9 s weighted time to generate 770 .obj files (974.8 s elapsed time sum)
+26.1 s weighted time (982.9 s elapsed time sum, 37.7x parallelism)
+839 build steps completed, average of 32.17/s
 ```
+
+The "weighted" time is the elapsed time of each build step divided by the number
+of tasks that were running in parallel. This makes it an excellent approximation
+of how "important" a slow step was. A link that is entirely or mostly serialized
+will have a weighted time that is the same or similar to its elapsed time. A
+compile that runs in parallel with 999 other compiles will have a weighted time
+that is tiny.
 
 You can also generate these reports by manually running the script after a build:
 
@@ -325,20 +335,16 @@ You can also generate these reports by manually running the script after a build
 $ python depot_tools\post_build_ninja_summary.py -C out\Default
 ```
 
-You can also get a visual report of the build performance with
-[ninjatracing](https://github.com/nico/ninjatracing). This converts the
-.ninja_log file into a .json file which can be loaded into chrome://tracing:
+Finally, setting ``NINJA_SUMMARIZE_BUILD=1`` tells autoninja to tell Ninja to
+report on its own overhead by passing "-d stats". This can be helpful if, for
+instance, process creation (which shows up in the StartEdge metric) is making
+builds slow, perhaps due to antivirus interference due to clang-cl not being in
+an excluded directory:
 
 ```shell
-$ python ninjatracing out\Default\.ninja_log >build.json
-```
-
-Finally, Ninja can report on its own overhead which can be helpful if, for
-instance, process creation is making builds slow, perhaps due to antivirus
-interference due to clang-cl not being in an excluded directory:
-
-```shell
-$ autoninja -d stats -C out\Default base
+$ set NINJA_SUMMARIZE_BUILD=1
+$ autoninja -C out\Default base
+"c:\src\depot_tools\ninja.exe" -C out\Default base -j 10 -d stats
 metric                  count   avg (us)        total (ms)
 .ninja parse            3555    1539.4          5472.6
 canonicalize str        1383032 0.0             12.7
@@ -351,6 +357,14 @@ depfile load            2       1132.0          2.3
 StartEdge               88      3508.1          308.7
 FinishCommand           87      1670.9          145.4
 CLParser::Parse         45      1889.1          85.0
+```
+
+You can also get a visual report of the build performance with
+[ninjatracing](https://github.com/nico/ninjatracing). This converts the
+.ninja_log file into a .json file which can be loaded into chrome://tracing:
+
+```shell
+$ python ninjatracing out\Default\.ninja_log >build.json
 ```
 
 ## Build Chromium

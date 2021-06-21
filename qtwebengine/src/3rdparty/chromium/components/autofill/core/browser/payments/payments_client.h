@@ -48,11 +48,6 @@ typedef base::OnceCallback<void(
     const std::string& display_text)>
     MigrateCardsCallback;
 
-// Callback type for GetUnmaskDetails callback.
-typedef base::OnceCallback<void(AutofillClient::PaymentsRpcResult,
-                                AutofillClient::UnmaskDetails&)>
-    GetUnmaskDetailsCallback;
-
 // Billable service number is defined in Payments server to distinguish
 // different requests.
 const int kUnmaskCardBillableServiceNumber = 70154;
@@ -74,6 +69,25 @@ class PaymentsClient {
   static const char kRecipientName[];
   static const char kPhoneNumber[];
 
+  // Details for card unmasking, such as the suggested method of authentication,
+  // along with any information required to facilitate the authentication.
+  struct UnmaskDetails {
+    UnmaskDetails();
+    ~UnmaskDetails();
+    UnmaskDetails& operator=(const UnmaskDetails& other);
+
+    // The type of authentication method suggested for card unmask.
+    AutofillClient::UnmaskAuthMethod unmask_auth_method =
+        AutofillClient::UnmaskAuthMethod::UNKNOWN;
+    // Set to true if the user should be offered opt-in for FIDO Authentication.
+    bool offer_fido_opt_in = false;
+    // Public Key Credential Request Options required for authentication.
+    // https://www.w3.org/TR/webauthn/#dictdef-publickeycredentialrequestoptions
+    base::Optional<base::Value> fido_request_options = base::nullopt;
+    // Set of credit cards ids that are eligible for FIDO Authentication.
+    std::set<std::string> fido_eligible_card_ids;
+  };
+
   // A collection of the information required to make a credit card unmask
   // request.
   struct UnmaskRequestDetails {
@@ -85,8 +99,87 @@ class PaymentsClient {
     AutofillClient::UnmaskCardReason reason;
     CreditCard card;
     std::string risk_data;
-    CardUnmaskDelegate::UnmaskResponse user_response;
-    base::Value fido_assertion_info;
+    CardUnmaskDelegate::UserProvidedUnmaskDetails user_response;
+    base::Optional<base::Value> fido_assertion_info = base::nullopt;
+  };
+
+  // Information retrieved from an UnmaskRequest.
+  struct UnmaskResponseDetails {
+    UnmaskResponseDetails();
+    UnmaskResponseDetails(const UnmaskResponseDetails& other);
+    ~UnmaskResponseDetails();
+    UnmaskResponseDetails& operator=(const UnmaskResponseDetails& other);
+
+    UnmaskResponseDetails& with_real_pan(std::string r) {
+      real_pan = r;
+      return *this;
+    }
+
+    UnmaskResponseDetails& with_dcvv(std::string d) {
+      dcvv = d;
+      return *this;
+    }
+
+    std::string real_pan;
+    std::string dcvv;
+    // Challenge required for enrolling user into FIDO authentication for future
+    // card unmasking.
+    base::Optional<base::Value> fido_creation_options = base::nullopt;
+    // Challenge required for authorizing user for FIDO authentication for
+    // future card unmasking.
+    base::Optional<base::Value> fido_request_options = base::nullopt;
+    // An opaque token used to logically chain consecutive UnmaskCard and
+    // OptChange calls together.
+    std::string card_authorization_token = std::string();
+  };
+
+  // Information required to either opt-in or opt-out a user for FIDO
+  // Authentication.
+  struct OptChangeRequestDetails {
+    OptChangeRequestDetails();
+    OptChangeRequestDetails(const OptChangeRequestDetails& other);
+    ~OptChangeRequestDetails();
+
+    std::string app_locale;
+
+    // The reason for making the request.
+    enum Reason {
+      // Unknown default.
+      UNKNOWN_REASON = 0,
+      // The user wants to enable FIDO authentication for card unmasking.
+      ENABLE_FIDO_AUTH = 1,
+      // The user wants to disable FIDO authentication for card unmasking.
+      DISABLE_FIDO_AUTH = 2,
+      // The user is authorizing a new card for future FIDO authentication
+      // unmasking.
+      ADD_CARD_FOR_FIDO_AUTH = 3,
+    };
+
+    // Reason for the request.
+    Reason reason;
+    // Signature required for enrolling user into FIDO authentication for future
+    // card unmasking.
+    base::Optional<base::Value> fido_authenticator_response = base::nullopt;
+    // An opaque token used to logically chain consecutive UnmaskCard and
+    // OptChange calls together.
+    std::string card_authorization_token = std::string();
+  };
+
+  // Information retrieved from an OptChange request.
+  struct OptChangeResponseDetails {
+    OptChangeResponseDetails();
+    OptChangeResponseDetails(const OptChangeResponseDetails& other);
+    ~OptChangeResponseDetails();
+
+    // Unset if response failed. True if user is opted-in for FIDO
+    // authentication for card unmasking. False otherwise.
+    base::Optional<bool> user_is_opted_in;
+    // Challenge required for enrolling user into FIDO authentication for future
+    // card unmasking.
+    base::Optional<base::Value> fido_creation_options = base::nullopt;
+    // Challenge required for authorizing user for FIDO authentication for
+    // future card unmasking.
+    base::Optional<base::Value> fido_request_options = base::nullopt;
   };
 
   // A collection of the information required to make a credit card upload
@@ -161,15 +254,25 @@ class PaymentsClient {
   void Prepare();
 
   // The user has interacted with a credit card form and may attempt to unmask a
-  // card. This request returns what method of authentication is required, along
-  // with any information to facilitate the authentication.
-  virtual void GetUnmaskDetails(GetUnmaskDetailsCallback callback,
-                                const std::string& app_locale);
+  // card. This request returns what method of authentication is suggested,
+  // along with any information to facilitate the authentication.
+  virtual void GetUnmaskDetails(
+      base::OnceCallback<void(AutofillClient::PaymentsRpcResult,
+                              PaymentsClient::UnmaskDetails&)> callback,
+      const std::string& app_locale);
 
   // The user has attempted to unmask a card with the given cvc.
   void UnmaskCard(const UnmaskRequestDetails& request_details,
                   base::OnceCallback<void(AutofillClient::PaymentsRpcResult,
-                                          const std::string&)> callback);
+                                          UnmaskResponseDetails&)> callback);
+
+  // Opts-in or opts-out the user to use FIDO authentication for card unmasking
+  // on this device.
+  void OptChange(
+      const OptChangeRequestDetails request_details,
+      base::OnceCallback<void(AutofillClient::PaymentsRpcResult,
+                              PaymentsClient::OptChangeResponseDetails&)>
+          callback);
 
   // Determine if the user meets the Payments service's conditions for upload.
   // The service uses |addresses| (from which names and phone numbers are

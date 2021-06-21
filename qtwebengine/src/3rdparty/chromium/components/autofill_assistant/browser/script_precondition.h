@@ -16,7 +16,7 @@
 #include "base/memory/weak_ptr.h"
 #include "components/autofill_assistant/browser/element_precondition.h"
 #include "components/autofill_assistant/browser/service.pb.h"
-#include "components/autofill_assistant/browser/web_controller.h"
+#include "components/autofill_assistant/browser/web/web_controller.h"
 
 namespace re2 {
 class RE2;
@@ -45,10 +45,7 @@ class ScriptPrecondition {
           status_match,
       const google::protobuf::RepeatedPtrField<ScriptParameterMatchProto>&
           parameter_match,
-      const google::protobuf::RepeatedPtrField<ElementReferenceProto>&
-          element_exists,
-      const google::protobuf::RepeatedPtrField<FormValueMatchProto>&
-          form_value_match);
+      const ElementConditionProto& must_match);
 
   ~ScriptPrecondition();
 

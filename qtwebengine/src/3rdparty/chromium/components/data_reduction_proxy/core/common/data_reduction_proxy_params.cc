@@ -22,7 +22,6 @@
 #include "net/base/host_port_pair.h"
 #include "net/base/proxy_server.h"
 #include "net/http/http_status_code.h"
-#include "services/network/public/cpp/features.h"
 #include "url/url_constants.h"
 
 #if defined(OS_ANDROID)
@@ -34,8 +33,6 @@ namespace {
 const char kEnabled[] = "Enabled";
 const char kControl[] = "Control";
 const char kDisabled[] = "Disabled";
-const char kDefaultSecureProxyCheckUrl[] = "http://check.googlezip.net/connect";
-const char kDefaultWarmupUrl[] = "http://check.googlezip.net/e2e_probe";
 
 const char kQuicFieldTrial[] = "DataReductionProxyUseQuic";
 
@@ -57,18 +54,6 @@ const char kExperimentsOption[] = "exp";
 bool IsIncludedInFieldTrial(const std::string& name) {
   return base::StartsWith(base::FieldTrialList::FindFullName(name), kEnabled,
                           base::CompareCase::SENSITIVE);
-}
-
-// Returns the variation value for |parameter_name|. If the value is
-// unavailable, |default_value| is returned.
-std::string GetStringValueForVariationParamWithDefaultValue(
-    const std::map<std::string, std::string>& variation_params,
-    const std::string& parameter_name,
-    const std::string& default_value) {
-  const auto it = variation_params.find(parameter_name);
-  if (it == variation_params.end())
-    return default_value;
-  return it->second;
 }
 
 bool CanShowAndroidLowMemoryDevicePromo() {
@@ -101,62 +86,13 @@ bool IsIncludedInFREPromoFieldTrial() {
 }
 
 bool IsIncludedInHoldbackFieldTrial() {
-  // For now, DRP can be disabled using either the field trial or the feature.
-  // New server configs should use the feature capability.
-  // TODO(tbansal): Remove the field trial code.
   return base::FeatureList::IsEnabled(
-             data_reduction_proxy::features::kDataReductionProxyHoldback) ||
-         IsIncludedInFieldTrial("DataCompressionProxyHoldback");
+      data_reduction_proxy::features::kDataReductionProxyHoldback);
 }
 
-std::string HoldbackFieldTrialGroup() {
-  return base::FieldTrialList::FindFullName("DataCompressionProxyHoldback");
-}
-
-bool FetchWarmupProbeURLEnabled() {
-  return !base::CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kDisableDataReductionProxyWarmupURLFetch);
-}
-
-GURL GetWarmupURL() {
-  std::map<std::string, std::string> params;
-  variations::GetVariationParams(GetQuicFieldTrialName(), &params);
-  return GURL(GetStringValueForVariationParamWithDefaultValue(
-      params, "warmup_url", kDefaultWarmupUrl));
-}
-
-bool IsWarmupURLFetchCallbackEnabled() {
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          data_reduction_proxy::switches::
-              kDisableDataReductionProxyWarmupURLFetchCallback)) {
-    return false;
-  }
-
-  return true;
-}
-
-bool IsWarmupURL(const GURL& url) {
-  GURL warmup_url = params::GetWarmupURL();
-  return url.host() == warmup_url.host() && url.path() == warmup_url.path();
-}
-
-bool IsWhitelistedHttpResponseCodeForProbes(int http_response_code) {
-  // 200 and 404 are always whitelisted.
-  if (http_response_code == net::HTTP_OK ||
-      http_response_code == net::HTTP_NOT_FOUND) {
-    return true;
-  }
-
-  // Check if there is an additional whitelisted HTTP response code provided via
-  // the field trial params.
-  std::map<std::string, std::string> params;
-  variations::GetVariationParams(GetQuicFieldTrialName(), &params);
-  const std::string value = GetStringValueForVariationParamWithDefaultValue(
-      params, "whitelisted_probe_http_response_code", "");
-  int response_code;
-  if (!base::StringToInt(value, &response_code))
-    return false;
-  return response_code == http_response_code;
+bool ForceEnableClientConfigServiceForAllDataSaverUsers() {
+  return base::FeatureList::IsEnabled(
+      data_reduction_proxy::features::kFetchClientConfig);
 }
 
 bool IsForcePingbackEnabledViaFlags() {
@@ -224,11 +160,6 @@ GURL GetPingbackURL() {
   LOG(WARNING) << "The following page load metrics URL specified at the "
                << "command-line or variation is invalid: " << url;
   return GURL(kPingbackURL);
-}
-
-bool ShouldForceEnableDataReductionProxy() {
-  return base::CommandLine::ForCurrentProcess()->HasSwitch(
-      data_reduction_proxy::switches::kEnableDataReductionProxy);
 }
 
 int LitePageVersion() {
@@ -351,22 +282,10 @@ std::string GetDataSaverServerExperiments() {
       features::kDataReductionProxyServerExperiments, kExperimentsOption);
 }
 
-
-GURL GetSecureProxyCheckURL() {
-  std::string secure_proxy_check_url =
-      base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
-          switches::kDataReductionProxySecureProxyCheckURL);
-  if (secure_proxy_check_url.empty())
-    secure_proxy_check_url = kDefaultSecureProxyCheckUrl;
-
-  return GURL(secure_proxy_check_url);
-}
-
 bool IsEnabledWithNetworkService() {
   return base::FeatureList::IsEnabled(
-             data_reduction_proxy::features::
-                 kDataReductionProxyEnabledWithNetworkService) &&
-         base::FeatureList::IsEnabled(network::features::kNetworkService);
+      data_reduction_proxy::features::
+          kDataReductionProxyEnabledWithNetworkService);
 }
 
 base::Optional<DataReductionProxyTypeInfo> FindConfiguredProxyInVector(

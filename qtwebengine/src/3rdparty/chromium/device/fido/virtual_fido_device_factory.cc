@@ -57,8 +57,7 @@ class VirtualFidoDeviceDiscovery
   DISALLOW_COPY_AND_ASSIGN(VirtualFidoDeviceDiscovery);
 };
 
-VirtualFidoDeviceFactory::VirtualFidoDeviceFactory()
-    : state_(new VirtualFidoDevice::State) {}
+VirtualFidoDeviceFactory::VirtualFidoDeviceFactory() = default;
 VirtualFidoDeviceFactory::~VirtualFidoDeviceFactory() = default;
 
 void VirtualFidoDeviceFactory::SetSupportedProtocol(
@@ -82,19 +81,12 @@ VirtualFidoDevice::State* VirtualFidoDeviceFactory::mutable_state() {
 }
 
 std::unique_ptr<FidoDiscoveryBase> VirtualFidoDeviceFactory::Create(
-    FidoTransportProtocol transport,
-    ::service_manager::Connector* connector) {
+    FidoTransportProtocol transport) {
   if (transport != transport_) {
     return nullptr;
   }
   return std::make_unique<VirtualFidoDeviceDiscovery>(
       transport_, state_, supported_protocol_, ctap2_config_);
-}
-
-std::unique_ptr<FidoDiscoveryBase> VirtualFidoDeviceFactory::CreateCable(
-    std::vector<CableDiscoveryData> cable_data) {
-  return Create(FidoTransportProtocol::kCloudAssistedBluetoothLowEnergy,
-                nullptr);
 }
 
 }  // namespace test

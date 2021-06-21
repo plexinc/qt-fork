@@ -9,6 +9,11 @@
 #include <vector>
 
 #include "gpu/gpu_export.h"
+#include "ui/gfx/buffer_types.h"
+
+#if defined(USE_X11)
+typedef unsigned long VisualID;
+#endif
 
 namespace gpu {
 
@@ -35,6 +40,9 @@ struct GPU_EXPORT ANGLEFeature {
 
   // Status, can be "enabled" or "disabled".
   std::string status;
+
+  // Condition, contains the condition that set 'status'.
+  std::string condition;
 };
 using ANGLEFeatures = std::vector<ANGLEFeature>;
 
@@ -49,6 +57,13 @@ struct GPU_EXPORT GpuExtraInfo {
   // List of the currently available ANGLE features. May be empty if not
   // applicable.
   ANGLEFeatures angle_features;
+
+#if defined(USE_X11)
+  VisualID system_visual = 0;
+  VisualID rgba_visual = 0;
+
+  std::vector<gfx::BufferUsageAndFormat> gpu_memory_buffer_support_x11;
+#endif
 };
 
 }  // namespace gpu

@@ -7,16 +7,20 @@
 
 #include <memory>
 #include <set>
+#include <string>
 #include <utility>
 
 #include "base/compiler_specific.h"
 #include "base/containers/unique_ptr_adapters.h"
 #include "base/macros.h"
+#include "base/observer_list.h"
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
 #include "content/browser/worker_host/shared_worker_host.h"
+#include "content/public/browser/global_routing_id.h"
 #include "content/public/browser/shared_worker_service.h"
-#include "services/network/public/cpp/resource_response.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
 #include "services/network/public/mojom/url_loader_factory.mojom.h"
+#include "services/network/public/mojom/url_response_head.mojom.h"
 #include "third_party/blink/public/mojom/loader/fetch_client_settings_object.mojom.h"
 #include "third_party/blink/public/mojom/worker/shared_worker_connector.mojom.h"
 #include "third_party/blink/public/mojom/worker/shared_worker_factory.mojom.h"
@@ -46,12 +50,12 @@ class CONTENT_EXPORT SharedWorkerServiceImpl : public SharedWorkerService {
   ~SharedWorkerServiceImpl() override;
 
   // SharedWorkerService implementation.
+  void AddObserver(Observer* observer) override;
+  void RemoveObserver(Observer* observer) override;
+  void EnumerateSharedWorkers(Observer* observer) override;
   bool TerminateWorker(const GURL& url,
                        const std::string& name,
                        const url::Origin& constructor_origin) override;
-
-  void TerminateAllWorkersForTesting(base::OnceClosure callback);
-  void SetWorkerTerminationCallbackForTesting(base::OnceClosure callback);
 
   // Uses |url_loader_factory| to load workers' scripts instead of
   // StoragePartition's URLLoaderFactoryGetter.
@@ -60,79 +64,88 @@ class CONTENT_EXPORT SharedWorkerServiceImpl : public SharedWorkerService {
 
   // Creates the worker if necessary or connects to an already existing worker.
   void ConnectToWorker(
-      int client_process_id,
-      int frame_id,
+      GlobalFrameRoutingId client_render_frame_host_id,
       blink::mojom::SharedWorkerInfoPtr info,
-      blink::mojom::FetchClientSettingsObjectPtr
-          outside_fetch_client_settings_object,
-      blink::mojom::SharedWorkerClientPtr client,
+      mojo::PendingRemote<blink::mojom::SharedWorkerClient> client,
       blink::mojom::SharedWorkerCreationContextType creation_context_type,
       const blink::MessagePortChannel& port,
       scoped_refptr<network::SharedURLLoaderFactory> blob_url_loader_factory);
 
-  void DestroyHost(SharedWorkerHost* host);
+  // Virtual for testing.
+  virtual void DestroyHost(SharedWorkerHost* host);
+
+  void NotifyWorkerStarted(SharedWorkerId shared_worker_id,
+                           int worker_process_id,
+                           const base::UnguessableToken& dev_tools_token);
+  void NotifyWorkerTerminating(SharedWorkerId shared_worker_id);
+  void NotifyClientAdded(SharedWorkerId shared_worker_id,
+                         GlobalFrameRoutingId render_frame_host_id);
+  void NotifyClientRemoved(SharedWorkerId shared_worker_id,
+                           GlobalFrameRoutingId render_frame_host_id);
 
   StoragePartitionImpl* storage_partition() { return storage_partition_; }
 
  private:
-  friend class SharedWorkerServiceImplTest;
   friend class SharedWorkerHostTest;
+  friend class SharedWorkerServiceImplTest;
+  friend class TestSharedWorkerServiceImpl;
   FRIEND_TEST_ALL_PREFIXES(NetworkServiceRestartBrowserTest, SharedWorker);
 
-  // Creates a new worker in the client's renderer process.
-  void CreateWorker(
-      std::unique_ptr<SharedWorkerInstance> instance,
+  // Creates a new worker in the creator's renderer process.
+  SharedWorkerHost* CreateWorker(
+      SharedWorkerId shared_worker_id,
+      const SharedWorkerInstance& instance,
       blink::mojom::FetchClientSettingsObjectPtr
           outside_fetch_client_settings_object,
-      blink::mojom::SharedWorkerClientPtr client,
-      int client_process_id,
-      int frame_id,
+      GlobalFrameRoutingId creator_render_frame_host_id,
       const std::string& storage_domain,
       const blink::MessagePortChannel& message_port,
       scoped_refptr<network::SharedURLLoaderFactory> blob_url_loader_factory);
-  void DidCreateScriptLoader(
-      std::unique_ptr<SharedWorkerInstance> instance,
+
+  void StartWorker(
       base::WeakPtr<SharedWorkerHost> host,
-      blink::mojom::SharedWorkerClientPtr client,
-      int client_process_id,
-      int frame_id,
       const blink::MessagePortChannel& message_port,
-      network::mojom::URLLoaderFactoryPtr main_script_loader_factory,
-      std::unique_ptr<blink::URLLoaderFactoryBundleInfo>
+      blink::mojom::FetchClientSettingsObjectPtr
+          outside_fetch_client_settings_object,
+      bool did_fetch_worker_script,
+      std::unique_ptr<blink::PendingURLLoaderFactoryBundle>
           subresource_loader_factories,
       blink::mojom::WorkerMainScriptLoadParamsPtr main_script_load_params,
       blink::mojom::ControllerServiceWorkerInfoPtr controller,
       base::WeakPtr<ServiceWorkerObjectHost>
           controller_service_worker_object_host,
-      bool success);
-  void StartWorker(
-      std::unique_ptr<SharedWorkerInstance> instance,
-      base::WeakPtr<SharedWorkerHost> host,
-      blink::mojom::SharedWorkerClientPtr client,
-      int client_process_id,
-      int frame_id,
-      const blink::MessagePortChannel& message_port,
-      network::mojom::URLLoaderFactoryPtr main_script_loader_factory,
-      std::unique_ptr<blink::URLLoaderFactoryBundleInfo>
-          subresource_loader_factories,
-      blink::mojom::WorkerMainScriptLoadParamsPtr main_script_load_params,
-      blink::mojom::ControllerServiceWorkerInfoPtr controller,
-      base::WeakPtr<ServiceWorkerObjectHost>
-          controller_service_worker_object_host);
+      const GURL& final_response_url);
 
   // Returns nullptr if there is no such host.
-  SharedWorkerHost* FindAvailableSharedWorkerHost(
-      const SharedWorkerInstance& instance);
+  SharedWorkerHost* FindMatchingSharedWorkerHost(
+      const GURL& url,
+      const std::string& name,
+      const url::Origin& constructor_origin);
+
+  void ScriptLoadFailed(
+      mojo::PendingRemote<blink::mojom::SharedWorkerClient> client,
+      const std::string& error_message);
+
+  // Generates IDs for new shared workers.
+  SharedWorkerId::Generator shared_worker_id_generator_;
 
   std::set<std::unique_ptr<SharedWorkerHost>, base::UniquePtrComparator>
       worker_hosts_;
-  base::OnceClosure terminate_all_workers_callback_;
 
   // |storage_partition_| owns |this|.
   StoragePartitionImpl* const storage_partition_;
   scoped_refptr<ServiceWorkerContextWrapper> service_worker_context_;
   scoped_refptr<ChromeAppCacheService> appcache_service_;
   scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory_override_;
+
+  // Keeps a reference count of each worker-client pair so as to not send
+  // duplicate OnClientAdded() notifications if the same frame connects multiple
+  // times to the same shared worker. Note that this is a situation unique to
+  // shared worker and cannot happen with dedicated workers and service workers.
+  base::flat_map<std::pair<SharedWorkerId, GlobalFrameRoutingId>, int>
+      shared_worker_client_counts_;
+
+  base::ObserverList<Observer> observers_;
 
   base::WeakPtrFactory<SharedWorkerServiceImpl> weak_factory_{this};
 

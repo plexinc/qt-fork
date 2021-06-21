@@ -21,7 +21,7 @@ class ScriptPromiseResolver;
 // for a video element in Blink outside of modules/ module. It
 // is an interface that the module will implement and add a provider for.
 class CORE_EXPORT PictureInPictureController
-    : public GarbageCollectedFinalized<PictureInPictureController>,
+    : public GarbageCollected<PictureInPictureController>,
       public Supplement<Document> {
   USING_GARBAGE_COLLECTED_MIXIN(PictureInPictureController);
 
@@ -80,7 +80,7 @@ class CORE_EXPORT PictureInPictureController
   // Notifies that one of the states used by Picture-in-Picture has changed.
   virtual void OnPictureInPictureStateChange() = 0;
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
 
  protected:
   explicit PictureInPictureController(Document&);

@@ -17,7 +17,13 @@ constexpr int kIDRPeriod = 2048;
 constexpr int kIPeriod = 0;
 constexpr int kIPPeriod = 1;
 
+// The qp range is 0-51 in H264. Select 26 because of the center value.
 constexpr int kDefaultQP = 26;
+// Note: Webrtc default values are 24 and 37 respectively, see
+// h264_encoder_impl.cc.
+// These values are selected to make our VEA tests pass.
+constexpr int kMinQP = 24;
+constexpr int kMaxQP = 42;
 
 // Subjectively chosen bitrate window size for rate control, in ms.
 constexpr int kCPBWindowSizeMs = 1500;
@@ -43,7 +49,8 @@ H264Encoder::EncodeParams::EncodeParams()
       framerate(0),
       cpb_window_size_ms(kCPBWindowSizeMs),
       cpb_size_bits(0),
-      qp(kDefaultQP),
+      initial_qp(kDefaultQP),
+      scaling_settings(kMinQP, kMaxQP),
       max_num_ref_frames(kMaxNumReferenceFrames),
       max_ref_pic_list0_size(kMaxRefIdxL0Size),
       max_ref_pic_list1_size(kMaxRefIdxL1Size) {}
@@ -93,13 +100,28 @@ bool H264Encoder::Initialize(
   mb_height_ = coded_size_.height() / kH264MacroblockSizeInPixels;
 
   profile_ = config.output_profile;
-  level_ = config.h264_output_level.value_or(
-      VideoEncodeAccelerator::kDefaultH264Level);
+  level_ = config.h264_output_level.value_or(H264SPS::kLevelIDC4p0);
   uint32_t initial_framerate = config.initial_framerate.value_or(
       VideoEncodeAccelerator::kDefaultFramerate);
+
+  // Checks if |level_| is valid. If it is invalid, set |level_| to a minimum
+  // level that comforts Table A-1 in H.264 spec with specified bitrate,
+  // framerate and dimension.
   if (!CheckH264LevelLimits(profile_, level_, config.initial_bitrate,
-                            initial_framerate, mb_width_ * mb_height_))
-    return false;
+                            initial_framerate, mb_width_ * mb_height_)) {
+    base::Optional<uint8_t> valid_level =
+        FindValidH264Level(profile_, config.initial_bitrate, initial_framerate,
+                           mb_width_ * mb_height_);
+    if (!valid_level) {
+      VLOGF(1) << "Could not find a valid h264 level for"
+               << " profile=" << profile_
+               << " bitrate=" << config.initial_bitrate
+               << " framerate=" << initial_framerate
+               << " size=" << config.input_visible_size.ToString();
+      return false;
+    }
+    level_ = *valid_level;
+  }
 
   curr_params_.max_ref_pic_list0_size =
       std::min(kMaxRefIdxL0Size, ave_config.max_num_ref_frames & 0xffff);
@@ -131,6 +153,12 @@ size_t H264Encoder::GetMaxNumOfRefFrames() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   return curr_params_.max_num_ref_frames;
+}
+
+ScalingSettings H264Encoder::GetScalingSettings() const {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  return curr_params_.scaling_settings;
 }
 
 bool H264Encoder::PrepareEncodeJob(EncodeJob* encode_job) {
@@ -222,6 +250,8 @@ bool H264Encoder::UpdateRates(const VideoBitrateAllocation& bitrate_allocation,
       curr_params_.framerate == framerate) {
     return true;
   }
+  VLOGF(2) << "New bitrate: " << bitrate_allocation.GetSumBps()
+           << ", New framerate: " << framerate;
 
   curr_params_.bitrate_bps = bitrate;
   curr_params_.framerate = framerate;
@@ -361,8 +391,8 @@ void H264Encoder::UpdatePPS() {
       curr_params_.max_ref_pic_list1_size > 0
           ? curr_params_.max_ref_pic_list1_size - 1
           : curr_params_.max_ref_pic_list1_size;
-  DCHECK_LE(curr_params_.qp, 51);
-  current_pps_.pic_init_qp_minus26 = curr_params_.qp - 26;
+  DCHECK_LE(curr_params_.initial_qp, 51);
+  current_pps_.pic_init_qp_minus26 = curr_params_.initial_qp - 26;
   current_pps_.deblocking_filter_control_present_flag = true;
   current_pps_.transform_8x8_mode_flag =
       (current_sps_.profile_idc == H264SPS::kProfileIDCHigh);

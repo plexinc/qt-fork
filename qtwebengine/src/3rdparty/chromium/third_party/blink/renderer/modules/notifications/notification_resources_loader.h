@@ -7,7 +7,7 @@
 
 #include <memory>
 
-#include "third_party/blink/public/mojom/notifications/notification.mojom-blink.h"
+#include "third_party/blink/public/mojom/notifications/notification.mojom-blink-forward.h"
 #include "third_party/blink/renderer/core/loader/threaded_icon_loader.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
@@ -21,12 +21,11 @@
 namespace blink {
 
 class ExecutionContext;
-struct WebSize;
 
 // Fetches the resources specified in a given NotificationData. Uses a
 // callback to notify the caller when all fetches have finished.
 class MODULES_EXPORT NotificationResourcesLoader final
-    : public GarbageCollectedFinalized<NotificationResourcesLoader> {
+    : public GarbageCollected<NotificationResourcesLoader> {
   USING_PRE_FINALIZER(NotificationResourcesLoader, Stop);
 
  public:
@@ -55,12 +54,12 @@ class MODULES_EXPORT NotificationResourcesLoader final
   // pre-finalizer.
   void Stop();
 
-  virtual void Trace(blink::Visitor* visitor);
+  virtual void Trace(Visitor* visitor);
 
  private:
   void LoadIcon(ExecutionContext* context,
                 const KURL& url,
-                const WebSize& resize_dimensions,
+                const gfx::Size& resize_dimensions,
                 ThreadedIconLoader::IconCallback icon_callback);
 
   void DidLoadIcon(SkBitmap* out_icon, SkBitmap icon, double resize_scale);

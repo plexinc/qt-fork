@@ -39,10 +39,9 @@ BluetoothRemoteGattDescriptorBlueZ::BluetoothRemoteGattDescriptorBlueZ(
     BluetoothRemoteGattCharacteristicBlueZ* characteristic,
     const dbus::ObjectPath& object_path)
     : BluetoothGattDescriptorBlueZ(object_path),
-      characteristic_(characteristic),
-      weak_ptr_factory_(this) {
-  VLOG(1) << "Creating remote GATT descriptor with identifier: "
-          << GetIdentifier() << ", UUID: " << GetUUID().canonical_value();
+      characteristic_(characteristic) {
+  DVLOG(1) << "Creating remote GATT descriptor with identifier: "
+           << GetIdentifier() << ", UUID: " << GetUUID().canonical_value();
 }
 
 BluetoothRemoteGattDescriptorBlueZ::~BluetoothRemoteGattDescriptorBlueZ() =
@@ -84,9 +83,9 @@ BluetoothRemoteGattDescriptorBlueZ::GetPermissions() const {
 void BluetoothRemoteGattDescriptorBlueZ::ReadRemoteDescriptor(
     ValueCallback callback,
     ErrorCallback error_callback) {
-  VLOG(1) << "Sending GATT characteristic descriptor read request to "
-          << "descriptor: " << GetIdentifier()
-          << ", UUID: " << GetUUID().canonical_value();
+  DVLOG(1) << "Sending GATT characteristic descriptor read request to "
+           << "descriptor: " << GetIdentifier()
+           << ", UUID: " << GetUUID().canonical_value();
 
   bluez::BluezDBusManager::Get()->GetBluetoothGattDescriptorClient()->ReadValue(
       object_path(), std::move(callback),
@@ -99,10 +98,10 @@ void BluetoothRemoteGattDescriptorBlueZ::WriteRemoteDescriptor(
     const std::vector<uint8_t>& new_value,
     base::OnceClosure callback,
     ErrorCallback error_callback) {
-  VLOG(1) << "Sending GATT characteristic descriptor write request to "
-          << "characteristic: " << GetIdentifier()
-          << ", UUID: " << GetUUID().canonical_value()
-          << ", with value: " << new_value << ".";
+  DVLOG(1) << "Sending GATT characteristic descriptor write request to "
+           << "characteristic: " << GetIdentifier()
+           << ", UUID: " << GetUUID().canonical_value()
+           << ", with value: " << new_value << ".";
 
   bluez::BluezDBusManager::Get()
       ->GetBluetoothGattDescriptorClient()
@@ -116,8 +115,8 @@ void BluetoothRemoteGattDescriptorBlueZ::OnError(
     ErrorCallback error_callback,
     const std::string& error_name,
     const std::string& error_message) {
-  VLOG(1) << "Operation failed: " << error_name
-          << ", message: " << error_message;
+  DVLOG(1) << "Operation failed: " << error_name
+           << ", message: " << error_message;
 
   std::move(error_callback)
       .Run(BluetoothGattServiceBlueZ::DBusErrorToServiceError(error_name));

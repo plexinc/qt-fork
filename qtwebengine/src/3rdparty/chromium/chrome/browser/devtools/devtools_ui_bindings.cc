@@ -77,6 +77,7 @@
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "services/network/public/cpp/simple_url_loader.h"
 #include "services/network/public/cpp/simple_url_loader_stream_consumer.h"
+#include "services/network/public/mojom/url_response_head.mojom.h"
 #include "third_party/blink/public/mojom/renderer_preferences.mojom.h"
 #include "third_party/blink/public/public_buildflags.h"
 #include "ui/base/page_transition_types.h"
@@ -98,6 +99,8 @@ static const char kTitleFormat[] = "DevTools - %s";
 
 static const char kDevToolsActionTakenHistogram[] = "DevTools.ActionTaken";
 static const char kDevToolsPanelShownHistogram[] = "DevTools.PanelShown";
+static const char kDevToolsKeyboardShortcutFiredHistogram[] =
+    "DevTools.KeyboardShortcutFired";
 
 static const char kRemotePageActionInspect[] = "inspect";
 static const char kRemotePageActionReload[] = "reload";
@@ -122,13 +125,13 @@ typedef std::vector<DevToolsUIBindings*> DevToolsUIBindingsList;
 base::LazyInstance<DevToolsUIBindingsList>::Leaky
     g_devtools_ui_bindings_instances = LAZY_INSTANCE_INITIALIZER;
 
-std::unique_ptr<base::DictionaryValue> CreateFileSystemValue(
+base::DictionaryValue CreateFileSystemValue(
     DevToolsFileHelper::FileSystem file_system) {
-  auto file_system_value = std::make_unique<base::DictionaryValue>();
-  file_system_value->SetString("type", file_system.type);
-  file_system_value->SetString("fileSystemName", file_system.file_system_name);
-  file_system_value->SetString("rootURL", file_system.root_url);
-  file_system_value->SetString("fileSystemPath", file_system.file_system_path);
+  base::DictionaryValue file_system_value;
+  file_system_value.SetString("type", file_system.type);
+  file_system_value.SetString("fileSystemName", file_system.file_system_name);
+  file_system_value.SetString("rootURL", file_system.root_url);
+  file_system_value.SetString("fileSystemPath", file_system.file_system_path);
   return file_system_value;
 }
 
@@ -199,9 +202,20 @@ InfoBarService* DefaultBindingsDelegate::GetInfoBarService() {
 }
 
 std::unique_ptr<base::DictionaryValue> BuildObjectForResponse(
-    const net::HttpResponseHeaders* rh) {
+    const net::HttpResponseHeaders* rh,
+    bool success,
+    int net_error) {
   auto response = std::make_unique<base::DictionaryValue>();
-  response->SetInteger("statusCode", rh ? rh->response_code() : 200);
+  int responseCode = 200;
+  if (rh) {
+    responseCode = rh->response_code();
+  } else if (!success) {
+    // In case of no headers, assume file:// URL and failed to load
+    responseCode = 404;
+  }
+  response->SetInteger("statusCode", responseCode);
+  response->SetInteger("netError", net_error);
+  response->SetString("netErrorName", net::ErrorToString(net_error));
 
   auto headers = std::make_unique<base::DictionaryValue>();
   size_t iterator = 0;
@@ -310,9 +324,9 @@ std::string SanitizeFrontendQueryParam(
     const std::string& key,
     const std::string& value) {
   // Convert boolean flags to true.
-  if (key == "can_dock" || key == "debugFrontend" || key == "experiments" ||
-      key == "isSharedWorker" || key == "v8only" || key == "remoteFrontend" ||
-      key == "nodeFrontend" || key == "hasOtherClients")
+  if (key == "can_dock" || key == "debugFrontend" || key == "isSharedWorker" ||
+      key == "v8only" || key == "remoteFrontend" || key == "nodeFrontend" ||
+      key == "hasOtherClients" || key == "uiDevTools")
     return "true";
 
   // Pass connection endpoints as is.
@@ -372,28 +386,86 @@ GURL SanitizeFrontendURL(const GURL& url,
   return result;
 }
 
+constexpr base::TimeDelta kInitialBackoffDelay =
+    base::TimeDelta::FromMilliseconds(250);
+constexpr base::TimeDelta kMaxBackoffDelay = base::TimeDelta::FromSeconds(10);
+
 }  // namespace
 
 class DevToolsUIBindings::NetworkResourceLoader
     : public network::SimpleURLLoaderStreamConsumer {
  public:
-  NetworkResourceLoader(int stream_id,
-                        DevToolsUIBindings* bindings,
-                        std::unique_ptr<network::SimpleURLLoader> loader,
-                        network::mojom::URLLoaderFactory* url_loader_factory,
-                        const DispatchCallback& callback)
+  class URLLoaderFactoryHolder {
+   public:
+    network::mojom::URLLoaderFactory* get() {
+      return ptr_.get() ? ptr_.get() : refptr_.get();
+    }
+    void operator=(std::unique_ptr<network::mojom::URLLoaderFactory>&& ptr) {
+      ptr_ = std::move(ptr);
+    }
+    void operator=(scoped_refptr<network::SharedURLLoaderFactory>&& refptr) {
+      refptr_ = std::move(refptr);
+    }
+
+   private:
+    std::unique_ptr<network::mojom::URLLoaderFactory> ptr_;
+    scoped_refptr<network::SharedURLLoaderFactory> refptr_;
+  };
+
+  static void Create(int stream_id,
+                     DevToolsUIBindings* bindings,
+                     const network::ResourceRequest& resource_request,
+                     const net::NetworkTrafficAnnotationTag& traffic_annotation,
+                     URLLoaderFactoryHolder url_loader_factory,
+                     const DevToolsUIBindings::DispatchCallback& callback,
+                     base::TimeDelta retry_delay = base::TimeDelta()) {
+    auto resource_loader =
+        std::make_unique<DevToolsUIBindings::NetworkResourceLoader>(
+            stream_id, bindings, resource_request, traffic_annotation,
+            std::move(url_loader_factory), callback, retry_delay);
+    bindings->loaders_.insert(std::move(resource_loader));
+  }
+
+  NetworkResourceLoader(
+      int stream_id,
+      DevToolsUIBindings* bindings,
+      const network::ResourceRequest& resource_request,
+      const net::NetworkTrafficAnnotationTag& traffic_annotation,
+      URLLoaderFactoryHolder url_loader_factory,
+      const DispatchCallback& callback,
+      base::TimeDelta delay)
       : stream_id_(stream_id),
         bindings_(bindings),
-        loader_(std::move(loader)),
-        callback_(callback) {
+        resource_request_(resource_request),
+        traffic_annotation_(traffic_annotation),
+        loader_(network::SimpleURLLoader::Create(
+            std::make_unique<network::ResourceRequest>(resource_request),
+            traffic_annotation)),
+        url_loader_factory_(std::move(url_loader_factory)),
+        callback_(callback),
+        retry_delay_(delay) {
     loader_->SetOnResponseStartedCallback(base::BindOnce(
         &NetworkResourceLoader::OnResponseStarted, base::Unretained(this)));
-    loader_->DownloadAsStream(url_loader_factory, this);
+    timer_.Start(FROM_HERE, delay,
+                 base::BindRepeating(&NetworkResourceLoader::DownloadAsStream,
+                                     base::Unretained(this)));
   }
 
  private:
+  void DownloadAsStream() {
+    loader_->DownloadAsStream(url_loader_factory_.get(), this);
+  }
+
+  base::TimeDelta GetNextExponentialBackoffDelay(const base::TimeDelta& delta) {
+    if (delta.is_zero()) {
+      return kInitialBackoffDelay;
+    } else {
+      return delta * 1.3;
+    }
+  }
+
   void OnResponseStarted(const GURL& final_url,
-                         const network::ResourceResponseHead& response_head) {
+                         const network::mojom::URLResponseHead& response_head) {
     response_headers_ = response_head.headers;
   }
 
@@ -409,18 +481,30 @@ class DevToolsUIBindings::NetworkResourceLoader
     } else {
       chunkValue = base::Value(chunk);
     }
-    base::Value id(stream_id_);
-    base::Value encodedValue(encoded);
 
-    bindings_->CallClientFunction("DevToolsAPI.streamWrite", &id, &chunkValue,
-                                  &encodedValue);
+    bindings_->CallClientMethod("DevToolsAPI", "streamWrite",
+                                base::Value(stream_id_), chunkValue,
+                                base::Value(encoded));
     std::move(resume).Run();
   }
 
   void OnComplete(bool success) override {
-    auto response = BuildObjectForResponse(response_headers_.get());
-    callback_.Run(response.get());
-
+    if (!success && loader_->NetError() == net::ERR_INSUFFICIENT_RESOURCES &&
+        retry_delay_ < kMaxBackoffDelay) {
+      const base::TimeDelta delay =
+          GetNextExponentialBackoffDelay(retry_delay_);
+      LOG(WARNING) << "DevToolsUIBindings::NetworkResourceLoader id = "
+                   << stream_id_
+                   << " failed with insufficient resources, retrying in "
+                   << delay << "." << std::endl;
+      NetworkResourceLoader::Create(
+          stream_id_, bindings_, resource_request_, traffic_annotation_,
+          std::move(url_loader_factory_), callback_, delay);
+    } else {
+      auto response = BuildObjectForResponse(response_headers_.get(), success,
+                                             loader_->NetError());
+      callback_.Run(response.get());
+    }
     bindings_->loaders_.erase(bindings_->loaders_.find(this));
   }
 
@@ -428,9 +512,14 @@ class DevToolsUIBindings::NetworkResourceLoader
 
   const int stream_id_;
   DevToolsUIBindings* const bindings_;
+  const network::ResourceRequest resource_request_;
+  const net::NetworkTrafficAnnotationTag traffic_annotation_;
   std::unique_ptr<network::SimpleURLLoader> loader_;
+  URLLoaderFactoryHolder url_loader_factory_;
   DispatchCallback callback_;
   scoped_refptr<net::HttpResponseHeaders> response_headers_;
+  base::OneShotTimer timer_;
+  base::TimeDelta retry_delay_;
 
   DISALLOW_COPY_AND_ASSIGN(NetworkResourceLoader);
 };
@@ -500,10 +589,19 @@ void DevToolsUIBindings::FrontendWebContentsObserver::RenderProcessGone(
 #endif
     case base::TERMINATION_STATUS_PROCESS_CRASHED:
     case base::TERMINATION_STATUS_LAUNCH_FAILED:
+    case base::TERMINATION_STATUS_OOM:
+#if defined(OS_WIN)
+    case base::TERMINATION_STATUS_INTEGRITY_FAILURE:
+#endif
       if (devtools_bindings_->agent_host_.get())
         devtools_bindings_->Detach();
       break;
-    default:
+    case base::TERMINATION_STATUS_NORMAL_TERMINATION:
+    case base::TERMINATION_STATUS_STILL_RUNNING:
+#if defined(OS_ANDROID)
+    case base::TERMINATION_STATUS_OOM_PROTECTED:
+#endif
+    case base::TERMINATION_STATUS_MAX_ENUM:
       crashed = false;
       break;
   }
@@ -611,42 +709,54 @@ void DevToolsUIBindings::HandleMessageFromDevToolsFrontend(
 }
 
 // content::DevToolsAgentHostClient implementation --------------------------
+// There is a sibling implementation of DevToolsAgentHostClient in
+//   content/shell/browser/shell_devtools_bindings.cc
+// that is used in layout tests, which only use content_shell.
+// The two implementations needs to be kept in sync wrt. the interface they
+// provide to the DevTools front-end.
+
 void DevToolsUIBindings::DispatchProtocolMessage(
-    content::DevToolsAgentHost* agent_host, const std::string& message) {
+    content::DevToolsAgentHost* agent_host,
+    base::span<const uint8_t> message) {
   DCHECK(agent_host == agent_host_.get());
   if (!frontend_host_)
     return;
 
-  if (message.length() < kMaxMessageChunkSize) {
-    std::string param;
-    base::EscapeJSONString(message, true, &param);
-    base::string16 javascript =
-        base::UTF8ToUTF16("DevToolsAPI.dispatchMessage(" + param + ");");
-    web_contents_->GetMainFrame()->ExecuteJavaScript(javascript,
-                                                     base::NullCallback());
+  base::StringPiece message_sp(reinterpret_cast<const char*>(message.data()),
+                               message.size());
+  if (message_sp.length() < kMaxMessageChunkSize) {
+    CallClientMethod("DevToolsAPI", "dispatchMessage", base::Value(message_sp));
     return;
   }
 
-  base::Value total_size(static_cast<int>(message.length()));
-  for (size_t pos = 0; pos < message.length(); pos += kMaxMessageChunkSize) {
-    base::Value message_value(message.substr(pos, kMaxMessageChunkSize));
-    CallClientFunction("DevToolsAPI.dispatchMessageChunk",
-                       &message_value, pos ? NULL : &total_size, NULL);
+  for (size_t pos = 0; pos < message_sp.length(); pos += kMaxMessageChunkSize) {
+    base::Value message_value(message_sp.substr(pos, kMaxMessageChunkSize));
+    if (pos == 0) {
+      CallClientMethod("DevToolsAPI", "dispatchMessageChunk", message_value,
+                       base::Value(static_cast<int>(message_sp.length())));
+
+    } else {
+      CallClientMethod("DevToolsAPI", "dispatchMessageChunk", message_value);
+    }
   }
 }
 
 void DevToolsUIBindings::AgentHostClosed(
     content::DevToolsAgentHost* agent_host) {
   DCHECK(agent_host == agent_host_.get());
-  agent_host_ = NULL;
+  agent_host_.reset();
   delegate_->InspectedContentsClosing();
 }
 
 void DevToolsUIBindings::SendMessageAck(int request_id,
                                         const base::Value* arg) {
-  base::Value id_value(request_id);
-  CallClientFunction("DevToolsAPI.embedderMessageAck",
-                     &id_value, arg, nullptr);
+  if (arg) {
+    CallClientMethod("DevToolsAPI", "embedderMessageAck",
+                     base::Value(request_id), *arg);
+  } else {
+    CallClientMethod("DevToolsAPI", "embedderMessageAck",
+                     base::Value(request_id));
+  }
 }
 
 void DevToolsUIBindings::InnerAttach() {
@@ -709,6 +819,7 @@ void DevToolsUIBindings::LoadNetworkResource(const DispatchCallback& callback,
   if (!gurl.is_valid()) {
     base::DictionaryValue response;
     response.SetInteger("statusCode", 404);
+    response.SetBoolean("urlValid", false);
     callback.Run(&response);
     return;
   }
@@ -738,22 +849,18 @@ void DevToolsUIBindings::LoadNetworkResource(const DispatchCallback& callback,
           }
         })");
 
-  auto resource_request = std::make_unique<network::ResourceRequest>();
-  resource_request->url = gurl;
+  network::ResourceRequest resource_request;
+  resource_request.url = gurl;
   // TODO(caseq): this preserves behavior of URLFetcher-based implementation.
   // We really need to pass proper first party origin from the front-end.
-  resource_request->site_for_cookies = gurl;
-  resource_request->headers.AddHeadersFromString(headers);
+  resource_request.site_for_cookies = net::SiteForCookies::FromUrl(gurl);
+  resource_request.headers.AddHeadersFromString(headers);
 
-  std::unique_ptr<network::mojom::URLLoaderFactory> file_url_loader_factory;
-  scoped_refptr<network::SharedURLLoaderFactory> network_url_loader_factory;
-  std::unique_ptr<network::mojom::URLLoaderFactory> webui_url_loader_factory;
-  network::mojom::URLLoaderFactory* url_loader_factory;
+  NetworkResourceLoader::URLLoaderFactoryHolder url_loader_factory;
   if (gurl.SchemeIsFile()) {
-    file_url_loader_factory = content::CreateFileURLLoaderFactory(
+    url_loader_factory = content::CreateFileURLLoaderFactory(
         base::FilePath() /* profile_path */,
         nullptr /* shared_cors_origin_access_list */);
-    url_loader_factory = file_url_loader_factory.get();
   } else if (content::HasWebUIScheme(gurl)) {
     content::WebContents* target_tab;
 #ifndef NDEBUG
@@ -769,10 +876,9 @@ void DevToolsUIBindings::LoadNetworkResource(const DispatchCallback& callback,
     if (allow_web_ui_scheme) {
       std::vector<std::string> allowed_webui_hosts;
       content::RenderFrameHost* frame_host = web_contents()->GetMainFrame();
-      webui_url_loader_factory = content::CreateWebUIURLLoader(
+      url_loader_factory = content::CreateWebUIURLLoader(
           frame_host, target_tab->GetURL().scheme(),
           std::move(allowed_webui_hosts));
-      url_loader_factory = webui_url_loader_factory.get();
     } else {
       base::DictionaryValue response;
       response.SetInteger("statusCode", 403);
@@ -782,17 +888,12 @@ void DevToolsUIBindings::LoadNetworkResource(const DispatchCallback& callback,
   } else {
     auto* partition = content::BrowserContext::GetStoragePartitionForSite(
         web_contents_->GetBrowserContext(), gurl);
-    network_url_loader_factory =
-        partition->GetURLLoaderFactoryForBrowserProcess();
-    url_loader_factory = network_url_loader_factory.get();
+    url_loader_factory = partition->GetURLLoaderFactoryForBrowserProcess();
   }
 
-  auto simple_url_loader = network::SimpleURLLoader::Create(
-      std::move(resource_request), traffic_annotation);
-  auto resource_loader = std::make_unique<NetworkResourceLoader>(
-      stream_id, this, std::move(simple_url_loader), url_loader_factory,
-      callback);
-  loaders_.insert(std::move(resource_loader));
+  NetworkResourceLoader::Create(stream_id, this, resource_request,
+                                traffic_annotation,
+                                std::move(url_loader_factory), callback);
 }
 
 void DevToolsUIBindings::OpenInNewTab(const std::string& url) {
@@ -823,13 +924,10 @@ void DevToolsUIBindings::AppendToFile(const std::string& url,
 
 void DevToolsUIBindings::RequestFileSystems() {
   CHECK(IsValidFrontendURL(web_contents_->GetURL()) && frontend_host_);
-  std::vector<DevToolsFileHelper::FileSystem> file_systems =
-      file_helper_->GetFileSystems();
   base::ListValue file_systems_value;
-  for (size_t i = 0; i < file_systems.size(); ++i)
-    file_systems_value.Append(CreateFileSystemValue(file_systems[i]));
-  CallClientFunction("DevToolsAPI.fileSystemsLoaded",
-                     &file_systems_value, NULL, NULL);
+  for (auto const& file_system : file_helper_->GetFileSystems())
+    file_systems_value.Append(CreateFileSystemValue(file_system));
+  CallClientMethod("DevToolsAPI", "fileSystemsLoaded", file_systems_value);
 }
 
 void DevToolsUIBindings::AddFileSystem(const std::string& type) {
@@ -868,9 +966,7 @@ void DevToolsUIBindings::IndexPath(
   base::Optional<base::Value> parsed_excluded_folders =
       base::JSONReader::Read(excluded_folders_message);
   if (parsed_excluded_folders && parsed_excluded_folders->is_list()) {
-    const std::vector<base::Value>& folder_paths =
-        parsed_excluded_folders->GetList();
-    for (const base::Value& folder_path : folder_paths) {
+    for (const base::Value& folder_path : parsed_excluded_folders->GetList()) {
       if (folder_path.is_string())
         excluded_folders.push_back(folder_path.GetString());
     }
@@ -996,13 +1092,11 @@ void DevToolsUIBindings::DevicesDiscoveryConfigUpdated() {
                  ->FindPreference(prefs::kDevToolsTCPDiscoveryConfig)
                  ->GetValue()
                  ->CreateDeepCopy());
-  CallClientFunction("DevToolsAPI.devicesDiscoveryConfigChanged", &config,
-                     nullptr, nullptr);
+  CallClientMethod("DevToolsAPI", "devicesDiscoveryConfigChanged", config);
 }
 
 void DevToolsUIBindings::SendPortForwardingStatus(const base::Value& status) {
-  CallClientFunction("DevToolsAPI.devicesPortForwardingStatusChanged", &status,
-                     nullptr, nullptr);
+  CallClientMethod("DevToolsAPI", "devicesPortForwardingStatusChanged", status);
 }
 
 void DevToolsUIBindings::SetDevicesUpdatesEnabled(bool enabled) {
@@ -1121,8 +1215,10 @@ void DevToolsUIBindings::SetOpenNewWindowForPopups(bool value) {
 
 void DevToolsUIBindings::DispatchProtocolMessageFromDevToolsFrontend(
     const std::string& message) {
-  if (agent_host_.get())
-    agent_host_->DispatchProtocolMessage(this, message);
+  if (!agent_host_)
+    return;
+  agent_host_->DispatchProtocolMessage(
+      this, base::as_bytes(base::make_span(message)));
 }
 
 void DevToolsUIBindings::RecordEnumeratedHistogram(const std::string& name,
@@ -1141,6 +1237,8 @@ void DevToolsUIBindings::RecordEnumeratedHistogram(const std::string& name,
   if (name == kDevToolsActionTakenHistogram)
     UMA_HISTOGRAM_EXACT_LINEAR(name, sample, boundary_value);
   else if (name == kDevToolsPanelShownHistogram)
+    UMA_HISTOGRAM_EXACT_LINEAR(name, sample, boundary_value);
+  else if (name == kDevToolsKeyboardShortcutFiredHistogram)
     UMA_HISTOGRAM_EXACT_LINEAR(name, sample, boundary_value);
   else
     frontend_host_->BadMessageRecieved();
@@ -1192,53 +1290,44 @@ void DevToolsUIBindings::JsonReceived(const DispatchCallback& callback,
 }
 
 void DevToolsUIBindings::DeviceCountChanged(int count) {
-  base::Value value(count);
-  CallClientFunction("DevToolsAPI.deviceCountUpdated", &value, NULL,
-                     NULL);
+  CallClientMethod("DevToolsAPI", "deviceCountUpdated", base::Value(count));
 }
 
 void DevToolsUIBindings::DevicesUpdated(
     const std::string& source,
     const base::ListValue& targets) {
-  CallClientFunction("DevToolsAPI.devicesUpdated", &targets, NULL,
-                     NULL);
+  CallClientMethod("DevToolsAPI", "devicesUpdated", targets);
 }
 
 void DevToolsUIBindings::FileSavedAs(const std::string& url,
                                      const std::string& file_system_path) {
-  base::Value url_value(url);
-  base::Value file_system_path_value(file_system_path);
-  CallClientFunction("DevToolsAPI.savedURL", &url_value,
-                     &file_system_path_value, NULL);
+  CallClientMethod("DevToolsAPI", "savedURL", base::Value(url),
+                   base::Value(file_system_path));
 }
 
 void DevToolsUIBindings::CanceledFileSaveAs(const std::string& url) {
-  base::Value url_value(url);
-  CallClientFunction("DevToolsAPI.canceledSaveURL",
-                     &url_value, NULL, NULL);
+  CallClientMethod("DevToolsAPI", "canceledSaveURL", base::Value(url));
 }
 
 void DevToolsUIBindings::AppendedTo(const std::string& url) {
-  base::Value url_value(url);
-  CallClientFunction("DevToolsAPI.appendedToURL", &url_value, NULL,
-                     NULL);
+  CallClientMethod("DevToolsAPI", "appendedToURL", base::Value(url));
 }
 
 void DevToolsUIBindings::FileSystemAdded(
     const std::string& error,
     const DevToolsFileHelper::FileSystem* file_system) {
-  base::Value error_value(error);
-  std::unique_ptr<base::DictionaryValue> file_system_value(
-      file_system ? CreateFileSystemValue(*file_system) : nullptr);
-  CallClientFunction("DevToolsAPI.fileSystemAdded", &error_value,
-                     file_system_value.get(), NULL);
+  if (file_system) {
+    CallClientMethod("DevToolsAPI", "fileSystemAdded", base::Value(error),
+                     CreateFileSystemValue(*file_system));
+  } else {
+    CallClientMethod("DevToolsAPI", "fileSystemAdded", base::Value(error));
+  }
 }
 
 void DevToolsUIBindings::FileSystemRemoved(
     const std::string& file_system_path) {
-  base::Value file_system_path_value(file_system_path);
-  CallClientFunction("DevToolsAPI.fileSystemRemoved",
-                     &file_system_path_value, NULL, NULL);
+  CallClientMethod("DevToolsAPI", "fileSystemRemoved",
+                   base::Value(file_system_path));
 }
 
 void DevToolsUIBindings::FilePathsChanged(
@@ -1268,8 +1357,8 @@ void DevToolsUIBindings::FilePathsChanged(
       removed.AppendString(removed_paths[removed_index++]);
       --budget;
     }
-    CallClientFunction("DevToolsAPI.fileSystemFilesChangedAddedRemoved",
-                       &changed, &added, &removed);
+    CallClientMethod("DevToolsAPI", "fileSystemFilesChangedAddedRemoved",
+                     changed, added, removed);
   }
 }
 
@@ -1278,33 +1367,25 @@ void DevToolsUIBindings::IndexingTotalWorkCalculated(
     const std::string& file_system_path,
     int total_work) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  base::Value request_id_value(request_id);
-  base::Value file_system_path_value(file_system_path);
-  base::Value total_work_value(total_work);
-  CallClientFunction("DevToolsAPI.indexingTotalWorkCalculated",
-                     &request_id_value, &file_system_path_value,
-                     &total_work_value);
+  CallClientMethod("DevToolsAPI", "indexingTotalWorkCalculated",
+                   base::Value(request_id), base::Value(file_system_path),
+                   base::Value(total_work));
 }
 
 void DevToolsUIBindings::IndexingWorked(int request_id,
                                         const std::string& file_system_path,
                                         int worked) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  base::Value request_id_value(request_id);
-  base::Value file_system_path_value(file_system_path);
-  base::Value worked_value(worked);
-  CallClientFunction("DevToolsAPI.indexingWorked", &request_id_value,
-                     &file_system_path_value, &worked_value);
+  CallClientMethod("DevToolsAPI", "indexingWorked", base::Value(request_id),
+                   base::Value(file_system_path), base::Value(worked));
 }
 
 void DevToolsUIBindings::IndexingDone(int request_id,
                                       const std::string& file_system_path) {
   indexing_jobs_.erase(request_id);
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  base::Value request_id_value(request_id);
-  base::Value file_system_path_value(file_system_path);
-  CallClientFunction("DevToolsAPI.indexingDone", &request_id_value,
-                     &file_system_path_value, NULL);
+  CallClientMethod("DevToolsAPI", "indexingDone", base::Value(request_id),
+                   base::Value(file_system_path));
 }
 
 void DevToolsUIBindings::SearchCompleted(
@@ -1313,13 +1394,10 @@ void DevToolsUIBindings::SearchCompleted(
     const std::vector<std::string>& file_paths) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   base::ListValue file_paths_value;
-  for (auto it(file_paths.begin()); it != file_paths.end(); ++it) {
-    file_paths_value.AppendString(*it);
-  }
-  base::Value request_id_value(request_id);
-  base::Value file_system_path_value(file_system_path);
-  CallClientFunction("DevToolsAPI.searchCompleted", &request_id_value,
-                     &file_system_path_value, &file_paths_value);
+  for (auto const& file_path : file_paths)
+    file_paths_value.AppendString(file_path);
+  CallClientMethod("DevToolsAPI", "searchCompleted", base::Value(request_id),
+                   base::Value(file_system_path), file_paths_value);
 }
 
 void DevToolsUIBindings::ShowDevToolsInfoBar(
@@ -1342,8 +1420,14 @@ void DevToolsUIBindings::AddDevToolsExtensionsToClient() {
   for (const scoped_refptr<const extensions::Extension>& extension :
        registry->enabled_extensions()) {
     if (extensions::chrome_manifest_urls::GetDevToolsPage(extension.get())
-            .is_empty())
+            .is_empty()) {
       continue;
+    }
+    GURL url =
+        extensions::chrome_manifest_urls::GetDevToolsPage(extension.get());
+    const bool is_extension_url = url.SchemeIs(extensions::kExtensionScheme) &&
+                                  url.host_piece() == extension->id();
+    CHECK(is_extension_url || url.SchemeIsHTTPOrHTTPS());
 
     // Each devtools extension will need to be able to run in the devtools
     // process. Grant the devtools process the ability to request URLs from the
@@ -1354,10 +1438,7 @@ void DevToolsUIBindings::AddDevToolsExtensionsToClient() {
 
     std::unique_ptr<base::DictionaryValue> extension_info(
         new base::DictionaryValue());
-    extension_info->SetString(
-        "startPage",
-        extensions::chrome_manifest_urls::GetDevToolsPage(extension.get())
-            .spec());
+    extension_info->SetString("startPage", url.spec());
     extension_info->SetString("name", extension->name());
     extension_info->SetBoolean("exposeExperimentalAPIs",
                                extension->permissions_data()->HasAPIPermission(
@@ -1365,8 +1446,7 @@ void DevToolsUIBindings::AddDevToolsExtensionsToClient() {
     results.Append(std::move(extension_info));
   }
 
-  CallClientFunction("DevToolsAPI.addExtensions",
-                     &results, NULL, NULL);
+  CallClientMethod("DevToolsAPI", "addExtensions", results);
 }
 
 void DevToolsUIBindings::RegisterExtensionsAPI(const std::string& origin,
@@ -1389,30 +1469,31 @@ void DevToolsUIBindings::AttachTo(
 void DevToolsUIBindings::Detach() {
   if (agent_host_.get())
     agent_host_->DetachClient(this);
-  agent_host_ = NULL;
+  agent_host_.reset();
 }
 
 bool DevToolsUIBindings::IsAttachedTo(content::DevToolsAgentHost* agent_host) {
   return agent_host_.get() == agent_host;
 }
 
-void DevToolsUIBindings::CallClientFunction(const std::string& function_name,
-                                            const base::Value* arg1,
-                                            const base::Value* arg2,
-                                            const base::Value* arg3) {
+void DevToolsUIBindings::CallClientMethod(const std::string& object_name,
+                                          const std::string& method_name,
+                                          const base::Value& arg1,
+                                          const base::Value& arg2,
+                                          const base::Value& arg3) {
   // If we're not exposing bindings, we shouldn't call functions either.
   if (!frontend_host_)
     return;
-  std::string javascript = function_name + "(";
-  if (arg1) {
+  std::string javascript = object_name + "." + method_name + "(";
+  if (!arg1.is_none()) {
     std::string json;
-    base::JSONWriter::Write(*arg1, &json);
+    base::JSONWriter::Write(arg1, &json);
     javascript.append(json);
-    if (arg2) {
-      base::JSONWriter::Write(*arg2, &json);
+    if (!arg2.is_none()) {
+      base::JSONWriter::Write(arg2, &json);
       javascript.append(", ").append(json);
-      if (arg3) {
-        base::JSONWriter::Write(*arg3, &json);
+      if (!arg3.is_none()) {
+        base::JSONWriter::Write(arg3, &json);
         javascript.append(", ").append(json);
       }
     }

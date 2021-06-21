@@ -10,9 +10,13 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
+#include "base/debug/crash_logging.h"
+#include "base/debug/dump_without_crashing.h"
 #include "base/feature_list.h"
 #include "base/memory/ref_counted_delete_on_sequence.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/trace_event/trace_event.h"
 #include "media/base/bind_to_current_loop.h"
 #include "media/base/cdm_context.h"
 #include "media/base/decoder_buffer.h"
@@ -25,7 +29,10 @@
 #include "media/gpu/windows/d3d11_picture_buffer.h"
 #include "media/gpu/windows/d3d11_video_context_wrapper.h"
 #include "media/gpu/windows/d3d11_video_decoder_impl.h"
+#include "media/gpu/windows/d3d11_video_device_format_support.h"
 #include "media/gpu/windows/supported_profile_helpers.h"
+#include "media/media_buildflags.h"
+#include "ui/gl/direct_composition_surface_win.h"
 #include "ui/gl/gl_angle_util_win.h"
 #include "ui/gl/gl_switches.h"
 
@@ -108,12 +115,12 @@ D3D11VideoDecoder::D3D11VideoDecoder(
     : media_log_(std::move(media_log)),
       impl_(std::move(impl)),
       impl_task_runner_(std::move(gpu_task_runner)),
+      already_initialized_(false),
       gpu_preferences_(gpu_preferences),
       gpu_workarounds_(gpu_workarounds),
       get_d3d11_device_cb_(std::move(get_d3d11_device_cb)),
       get_helper_cb_(std::move(get_helper_cb)),
-      supported_configs_(std::move(supported_configs)),
-      weak_factory_(this) {
+      supported_configs_(std::move(supported_configs)) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(media_log_);
 
@@ -133,6 +140,9 @@ D3D11VideoDecoder::~D3D11VideoDecoder() {
 
   // Explicitly destroy the decoder, since it can reference picture buffers.
   accelerated_video_decoder_.reset();
+
+  if (already_initialized_)
+    AddLifetimeProgressionStage(D3D11LifetimeProgression::kPlaybackSucceeded);
 }
 
 std::string D3D11VideoDecoder::GetDisplayName() const {
@@ -143,6 +153,7 @@ HRESULT D3D11VideoDecoder::InitializeAcceleratedDecoder(
     const VideoDecoderConfig& config,
     CdmProxyContext* proxy_context,
     ComD3D11VideoDecoder video_decoder) {
+  TRACE_EVENT0("gpu", "D3D11VideoDecoder::InitializeAcceleratedDecoder");
   // If we got an 11.1 D3D11 Device, we can use a |ID3D11VideoContext1|,
   // otherwise we have to make sure we only use a |ID3D11VideoContext|.
   HRESULT hr;
@@ -155,12 +166,13 @@ HRESULT D3D11VideoDecoder::InitializeAcceleratedDecoder(
   if (!SUCCEEDED(hr))
     return hr;
 
+  profile_ = config.profile();
   if (config.codec() == kCodecVP9) {
     accelerated_video_decoder_ = std::make_unique<VP9Decoder>(
         std::make_unique<D3D11VP9Accelerator>(
             this, media_log_.get(), proxy_context, video_decoder, video_device_,
             std::move(video_context)),
-        config.color_space_info());
+        profile_, config.color_space_info());
     return hr;
   }
 
@@ -169,7 +181,7 @@ HRESULT D3D11VideoDecoder::InitializeAcceleratedDecoder(
         std::make_unique<D3D11H264Accelerator>(
             this, media_log_.get(), proxy_context, video_decoder, video_device_,
             std::move(video_context)),
-        config.color_space_info());
+        profile_, config.color_space_info());
     return hr;
   }
 
@@ -182,6 +194,11 @@ void D3D11VideoDecoder::Initialize(const VideoDecoderConfig& config,
                                    InitCB init_cb,
                                    const OutputCB& output_cb,
                                    const WaitingCB& waiting_cb) {
+  TRACE_EVENT0("gpu", "D3D11VideoDecoder::Initialize");
+  if (already_initialized_)
+    AddLifetimeProgressionStage(D3D11LifetimeProgression::kPlaybackSucceeded);
+  AddLifetimeProgressionStage(D3D11LifetimeProgression::kInitializeStarted);
+
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(output_cb);
   DCHECK(waiting_cb);
@@ -224,14 +241,19 @@ void D3D11VideoDecoder::Initialize(const VideoDecoderConfig& config,
   //
   // TODO(liberato): On re-init, we can probably re-use the device.
   device_ = get_d3d11_device_cb_.Run();
-  usable_feature_level_ = device_->GetFeatureLevel();
-
   if (!device_) {
     // This happens if, for example, if chrome is configured to use
     // D3D9 for ANGLE.
     NotifyError("ANGLE did not provide D3D11 device");
     return;
   }
+
+  if (!GetD3D11FeatureLevel(device_, gpu_workarounds_,
+                            &usable_feature_level_)) {
+    NotifyError("D3D11 feature level not supported");
+    return;
+  }
+
   device_->GetImmediateContext(device_context_.ReleaseAndGetAddressOf());
 
   HRESULT hr;
@@ -245,33 +267,56 @@ void D3D11VideoDecoder::Initialize(const VideoDecoderConfig& config,
     return;
   }
 
-  texture_selector_ =
-      TextureSelector::Create(gpu_preferences_, gpu_workarounds_, config);
-  if (!texture_selector_) {
+  decoder_configurator_ = D3D11DecoderConfigurator::Create(
+      gpu_preferences_, gpu_workarounds_, config, media_log_.get());
+  if (!decoder_configurator_) {
     NotifyError("D3DD11: Config provided unsupported profile");
     return;
   }
 
-  if (!texture_selector_->SupportsDevice(video_device_)) {
+  if (!decoder_configurator_->SupportsDevice(video_device_)) {
     NotifyError("D3D11: Device does not support decoder GUID");
     return;
   }
 
-  // TODO(liberato): dxva does this.  don't know if we need to.
-  ComD3D11Multithread multi_threaded;
-  hr = device_->QueryInterface(IID_PPV_ARGS(&multi_threaded));
-  if (!SUCCEEDED(hr)) {
-    NotifyError("Failed to query ID3D11Multithread");
+  FormatSupportChecker format_checker(device_);
+  if (!format_checker.Initialize()) {
+    // Don't fail; it'll just return no support a lot.
+    MEDIA_LOG(WARNING, media_log_)
+        << "Could not create format checker, continuing";
+  }
+
+  // Use IsHDRSupported to guess whether the compositor can output HDR textures.
+  // See TextureSelector for notes about why the decoder should not care.
+  texture_selector_ =
+      TextureSelector::Create(gpu_preferences_, gpu_workarounds_,
+                              decoder_configurator_->TextureFormat(),
+                              gl::DirectCompositionSurfaceWin::IsHDRSupported()
+                                  ? TextureSelector::HDRMode::kSDROrHDR
+                                  : TextureSelector::HDRMode::kSDROnly,
+                              &format_checker, media_log_.get());
+  if (!texture_selector_) {
+    NotifyError("D3DD11: Cannot get TextureSelector for format");
     return;
   }
-  // TODO(liberato): This is a hack, since the unittest returns
-  // success without providing |multi_threaded|.
-  if (multi_threaded)
-    multi_threaded->SetMultithreadProtected(TRUE);
+
+  // TODO(liberato): dxva does this.  don't know if we need to.
+  if (!base::FeatureList::IsEnabled(kD3D11VideoDecoderSkipMultithreaded)) {
+    ComD3D11Multithread multi_threaded;
+    hr = device_->QueryInterface(IID_PPV_ARGS(&multi_threaded));
+    if (!SUCCEEDED(hr)) {
+      NotifyError("Failed to query ID3D11Multithread");
+      return;
+    }
+    // TODO(liberato): This is a hack, since the unittest returns
+    // success without providing |multi_threaded|.
+    if (multi_threaded)
+      multi_threaded->SetMultithreadProtected(TRUE);
+  }
 
   UINT config_count = 0;
   hr = video_device_->GetVideoDecoderConfigCount(
-      texture_selector_->DecoderDescriptor(), &config_count);
+      decoder_configurator_->DecoderDescriptor(), &config_count);
   if (FAILED(hr) || config_count == 0) {
     NotifyError("Failed to get video decoder config count");
     return;
@@ -282,7 +327,7 @@ void D3D11VideoDecoder::Initialize(const VideoDecoderConfig& config,
 
   for (UINT i = 0; i < config_count; i++) {
     hr = video_device_->GetVideoDecoderConfig(
-        texture_selector_->DecoderDescriptor(), i, &dec_config);
+        decoder_configurator_->DecoderDescriptor(), i, &dec_config);
     if (FAILED(hr)) {
       NotifyError("Failed to get decoder config");
       return;
@@ -312,15 +357,15 @@ void D3D11VideoDecoder::Initialize(const VideoDecoderConfig& config,
   }
 
   Microsoft::WRL::ComPtr<ID3D11VideoDecoder> video_decoder;
-  hr = video_device_->CreateVideoDecoder(texture_selector_->DecoderDescriptor(),
-                                         &dec_config, &video_decoder);
+  hr = video_device_->CreateVideoDecoder(
+      decoder_configurator_->DecoderDescriptor(), &dec_config, &video_decoder);
   if (!video_decoder.Get()) {
     NotifyError("Failed to create a video decoder");
     return;
   }
 
   CdmProxyContext* proxy_context = nullptr;
-#if BUILDFLAG(ENABLE_LIBRARY_CDMS)
+#if BUILDFLAG(ENABLE_CDM_PROXY)
   if (cdm_context)
     proxy_context = cdm_context->GetCdmProxyContext();
 #endif
@@ -340,9 +385,15 @@ void D3D11VideoDecoder::Initialize(const VideoDecoderConfig& config,
 
   // At this point, playback is supported so add a line in the media log to help
   // us figure that out.
-  media_log_->AddEvent(
-      media_log_->CreateStringEvent(MediaLogEvent::MEDIA_INFO_LOG_ENTRY, "info",
-                                    "Video is supported by D3D11VideoDecoder"));
+  MEDIA_LOG(INFO, media_log_) << "Video is supported by D3D11VideoDecoder";
+
+  if (base::FeatureList::IsEnabled(kD3D11PrintCodecOnCrash)) {
+    static base::debug::CrashKeyString* codec_name =
+        base::debug::AllocateCrashKeyString("d3d11_playback_video_codec",
+                                            base::debug::CrashKeySize::Size32);
+    base::debug::SetCrashKeyString(codec_name,
+                                   config.GetHumanReadableCodecName());
+  }
 
   // |cdm_context| could be null for clear playback.
   // TODO(liberato): On re-init, should this still happen?
@@ -358,6 +409,8 @@ void D3D11VideoDecoder::Initialize(const VideoDecoderConfig& config,
   auto get_picture_buffer_cb =
       base::BindRepeating(&D3D11VideoDecoder::ReceivePictureBufferFromClient,
                           weak_factory_.GetWeakPtr());
+
+  AddLifetimeProgressionStage(D3D11LifetimeProgression::kInitializeSucceeded);
 
   // Initialize the gpu side.  We wait until everything else is initialized,
   // since we allow it to call us back re-entrantly to reduce latency.  Note
@@ -380,9 +433,18 @@ void D3D11VideoDecoder::Initialize(const VideoDecoderConfig& config,
                      BindToCurrentLoop(std::move(get_picture_buffer_cb))));
 }
 
+void D3D11VideoDecoder::AddLifetimeProgressionStage(
+    D3D11LifetimeProgression stage) {
+  already_initialized_ =
+      (stage == D3D11LifetimeProgression::kInitializeSucceeded);
+  const std::string uma_name("Media.D3D11.DecoderLifetimeProgression");
+  base::UmaHistogramEnumeration(uma_name, stage);
+}
+
 void D3D11VideoDecoder::ReceivePictureBufferFromClient(
     scoped_refptr<D3D11PictureBuffer> buffer) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  TRACE_EVENT0("gpu", "D3D11VideoDecoder::ReceivePictureBufferFromClient");
 
   // We may decode into this buffer again.
   // Note that |buffer| might no longer be in |picture_buffers_| if we've
@@ -395,6 +457,7 @@ void D3D11VideoDecoder::ReceivePictureBufferFromClient(
 
 void D3D11VideoDecoder::OnGpuInitComplete(bool success) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  TRACE_EVENT0("gpu", "D3D11VideoDecoder::OnGpuInitComplete");
 
   if (!init_cb_) {
     // We already failed, so just do nothing.
@@ -410,12 +473,18 @@ void D3D11VideoDecoder::OnGpuInitComplete(bool success) {
   }
 
   state_ = State::kRunning;
-  std::move(init_cb_).Run(true);
+  std::move(init_cb_).Run(OkStatus());
 }
 
 void D3D11VideoDecoder::Decode(scoped_refptr<DecoderBuffer> buffer,
                                DecodeCB decode_cb) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  TRACE_EVENT0("gpu", "D3D11VideoDecoder::Decode");
+
+  // If we aren't given a decode cb, then record that.
+  // crbug.com/1012464 .
+  if (!decode_cb)
+    base::debug::DumpWithoutCrashing();
 
   if (state_ == State::kError) {
     // TODO(liberato): consider posting, though it likely doesn't matter.
@@ -435,6 +504,7 @@ void D3D11VideoDecoder::Decode(scoped_refptr<DecoderBuffer> buffer,
 
 void D3D11VideoDecoder::DoDecode() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  TRACE_EVENT0("gpu", "D3D11VideoDecoder::DoDecode");
 
   if (state_ != State::kRunning) {
     DVLOG(2) << __func__ << ": Do nothing in " << static_cast<int>(state_)
@@ -448,6 +518,11 @@ void D3D11VideoDecoder::DoDecode() {
     }
     current_buffer_ = std::move(input_buffer_queue_.front().first);
     current_decode_cb_ = std::move(input_buffer_queue_.front().second);
+    // If we pop a null decode cb off the stack, record it so we can see if this
+    // is from a top-level call, or through Decode.
+    // crbug.com/1012464 .
+    if (!current_decode_cb_)
+      base::debug::DumpWithoutCrashing();
     input_buffer_queue_.pop_front();
     if (current_buffer_->end_of_stream()) {
       // Flush, then signal the decode cb once all pictures have been output.
@@ -474,8 +549,31 @@ void D3D11VideoDecoder::DoDecode() {
     if (state_ == State::kError)
       return;
 
+    // If somebody cleared the buffer, then stop and post.
+    // TODO(liberato): It's unclear to me how this might happen.  If it does
+    // fix the crash, then more investigation is required.  Please see
+    // crbug.com/1012464 for more information.
+    if (!current_buffer_)
+      break;
+
+    // Record if we get here with a buffer, but without a decode cb.  This
+    // shouldn't happen, but does.  This will prevent the crash, and record how
+    // we got here.
+    // crbug.com/1012464 .
+    if (!current_decode_cb_) {
+      base::debug::DumpWithoutCrashing();
+      current_buffer_ = nullptr;
+      break;
+    }
+
     media::AcceleratedVideoDecoder::DecodeResult result =
         accelerated_video_decoder_->Decode();
+    if (state_ == State::kError) {
+      // Transitioned to an error at some point.  The h264 accelerator can do
+      // this if picture output fails, at least.  Until that's fixed, check
+      // here and exit if so.
+      return;
+    }
     // TODO(liberato): switch + class enum.
     if (result == media::AcceleratedVideoDecoder::kRanOutOfStreamData) {
       current_buffer_ = nullptr;
@@ -488,7 +586,13 @@ void D3D11VideoDecoder::DoDecode() {
       if (picture_buffers_.size())
         return;
       CreatePictureBuffers();
-    } else if (result == media::AcceleratedVideoDecoder::kAllocateNewSurfaces) {
+    } else if (result == media::AcceleratedVideoDecoder::kConfigChange) {
+      if (profile_ != accelerated_video_decoder_->GetProfile()) {
+        // TODO(crbug.com/1022246): Handle profile change.
+        LOG(ERROR) << "Profile change is not supported";
+        NotifyError("Profile change is not supported");
+        return;
+      }
       CreatePictureBuffers();
     } else if (result == media::AcceleratedVideoDecoder::kTryAgain) {
       state_ = State::kWaitingForNewKey;
@@ -510,6 +614,7 @@ void D3D11VideoDecoder::DoDecode() {
 void D3D11VideoDecoder::Reset(base::OnceClosure closure) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK_NE(state_, State::kInitializing);
+  TRACE_EVENT0("gpu", "D3D11VideoDecoder::Reset");
 
   current_buffer_ = nullptr;
   if (current_decode_cb_)
@@ -563,13 +668,15 @@ void D3D11VideoDecoder::CreatePictureBuffers() {
   // to signal success / failure asynchronously.  We'll need to transition into
   // a "waiting for pictures" state, since D3D11PictureBuffer will post the gpu
   // thread work.
+  TRACE_EVENT0("gpu", "D3D11VideoDecoder::CreatePictureBuffers");
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK(decoder_configurator_);
   DCHECK(texture_selector_);
   gfx::Size size = accelerated_video_decoder_->GetPicSize();
 
   // Create an input texture array.
   ComD3D11Texture2D in_texture =
-      texture_selector_->CreateOutputTexture(device_, size);
+      decoder_configurator_->CreateOutputTexture(device_, size);
   if (!in_texture) {
     NotifyError("Failed to create a Texture2D for PictureBuffers");
     return;
@@ -580,17 +687,20 @@ void D3D11VideoDecoder::CreatePictureBuffers() {
     DCHECK(!buffer->in_picture_use());
   picture_buffers_.clear();
 
-  // Create each picture buffer.1
-  const int textures_per_picture = 2;  // From the VDA
-  for (size_t i = 0; i < TextureSelector::BUFFER_COUNT; i++) {
+  // Create each picture buffer.
+  for (size_t i = 0; i < D3D11DecoderConfigurator::BUFFER_COUNT; i++) {
     auto tex_wrapper = texture_selector_->CreateTextureWrapper(
-        device_, video_device_, device_context_, in_texture, size);
+        device_, video_device_, device_context_, size);
+    if (!tex_wrapper) {
+      NotifyError("Unable to allocate a texture for a CopyingTexture2DWrapper");
+      return;
+    }
 
-    picture_buffers_.push_back(new D3D11PictureBuffer(
-        GL_TEXTURE_EXTERNAL_OES, std::move(tex_wrapper), size, i));
+    picture_buffers_.push_back(
+        new D3D11PictureBuffer(in_texture, std::move(tex_wrapper), size, i));
     if (!picture_buffers_[i]->Init(get_helper_cb_, video_device_,
-                                   texture_selector_->DecoderGuid(),
-                                   textures_per_picture, media_log_->Clone())) {
+                                   decoder_configurator_->DecoderGuid(),
+                                   media_log_->Clone())) {
       NotifyError("Unable to allocate PictureBuffer");
       return;
     }
@@ -610,10 +720,11 @@ D3D11PictureBuffer* D3D11VideoDecoder::GetPicture() {
   return nullptr;
 }
 
-void D3D11VideoDecoder::OutputResult(const CodecPicture* picture,
+bool D3D11VideoDecoder::OutputResult(const CodecPicture* picture,
                                      D3D11PictureBuffer* picture_buffer) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(texture_selector_);
+  TRACE_EVENT0("gpu", "D3D11VideoDecoder::OutputResult");
 
   picture_buffer->set_in_client_use(true);
 
@@ -629,15 +740,25 @@ void D3D11VideoDecoder::OutputResult(const CodecPicture* picture,
   base::TimeDelta timestamp = picture_buffer->timestamp_;
 
   MailboxHolderArray mailbox_holders;
-  if (!picture_buffer->ProcessTexture(&mailbox_holders)) {
+  gfx::ColorSpace output_color_space;
+  if (!picture_buffer->ProcessTexture(
+          picture->get_colorspace().ToGfxColorSpace(), &mailbox_holders,
+          &output_color_space)) {
     NotifyError("Unable to process texture");
-    return;
+    return false;
   }
 
   scoped_refptr<VideoFrame> frame = VideoFrame::WrapNativeTextures(
       texture_selector_->PixelFormat(), mailbox_holders,
       VideoFrame::ReleaseMailboxCB(), picture_buffer->size(), visible_rect,
       GetNaturalSize(visible_rect, pixel_aspect_ratio), timestamp);
+
+  if (!frame) {
+    // This can happen if, somehow, we get an unsupported combination of
+    // pixel format, etc.
+    NotifyError("Failed to construct video frame");
+    return false;
+  }
 
   // TODO(liberato): bind this to the gpu main thread.
   frame->SetReleaseMailboxCB(media::BindToCurrentLoop(
@@ -647,15 +768,28 @@ void D3D11VideoDecoder::OutputResult(const CodecPicture* picture,
   // For NV12, overlay is allowed by default. If the decoder is going to support
   // non-NV12 textures, then this may have to be conditionally set. Also note
   // that ALLOW_OVERLAY is required for encrypted video path.
-  frame->metadata()->SetBoolean(VideoFrameMetadata::ALLOW_OVERLAY, true);
+  //
+  // Since all of our picture buffers allow overlay, we just use the finch
+  // feature.  However, we may choose to set ALLOW_OVERLAY to false even if
+  // the finch flag is enabled.  We may not choose to set ALLOW_OVERLAY if the
+  // flag is off, however.
+  //
+  // Also note that, since we end up binding textures with GLImageDXGI, it's
+  // probably okay just to allow overlay always, and let the swap chain
+  // presenter decide if it wants to.
+  const bool allow_overlay =
+      base::FeatureList::IsEnabled(kD3D11VideoDecoderAllowOverlay);
+  frame->metadata()->SetBoolean(VideoFrameMetadata::ALLOW_OVERLAY,
+                                allow_overlay);
 
   if (config_.is_encrypted()) {
     frame->metadata()->SetBoolean(VideoFrameMetadata::PROTECTED_VIDEO, true);
     frame->metadata()->SetBoolean(VideoFrameMetadata::HW_PROTECTED, true);
   }
 
-  frame->set_color_space(picture->get_colorspace().ToGfxColorSpace());
+  frame->set_color_space(output_color_space);
   output_cb_.Run(frame);
+  return true;
 }
 
 void D3D11VideoDecoder::OnCdmContextEvent(CdmContext::Event event) {
@@ -689,21 +823,49 @@ void D3D11VideoDecoder::OnCdmContextEvent(CdmContext::Event event) {
   }
 }
 
+// TODO(tmathmeyer) eventually have this take a Status and pass it through
+// to each of the callbacks.
 void D3D11VideoDecoder::NotifyError(const char* reason) {
+  TRACE_EVENT0("gpu", "D3D11VideoDecoder::NotifyError");
   state_ = State::kError;
   DLOG(ERROR) << reason;
-  media_log_->AddEvent(media_log_->CreateStringEvent(
-      MediaLogEvent::MEDIA_ERROR_LOG_ENTRY, "error", reason));
+
+  // TODO(tmathmeyer) - Remove this after plumbing Status through the
+  // decode_cb and input_buffer_queue cb's.
+  MEDIA_LOG(ERROR, media_log_) << reason;
 
   if (init_cb_)
-    std::move(init_cb_).Run(false);
+    std::move(init_cb_).Run(
+        Status(StatusCode::kDecoderInitializeNeverCompleted, reason));
 
+  current_buffer_ = nullptr;
   if (current_decode_cb_)
     std::move(current_decode_cb_).Run(DecodeStatus::DECODE_ERROR);
 
   for (auto& queue_pair : input_buffer_queue_)
     std::move(queue_pair.second).Run(DecodeStatus::DECODE_ERROR);
   input_buffer_queue_.clear();
+}
+
+// static
+bool D3D11VideoDecoder::GetD3D11FeatureLevel(
+    ComD3D11Device dev,
+    const gpu::GpuDriverBugWorkarounds& gpu_workarounds,
+    D3D_FEATURE_LEVEL* feature_level) {
+  if (!dev || !feature_level)
+    return false;
+
+  *feature_level = dev->GetFeatureLevel();
+  if (*feature_level < D3D_FEATURE_LEVEL_11_0)
+    return false;
+
+  // TODO(tmathmeyer) should we log this to UMA?
+  if (gpu_workarounds.limit_d3d11_video_decoder_to_11_0 &&
+      !base::FeatureList::IsEnabled(kD3D11VideoDecoderIgnoreWorkarounds)) {
+    *feature_level = D3D_FEATURE_LEVEL_11_0;
+  }
+
+  return true;
 }
 
 // static
@@ -715,8 +877,10 @@ D3D11VideoDecoder::GetSupportedVideoDecoderConfigs(
   const std::string uma_name("Media.D3D11.WasVideoSupported");
 
   // This workaround accounts for almost half of all startup results, and it's
-  // unclear that it's relevant here.
-  if (!base::FeatureList::IsEnabled(kD3D11VideoDecoderIgnoreWorkarounds)) {
+  // unclear that it's relevant here.  If it's off, or if we're allowed to copy
+  // pictures in case binding isn't allowed, then proceed with init.
+  // NOTE: experimentation showed that, yes, it does actually matter.
+  if (!base::FeatureList::IsEnabled(kD3D11VideoDecoderCopyPictures)) {
     // Must allow zero-copy of nv12 textures.
     if (!gpu_preferences.enable_zero_copy_dxgi_video) {
       UMA_HISTOGRAM_ENUMERATION(uma_name,
@@ -727,6 +891,14 @@ D3D11VideoDecoder::GetSupportedVideoDecoderConfigs(
     if (gpu_workarounds.disable_dxgi_zero_copy_video) {
       UMA_HISTOGRAM_ENUMERATION(uma_name,
                                 NotSupportedReason::kZeroCopyVideoRequired);
+      return {};
+    }
+  }
+
+  if (!base::FeatureList::IsEnabled(kD3D11VideoDecoderIgnoreWorkarounds)) {
+    // Allow all of d3d11 to be turned off by workaround.
+    if (gpu_workarounds.disable_d3d11_video_decoder) {
+      UMA_HISTOGRAM_ENUMERATION(uma_name, NotSupportedReason::kOffByWorkaround);
       return {};
     }
   }
@@ -746,7 +918,13 @@ D3D11VideoDecoder::GetSupportedVideoDecoderConfigs(
     return {};
   }
 
-  D3D_FEATURE_LEVEL usable_feature_level = d3d11_device->GetFeatureLevel();
+  D3D_FEATURE_LEVEL usable_feature_level;
+  if (!GetD3D11FeatureLevel(d3d11_device, gpu_workarounds,
+                            &usable_feature_level)) {
+    UMA_HISTOGRAM_ENUMERATION(
+        uma_name, NotSupportedReason::kInsufficientD3D11FeatureLevel);
+    return {};
+  }
 
   const bool allow_encrypted =
       (usable_feature_level > D3D_FEATURE_LEVEL_11_0) &&
@@ -755,14 +933,15 @@ D3D11VideoDecoder::GetSupportedVideoDecoderConfigs(
   std::vector<SupportedVideoDecoderConfig> configs;
   // VP9 has no default resolutions since it may not even be supported.
   ResolutionPair max_h264_resolutions(gfx::Size(1920, 1088), gfx::Size());
+  ResolutionPair max_vp8_resolutions;
   ResolutionPair max_vp9_profile0_resolutions;
   ResolutionPair max_vp9_profile2_resolutions;
   const gfx::Size min_resolution(64, 64);
 
   GetResolutionsForDecoders(
       {D3D11_DECODER_PROFILE_H264_VLD_NOFGT}, d3d11_device, gpu_workarounds,
-      &max_h264_resolutions, &max_vp9_profile0_resolutions,
-      &max_vp9_profile2_resolutions);
+      &max_h264_resolutions, &max_vp8_resolutions,
+      &max_vp9_profile0_resolutions, &max_vp9_profile2_resolutions);
 
   if (max_h264_resolutions.first.width() > 0) {
     // Push H264 configs, except HIGH10.
@@ -803,6 +982,8 @@ D3D11VideoDecoder::GetSupportedVideoDecoderConfigs(
         false));                            // require_encrypted
   }
 
+  // TODO(liberato): Fill this in for VP8.
+
   if (max_vp9_profile0_resolutions.first.width()) {
     // landscape
     configs.push_back(SupportedVideoDecoderConfig(
@@ -820,6 +1001,27 @@ D3D11VideoDecoder::GetSupportedVideoDecoderConfigs(
         max_vp9_profile0_resolutions.second,  // coded_size_max
         allow_encrypted,                      // allow_encrypted
         false));                              // require_encrypted
+  }
+
+  if (base::FeatureList::IsEnabled(kD3D11VideoDecoderVP9Profile2)) {
+    if (max_vp9_profile2_resolutions.first.width()) {
+      // landscape
+      configs.push_back(SupportedVideoDecoderConfig(
+          VP9PROFILE_PROFILE2,                 // profile_min
+          VP9PROFILE_PROFILE2,                 // profile_max
+          min_resolution,                      // coded_size_min
+          max_vp9_profile2_resolutions.first,  // coded_size_max
+          allow_encrypted,                     // allow_encrypted
+          false));                             // require_encrypted
+      // portrait
+      configs.push_back(SupportedVideoDecoderConfig(
+          VP9PROFILE_PROFILE2,                  // profile_min
+          VP9PROFILE_PROFILE2,                  // profile_max
+          min_resolution,                       // coded_size_min
+          max_vp9_profile2_resolutions.second,  // coded_size_max
+          allow_encrypted,                      // allow_encrypted
+          false));                              // require_encrypted
+    }
   }
 
   // TODO(liberato): Should we separate out h264, vp9, and encrypted?

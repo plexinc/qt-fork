@@ -14,6 +14,7 @@
 #include "platform/base/macros.h"
 
 namespace openscreen {
+namespace osp {
 
 // Used to report an error from a ServiceListener implementation.
 struct ServicePublisherError {
@@ -106,7 +107,7 @@ class ServicePublisher {
     // By default, all enabled Ethernet and WiFi interfaces are used.
     // This configuration must be identical to the interfaces configured
     // in the ScreenConnectionServer.
-    std::vector<platform::NetworkInterfaceIndex> network_interface_indices;
+    std::vector<NetworkInterfaceIndex> network_interface_indices;
   };
 
   virtual ~ServicePublisher();
@@ -134,8 +135,6 @@ class ServicePublisher {
   // Resumes publishing.  Returns true if state() == kSuspended.
   virtual bool Resume() = 0;
 
-  virtual void RunTasks() = 0;
-
   // Returns the current state of the publisher.
   State state() const { return state_; }
 
@@ -145,13 +144,14 @@ class ServicePublisher {
  protected:
   explicit ServicePublisher(Observer* observer);
 
-  State state_ = State::kStopped;
+  State state_;
   ServicePublisherError last_error_;
   Observer* observer_;
 
   OSP_DISALLOW_COPY_AND_ASSIGN(ServicePublisher);
 };
 
+}  // namespace osp
 }  // namespace openscreen
 
 #endif  // OSP_PUBLIC_SERVICE_PUBLISHER_H_

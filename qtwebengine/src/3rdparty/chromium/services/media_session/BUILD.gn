@@ -11,8 +11,6 @@ source_set("lib") {
   sources = [
     "audio_focus_manager.cc",
     "audio_focus_manager.h",
-    "audio_focus_manager_metrics_helper.cc",
-    "audio_focus_manager_metrics_helper.h",
     "audio_focus_request.cc",
     "audio_focus_request.h",
     "media_controller.cc",
@@ -30,10 +28,7 @@ source_set("lib") {
     "//skia",
   ]
 
-  public_deps = [
-    "//base",
-    "//services/service_manager/public/cpp",
-  ]
+  public_deps = [ "//base" ]
 }
 
 source_set("tests") {
@@ -51,7 +46,6 @@ source_set("tests") {
     "//services/media_session/public/cpp",
     "//services/media_session/public/cpp/test:test_support",
     "//services/media_session/public/mojom",
-    "//services/service_manager/public/cpp/test:test_support",
     "//testing/gtest",
   ]
 }

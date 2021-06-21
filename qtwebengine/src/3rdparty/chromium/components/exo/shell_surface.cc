@@ -21,6 +21,7 @@
 #include "ui/aura/window.h"
 #include "ui/aura/window_event_dispatcher.h"
 #include "ui/aura/window_tree_host.h"
+#include "ui/base/ui_base_types.h"
 #include "ui/views/widget/widget.h"
 #include "ui/wm/core/coordinate_conversion.h"
 #include "ui/wm/core/transient_window_manager.h"
@@ -265,6 +266,11 @@ void ShellSurface::StartResize(int component) {
   AttemptToStartDrag(component);
 }
 
+bool ShellSurface::ShouldAutoMaximize() {
+  // Unless a child class overrides the behaviour, we will never auto-maximize.
+  return false;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // SurfaceDelegate overrides:
 
@@ -503,6 +509,10 @@ bool ShellSurface::OnPreWidgetCommit() {
       return false;
     }
 
+    // Allow the window to maximize itself on launch.
+    if (ShouldAutoMaximize())
+      initial_show_state_ = ui::SHOW_STATE_MAXIMIZED;
+
     CreateShellSurfaceWidget(initial_show_state_);
   }
 
@@ -629,7 +639,7 @@ void ShellSurface::AttemptToStartDrag(int component) {
   };
 
   if (gesture_target) {
-    gfx::Point location = toplevel_handler->event_location_in_gesture_target();
+    gfx::PointF location = toplevel_handler->event_location_in_gesture_target();
     aura::Window::ConvertPointToTarget(
         gesture_target, widget_->GetNativeWindow()->GetRootWindow(), &location);
     toplevel_handler->AttemptToStartDrag(
@@ -640,7 +650,7 @@ void ShellSurface::AttemptToStartDrag(int component) {
     ::wm::ConvertPointFromScreen(widget_->GetNativeWindow()->GetRootWindow(),
                                  &location);
     toplevel_handler->AttemptToStartDrag(
-        target, location, component,
+        target, gfx::PointF(location), component,
         base::BindOnce(end_drag, base::Unretained(this)));
   }
   // Notify client that resizing state has changed.

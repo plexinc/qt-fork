@@ -6,7 +6,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_HTML_ANCHOR_ELEMENT_METRICS_H_
 
 #include "base/optional.h"
-#include "third_party/blink/public/mojom/loader/navigation_predictor.mojom-blink.h"
+#include "third_party/blink/public/mojom/loader/navigation_predictor.mojom-blink-forward.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
@@ -72,7 +72,7 @@ class CORE_EXPORT AnchorElementMetrics {
   void RecordMetricsOnClick() const;
 
   // The anchor element that this class is associated with.
-  Member<const HTMLAnchorElement> anchor_element_;
+  const HTMLAnchorElement* anchor_element_;
 
   // The ratio of the absolute/visible clickable region area of an anchor
   // element, and the viewport area.

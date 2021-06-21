@@ -35,7 +35,7 @@
 #include "content/public/test/hit_test_region_observer.h"
 #include "content/public/test/test_utils.h"
 #include "content/shell/browser/shell.h"
-#include "third_party/blink/public/platform/web_input_event.h"
+#include "third_party/blink/public/common/input/web_input_event.h"
 #include "ui/events/blink/blink_features.h"
 #include "ui/latency/latency_info.h"
 
@@ -158,7 +158,7 @@ class TouchActionBrowserTest : public ContentBrowserTest,
  protected:
   void LoadURL(const char* touch_action_url) {
     const GURL data_url(touch_action_url);
-    NavigateToURL(shell(), data_url);
+    EXPECT_TRUE(NavigateToURL(shell(), data_url));
 
     RenderWidgetHostImpl* host = GetWidgetHost();
     frame_observer_ = std::make_unique<RenderFrameSubmissionObserver>(
@@ -170,9 +170,8 @@ class TouchActionBrowserTest : public ContentBrowserTest,
     ignore_result(watcher.WaitAndGetTitle());
 
     // We need to wait until hit test data is available. We use our own
-    // HitTestRegionObserver here, rather than
-    // WaitForHitTestDataOrChildSurfaceReady, because we have the
-    // RenderWidgetHostImpl available.
+    // HitTestRegionObserver here because we have the RenderWidgetHostImpl
+    // available.
     HitTestRegionObserver observer(host->GetFrameSinkId());
     observer.WaitForHitTestData();
   }
@@ -477,7 +476,7 @@ class TouchActionBrowserTest : public ContentBrowserTest,
   DISALLOW_COPY_AND_ASSIGN(TouchActionBrowserTest);
 };
 
-INSTANTIATE_TEST_SUITE_P(, TouchActionBrowserTest, testing::Bool());
+INSTANTIATE_TEST_SUITE_P(All, TouchActionBrowserTest, testing::Bool());
 
 #if !defined(NDEBUG) || defined(ADDRESS_SANITIZER) ||       \
     defined(MEMORY_SANITIZER) || defined(LEAK_SANITIZER) || \

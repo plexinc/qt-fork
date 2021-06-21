@@ -52,12 +52,13 @@
 // We mean it.
 //
 
-#include <QObject>
-#include <QVariant>
-#include <QUrl>
-#include <QIcon>
-#include <QPixmap>
-#include <QDebug>
+#include <QtQml/qtqml-config.h>
+#include <QtGui/QIcon>
+#include <QtGui/QPixmap>
+#include <QtCore/QDebug>
+#include <QtCore/QObject>
+#include <QtCore/QVariant>
+#include <QtCore/QUrl>
 
 QT_BEGIN_NAMESPACE
 
@@ -90,9 +91,12 @@ private:
     static QVariant loadFromFile(const QUrl &url, QVariant::Type type);
     static QVariant loadFromImageProvider(const QUrl &url, const QQmlEngine *engine,
                                           QVariant::Type type, QSize requestedSize);
+#if QT_CONFIG(qml_network)
     static QNetworkReply *loadFromNetwork(const QUrl &url, const QQmlEngine *engine);
+#endif
 };
 
+#if QT_CONFIG(qml_network)
 // Internal handler which loads the resource once QNetworkReply finishes
 class QQuickIconLoaderNetworkReplyHandler : public QObject
 {
@@ -110,6 +114,7 @@ private Q_SLOTS:
 private:
     const QVariant::Type m_type;
 };
+#endif // qml_network
 
 template <typename Object>
 QQuickIconLoader::LoadResult
@@ -118,15 +123,17 @@ QQuickIconLoader::LoadResult
                            Object *receiver, void (Object::*function)(const QVariant &))
 {
     const QString scheme = url.scheme();
-    if (scheme.startsWith(QLatin1String("http"))) {
+    if (scheme.startsWith(u"http")) {
+#if QT_CONFIG(qml_network)
         if (QNetworkReply *reply = QQuickIconLoader::loadFromNetwork(url, engine)) {
             auto *handler = new QQuickIconLoaderNetworkReplyHandler(reply, type);
             QObject::connect(handler, &QQuickIconLoaderNetworkReplyHandler::finished, receiver, function);
             return LoadNetworkRequestStarted;
         }
+#endif // qml_network
         return LoadError;
     }
-    const QVariant resource = scheme == QLatin1String("image")
+    const QVariant resource = scheme == u"image"
         ? QQuickIconLoader::loadFromImageProvider(url, engine, type, requestedSize)
         : QQuickIconLoader::loadFromFile(url, type); // qrc, file
     if (resource.isValid()) {

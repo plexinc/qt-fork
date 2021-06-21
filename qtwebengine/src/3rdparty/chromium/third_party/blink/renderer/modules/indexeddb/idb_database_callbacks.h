@@ -37,11 +37,11 @@ class IDBDatabase;
 class IDBObservation;
 
 class MODULES_EXPORT IDBDatabaseCallbacks
-    : public GarbageCollectedFinalized<IDBDatabaseCallbacks> {
+    : public GarbageCollected<IDBDatabaseCallbacks> {
  public:
   IDBDatabaseCallbacks();
   virtual ~IDBDatabaseCallbacks();
-  void Trace(blink::Visitor*);
+  void Trace(Visitor*);
 
   // IDBDatabaseCallbacks
   virtual void OnForcedClose();

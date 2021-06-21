@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2010 The ANGLE Project Authors. All rights reserved.
+// Copyright 2010 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -433,6 +433,8 @@ GLenum GLVariableType(const TType &type)
             return GL_UNSIGNED_INT_IMAGE_CUBE;
         case EbtAtomicCounter:
             return GL_UNSIGNED_INT_ATOMIC_COUNTER;
+        case EbtSamplerVideoWEBGL:
+            return GL_SAMPLER_VIDEO_IMAGE_WEBGL;
         default:
             UNREACHABLE();
     }
@@ -486,7 +488,7 @@ ImmutableString ArrayString(const TType &type)
     if (!type.isArray())
         return ImmutableString("");
 
-    const TVector<unsigned int> &arraySizes         = *type.getArraySizes();
+    const TSpan<const unsigned int> &arraySizes     = type.getArraySizes();
     constexpr const size_t kMaxDecimalDigitsPerSize = 10u;
     ImmutableStringBuilder arrayString(arraySizes.size() * (kMaxDecimalDigitsPerSize + 2u));
     for (auto arraySizeIter = arraySizes.rbegin(); arraySizeIter != arraySizes.rend();
@@ -702,6 +704,7 @@ bool IsBuiltinFragmentInputVariable(TQualifier qualifier)
         case EvqFragCoord:
         case EvqPointCoord:
         case EvqFrontFacing:
+        case EvqHelperInvocation:
             return true;
         default:
             break;
@@ -756,6 +759,10 @@ bool IsOutputHLSL(ShShaderOutput output)
 bool IsOutputVulkan(ShShaderOutput output)
 {
     return output == SH_GLSL_VULKAN_OUTPUT;
+}
+bool IsOutputMetal(ShShaderOutput output)
+{
+    return output == SH_GLSL_METAL_OUTPUT;
 }
 
 bool IsInShaderStorageBlock(TIntermTyped *node)

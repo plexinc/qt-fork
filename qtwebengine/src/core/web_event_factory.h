@@ -42,10 +42,10 @@
 
 #include "content/public/browser/native_web_keyboard_event.h"
 #ifndef QT_NO_GESTURES
-#include "third_party/blink/public/platform/web_gesture_event.h"
+#include "third_party/blink/public/common/input/web_gesture_event.h"
 #endif
-#include "third_party/blink/public/platform/web_mouse_event.h"
-#include "third_party/blink/public/platform/web_mouse_wheel_event.h"
+#include "third_party/blink/public/common/input/web_mouse_event.h"
+#include "third_party/blink/public/common/input/web_mouse_wheel_event.h"
 
 #include <QtGlobal>
 
@@ -63,6 +63,10 @@ class QNativeGestureEvent;
 #endif
 QT_END_NAMESPACE
 
+namespace QtWebEngineCore {
+
+class RenderWidgetHostViewQtDelegate;
+
 class WebEventFactory {
 
 public:
@@ -77,9 +81,11 @@ public:
 #endif
     static blink::WebMouseWheelEvent toWebWheelEvent(QWheelEvent *);
     static bool coalesceWebWheelEvent(blink::WebMouseWheelEvent &, QWheelEvent *);
+    static void sendUnhandledWheelEvent(const blink::WebGestureEvent &, RenderWidgetHostViewQtDelegate *);
     static content::NativeWebKeyboardEvent toWebKeyboardEvent(QKeyEvent*);
     static bool getEditCommand(QKeyEvent *event, std::string *editCommand);
 };
 
+} // namespace QtWebEngineCore
 
 #endif // WEB_EVENT_FACTORY_H

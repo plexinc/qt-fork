@@ -11,14 +11,16 @@
 #include "net/third_party/quiche/src/quic/core/quic_connection_id.h"
 #include "net/third_party/quiche/src/quic/core/quic_constants.h"
 #include "net/third_party/quiche/src/quic/core/quic_types.h"
+#include "net/third_party/quiche/src/quic/core/quic_versions.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_aligned.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_arraysize.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_bug_tracker.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_endian.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_flag_utils.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_prefetch.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_uint128.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_arraysize.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_endian.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 namespace {
@@ -33,7 +35,8 @@ namespace {
 #endif
 
 #ifdef QUIC_UTIL_HAS_UINT128
-QuicUint128 IncrementalHashFast(QuicUint128 uhash, QuicStringPiece data) {
+QuicUint128 IncrementalHashFast(QuicUint128 uhash,
+                                quiche::QuicheStringPiece data) {
   // This code ends up faster than the naive implementation for 2 reasons:
   // 1. QuicUint128 is sufficiently complicated that the compiler
   //    cannot transform the multiplication by kPrime into a shift-multiply-add;
@@ -56,7 +59,8 @@ QuicUint128 IncrementalHashFast(QuicUint128 uhash, QuicStringPiece data) {
 
 #ifndef QUIC_UTIL_HAS_UINT128
 // Slow implementation of IncrementalHash. In practice, only used by Chromium.
-QuicUint128 IncrementalHashSlow(QuicUint128 hash, QuicStringPiece data) {
+QuicUint128 IncrementalHashSlow(QuicUint128 hash,
+                                quiche::QuicheStringPiece data) {
   // kPrime = 309485009821345068724781371
   static const QuicUint128 kPrime = MakeQuicUint128(16777216, 315);
   const uint8_t* octets = reinterpret_cast<const uint8_t*>(data.data());
@@ -68,7 +72,7 @@ QuicUint128 IncrementalHashSlow(QuicUint128 hash, QuicStringPiece data) {
 }
 #endif
 
-QuicUint128 IncrementalHash(QuicUint128 hash, QuicStringPiece data) {
+QuicUint128 IncrementalHash(QuicUint128 hash, quiche::QuicheStringPiece data) {
 #ifdef QUIC_UTIL_HAS_UINT128
   return IncrementalHashFast(hash, data);
 #else
@@ -79,7 +83,7 @@ QuicUint128 IncrementalHash(QuicUint128 hash, QuicStringPiece data) {
 }  // namespace
 
 // static
-uint64_t QuicUtils::FNV1a_64_Hash(QuicStringPiece data) {
+uint64_t QuicUtils::FNV1a_64_Hash(quiche::QuicheStringPiece data) {
   static const uint64_t kOffset = UINT64_C(14695981039346656037);
   static const uint64_t kPrime = UINT64_C(1099511628211);
 
@@ -96,20 +100,21 @@ uint64_t QuicUtils::FNV1a_64_Hash(QuicStringPiece data) {
 }
 
 // static
-QuicUint128 QuicUtils::FNV1a_128_Hash(QuicStringPiece data) {
-  return FNV1a_128_Hash_Three(data, QuicStringPiece(), QuicStringPiece());
+QuicUint128 QuicUtils::FNV1a_128_Hash(quiche::QuicheStringPiece data) {
+  return FNV1a_128_Hash_Three(data, quiche::QuicheStringPiece(),
+                              quiche::QuicheStringPiece());
 }
 
 // static
-QuicUint128 QuicUtils::FNV1a_128_Hash_Two(QuicStringPiece data1,
-                                          QuicStringPiece data2) {
-  return FNV1a_128_Hash_Three(data1, data2, QuicStringPiece());
+QuicUint128 QuicUtils::FNV1a_128_Hash_Two(quiche::QuicheStringPiece data1,
+                                          quiche::QuicheStringPiece data2) {
+  return FNV1a_128_Hash_Three(data1, data2, quiche::QuicheStringPiece());
 }
 
 // static
-QuicUint128 QuicUtils::FNV1a_128_Hash_Three(QuicStringPiece data1,
-                                            QuicStringPiece data2,
-                                            QuicStringPiece data3) {
+QuicUint128 QuicUtils::FNV1a_128_Hash_Three(quiche::QuicheStringPiece data1,
+                                            quiche::QuicheStringPiece data2,
+                                            quiche::QuicheStringPiece data3) {
   // The two constants are defined as part of the hash algorithm.
   // see http://www.isthe.com/chongo/tech/comp/fnv/
   // kOffset = 144066263297769815596495629667062367629
@@ -141,33 +146,6 @@ void QuicUtils::SerializeUint128Short(QuicUint128 v, uint8_t* out) {
   case x:                        \
     return #x;
 
-// static
-const char* QuicUtils::EncryptionLevelToString(EncryptionLevel level) {
-  switch (level) {
-    RETURN_STRING_LITERAL(ENCRYPTION_INITIAL);
-    RETURN_STRING_LITERAL(ENCRYPTION_HANDSHAKE);
-    RETURN_STRING_LITERAL(ENCRYPTION_ZERO_RTT);
-    RETURN_STRING_LITERAL(ENCRYPTION_FORWARD_SECURE);
-    RETURN_STRING_LITERAL(NUM_ENCRYPTION_LEVELS);
-  }
-  return "INVALID_ENCRYPTION_LEVEL";
-}
-
-// static
-const char* QuicUtils::TransmissionTypeToString(TransmissionType type) {
-  switch (type) {
-    RETURN_STRING_LITERAL(NOT_RETRANSMISSION);
-    RETURN_STRING_LITERAL(HANDSHAKE_RETRANSMISSION);
-    RETURN_STRING_LITERAL(LOSS_RETRANSMISSION);
-    RETURN_STRING_LITERAL(ALL_UNACKED_RETRANSMISSION);
-    RETURN_STRING_LITERAL(ALL_INITIAL_RETRANSMISSION);
-    RETURN_STRING_LITERAL(RTO_RETRANSMISSION);
-    RETURN_STRING_LITERAL(TLP_RETRANSMISSION);
-    RETURN_STRING_LITERAL(PROBING_RETRANSMISSION);
-  }
-  return "INVALID_TRANSMISSION_TYPE";
-}
-
 std::string QuicUtils::AddressChangeTypeToString(AddressChangeType type) {
   switch (type) {
     RETURN_STRING_LITERAL(NO_CHANGE);
@@ -187,10 +165,12 @@ const char* QuicUtils::SentPacketStateToString(SentPacketState state) {
     RETURN_STRING_LITERAL(NEVER_SENT);
     RETURN_STRING_LITERAL(ACKED);
     RETURN_STRING_LITERAL(UNACKABLE);
+    RETURN_STRING_LITERAL(NEUTERED);
     RETURN_STRING_LITERAL(HANDSHAKE_RETRANSMITTED);
     RETURN_STRING_LITERAL(LOST);
     RETURN_STRING_LITERAL(TLP_RETRANSMITTED);
     RETURN_STRING_LITERAL(RTO_RETRANSMITTED);
+    RETURN_STRING_LITERAL(PTO_RETRANSMITTED);
     RETURN_STRING_LITERAL(PROBE_RETRANSMITTED);
   }
   return "INVALID_SENT_PACKET_STATE";
@@ -305,7 +285,7 @@ void QuicUtils::CopyToBuffer(const struct iovec* iov,
 }
 
 // static
-struct iovec QuicUtils::MakeIovec(QuicStringPiece data) {
+struct iovec QuicUtils::MakeIovec(quiche::QuicheStringPiece data) {
   struct iovec iov = {const_cast<char*>(data.data()),
                       static_cast<size_t>(data.size())};
   return iov;
@@ -341,6 +321,17 @@ bool QuicUtils::IsHandshakeFrame(const QuicFrame& frame,
 }
 
 // static
+bool QuicUtils::ContainsFrameType(const QuicFrames& frames,
+                                  QuicFrameType type) {
+  for (const QuicFrame& frame : frames) {
+    if (frame.type == type) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// static
 SentPacketState QuicUtils::RetransmissionTypeToPacketState(
     TransmissionType retransmission_type) {
   switch (retransmission_type) {
@@ -355,10 +346,12 @@ SentPacketState QuicUtils::RetransmissionTypeToPacketState(
       return TLP_RETRANSMITTED;
     case RTO_RETRANSMISSION:
       return RTO_RETRANSMITTED;
+    case PTO_RETRANSMISSION:
+      return PTO_RETRANSMITTED;
     case PROBING_RETRANSMISSION:
       return PROBE_RETRANSMITTED;
     default:
-      QUIC_BUG << QuicUtils::TransmissionTypeToString(retransmission_type)
+      QUIC_BUG << TransmissionTypeToString(retransmission_type)
                << " is not a retransmission_type";
       return UNACKABLE;
   }
@@ -400,11 +393,7 @@ bool QuicUtils::IsCryptoStreamId(QuicTransportVersion version,
 
 // static
 QuicStreamId QuicUtils::GetHeadersStreamId(QuicTransportVersion version) {
-  if (version == QUIC_VERSION_99) {
-    // TODO(b/130659182) Turn this into a QUIC_BUG once we've fully removed
-    // the headers stream in those versions.
-    return GetQuicFlag(FLAGS_quic_headers_stream_id_in_v99);
-  }
+  DCHECK(!VersionUsesHttp3(version));
   return GetFirstBidirectionalStreamId(version, Perspective::IS_CLIENT);
 }
 
@@ -424,6 +413,19 @@ bool QuicUtils::IsServerInitiatedStreamId(QuicTransportVersion version,
     return false;
   }
   return VersionHasIetfQuicFrames(version) ? id % 2 != 0 : id % 2 == 0;
+}
+
+// static
+bool QuicUtils::IsOutgoingStreamId(ParsedQuicVersion version,
+                                   QuicStreamId id,
+                                   Perspective perspective) {
+  // Streams are outgoing streams, iff:
+  // - we are the server and the stream is server-initiated
+  // - we are the client and the stream is client-initiated.
+  const bool perspective_is_server = perspective == Perspective::IS_SERVER;
+  const bool stream_is_server =
+      QuicUtils::IsServerInitiatedStreamId(version.transport_version, id);
+  return perspective_is_server == stream_is_server;
 }
 
 // static
@@ -488,6 +490,15 @@ QuicStreamId QuicUtils::GetFirstUnidirectionalStreamId(
 }
 
 // static
+QuicConnectionId QuicUtils::CreateReplacementConnectionId(
+    QuicConnectionId connection_id) {
+  const uint64_t connection_id_hash = FNV1a_64_Hash(
+      quiche::QuicheStringPiece(connection_id.data(), connection_id.length()));
+  return QuicConnectionId(reinterpret_cast<const char*>(&connection_id_hash),
+                          sizeof(connection_id_hash));
+}
+
+// static
 QuicConnectionId QuicUtils::CreateRandomConnectionId() {
   return CreateRandomConnectionId(kQuicDefaultConnectionIdLength,
                                   QuicRandom::GetInstance());
@@ -508,79 +519,74 @@ QuicConnectionId QuicUtils::CreateRandomConnectionId(
 QuicConnectionId QuicUtils::CreateRandomConnectionId(
     uint8_t connection_id_length,
     QuicRandom* random) {
-  if (connection_id_length == 0) {
-    return EmptyQuicConnectionId();
+  QuicConnectionId connection_id;
+  connection_id.set_length(connection_id_length);
+  if (connection_id.length() > 0) {
+    random->RandBytes(connection_id.mutable_data(), connection_id.length());
   }
-  if (connection_id_length > kQuicMaxConnectionIdLength) {
-    QUIC_BUG << "Tried to CreateRandomConnectionId of invalid length "
-             << static_cast<int>(connection_id_length);
-    connection_id_length = kQuicMaxConnectionIdLength;
-  }
-  char connection_id_bytes[kQuicMaxConnectionIdLength];
-  random->RandBytes(connection_id_bytes, connection_id_length);
-  return QuicConnectionId(static_cast<char*>(connection_id_bytes),
-                          connection_id_length);
-}
-
-// static
-bool QuicUtils::VariableLengthConnectionIdAllowedForVersion(
-    QuicTransportVersion version) {
-  // We allow variable length connection IDs for unsupported versions to
-  // ensure that IETF version negotiation works when other implementations
-  // trigger version negotiation with custom connection ID lengths.
-  return version >= QUIC_VERSION_47 || version == QUIC_VERSION_UNSUPPORTED;
+  return connection_id;
 }
 
 // static
 QuicConnectionId QuicUtils::CreateZeroConnectionId(
     QuicTransportVersion version) {
-  if (!VariableLengthConnectionIdAllowedForVersion(version)) {
+  if (!VersionAllowsVariableLengthConnectionIds(version)) {
     char connection_id_bytes[8] = {0, 0, 0, 0, 0, 0, 0, 0};
     return QuicConnectionId(static_cast<char*>(connection_id_bytes),
-                            QUIC_ARRAYSIZE(connection_id_bytes));
+                            QUICHE_ARRAYSIZE(connection_id_bytes));
   }
   return EmptyQuicConnectionId();
 }
 
 // static
-bool QuicUtils::IsConnectionIdValidForVersion(QuicConnectionId connection_id,
-                                              QuicTransportVersion version) {
-  if (VariableLengthConnectionIdAllowedForVersion(version)) {
+bool QuicUtils::IsConnectionIdLengthValidForVersion(
+    size_t connection_id_length,
+    QuicTransportVersion transport_version) {
+  // No version of QUIC can support lengths that do not fit in an uint8_t.
+  if (connection_id_length >
+      static_cast<size_t>(std::numeric_limits<uint8_t>::max())) {
+    return false;
+  }
+
+  if (transport_version == QUIC_VERSION_UNSUPPORTED ||
+      transport_version == QUIC_VERSION_RESERVED_FOR_NEGOTIATION) {
+    // Unknown versions could allow connection ID lengths up to 255.
     return true;
   }
-  return connection_id.length() == kQuicDefaultConnectionIdLength;
+
+  const uint8_t connection_id_length8 =
+      static_cast<uint8_t>(connection_id_length);
+  // Versions that do not support variable lengths only support length 8.
+  if (!VersionAllowsVariableLengthConnectionIds(transport_version)) {
+    return connection_id_length8 == kQuicDefaultConnectionIdLength;
+  }
+  // Versions that do support variable length but do not have length-prefixed
+  // connection IDs use the 4-bit connection ID length encoding which can
+  // only encode values 0 and 4-18.
+  if (!VersionHasLengthPrefixedConnectionIds(transport_version)) {
+    return connection_id_length8 == 0 ||
+           (connection_id_length8 >= 4 &&
+            connection_id_length8 <= kQuicMaxConnectionId4BitLength);
+  }
+  return connection_id_length8 <= kQuicMaxConnectionIdWithLengthPrefixLength;
+}
+
+// static
+bool QuicUtils::IsConnectionIdValidForVersion(
+    QuicConnectionId connection_id,
+    QuicTransportVersion transport_version) {
+  return IsConnectionIdLengthValidForVersion(connection_id.length(),
+                                             transport_version);
 }
 
 QuicUint128 QuicUtils::GenerateStatelessResetToken(
     QuicConnectionId connection_id) {
-  uint64_t data_bytes[3] = {0, 0, 0};
-  static_assert(sizeof(data_bytes) >= kQuicMaxConnectionIdLength,
-                "kQuicMaxConnectionIdLength changed");
-  memcpy(data_bytes, connection_id.data(), connection_id.length());
-  // This is designed so that the common case of 64bit connection IDs
-  // produces a stateless reset token that is equal to the connection ID
-  // interpreted as a 64bit unsigned integer, to facilitate debugging.
-  return MakeQuicUint128(
-      QuicEndian::NetToHost64(sizeof(uint64_t) ^ connection_id.length() ^
-                              data_bytes[1] ^ data_bytes[2]),
-      QuicEndian::NetToHost64(data_bytes[0]));
+  return FNV1a_128_Hash(
+      quiche::QuicheStringPiece(connection_id.data(), connection_id.length()));
 }
 
-// Returns the maximum value that a stream count may have, taking into account
-// the fact that bidirectional, client initiated, streams have one fewer stream
-// available than the others. This is because the old crypto streams, with ID ==
-// 0 are not included in the count.
-// The version is not included in the call, nor does the method take the version
-// into account, because this is called only from code used for IETF QUIC.
-// TODO(fkastenholz): Remove this method and replace calls to it with direct
-// references to kMaxQuicStreamIdCount when streamid 0 becomes a normal stream
-// id.
 // static
-QuicStreamCount QuicUtils::GetMaxStreamCount(bool unidirectional,
-                                             Perspective perspective) {
-  if (!unidirectional && perspective == Perspective::IS_CLIENT) {
-    return kMaxQuicStreamCount >> 2;
-  }
+QuicStreamCount QuicUtils::GetMaxStreamCount() {
   return (kMaxQuicStreamCount >> 2) + 1;
 }
 

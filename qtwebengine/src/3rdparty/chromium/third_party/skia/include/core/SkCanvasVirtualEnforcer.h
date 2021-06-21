@@ -39,8 +39,9 @@ protected:
                      const SkPaint& paint) override = 0;
     void onDrawPoints(SkCanvas::PointMode mode, size_t count, const SkPoint pts[],
                       const SkPaint& paint) override = 0;
-    void onDrawVerticesObject(const SkVertices*, const SkVertices::Bone bones[], int boneCount,
-                              SkBlendMode, const SkPaint&) override = 0;
+
+    // restore me later when clients are updated
+    //    void onDrawVerticesObject(const SkVertices*, SkBlendMode, const SkPaint&) override = 0;
 
     void onDrawImage(const SkImage* image, SkScalar dx, SkScalar dy,
                      const SkPaint* paint) override = 0;
@@ -55,27 +56,17 @@ protected:
     // This is under active development for Chrome and not used in Android. Hold off on adding
     // implementations in Android's SkCanvas subclasses until this stabilizes.
     void onDrawEdgeAAQuad(const SkRect& rect, const SkPoint clip[4],
-            SkCanvas::QuadAAFlags aaFlags, SkColor color, SkBlendMode mode) override {}
+            SkCanvas::QuadAAFlags aaFlags, const SkColor4f& color, SkBlendMode mode) override {}
     void onDrawEdgeAAImageSet(const SkCanvas::ImageSetEntry imageSet[], int count,
             const SkPoint dstClips[], const SkMatrix preViewMatrices[], const SkPaint* paint,
             SkCanvas::SrcRectConstraint constraint) override {}
 #else
     void onDrawEdgeAAQuad(const SkRect& rect, const SkPoint clip[4],
-            SkCanvas::QuadAAFlags aaFlags, SkColor color, SkBlendMode mode) override = 0;
+            SkCanvas::QuadAAFlags aaFlags, const SkColor4f& color, SkBlendMode mode) override = 0;
     void onDrawEdgeAAImageSet(const SkCanvas::ImageSetEntry imageSet[], int count,
             const SkPoint dstClips[], const SkMatrix preViewMatrices[], const SkPaint* paint,
             SkCanvas::SrcRectConstraint constraint) override = 0;
 #endif
-
-    void onDrawBitmap(const SkBitmap& bitmap, SkScalar dx, SkScalar dy,
-                      const SkPaint* paint) override = 0;
-    void onDrawBitmapRect(const SkBitmap& bitmap, const SkRect* src, const SkRect& dst,
-                          const SkPaint* paint,
-                          SkCanvas::SrcRectConstraint constraint) override = 0;
-    void onDrawBitmapNine(const SkBitmap& bitmap, const SkIRect& center, const SkRect& dst,
-                          const SkPaint* paint) override = 0;
-    void onDrawBitmapLattice(const SkBitmap& bitmap, const SkCanvas::Lattice& lattice,
-                             const SkRect& dst, const SkPaint* paint) override = 0;
 
     void onDrawAtlas(const SkImage* atlas, const SkRSXform xform[], const SkRect rect[],
                      const SkColor colors[], int count, SkBlendMode mode, const SkRect* cull,

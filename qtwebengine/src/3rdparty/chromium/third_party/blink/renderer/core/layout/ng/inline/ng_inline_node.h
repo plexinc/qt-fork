@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef NGInlineNode_h
-#define NGInlineNode_h
+#ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_INLINE_NG_INLINE_NODE_H_
+#define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_INLINE_NG_INLINE_NODE_H_
 
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/layout/layout_block_flow.h"
@@ -22,7 +22,6 @@ class NGInlineChildLayoutContext;
 class NGInlineNodeLegacy;
 class NGLayoutResult;
 class NGOffsetMapping;
-struct MinMaxSize;
 struct NGInlineItemsData;
 
 // Represents an anonymous block box to be laid out, that contains consecutive
@@ -55,9 +54,9 @@ class CORE_EXPORT NGInlineNode : public NGLayoutInputNode {
   // Computes the value of min-content and max-content for this anonymous block
   // box. min-content is the inline size when lines wrap at every break
   // opportunity, and max-content is when lines do not wrap at all.
-  MinMaxSize ComputeMinMaxSize(WritingMode container_writing_mode,
-                               const MinMaxSizeInput&,
-                               const NGConstraintSpace* = nullptr);
+  MinMaxSizes ComputeMinMaxSizes(WritingMode container_writing_mode,
+                                 const MinMaxSizesInput&,
+                                 const NGConstraintSpace* = nullptr);
 
   // Instruct to re-compute |PrepareLayout| on the next layout.
   void InvalidatePrepareLayoutForTest() {
@@ -72,11 +71,34 @@ class CORE_EXPORT NGInlineNode : public NGLayoutInputNode {
     return Data().ItemsData(is_first_line);
   }
 
+  // There's a special intrinsic size measure quirk for images that are direct
+  // children of table cells that have auto inline-size: When measuring
+  // intrinsic min/max inline sizes, we pretend that it's not possible to break
+  // between images, or between text and images. Note that this only applies
+  // when measuring. During actual layout, on the other hand, standard breaking
+  // rules are to be followed.
+  // See https://quirks.spec.whatwg.org/#the-table-cell-width-calculation-quirk
+  bool IsStickyImagesQuirkForContentSize() const;
+
+  // Returns the text content to use for content sizing. This is normally the
+  // same as |items_data.text_content|, except when sticky images quirk is
+  // needed.
+  static String TextContentForStickyImagesQuirk(const NGInlineItemsData&);
+
   // Clear associated fragments for LayoutObjects.
   // They are associated when NGPaintFragment is constructed, but when clearing,
   // NGInlineItem provides easier and faster logic.
   static void ClearAssociatedFragments(const NGPhysicalFragment& fragment,
                                        const NGBlockBreakToken* break_token);
+
+  // Returns true if we don't need to collect inline items after replacing
+  // |layout_text| after deleting replacing subtext from |offset| to |length|
+  // |new_text| is new text of |layout_text|.
+  // This is optimized version of |PrepareLayout()|.
+  static bool SetTextWithOffset(LayoutText* layout_text,
+                                scoped_refptr<StringImpl> new_text,
+                                unsigned offset,
+                                unsigned length);
 
   // Returns the DOM to text content offset mapping of this block. If it is not
   // computed before, compute and store it in NGInlineNodeData.
@@ -107,6 +129,16 @@ class CORE_EXPORT NGInlineNode : public NGLayoutInputNode {
 
   String ToString() const;
 
+  struct FloatingObject {
+    DISALLOW_NEW();
+
+    void Trace(Visitor* visitor) {}
+
+    const ComputedStyle& float_style;
+    const ComputedStyle& style;
+    LayoutUnit float_inline_max_size_with_margin;
+  };
+
  protected:
   bool IsPrepareLayoutFinished() const;
 
@@ -124,7 +156,8 @@ class CORE_EXPORT NGInlineNode : public NGLayoutInputNode {
   void SegmentFontOrientation(NGInlineNodeData*);
   void SegmentBidiRuns(NGInlineNodeData*);
   void ShapeText(NGInlineItemsData*,
-                 NGInlineItemsData* previous_data = nullptr);
+                 const String* previous_text = nullptr,
+                 const Vector<NGInlineItem>* previous_items = nullptr);
   void ShapeTextForFirstLineIfNeeded(NGInlineNodeData*);
   void AssociateItemsWithInlines(NGInlineNodeData*);
 
@@ -152,6 +185,16 @@ class CORE_EXPORT NGInlineNode : public NGLayoutInputNode {
   friend class NGInlineNodeLegacy;
 };
 
+inline bool NGInlineNode::IsStickyImagesQuirkForContentSize() const {
+  if (UNLIKELY(GetDocument().InQuirksMode())) {
+    const ComputedStyle& style = Style();
+    if (UNLIKELY(style.Display() == EDisplay::kTableCell &&
+                 style.LogicalWidth().IsIntrinsicOrAuto()))
+      return true;
+  }
+  return false;
+}
+
 template <>
 struct DowncastTraits<NGInlineNode> {
   static bool AllowFrom(const NGLayoutInputNode& node) {
@@ -161,4 +204,7 @@ struct DowncastTraits<NGInlineNode> {
 
 }  // namespace blink
 
-#endif  // NGInlineNode_h
+WTF_ALLOW_MOVE_INIT_AND_COMPARE_WITH_MEM_FUNCTIONS(
+    blink::NGInlineNode::FloatingObject)
+
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_INLINE_NG_INLINE_NODE_H_

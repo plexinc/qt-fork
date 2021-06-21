@@ -7,17 +7,20 @@
 
 #include <memory>
 #include "base/location.h"
-#include "base/message_loop/message_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/time/time.h"
+#include "third_party/blink/public/common/input/web_input_event.h"
 #include "third_party/blink/public/platform/scheduler/web_thread_scheduler.h"
-#include "third_party/blink/public/platform/web_input_event.h"
 #include "third_party/blink/renderer/platform/scheduler/public/page_scheduler.h"
 #include "third_party/blink/renderer/platform/scheduler/public/pending_user_input_type.h"
 #include "third_party/blink/renderer/platform/scheduler/public/thread.h"
 
 namespace v8 {
 class Isolate;
+}
+
+namespace base {
+class TaskObserver;
 }
 
 namespace blink {
@@ -86,6 +89,11 @@ class PLATFORM_EXPORT ThreadScheduler {
   // Returns a task runner for kV8 tasks. Can be called from any thread.
   virtual scoped_refptr<base::SingleThreadTaskRunner> V8TaskRunner() = 0;
 
+  // Returns a task runner which does not generate system wakeups on its own.
+  // This means that if a delayed task is posted to it, it will run when
+  // the delay expires AND another task runs.
+  virtual scoped_refptr<base::SingleThreadTaskRunner> NonWakingTaskRunner() = 0;
+
   // Returns a task runner for compositor tasks. This is intended only to be
   // used by specific animation and rendering related tasks (e.g. animated GIFS)
   // and should not generally be used.
@@ -121,14 +129,17 @@ class PLATFORM_EXPORT ThreadScheduler {
   // Adds or removes a task observer from the scheduler. The observer will be
   // notified before and after every executed task. These functions can only be
   // called on the thread this scheduler was created on.
-  virtual void AddTaskObserver(
-      base::MessageLoop::TaskObserver* task_observer) = 0;
-  virtual void RemoveTaskObserver(
-      base::MessageLoop::TaskObserver* task_observer) = 0;
+  virtual void AddTaskObserver(base::TaskObserver* task_observer) = 0;
+  virtual void RemoveTaskObserver(base::TaskObserver* task_observer) = 0;
 
   virtual scheduler::PendingUserInputInfo GetPendingUserInputInfo() const {
     return scheduler::PendingUserInputInfo();
   }
+
+  // Indicates that a BeginMainFrame task has been scheduled to run on the main
+  // thread. Note that this is inherently racy, as it will be affected by code
+  // running on the compositor thread.
+  virtual bool IsBeginMainFrameScheduled() const { return false; }
 
   // Associates |isolate| to the scheduler.
   virtual void SetV8Isolate(v8::Isolate* isolate) = 0;

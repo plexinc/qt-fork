@@ -21,7 +21,6 @@
 #include "device/fido/credential_management.h"
 #include "device/fido/fido_request_handler_base.h"
 #include "device/fido/fido_transport_protocol.h"
-#include "device/fido/pin.h"
 
 namespace device {
 
@@ -30,7 +29,6 @@ struct CtapMakeCredentialRequest;
 
 namespace pin {
 struct RetriesResponse;
-struct KeyAgreementResponse;
 struct EmptyResponse;
 class TokenResponse;
 }  // namespace pin
@@ -49,10 +47,7 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoAuthenticator {
   using GetRetriesCallback =
       base::OnceCallback<void(CtapDeviceResponseCode,
                               base::Optional<pin::RetriesResponse>)>;
-  using GetEphemeralKeyCallback =
-      base::OnceCallback<void(CtapDeviceResponseCode,
-                              base::Optional<pin::KeyAgreementResponse>)>;
-  using GetPINTokenCallback =
+  using GetTokenCallback =
       base::OnceCallback<void(CtapDeviceResponseCode,
                               base::Optional<pin::TokenResponse>)>;
   using SetPINCallback =
@@ -73,8 +68,6 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoAuthenticator {
   using BioEnrollmentCallback =
       base::OnceCallback<void(CtapDeviceResponseCode,
                               base::Optional<BioEnrollmentResponse>)>;
-  using BioEnrollmentSampleCallback =
-      base::RepeatingCallback<void(BioEnrollmentSampleStatus, uint8_t)>;
 
   FidoAuthenticator() = default;
   virtual ~FidoAuthenticator() = default;
@@ -92,34 +85,33 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoAuthenticator {
   virtual void GetNextAssertion(GetAssertionCallback callback);
   // GetTouch causes an (external) authenticator to flash and wait for a touch.
   virtual void GetTouch(base::OnceCallback<void()> callback);
-  // GetRetries gets the number of PIN attempts remaining before an
+  // GetPinRetries gets the number of PIN attempts remaining before an
   // authenticator locks. It is only valid to call this method if |Options|
   // indicates that the authenticator supports PINs.
-  virtual void GetRetries(GetRetriesCallback callback);
-  // GetEphemeralKey fetches an ephemeral P-256 key from the authenticator for
-  // use in protecting transmitted PINs. It is only valid to call this method if
-  // |Options| indicates that the authenticator supports PINs.
-  virtual void GetEphemeralKey(GetEphemeralKeyCallback callback);
-  // GetPINToken uses the given PIN to request a PIN-token from an
+  virtual void GetPinRetries(GetRetriesCallback callback);
+  // GetUvRetries gets the number of internal user verification attempts before
+  // internal user verification locks. It is only valid to call this method if
+  // |Options| indicates that the authenticator supports user verification.
+  virtual void GetUvRetries(GetRetriesCallback callback);
+  // GetPINToken uses the given PIN to request a PinUvAuthToken from an
   // authenticator. It is only valid to call this method if |Options| indicates
   // that the authenticator supports PINs.
-  virtual void GetPINToken(std::string pin,
-                           const pin::KeyAgreementResponse& peer_key,
-                           GetPINTokenCallback callback);
+  virtual void GetPINToken(std::string pin, GetTokenCallback callback);
+  // GetUvToken uses internal user verification to request a PinUvAuthToken from
+  // an authenticator. It is only valid to call this method if |Options|
+  // indicates that the authenticator supports UV tokens.
+  virtual void GetUvToken(GetTokenCallback callback);
   // SetPIN sets a new PIN on a device that does not currently have one. The
   // length of |pin| must respect |pin::kMinLength| and |pin::kMaxLength|. It is
   // only valid to call this method if |Options| indicates that the
   // authenticator supports PINs.
-  virtual void SetPIN(const std::string& pin,
-                      const pin::KeyAgreementResponse& peer_key,
-                      SetPINCallback callback);
+  virtual void SetPIN(const std::string& pin, SetPINCallback callback);
   // ChangePIN alters the PIN on a device that already has a PIN set. The
   // length of |pin| must respect |pin::kMinLength| and |pin::kMaxLength|. It is
   // only valid to call this method if |Options| indicates that the
   // authenticator supports PINs.
   virtual void ChangePIN(const std::string& old_pin,
                          const std::string& new_pin,
-                         pin::KeyAgreementResponse& peer_key,
                          SetPINCallback callback);
 
   // MakeCredentialPINDisposition enumerates the possible interactions between
@@ -131,6 +123,9 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoAuthenticator {
     // kUsePIN means that a PIN must be gathered and used to make this
     // credential.
     kUsePIN,
+    // kUsePINForFallback means that a PIN may be used for fallback if internal
+    // user verification fails.
+    kUsePINForFallback,
     // kSetPIN means that the operation should set and then use a PIN to
     // make this credential.
     kSetPIN,
@@ -152,6 +147,9 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoAuthenticator {
     kNoPIN,
     // kUsePIN means that a PIN must be gathered and used for this assertion.
     kUsePIN,
+    // kUsePINForFallback means that a PIN may be used for fallback if internal
+    // user verification fails.
+    kUsePINForFallback,
     // kUnsatisfiable means that the request cannot be satisfied by this
     // authenticator.
     kUnsatisfiable,
@@ -174,9 +172,10 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoAuthenticator {
   // Biometric enrollment commands.
   virtual void GetModality(BioEnrollmentCallback callback);
   virtual void GetSensorInfo(BioEnrollmentCallback callback);
-  virtual void BioEnrollFingerprint(const pin::TokenResponse&,
-                                    BioEnrollmentSampleCallback,
-                                    BioEnrollmentCallback);
+  virtual void BioEnrollFingerprint(
+      const pin::TokenResponse&,
+      base::Optional<std::vector<uint8_t>> template_id,
+      BioEnrollmentCallback);
   virtual void BioEnrollCancel(BioEnrollmentCallback);
   virtual void BioEnrollEnumerate(const pin::TokenResponse&,
                                   BioEnrollmentCallback);
@@ -205,6 +204,9 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoAuthenticator {
 #if defined(OS_WIN)
   virtual bool IsWinNativeApiAuthenticator() const = 0;
 #endif  // defined(OS_WIN)
+#if defined(OS_MACOSX)
+  virtual bool IsTouchIdAuthenticator() const = 0;
+#endif  // defined(OS_MACOSX)
   virtual base::WeakPtr<FidoAuthenticator> GetWeakPtr() = 0;
 
  private:

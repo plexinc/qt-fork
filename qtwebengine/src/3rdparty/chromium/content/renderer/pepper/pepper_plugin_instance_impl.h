@@ -62,7 +62,9 @@
 #include "third_party/blink/public/web/web_associated_url_loader_client.h"
 #include "third_party/blink/public/web/web_plugin.h"
 #include "ui/accessibility/ax_mode.h"
+#include "ui/base/cursor/cursor.h"
 #include "ui/base/ime/text_input_type.h"
+#include "ui/base/mojom/cursor_type.mojom-shared.h"
 #include "ui/gfx/geometry/rect.h"
 #include "url/gurl.h"
 #include "v8/include/v8.h"
@@ -76,7 +78,6 @@ class WebMouseEvent;
 class WebPluginContainer;
 class WebURLResponse;
 struct WebImeTextSpan;
-struct WebCursorInfo;
 struct WebURLError;
 struct WebPrintParams;
 }  // namespace blink
@@ -222,9 +223,8 @@ class CONTENT_EXPORT PepperPluginInstanceImpl
                   std::unique_ptr<PluginInstanceThrottlerImpl> throttler);
   bool HandleDocumentLoad(const blink::WebURLResponse& response);
   bool HandleCoalescedInputEvent(const blink::WebCoalescedInputEvent& event,
-                                 blink::WebCursorInfo* cursor_info);
-  bool HandleInputEvent(const blink::WebInputEvent& event,
-                        blink::WebCursorInfo* cursor_info);
+                                 ui::Cursor* cursor);
+  bool HandleInputEvent(const blink::WebInputEvent& event, ui::Cursor* cursor);
   PP_Var GetInstanceObject(v8::Isolate* isolate);
   void ViewChanged(const gfx::Rect& window,
                    const gfx::Rect& clip,
@@ -276,6 +276,7 @@ class CONTENT_EXPORT PepperPluginInstanceImpl
   void PrintEnd();
   bool GetPrintPresetOptionsFromDocument(
       blink::WebPrintPresetOptions* preset_options);
+  bool IsPdfPlugin();
 
   bool CanRotateView();
   void RotateView(blink::WebPlugin::RotationType type);
@@ -415,6 +416,8 @@ class CONTENT_EXPORT PepperPluginInstanceImpl
   bool CanRedo() override;
   void Undo() override;
   void Redo() override;
+  void HandleAccessibilityAction(
+      const PP_PdfAccessibilityActionData& action_data) override;
 
   // PPB_Instance_API implementation.
   PP_Bool BindGraphics(PP_Instance instance, PP_Resource device) override;
@@ -617,7 +620,7 @@ class CONTENT_EXPORT PepperPluginInstanceImpl
   //   to the container. Set to true if the bound device has been changed.
   void UpdateLayer(bool force_creation);
 
-  void DoSetCursor(std::unique_ptr<blink::WebCursorInfo> cursor);
+  void DoSetCursor(std::unique_ptr<ui::Cursor> cursor);
 
   // Internal helper functions for HandleCompositionXXX().
   bool SendCompositionEventToPlugin(PP_InputEvent_Type type,
@@ -636,10 +639,6 @@ class CONTENT_EXPORT PepperPluginInstanceImpl
   // assess the security origin of the main frame document.
   bool CanAccessMainFrame() const;
 
-  // Returns true if the WebView the plugin is in renders via the accelerated
-  // compositing path.
-  bool IsViewAccelerated();
-
   // Track, set and reset size attributes to control the size of the plugin
   // in and out of fullscreen mode.
   void KeepSizeAttributesBeforeFullscreen();
@@ -650,7 +649,7 @@ class CONTENT_EXPORT PepperPluginInstanceImpl
   bool SetFullscreenCommon(bool fullscreen) const;
 
   bool IsMouseLocked();
-  bool LockMouse();
+  bool LockMouse(bool request_unadjusted_movement);
   MouseLockDispatcher* GetMouseLockDispatcher();
   MouseLockDispatcher::LockTarget* GetOrCreateLockTargetAdapter();
   void UnSetAndDeleteLockTargetAdapter();
@@ -799,7 +798,8 @@ class CONTENT_EXPORT PepperPluginInstanceImpl
   const PPP_Graphics3D* plugin_graphics_3d_interface_;
 
   // Contains the cursor if it's set by the plugin.
-  std::unique_ptr<blink::WebCursorInfo> cursor_;
+  std::unique_ptr<ui::Cursor> cursor_ =
+      std::make_unique<ui::Cursor>(ui::mojom::CursorType::kPointer);
 
   // Set to true if this plugin thinks it will always be on top. This allows us
   // to use a more optimized painting path in some cases.
@@ -868,6 +868,11 @@ class CONTENT_EXPORT PepperPluginInstanceImpl
 
   scoped_refptr<ppapi::TrackedCallback> lock_mouse_callback_;
 
+  // Last mouse position from mouse event, used for calculating movements. Null
+  // means no mouse event received yet. This value is updated by
+  // |CreateInputEventData|.
+  std::unique_ptr<gfx::PointF> last_mouse_position_;
+
   // We store the arguments so we can re-send them if we are reset to talk to
   // NaCl via the IPC NaCl proxy.
   std::vector<std::string> argn_;
@@ -911,6 +916,7 @@ class CONTENT_EXPORT PepperPluginInstanceImpl
   std::vector<MailboxRefCount> texture_ref_counts_;
 
   bool initialized_;
+  bool created_in_process_instance_;
 
   // The controller for all active audios of this pepper instance.
   std::unique_ptr<PepperAudioController> audio_controller_;

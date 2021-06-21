@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "core/fxcrt/unowned_ptr.h"
+#include "third_party/base/optional.h"
 #include "xfa/fxfa/fxfa.h"
 #include "xfa/fxfa/parser/cxfa_localemgr.h"
 #include "xfa/fxfa/parser/cxfa_nodeowner.h"
@@ -34,13 +35,6 @@ enum XFA_VERSION {
   XFA_VERSION_MAX = 400,
 };
 
-enum XFA_DocFlag {
-  XFA_DOCFLAG_StrictScoping = 0x0001,
-  XFA_DOCFLAG_HasInteractive = 0x0002,
-  XFA_DOCFLAG_Interactive = 0x0004,
-  XFA_DOCFLAG_Scripting = 0x0008
-};
-
 class CFXJSE_Engine;
 class CJS_Runtime;
 class CScript_DataWindow;
@@ -60,6 +54,7 @@ class CXFA_Document final : public CXFA_NodeOwner {
     LayoutProcessorIface();
     virtual ~LayoutProcessorIface();
     virtual void SetForceRelayout(bool enable) = 0;
+    virtual void AddChangedContainer(CXFA_Node* pContainer) = 0;
 
     void SetDocument(CXFA_Document* pDocument) { m_pDocument = pDocument; }
     CXFA_Document* GetDocument() const { return m_pDocument.Get(); }
@@ -95,13 +90,14 @@ class CXFA_Document final : public CXFA_NodeOwner {
   CXFA_Node* GetRoot() const { return m_pRootNode; }
   void SetRoot(CXFA_Node* pNewRoot) { m_pRootNode = pNewRoot; }
 
-  bool HasFlag(uint32_t dwFlag) const {
-    return (m_dwDocFlags & dwFlag) == dwFlag;
-  }
-  void SetFlag(uint32_t dwFlag, bool bOn);
+  bool is_strict_scoping() const { return m_bStrictScoping; }
+  void set_is_strict_scoping() { m_bStrictScoping = true; }
+
+  bool is_scripting() const { return m_bScripting; }
+  void set_is_scripting() { m_bScripting = true; }
 
   bool IsInteractive();
-  XFA_VERSION GetCurVersionMode() { return m_eCurVersionMode; }
+  XFA_VERSION GetCurVersionMode() const { return m_eCurVersionMode; }
   XFA_VERSION RecognizeXFAVersionNumber(const WideString& wsTemplateNS);
   FormType GetFormType() const;
 
@@ -140,7 +136,9 @@ class CXFA_Document final : public CXFA_NodeOwner {
   std::unique_ptr<CScript_LayoutPseudoModel> m_pScriptLayout;
   std::unique_ptr<CScript_SignaturePseudoModel> m_pScriptSignature;
   XFA_VERSION m_eCurVersionMode = XFA_VERSION_DEFAULT;
-  uint32_t m_dwDocFlags = 0;
+  Optional<bool> m_Interactive;
+  bool m_bStrictScoping = false;
+  bool m_bScripting = false;
 };
 
 #endif  // XFA_FXFA_PARSER_CXFA_DOCUMENT_H_

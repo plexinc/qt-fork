@@ -401,6 +401,22 @@ TEST_F(MP4StreamParserTest, MPEG2_AAC_LC) {
   params.detected_video_track_count = 0;
   InitializeParserWithInitParametersExpectations(params);
   ParseMP4File("bear-mpeg2-aac-only_frag.mp4", 512);
+  EXPECT_EQ(audio_decoder_config_.profile(), AudioCodecProfile::kUnknown);
+}
+
+TEST_F(MP4StreamParserTest, MPEG4_XHE_AAC) {
+  InSequence s;
+  std::set<int> audio_object_types;
+  audio_object_types.insert(kISO_14496_3);
+  parser_.reset(new MP4StreamParser(audio_object_types, false, false));
+  auto params = GetDefaultInitParametersExpectations();
+  params.duration = base::TimeDelta::FromMicroseconds(1024000);
+  params.liveness = DemuxerStream::LIVENESS_RECORDED;
+  params.detected_video_track_count = 0;
+
+  InitializeParserWithInitParametersExpectations(params);
+  ParseMP4File("noise-xhe-aac.mp4", 512);
+  EXPECT_EQ(audio_decoder_config_.profile(), AudioCodecProfile::kXHE_AAC);
 }
 
 // Test that a moov box is not always required after Flush() is called.
@@ -451,7 +467,7 @@ TEST_F(MP4StreamParserTest, VideoSamplesStartWithAUDs) {
 }
 
 TEST_F(MP4StreamParserTest, HEVC_in_MP4_container) {
-#if BUILDFLAG(ENABLE_HEVC_DEMUXING)
+#if BUILDFLAG(ENABLE_PLATFORM_HEVC)
   bool expect_success = true;
 #else
   bool expect_success = false;
@@ -466,13 +482,13 @@ TEST_F(MP4StreamParserTest, HEVC_in_MP4_container) {
   scoped_refptr<DecoderBuffer> buffer = ReadTestDataFile("bear-hevc-frag.mp4");
   EXPECT_EQ(expect_success,
             AppendDataInPieces(buffer->data(), buffer->data_size(), 512));
-#if BUILDFLAG(ENABLE_HEVC_DEMUXING)
+#if BUILDFLAG(ENABLE_PLATFORM_HEVC)
   EXPECT_EQ(kCodecHEVC, video_decoder_config_.codec());
   EXPECT_EQ(HEVCPROFILE_MAIN, video_decoder_config_.profile());
 #endif
 }
 
-#if BUILDFLAG(ENABLE_HEVC_DEMUXING)
+#if BUILDFLAG(ENABLE_PLATFORM_HEVC)
 TEST_F(MP4StreamParserTest, HEVC_KeyAndNonKeyframeness_Match_Container) {
   // Both HEVC video frames' keyframe-ness metadata matches the MP4:
   // Frame 0: HEVC IDR, trun.first_sample_flags: sync sample that doesn't
@@ -594,7 +610,7 @@ TEST_F(MP4StreamParserTest, DemuxingAC3) {
   audio_object_types.insert(kAC3);
   parser_.reset(new MP4StreamParser(audio_object_types, false, false));
 
-#if BUILDFLAG(ENABLE_AC3_EAC3_AUDIO_DEMUXING)
+#if BUILDFLAG(ENABLE_PLATFORM_AC3_EAC3_AUDIO)
   bool expect_success = true;
 #else
   bool expect_success = false;
@@ -618,7 +634,7 @@ TEST_F(MP4StreamParserTest, DemuxingEAC3) {
   audio_object_types.insert(kEAC3);
   parser_.reset(new MP4StreamParser(audio_object_types, false, false));
 
-#if BUILDFLAG(ENABLE_AC3_EAC3_AUDIO_DEMUXING)
+#if BUILDFLAG(ENABLE_PLATFORM_AC3_EAC3_AUDIO)
   bool expect_success = true;
 #else
   bool expect_success = false;

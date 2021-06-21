@@ -68,11 +68,11 @@ std::unique_ptr<base::Value> RuleSetToDict(
     const browser_switcher::RuleSet& ruleset) {
   auto sitelist = std::make_unique<base::ListValue>();
   for (const std::string& rule : ruleset.sitelist)
-    sitelist->GetList().emplace_back(rule);
+    sitelist->Append(rule);
 
   auto greylist = std::make_unique<base::ListValue>();
   for (const std::string& rule : ruleset.greylist)
-    greylist->GetList().emplace_back(rule);
+    greylist->Append(rule);
 
   auto dict = std::make_unique<base::DictionaryValue>();
   dict->Set("sitelist", std::move(sitelist));
@@ -131,11 +131,8 @@ content::WebUIDataSource* CreateBrowserSwitchUIHTMLSource(
                              IDS_ABOUT_BROWSER_SWITCH_PROTOCOL_ERROR);
   source->AddLocalizedString("title", IDS_ABOUT_BROWSER_SWITCH_TITLE);
 
-  source->AddResourcePath("app.html", IDR_BROWSER_SWITCH_APP_HTML);
   source->AddResourcePath("app.js", IDR_BROWSER_SWITCH_APP_JS);
   source->AddResourcePath("browser_switch.html", IDR_BROWSER_SWITCH_HTML);
-  source->AddResourcePath("browser_switch_proxy.html",
-                          IDR_BROWSER_SWITCH_PROXY_HTML);
   source->AddResourcePath("browser_switch_proxy.js",
                           IDR_BROWSER_SWITCH_PROXY_JS);
   source->SetDefaultResource(IDR_BROWSER_SWITCH_HTML);
@@ -148,7 +145,7 @@ content::WebUIDataSource* CreateBrowserSwitchUIHTMLSource(
   source->AddResourcePath("internals/", IDR_BROWSER_SWITCH_INTERNALS_HTML);
   source->AddResourcePath("internals", IDR_BROWSER_SWITCH_INTERNALS_HTML);
 
-  source->SetJsonPath("strings.js");
+  source->UseStringsJs();
 
   return source;
 }
@@ -182,6 +179,10 @@ class BrowserSwitchHandler : public content::WebUIMessageHandler {
   // If it fails, the JavaScript promise is rejected. If it succeeds, the
   // JavaScript promise is not resolved, because we close the tab anyways.
   void HandleLaunchAlternativeBrowserAndCloseTab(const base::ListValue* args);
+
+  void OnLaunchFinished(base::TimeTicks start,
+                        std::string callback_id,
+                        bool success);
 
   // Navigates to the New Tab Page.
   void HandleGotoNewTabPage(const base::ListValue* args);
@@ -239,6 +240,8 @@ class BrowserSwitchHandler : public content::WebUIMessageHandler {
   std::unique_ptr<
       browser_switcher::BrowserSwitcherService::CallbackSubscription>
       service_subscription_;
+
+  base::WeakPtrFactory<BrowserSwitchHandler> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(BrowserSwitchHandler);
 };
@@ -327,24 +330,31 @@ void BrowserSwitchHandler::HandleLaunchAlternativeBrowserAndCloseTab(
     return;
   }
 
-  bool success;
-  {
-    SCOPED_UMA_HISTOGRAM_TIMER("BrowserSwitcher.LaunchTime");
-    success = service->driver()->TryLaunch(url);
-    UMA_HISTOGRAM_BOOLEAN("BrowserSwitcher.LaunchSuccess", success);
-  }
+  service->driver()->TryLaunch(
+      url, base::BindOnce(&BrowserSwitchHandler::OnLaunchFinished,
+                          weak_ptr_factory_.GetWeakPtr(),
+                          base::TimeTicks::Now(), std::move(callback_id)));
+}
+
+void BrowserSwitchHandler::OnLaunchFinished(base::TimeTicks start,
+                                            std::string callback_id,
+                                            bool success) {
+  const base::TimeDelta runtime = base::TimeTicks::Now() - start;
+  UMA_HISTOGRAM_TIMES("BrowserSwitcher.LaunchTime", runtime);
+  UMA_HISTOGRAM_BOOLEAN("BrowserSwitcher.LaunchSuccess", success);
 
   if (!success) {
-    RejectJavascriptCallback(args->GetList()[0], base::Value());
+    RejectJavascriptCallback(base::Value(callback_id), base::Value());
     return;
   }
 
+  auto* service = GetBrowserSwitcherService(web_ui());
   auto* profile = Profile::FromWebUI(web_ui());
-
+  // We don't need to resolve the promise, because the tab will close (or
+  // navigate to about:newtab) anyways.
   if (service->prefs().KeepLastTab() && IsLastTab(profile)) {
     GotoNewTabPage(web_ui()->GetWebContents());
   } else {
-    // We don't need to resolve the promise, because the tab will close anyways.
     base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE,
         base::BindOnce(&content::WebContents::ClosePage,

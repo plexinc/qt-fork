@@ -7,10 +7,11 @@
 #include <string>
 
 #include "net/third_party/quiche/src/quic/core/quic_utils.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_arraysize.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_text_utils.h"
 #include "net/third_party/quiche/src/quic/test_tools/quic_test_utils.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_arraysize.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_text_utils.h"
+#include "net/third_party/quiche/src/common/test_tools/quiche_test_utils.h"
 
 namespace quic {
 namespace test {
@@ -49,17 +50,19 @@ TEST_F(CryptoUtilsTest, TestExportKeyingMaterial) {
        "c9a46ed0757bd1812f1f21b4d41e62125fec8364a21db7"},
   };
 
-  for (size_t i = 0; i < QUIC_ARRAYSIZE(test_vector); i++) {
+  for (size_t i = 0; i < QUICHE_ARRAYSIZE(test_vector); i++) {
     // Decode the test vector.
     std::string subkey_secret =
-        QuicTextUtils::HexDecode(test_vector[i].subkey_secret);
-    std::string label = QuicTextUtils::HexDecode(test_vector[i].label);
-    std::string context = QuicTextUtils::HexDecode(test_vector[i].context);
+        quiche::QuicheTextUtils::HexDecode(test_vector[i].subkey_secret);
+    std::string label =
+        quiche::QuicheTextUtils::HexDecode(test_vector[i].label);
+    std::string context =
+        quiche::QuicheTextUtils::HexDecode(test_vector[i].context);
     size_t result_len = test_vector[i].result_len;
     bool expect_ok = test_vector[i].expected != nullptr;
     std::string expected;
     if (expect_ok) {
-      expected = QuicTextUtils::HexDecode(test_vector[i].expected);
+      expected = quiche::QuicheTextUtils::HexDecode(test_vector[i].expected);
     }
 
     std::string result;
@@ -68,9 +71,9 @@ TEST_F(CryptoUtilsTest, TestExportKeyingMaterial) {
     EXPECT_EQ(expect_ok, ok);
     if (expect_ok) {
       EXPECT_EQ(result_len, result.length());
-      test::CompareCharArraysWithHexError("HKDF output", result.data(),
-                                          result.length(), expected.data(),
-                                          expected.length());
+      quiche::test::CompareCharArraysWithHexError(
+          "HKDF output", result.data(), result.length(), expected.data(),
+          expected.length());
     }
   }
 }
@@ -147,6 +150,21 @@ TEST_F(CryptoUtilsTest, HandshakeFailureReasonToString) {
       "INVALID_HANDSHAKE_FAILURE_REASON",
       CryptoUtils::HandshakeFailureReasonToString(
           static_cast<HandshakeFailureReason>(MAX_FAILURE_REASON + 1)));
+}
+
+TEST_F(CryptoUtilsTest, AuthTagLengths) {
+  for (const auto& version : AllSupportedVersions()) {
+    for (QuicTag algo : {kAESG, kCC20}) {
+      SCOPED_TRACE(version);
+      std::unique_ptr<QuicEncrypter> encrypter(
+          QuicEncrypter::Create(version, algo));
+      size_t auth_tag_size = 12;
+      if (version.UsesInitialObfuscators()) {
+        auth_tag_size = 16;
+      }
+      EXPECT_EQ(encrypter->GetCiphertextSize(0), auth_tag_size);
+    }
+  }
 }
 
 }  // namespace

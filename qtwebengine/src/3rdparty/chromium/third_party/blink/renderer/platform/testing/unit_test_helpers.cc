@@ -35,8 +35,8 @@
 #include "third_party/blink/public/platform/web_string.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/scheduler/public/thread.h"
-#include "third_party/blink/renderer/platform/shared_buffer.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
+#include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_utf8_adaptor.h"
 
 namespace blink {
@@ -64,9 +64,9 @@ void RunPendingTasks() {
   Thread::Current()->GetTaskRunner()->PostTask(FROM_HERE,
                                                WTF::Bind(&ExitRunLoop));
 
-  // We forbid GC in the tasks. Otherwise the registered GCTaskObserver tries
-  // to run GC with NoHeapPointerOnStack.
-  ThreadState::GCForbiddenScope gc_forbidden(ThreadState::Current());
+  // The following runloop can execute non-nested tasks with heap pointers
+  // living on stack, so we force both Oilpan and Unified GC to visit the stack.
+  ThreadState::HeapPointersOnStackScope scan_stack(ThreadState::Current());
   EnterRunLoop();
 }
 
@@ -129,6 +129,13 @@ scoped_refptr<SharedBuffer> ReadFromFile(const String& path) {
   std::string buffer;
   base::ReadFileToString(file_path, &buffer);
   return SharedBuffer::Create(buffer.data(), buffer.size());
+}
+
+String BlinkWebTestsFontsTestDataPath(const String& relative_path) {
+  return FilePathToWebString(
+      WebTestsFilePath()
+          .Append(FILE_PATH_LITERAL("external/wpt/fonts"))
+          .Append(WebStringToFilePath(relative_path)));
 }
 
 LineReader::LineReader(const String& text) : text_(text), index_(0) {}

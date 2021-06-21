@@ -10,7 +10,7 @@
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/test/gmock_callback_support.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "build/build_config.h"
 #include "media/base/demuxer_stream.h"
 #include "media/base/media_util.h"
@@ -27,6 +27,7 @@
 #endif  // !defined(OS_ANDROID)
 
 using ::base::test::RunCallback;
+using ::base::test::RunOnceCallback;
 using ::testing::_;
 using ::testing::IsNull;
 using ::testing::NiceMock;
@@ -51,16 +52,16 @@ enum DecoderCapability {
   kAlwaysSucceed,
 };
 
-bool IsConfigSupported(DecoderCapability capability, bool is_encrypted) {
+Status IsConfigSupported(DecoderCapability capability, bool is_encrypted) {
   switch (capability) {
     case kAlwaysFail:
-      return false;
+      return StatusCode::kCodeOnlyForTesting;
     case kClearOnly:
-      return !is_encrypted;
+      return is_encrypted ? StatusCode::kCodeOnlyForTesting : OkStatus();
     case kEncryptedOnly:
-      return is_encrypted;
+      return is_encrypted ? OkStatus() : StatusCode::kCodeOnlyForTesting;
     case kAlwaysSucceed:
-      return true;
+      return OkStatus();
   }
 }
 
@@ -201,7 +202,7 @@ class DecoderSelectorTest : public ::testing::Test {
     if (use_decrypting_decoder_) {
       decoders.push_back(
           std::make_unique<typename TypeParam::DecryptingDecoder>(
-              scoped_task_environment_.GetMainThreadTaskRunner(), &media_log_));
+              task_environment_.GetMainThreadTaskRunner(), &media_log_));
     }
 #endif  // !defined(OS_ANDROID)
 
@@ -232,11 +233,13 @@ class DecoderSelectorTest : public ::testing::Test {
     switch (TypeParam::kStreamType) {
       case DemuxerStream::AUDIO:
         EXPECT_CALL(*decryptor_, InitializeAudioDecoder(_, _))
-            .WillRepeatedly(RunCallback<1>(capability == kDecryptAndDecode));
+            .WillRepeatedly(
+                RunOnceCallback<1>(capability == kDecryptAndDecode));
         break;
       case DemuxerStream::VIDEO:
         EXPECT_CALL(*decryptor_, InitializeVideoDecoder(_, _))
-            .WillRepeatedly(RunCallback<1>(capability == kDecryptAndDecode));
+            .WillRepeatedly(
+                RunOnceCallback<1>(capability == kDecryptAndDecode));
         break;
       default:
         NOTREACHED();
@@ -246,7 +249,7 @@ class DecoderSelectorTest : public ::testing::Test {
   void CreateDecoderSelector() {
     decoder_selector_ =
         std::make_unique<DecoderSelector<TypeParam::kStreamType>>(
-            scoped_task_environment_.GetMainThreadTaskRunner(),
+            task_environment_.GetMainThreadTaskRunner(),
             base::BindRepeating(&Self::CreateDecoders, base::Unretained(this)),
             &media_log_);
     decoder_selector_->Initialize(
@@ -289,9 +292,9 @@ class DecoderSelectorTest : public ::testing::Test {
     RunUntilIdle();
   }
 
-  void RunUntilIdle() { scoped_task_environment_.RunUntilIdle(); }
+  void RunUntilIdle() { task_environment_.RunUntilIdle(); }
 
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::TaskEnvironment task_environment_;
   NullMediaLog media_log_;
 
   std::unique_ptr<StreamTraits> traits_;

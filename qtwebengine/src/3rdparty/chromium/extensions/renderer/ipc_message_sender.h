@@ -34,8 +34,7 @@ class IPCMessageSender {
   // Sends a request message to the browser.
   virtual void SendRequestIPC(
       ScriptContext* context,
-      std::unique_ptr<ExtensionHostMsg_Request_Params> params,
-      binding::RequestThread thread) = 0;
+      std::unique_ptr<ExtensionHostMsg_Request_Params> params) = 0;
 
   // Handles sending any additional messages required after receiving a response
   // to a request.
@@ -73,8 +72,7 @@ class IPCMessageSender {
   virtual void SendOpenMessageChannel(ScriptContext* script_context,
                                       const PortId& port_id,
                                       const MessageTarget& target,
-                                      const std::string& channel_name,
-                                      bool include_tls_channel_id) = 0;
+                                      const std::string& channel_name) = 0;
 
   // Sends a message to open/close a mesage port or send a message to an
   // existing port.

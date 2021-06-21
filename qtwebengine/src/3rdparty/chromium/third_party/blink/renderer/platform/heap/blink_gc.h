@@ -14,21 +14,23 @@
 
 namespace blink {
 
+class WeakCallbackInfo;
 class MarkingVisitor;
 class Visitor;
 
 using Address = uint8_t*;
+using ConstAddress = const uint8_t*;
 
 using FinalizationCallback = void (*)(void*);
-using VisitorCallback = void (*)(Visitor*, void*);
-using MarkingVisitorCallback = void (*)(MarkingVisitor*, void*);
+using VisitorCallback = void (*)(Visitor*, const void*);
+using MarkingVisitorCallback = void (*)(MarkingVisitor*, const void*);
 using TraceCallback = VisitorCallback;
-using WeakCallback = VisitorCallback;
+using WeakCallback = void (*)(const WeakCallbackInfo&, const void*);
 using EphemeronCallback = VisitorCallback;
 
 // Simple alias to avoid heap compaction type signatures turning into
 // a sea of generic |void*|s.
-using MovableReference = void*;
+using MovableReference = const void*;
 
 // Heap compaction supports registering callbacks that are to be invoked
 // when an object is moved during compaction. This is to support internal
@@ -37,31 +39,37 @@ using MovableReference = void*;
 // i.e., when the object residing at |from| is moved to |to| by the compaction
 // pass, invoke the callback to adjust any internal references that now need
 // to be |to|-relative.
-using MovingObjectCallback = void (*)(void* callback_data,
-                                      MovableReference from,
+using MovingObjectCallback = void (*)(MovableReference from,
                                       MovableReference to,
                                       size_t);
 
-// List of typed arenas. The list is used to generate the implementation
-// of typed arena related methods.
-//
-// To create a new typed arena add a H(<ClassName>) to the
-// FOR_EACH_TYPED_ARENA macro below.
-#define FOR_EACH_TYPED_ARENA(H) \
-  H(Node)                       \
-  H(CSSValue)
-
-#define TypedArenaEnumName(Type) k##Type##ArenaIndex,
+// List of all arenas. Includes typed arenas as well.
+#define FOR_EACH_ARENA(H) \
+  H(NormalPage1)          \
+  H(NormalPage2)          \
+  H(NormalPage3)          \
+  H(NormalPage4)          \
+  H(Vector)               \
+  H(HashTable)            \
+  H(Node)                 \
+  H(CSSValue)             \
+  H(LargeObject)
 
 class PLATFORM_EXPORT WorklistTaskId {
  public:
-  static constexpr int MainThread = 0;
+  static constexpr int MutatorThread = 0;
+  static constexpr int ConcurrentThreadBase = 1;
 };
 
 class PLATFORM_EXPORT BlinkGC final {
   STATIC_ONLY(BlinkGC);
 
  public:
+  // CollectionType represents generational collection. kMinor collects objects
+  // in the young generation (i.e. allocated since the previous collection
+  // cycle, since we use sticky bits), kMajor collects the entire heap.
+  enum class CollectionType { kMinor, kMajor };
+
   // When garbage collecting we need to know whether or not there
   // can be pointers to Blink GC managed objects on the stack for
   // each thread. When threads reach a safe point they record
@@ -71,11 +79,9 @@ class PLATFORM_EXPORT BlinkGC final {
   enum MarkingType {
     // The marking completes synchronously.
     kAtomicMarking,
-    // The marking task is split and executed in chunks.
-    kIncrementalMarking,
-    // We run marking to take a heap snapshot. Sweeping should do nothing and
-    // just clear the mark flags.
-    kTakeSnapshot,
+    // The marking task is split and executed in chunks (either on the mutator
+    // thread or concurrently).
+    kIncrementalAndConcurrentMarking
   };
 
   enum SweepingType {
@@ -105,21 +111,13 @@ class PLATFORM_EXPORT BlinkGC final {
     kMaxValue = kUnifiedHeapForMemoryReductionGC,
   };
 
+#define DeclareArenaIndex(name) k##name##ArenaIndex,
   enum ArenaIndices {
-    kNormalPage1ArenaIndex = 0,
-    kNormalPage2ArenaIndex,
-    kNormalPage3ArenaIndex,
-    kNormalPage4ArenaIndex,
-    kVector1ArenaIndex,
-    kVector2ArenaIndex,
-    kVector3ArenaIndex,
-    kVector4ArenaIndex,
-    kInlineVectorArenaIndex,
-    kHashTableArenaIndex,
-    FOR_EACH_TYPED_ARENA(TypedArenaEnumName) kLargeObjectArenaIndex,
+    FOR_EACH_ARENA(DeclareArenaIndex)
     // Values used for iteration of heap segments.
     kNumberOfArenas,
   };
+#undef DeclareArenaIndex
 
   enum V8GCType {
     kV8MinorGC,
@@ -133,6 +131,7 @@ class PLATFORM_EXPORT BlinkGC final {
   static const char* ToString(MarkingType);
   static const char* ToString(StackState);
   static const char* ToString(SweepingType);
+  static const char* ToString(ArenaIndices);
 };
 
 }  // namespace blink

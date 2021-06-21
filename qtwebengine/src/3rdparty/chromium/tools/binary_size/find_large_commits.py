@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # Copyright 2019 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -74,19 +74,19 @@ def main():
   rev_and_delta = _FindBigDeltas(revs_and_sizes, options.increase_threshold,
                                  options.decrease_threshold)
 
-  print 'Printing info for up to {} commits in the range {}-{}'.format(
-      len(rev_and_delta), revs_and_sizes[0][0], revs_and_sizes[-1][0])
-  print 'Revision,Hash,Title,Author,Delta,Date,Milestone'
+  print('Printing info for up to {} commits in the range {}-{}'.format(
+      len(rev_and_delta), revs_and_sizes[0][0], revs_and_sizes[-1][0]))
+  print('Revision,Hash,Title,Author,Delta,Date,Milestone')
   afdo_count = 0
   for rev, delta in rev_and_delta:
     sha1, author, date, title, milestone = _LookupCommitInfo(rev)
     if milestone is not None:
-      print '\t'.join(
+      print('\t'.join(
           [str(rev), sha1, title, author,
-           str(delta), date, milestone])
+           str(delta), date, milestone]))
     else:
       afdo_count += 1
-  print 'Skipped %d AFDO rolls' % afdo_count
+  print('Skipped %d AFDO rolls' % afdo_count)
 
 
 if __name__ == '__main__':

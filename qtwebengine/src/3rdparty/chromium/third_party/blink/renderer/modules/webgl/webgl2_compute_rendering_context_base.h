@@ -21,6 +21,10 @@ class WebGL2ComputeRenderingContextBase : public WebGL2RenderingContextBase {
   void dispatchCompute(GLuint numGroupsX, GLuint numGroupsY, GLuint numGroupsZ);
   void dispatchComputeIndirect(int64_t offset);
 
+  /* Draw indirect */
+  void drawArraysIndirect(GLenum mode, int64_t offset);
+  void drawElementsIndirect(GLenum mode, GLenum type, int64_t offset);
+
   /* Program interface query */
   ScriptValue getProgramInterfaceParameter(ScriptState*,
                                            WebGLProgram*,
@@ -32,7 +36,7 @@ class WebGL2ComputeRenderingContextBase : public WebGL2RenderingContextBase {
   String getProgramResourceName(WebGLProgram*,
                                 GLenum program_interface,
                                 GLuint index);
-  base::Optional<Vector<ScriptValue>> getProgramResource(
+  base::Optional<HeapVector<ScriptValue>> getProgramResource(
       ScriptState*,
       WebGLProgram*,
       GLenum program_interface,
@@ -65,7 +69,7 @@ class WebGL2ComputeRenderingContextBase : public WebGL2RenderingContextBase {
                                   GLenum target,
                                   GLuint index) override;
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
 
  protected:
   WebGL2ComputeRenderingContextBase(
@@ -114,22 +118,13 @@ class WebGL2ComputeRenderingContextBase : public WebGL2RenderingContextBase {
                                              WebGLBuffer*) override;
 
   Member<WebGLBuffer> bound_dispatch_indirect_buffer_;
+  Member<WebGLBuffer> bound_draw_indirect_buffer_;
   Member<WebGLBuffer> bound_atomic_counter_buffer_;
   Member<WebGLBuffer> bound_shader_storage_buffer_;
 
   HeapVector<Member<WebGLBuffer>> bound_indexed_atomic_counter_buffers_;
   HeapVector<Member<WebGLBuffer>> bound_indexed_shader_storage_buffers_;
 };
-
-DEFINE_TYPE_CASTS(WebGL2ComputeRenderingContextBase,
-                  CanvasRenderingContext,
-                  context,
-                  context->Is3d() &&
-                      WebGLRenderingContextBase::GetWebGLVersion(context) ==
-                          Platform::kWebGL2ComputeContextType,
-                  context.Is3d() &&
-                      WebGLRenderingContextBase::GetWebGLVersion(&context) ==
-                          Platform::kWebGL2ComputeContextType);
 
 }  // namespace blink
 

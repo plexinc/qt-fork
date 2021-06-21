@@ -4,12 +4,13 @@
 
 #include "ui/ozone/platform/scenic/scenic_surface_factory.h"
 
+#include <lib/sys/cpp/component_context.h>
 #include <lib/zx/event.h>
 #include <memory>
 
 #include "base/bind.h"
+#include "base/fuchsia/default_context.h"
 #include "base/fuchsia/fuchsia_logging.h"
-#include "base/fuchsia/service_directory_client.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "ui/gfx/native_pixmap.h"
@@ -51,8 +52,8 @@ class GLOzoneEGLScenic : public GLOzoneEGL {
         base::MakeRefCounted<gl::PbufferGLSurfaceEGL>(size));
   }
 
-  EGLNativeDisplayType GetNativeDisplay() override {
-    return EGL_DEFAULT_DISPLAY;
+  gl::EGLDisplayPlatform GetNativeDisplay() override {
+    return gl::EGLDisplayPlatform(EGL_DEFAULT_DISPLAY);
   }
 
  protected:
@@ -64,14 +65,20 @@ class GLOzoneEGLScenic : public GLOzoneEGL {
   DISALLOW_COPY_AND_ASSIGN(GLOzoneEGLScenic);
 };
 
+fuchsia::sysmem::AllocatorSyncPtr ConnectSysmemAllocator() {
+  fuchsia::sysmem::AllocatorSyncPtr allocator;
+  base::fuchsia::ComponentContextForCurrentProcess()->svc()->Connect(
+      allocator.NewRequest());
+  return allocator;
+}
+
 }  // namespace
 
-ScenicSurfaceFactory::ScenicSurfaceFactory(mojom::ScenicGpuHost* gpu_host)
-    : gpu_host_(gpu_host),
+ScenicSurfaceFactory::ScenicSurfaceFactory(
+    mojo::PendingRemote<mojom::ScenicGpuHost> gpu_host)
+    : gpu_host_(std::move(gpu_host)),
       egl_implementation_(std::make_unique<GLOzoneEGLScenic>()),
-      sysmem_buffer_manager_(
-          base::fuchsia::ServiceDirectoryClient::ForCurrentProcess()
-              ->ConnectToServiceSync<fuchsia::sysmem::Allocator>()),
+      sysmem_buffer_manager_(ConnectSysmemAllocator()),
       weak_ptr_factory_(this) {
   // TODO(spang, crbug.com/923445): Add message loop to GPU tests.
   if (base::ThreadTaskRunnerHandle::IsSet())
@@ -104,18 +111,19 @@ GLOzone* ScenicSurfaceFactory::GetGLOzone(gl::GLImplementation implementation) {
 std::unique_ptr<PlatformWindowSurface>
 ScenicSurfaceFactory::CreatePlatformWindowSurface(
     gfx::AcceleratedWidget window) {
-  DCHECK(gpu_host_);
+  DCHECK_NE(window, gfx::kNullAcceleratedWidget);
   auto surface =
       std::make_unique<ScenicSurface>(this, window, CreateScenicSession());
   main_thread_task_runner_->PostTask(
       FROM_HERE, base::BindOnce(&ScenicSurfaceFactory::AttachSurfaceToWindow,
                                 weak_ptr_factory_.GetWeakPtr(), window,
-                                surface->CreateExportToken()));
+                                surface->CreateView()));
   return surface;
 }
 
 std::unique_ptr<SurfaceOzoneCanvas> ScenicSurfaceFactory::CreateCanvasForWidget(
-    gfx::AcceleratedWidget widget) {
+    gfx::AcceleratedWidget widget,
+    scoped_refptr<base::SequencedTaskRunner> task_runner) {
   ScenicSurface* surface = GetSurface(widget);
   return std::make_unique<ScenicWindowCanvas>(surface);
 }
@@ -125,7 +133,9 @@ scoped_refptr<gfx::NativePixmap> ScenicSurfaceFactory::CreateNativePixmap(
     VkDevice vk_device,
     gfx::Size size,
     gfx::BufferFormat format,
-    gfx::BufferUsage usage) {
+    gfx::BufferUsage usage,
+    base::Optional<gfx::Size> framebuffer_size) {
+  DCHECK(!framebuffer_size || framebuffer_size == size);
   auto collection = sysmem_buffer_manager_.CreateCollection(vk_device, size,
                                                             format, usage, 1);
   if (!collection)
@@ -147,13 +157,12 @@ void ScenicSurfaceFactory::CreateNativePixmapAsync(
 
 #if BUILDFLAG(ENABLE_VULKAN)
 std::unique_ptr<gpu::VulkanImplementation>
-ScenicSurfaceFactory::CreateVulkanImplementation() {
-  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-  if (!gpu_host_)
-    LOG(FATAL) << "Vulkan implementation requires InitializeForGPU";
-
+ScenicSurfaceFactory::CreateVulkanImplementation(
+    bool allow_protected_memory,
+    bool enforce_protected_memory) {
   return std::make_unique<ui::VulkanImplementationScenic>(
-      this, &sysmem_buffer_manager_);
+      this, &sysmem_buffer_manager_, allow_protected_memory,
+      enforce_protected_memory);
 }
 #endif
 
@@ -162,7 +171,7 @@ void ScenicSurfaceFactory::AddSurface(gfx::AcceleratedWidget widget,
   base::AutoLock lock(surface_lock_);
   DCHECK(!base::Contains(surface_map_, widget));
   surface->AssertBelongsToCurrentThread();
-  surface_map_.insert(std::make_pair(widget, surface));
+  surface_map_.emplace(widget, surface);
 }
 
 void ScenicSurfaceFactory::RemoveSurface(gfx::AcceleratedWidget widget) {
@@ -210,8 +219,9 @@ void ScenicSurfaceFactory::CreateScenicSessionOnMainThread(
     fidl::InterfaceHandle<fuchsia::ui::scenic::SessionListener> listener) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   if (!scenic_) {
-    scenic_ = base::fuchsia::ServiceDirectoryClient::ForCurrentProcess()
-                  ->ConnectToService<fuchsia::ui::scenic::Scenic>();
+    scenic_ = base::fuchsia::ComponentContextForCurrentProcess()
+                  ->svc()
+                  ->Connect<fuchsia::ui::scenic::Scenic>();
     scenic_.set_error_handler([](zx_status_t status) {
       ZX_LOG(FATAL, status) << "Scenic connection failed";
     });
@@ -221,10 +231,10 @@ void ScenicSurfaceFactory::CreateScenicSessionOnMainThread(
 
 void ScenicSurfaceFactory::AttachSurfaceToWindow(
     gfx::AcceleratedWidget window,
-    mojo::ScopedHandle surface_export_token_mojo) {
+    mojo::PlatformHandle surface_view_holder_token_mojo) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   gpu_host_->AttachSurfaceToWindow(window,
-                                   std::move(surface_export_token_mojo));
+                                   std::move(surface_view_holder_token_mojo));
 }
 
 }  // namespace ui

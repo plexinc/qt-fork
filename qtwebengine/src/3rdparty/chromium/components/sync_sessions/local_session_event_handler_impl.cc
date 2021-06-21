@@ -55,7 +55,7 @@ bool ScanForTabbedWindow(SyncedWindowDelegatesGetter* delegates_getter) {
   for (const auto& window_iter_pair :
        delegates_getter->GetSyncedWindowDelegates()) {
     const SyncedWindowDelegate* window_delegate = window_iter_pair.second;
-    if (window_delegate->IsTypeTabbed() && IsWindowSyncable(*window_delegate)) {
+    if (window_delegate->IsTypeNormal() && IsWindowSyncable(*window_delegate)) {
       return true;
     }
   }
@@ -219,7 +219,7 @@ void LocalSessionEventHandlerImpl::AssociateWindows(ReloadTabsOption option,
     if (found_tabs) {
       SyncedSessionWindow* synced_session_window =
           current_session->windows[window_id].get();
-      if (window_delegate->IsTypeTabbed()) {
+      if (window_delegate->IsTypeNormal()) {
         synced_session_window->window_type =
             sync_pb::SessionWindow_BrowserType_TYPE_TABBED;
       } else if (window_delegate->IsTypePopup()) {
@@ -414,11 +414,12 @@ sync_pb::SessionTab LocalSessionEventHandlerImpl::GetTabSpecificsFromDelegate(
   }
 
   if (is_supervised) {
-    const std::vector<std::unique_ptr<const SerializedNavigationEntry>>&
-        blocked_navigations = *tab_delegate.GetBlockedNavigations();
-    for (size_t i = 0; i < blocked_navigations.size(); ++i) {
+    const std::vector<std::unique_ptr<const SerializedNavigationEntry>>*
+        blocked_navigations = tab_delegate.GetBlockedNavigations();
+    DCHECK(blocked_navigations);
+    for (const auto& entry_unique_ptr : *blocked_navigations) {
       sync_pb::TabNavigation* navigation = specifics.add_navigation();
-      SessionNavigationToSyncData(*blocked_navigations[i]).Swap(navigation);
+      SessionNavigationToSyncData(*entry_unique_ptr).Swap(navigation);
       navigation->set_blocked_state(
           sync_pb::TabNavigation_BlockedState_STATE_BLOCKED);
       // TODO(bauerb): Add categories

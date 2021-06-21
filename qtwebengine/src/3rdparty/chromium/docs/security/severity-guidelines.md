@@ -10,9 +10,15 @@ for guidance on how to release fixes based on severity.
 
 Any significant mitigating factors, such as unusual or additional user
 interaction, or running Chrome with a specific command line flag or non-default
-feature enabled, may reduce an issue’s severity by one or more levels. Also note
-that most crashes do not indicate vulnerabilities. Chromium is designed to crash
-in a controlled manner (e.g., with a ```__debugBreak```) when memory is
+feature enabled, may reduce an issue’s severity by one or more levels.
+
+Conversely, we do not consider it a mitigating factor if a vulnerability applies
+only to a particular group of users. For instance, a Critical vulnerability is
+still considered Critical even if it applies only to Linux or to those users
+running with accessibility features enabled.
+
+Also note that most crashes do not indicate vulnerabilities. Chromium is designed
+to crash in a controlled manner (e.g., with a ```__debugBreak```) when memory is
 exhausted or in other exceptional circumstances.
 
 
@@ -37,7 +43,7 @@ if there is evidence of active exploitation.
 
 Example bugs:
 
-* Memory corruption in the browser process ([564501](https://crbug.com/564501)).
+* Memory corruption in the browser process ([319125](https://crbug.com/319125#c10)).
 * Exploit chains made up of multiple bugs that can lead to code execution
   outside of the sandbox ([416449](https://crbug.com/416449)).
 * A bug that enables web content to read local files
@@ -82,8 +88,11 @@ compromised renderer, leading to a sandbox escape
 compromised renderer ([377392](https://crbug.com/377392)).
 * Memory corruption in the browser process that requires specific user
 interaction, such as granting a permission ([455735](https://crbug.com/455735)).
-* Cross-site execution contexts unexpectedly sharing a renderer process despite
-Site Isolation ([863069](https://crbug.com/863069)).
+* Site Isolation bypasses:
+    - Cross-site execution contexts unexpectedly sharing a renderer process
+      ([863069](https://crbug.com/863069), [886976](https://crbug.com/886976)).
+    - Cross-site data disclosure
+      ([917668](https://crbug.com/917668), [927849](https://crbug.com/927849)).
 
 
 ## Medium severity {#TOC-Medium-severity}

@@ -4,6 +4,7 @@
 
 #include "third_party/blink/renderer/modules/filesystem/dev_tools_host_file_system.h"
 
+#include "third_party/blink/public/mojom/filesystem/file_system.mojom-blink.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/inspector/dev_tools_host.h"
@@ -17,7 +18,8 @@ DOMFileSystem* DevToolsHostFileSystem::isolatedFileSystem(
     DevToolsHost& host,
     const String& file_system_name,
     const String& root_url) {
-  ExecutionContext* context = host.FrontendFrame()->GetDocument();
+  ExecutionContext* context =
+      host.FrontendFrame()->GetDocument()->ToExecutionContext();
   return MakeGarbageCollected<DOMFileSystem>(
       context, file_system_name, mojom::blink::FileSystemType::kIsolated,
       KURL(root_url));

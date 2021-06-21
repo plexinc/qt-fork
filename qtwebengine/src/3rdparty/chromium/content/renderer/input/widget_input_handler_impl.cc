@@ -10,15 +10,14 @@
 #include "base/logging.h"
 #include "content/common/input/ime_text_span_conversions.h"
 #include "content/common/input_messages.h"
-#include "content/renderer/compositor/layer_tree_view.h"
 #include "content/renderer/ime_event_guard.h"
 #include "content/renderer/input/widget_input_handler_manager.h"
 #include "content/renderer/render_thread_impl.h"
 #include "content/renderer/render_widget.h"
+#include "third_party/blink/public/common/input/web_keyboard_event.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/scheduler/web_thread_scheduler.h"
 #include "third_party/blink/public/platform/web_coalesced_input_event.h"
-#include "third_party/blink/public/platform/web_keyboard_event.h"
 #include "third_party/blink/public/web/web_ime_text_span.h"
 #include "third_party/blink/public/web/web_local_frame.h"
 
@@ -28,10 +27,9 @@ namespace {
 
 void RunClosureIfNotSwappedOut(base::WeakPtr<RenderWidget> render_widget,
                                base::OnceClosure closure) {
-  // Input messages must not be processed if the RenderWidget is in a frozen or
-  // closing state.
-  if (!render_widget || render_widget->is_frozen() ||
-      render_widget->is_closing()) {
+  // Input messages must not be processed if the RenderWidget was destroyed or
+  // was just recreated for a provisional frame.
+  if (!render_widget || render_widget->IsForProvisionalFrame()) {
     return;
   }
   std::move(closure).Run();
@@ -51,29 +49,29 @@ WidgetInputHandlerImpl::WidgetInputHandlerImpl(
 
 WidgetInputHandlerImpl::~WidgetInputHandlerImpl() {}
 
-void WidgetInputHandlerImpl::SetAssociatedBinding(
-    mojom::WidgetInputHandlerAssociatedRequest request) {
+void WidgetInputHandlerImpl::SetAssociatedReceiver(
+    mojo::PendingAssociatedReceiver<mojom::WidgetInputHandler> receiver) {
   scoped_refptr<base::SingleThreadTaskRunner> task_runner;
   if (content::RenderThreadImpl::current()) {
     blink::scheduler::WebThreadScheduler* scheduler =
         content::RenderThreadImpl::current()->GetWebMainThreadScheduler();
     task_runner = scheduler->DeprecatedDefaultTaskRunner();
   }
-  associated_binding_.Bind(std::move(request), std::move(task_runner));
-  associated_binding_.set_connection_error_handler(
+  associated_receiver_.Bind(std::move(receiver), std::move(task_runner));
+  associated_receiver_.set_disconnect_handler(
       base::BindOnce(&WidgetInputHandlerImpl::Release, base::Unretained(this)));
 }
 
-void WidgetInputHandlerImpl::SetBinding(
-    mojom::WidgetInputHandlerRequest request) {
+void WidgetInputHandlerImpl::SetReceiver(
+    mojo::PendingReceiver<mojom::WidgetInputHandler> interface_receiver) {
   scoped_refptr<base::SingleThreadTaskRunner> task_runner;
   if (content::RenderThreadImpl::current()) {
     blink::scheduler::WebThreadScheduler* scheduler =
         content::RenderThreadImpl::current()->GetWebMainThreadScheduler();
     task_runner = scheduler->DeprecatedDefaultTaskRunner();
   }
-  binding_.Bind(std::move(request), std::move(task_runner));
-  binding_.set_connection_error_handler(
+  receiver_.Bind(std::move(interface_receiver), std::move(task_runner));
+  receiver_.set_disconnect_handler(
       base::BindOnce(&WidgetInputHandlerImpl::Release, base::Unretained(this)));
 }
 
@@ -85,6 +83,11 @@ void WidgetInputHandlerImpl::SetFocus(bool focused) {
 void WidgetInputHandlerImpl::MouseCaptureLost() {
   RunOnMainThread(
       base::BindOnce(&RenderWidget::OnMouseCaptureLost, render_widget_));
+}
+
+void WidgetInputHandlerImpl::MouseLockLost() {
+  RunOnMainThread(
+      base::BindOnce(&RenderWidget::PointerLockLost, render_widget_));
 }
 
 void WidgetInputHandlerImpl::SetEditCommandsForNextKeyEvent(
@@ -124,10 +127,8 @@ static void ImeCommitTextOnMainThread(
     const gfx::Range& range,
     int32_t relative_cursor_position,
     WidgetInputHandlerImpl::ImeCommitTextCallback callback) {
-  if (render_widget) {
-    render_widget->OnImeCommitText(text, ime_text_spans, range,
-                                   relative_cursor_position);
-  }
+  render_widget->OnImeCommitText(text, ime_text_spans, range,
+                                 relative_cursor_position);
   callback_task_runner->PostTask(FROM_HERE, std::move(callback));
 }
 
@@ -226,8 +227,8 @@ void WidgetInputHandlerImpl::Release() {
   if (!main_thread_task_runner_->BelongsToCurrentThread()) {
     // Close the binding on the compositor thread first before telling the main
     // thread to delete this object.
-    associated_binding_.Close();
-    binding_.Close();
+    associated_receiver_.reset();
+    receiver_.reset();
     main_thread_task_runner_->PostTask(
         FROM_HERE, base::BindOnce(&WidgetInputHandlerImpl::Release,
                                   base::Unretained(this)));

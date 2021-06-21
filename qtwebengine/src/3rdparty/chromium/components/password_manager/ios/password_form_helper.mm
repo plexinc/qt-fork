@@ -7,6 +7,7 @@
 #include <stddef.h>
 
 #include "base/bind.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/values.h"
 #include "components/autofill/core/common/form_data.h"
@@ -16,7 +17,7 @@
 #include "components/password_manager/ios/account_select_fill_data.h"
 #include "components/password_manager/ios/js_password_manager.h"
 #import "ios/web/public/js_messaging/web_frame.h"
-#import "ios/web/public/web_state/web_state.h"
+#import "ios/web/public/web_state.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -56,14 +57,6 @@ constexpr char kCommandPrefix[] = "passwordForm";
 // Handler for injected JavaScript callbacks.
 - (BOOL)handleScriptCommand:(const base::DictionaryValue&)JSONCommand;
 
-// Finds the currently submitted password form named |formName| and calls
-// |completionHandler| with the populated data structure. |found| is YES if the
-// current form was found successfully, NO otherwise.
-- (void)extractSubmittedPasswordForm:(const std::string&)formName
-                   completionHandler:
-                       (void (^)(BOOL found,
-                                 const FormData& form))completionHandler;
-
 // Parses the |jsonString| which contatins the password forms found on a web
 // page to populate the |forms| vector.
 - (void)getPasswordFormsFromJSON:(NSString*)jsonString
@@ -101,7 +94,7 @@ constexpr char kCommandPrefix[] = "passwordForm";
       _formActivityObserverBridge;
 
   // Subscription for JS message.
-  std::unique_ptr<web::WebState::ScriptCommandSubscription> subscription_;
+  std::unique_ptr<web::WebState::ScriptCommandSubscription> _subscription;
 }
 
 #pragma mark - Properties
@@ -140,7 +133,7 @@ constexpr char kCommandPrefix[] = "passwordForm";
             [weakSelf handleScriptCommand:JSON];
           }
         });
-    subscription_ =
+    _subscription =
         _webState->AddScriptCommandCallback(callback, kCommandPrefix);
   }
   return self;
@@ -181,24 +174,19 @@ constexpr char kCommandPrefix[] = "passwordForm";
     // origin.
     return;
   }
-  __weak PasswordFormHelper* weakSelf = self;
-  // This code is racing against the new page loading and will not get the
-  // password form data if the page has changed. In most cases this code wins
-  // the race.
-  // TODO(crbug.com/418827): Fix this by passing in more data from the JS side.
-  id completionHandler = ^(BOOL found, const FormData& form) {
-    PasswordFormHelper* strongSelf = weakSelf;
-    id<PasswordFormHelperDelegate> strongDelegate = strongSelf.delegate;
-    if (!strongSelf || !strongSelf->_webState || !strongDelegate) {
-      return;
-    }
-    [strongDelegate formHelper:strongSelf
-                 didSubmitForm:form
-                   inMainFrame:formInMainFrame];
-  };
-  // TODO(crbug.com/418827): Use |formData| instead of extracting form again.
-  [self extractSubmittedPasswordForm:formName
-                   completionHandler:completionHandler];
+  if (!self.delegate || formData.empty())
+    return;
+  std::vector<FormData> forms;
+  NSString* nsFormData = [NSString stringWithUTF8String:formData.c_str()];
+  autofill::ExtractFormsData(nsFormData, false, base::string16(), pageURL,
+                             pageURL.GetOrigin(), &forms);
+  UMA_HISTOGRAM_EXACT_LINEAR("PasswordManager.NumFormsExtractedIOS",
+                             forms.size(), 50);
+  if (forms.size() != 1)
+    return;
+  [self.delegate formHelper:self
+              didSubmitForm:forms[0]
+                inMainFrame:formInMainFrame];
 }
 
 #pragma mark - Private methods
@@ -230,43 +218,6 @@ constexpr char kCommandPrefix[] = "passwordForm";
   }
 
   return NO;
-}
-
-- (void)extractSubmittedPasswordForm:(const std::string&)formName
-                   completionHandler:
-                       (void (^)(BOOL found,
-                                 const FormData& form))completionHandler {
-  DCHECK(completionHandler);
-
-  if (!_webState) {
-    return;
-  }
-
-  GURL pageURL;
-  if (!GetPageURLAndCheckTrustLevel(_webState, &pageURL)) {
-    completionHandler(NO, FormData());
-    return;
-  }
-
-  id extractSubmittedFormCompletionHandler = ^(NSString* jsonString) {
-    std::unique_ptr<base::Value> formValue = autofill::ParseJson(jsonString);
-    if (!formValue) {
-      completionHandler(NO, FormData());
-      return;
-    }
-
-    FormData form;
-    if (!autofill::ExtractFormData(*formValue, false, base::string16(), pageURL,
-                                   pageURL.GetOrigin(), &form)) {
-      completionHandler(NO, FormData());
-      return;
-    }
-
-    completionHandler(YES, form);
-  };
-
-  [self.jsPasswordManager extractForm:base::SysUTF8ToNSString(formName)
-                    completionHandler:extractSubmittedFormCompletionHandler];
 }
 
 - (void)getPasswordFormsFromJSON:(NSString*)jsonString
@@ -389,7 +340,7 @@ constexpr char kCommandPrefix[] = "passwordForm";
             const std::vector<FormData>& forms) {
     PasswordFormHelper* strongSelf = weakSelf;
     for (const auto& form : forms) {
-      std::map<base::string16, const PasswordForm*> matches;
+      std::vector<const PasswordForm*> matches;
       FormDataParser parser;
       std::unique_ptr<PasswordForm> passwordForm =
           parser.Parse(form, FormDataParser::Mode::kFilling);

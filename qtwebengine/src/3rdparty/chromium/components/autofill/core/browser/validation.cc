@@ -91,7 +91,7 @@ bool HasCorrectLength(const base::string16& number) {
   return true;
 }
 
-// TODO (crbug.com/927767): Add unit tests for this function.
+// TODO(crbug.com/927767): Add unit tests for this function.
 bool PassesLuhnCheck(const base::string16& number) {
   // Use the Luhn formula [3] to validate the number.
   // [3] http://en.wikipedia.org/wiki/Luhn_algorithm
@@ -116,8 +116,8 @@ bool PassesLuhnCheck(const base::string16& number) {
 }
 
 bool IsValidCreditCardSecurityCode(const base::string16& code,
-                                   const base::StringPiece card_type) {
-  return code.length() == GetCvcLengthForCardType(card_type) &&
+                                   const base::StringPiece card_network) {
+  return code.length() == GetCvcLengthForCardNetwork(card_network) &&
          base::ContainsOnlyChars(code, base::ASCIIToUTF16("0123456789"));
 }
 
@@ -333,8 +333,8 @@ bool IsValidForType(const base::string16& value,
   return false;
 }
 
-size_t GetCvcLengthForCardType(const base::StringPiece card_type) {
-  if (card_type == kAmericanExpressCard)
+size_t GetCvcLengthForCardNetwork(const base::StringPiece card_network) {
+  if (card_network == kAmericanExpressCard)
     return AMEX_CVC_LENGTH;
 
   return GENERAL_CVC_LENGTH;
@@ -351,4 +351,12 @@ bool IsInternationalBankAccountNumber(const base::string16& value) {
                         base::ASCIIToUTF16(kInternationalBankAccountNumberRe));
 }
 
+bool IsPlausibleCreditCardCVCNumber(const base::string16& value) {
+  return MatchesPattern(value, base::ASCIIToUTF16(kCreditCardCVCPattern));
+}
+
+bool IsPlausible4DigitExpirationYear(const base::string16& value) {
+  return MatchesPattern(value,
+                        base::ASCIIToUTF16(kCreditCard4DigitExpYearPattern));
+}
 }  // namespace autofill

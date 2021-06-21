@@ -18,6 +18,7 @@
 #include "extensions/browser/event_router.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extensions_test.h"
+#include "extensions/browser/unloaded_extension_reason.h"
 #include "extensions/common/api/bluetooth.h"
 #include "extensions/common/extension_builder.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -101,11 +102,12 @@ TEST_F(BluetoothEventRouterTest, UnloadExtension) {
 // This test check that calling SetDiscoveryFilter before StartDiscoverySession
 // for given extension will start session with proper filter.
 TEST_F(BluetoothEventRouterTest, SetDiscoveryFilter) {
-  std::unique_ptr<device::BluetoothDiscoveryFilter> discovery_filter(
-      new device::BluetoothDiscoveryFilter(device::BLUETOOTH_TRANSPORT_LE));
-
+  auto discovery_filter = std::make_unique<device::BluetoothDiscoveryFilter>(
+      device::BLUETOOTH_TRANSPORT_LE);
   discovery_filter->SetRSSI(-80);
-  discovery_filter->AddUUID(device::BluetoothUUID("1000"));
+  device::BluetoothDiscoveryFilter::DeviceInfoFilter device_filter;
+  device_filter.uuids.insert(device::BluetoothUUID("1000"));
+  discovery_filter->AddDeviceFilter(std::move(device_filter));
 
   device::BluetoothDiscoveryFilter df(device::BLUETOOTH_TRANSPORT_LE);
   df.CopyFrom(*discovery_filter);
@@ -117,13 +119,18 @@ TEST_F(BluetoothEventRouterTest, SetDiscoveryFilter) {
   EXPECT_CALL(
       *mock_adapter_,
       StartScanWithFilter_(testing::Pointee(IsFilterEqual(&df)), testing::_))
-      .Times(1);
+      .WillOnce(testing::Invoke(
+          [](const device::BluetoothDiscoveryFilter* filter,
+             base::OnceCallback<void(
+                 /*is_error*/ bool,
+                 device::UMABluetoothDiscoverySessionOutcome)>& callback) {
+            std::move(callback).Run(
+                false, device::UMABluetoothDiscoverySessionOutcome::SUCCESS);
+          }));
 
   // RemoveDiscoverySession will be called when the BluetoothDiscoverySession
   // is destroyed
-  EXPECT_CALL(*mock_adapter_,
-              RemoveDiscoverySession_(testing::_, testing::_, testing::_))
-      .Times(1);
+  EXPECT_CALL(*mock_adapter_, StopScan(testing::_)).Times(1);
 
   router_->StartDiscoverySession(mock_adapter_, kTestExtensionId,
                                  base::DoNothing(), base::DoNothing());

@@ -4,7 +4,7 @@
  *
  *   TrueType Glyph Loader (body).
  *
- * Copyright (C) 1996-2019 by
+ * Copyright (C) 1996-2020 by
  * David Turner, Robert Wilhelm, and Werner Lemberg.
  *
  * This file is part of the FreeType project, and may only be used,
@@ -2302,13 +2302,14 @@
       if ( face->vertical_info                   &&
            face->vertical.number_Of_VMetrics > 0 )
       {
-        top = (FT_Short)FT_DivFix( loader->pp3.y - bbox.yMax,
+        top = (FT_Short)FT_DivFix( SUB_LONG( loader->pp3.y, bbox.yMax ),
                                    y_scale );
 
         if ( loader->pp3.y <= loader->pp4.y )
           advance = 0;
         else
-          advance = (FT_UShort)FT_DivFix( loader->pp3.y - loader->pp4.y,
+          advance = (FT_UShort)FT_DivFix( SUB_LONG( loader->pp3.y,
+                                                    loader->pp4.y ),
                                           y_scale );
       }
       else

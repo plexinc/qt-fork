@@ -6,31 +6,24 @@
 #define QUICHE_QUIC_TOOLS_QUIC_SIMPLE_CRYPTO_SERVER_STREAM_HELPER_H_
 
 #include "net/third_party/quiche/src/quic/core/crypto/quic_random.h"
-#include "net/third_party/quiche/src/quic/core/quic_crypto_server_stream.h"
+#include "net/third_party/quiche/src/quic/core/quic_crypto_server_stream_base.h"
 
 namespace quic {
 
 // Simple helper for server crypto streams which generates a new random
 // connection ID for rejects.
 class QuicSimpleCryptoServerStreamHelper
-    : public QuicCryptoServerStream::Helper {
+    : public QuicCryptoServerStreamBase::Helper {
  public:
-  explicit QuicSimpleCryptoServerStreamHelper(QuicRandom* random);
+  QuicSimpleCryptoServerStreamHelper();
 
   ~QuicSimpleCryptoServerStreamHelper() override;
-
-  QuicConnectionId GenerateConnectionIdForReject(
-      QuicTransportVersion /*version*/,
-      QuicConnectionId /*connection_id*/) const override;
 
   bool CanAcceptClientHello(const CryptoHandshakeMessage& message,
                             const QuicSocketAddress& client_address,
                             const QuicSocketAddress& peer_address,
                             const QuicSocketAddress& self_address,
                             std::string* error_details) const override;
-
- private:
-  QuicRandom* random_;  // Unowned.
 };
 
 }  // namespace quic

@@ -73,7 +73,8 @@ class NET_EXPORT_PRIVATE ProofVerifierChromium : public quic::ProofVerifier {
   ProofVerifierChromium(CertVerifier* cert_verifier,
                         CTPolicyEnforcer* ct_policy_enforcer,
                         TransportSecurityState* transport_security_state,
-                        CTVerifier* cert_transparency_verifier);
+                        CTVerifier* cert_transparency_verifier,
+                        std::set<std::string> hostnames_to_allow_unknown_roots);
   ~ProofVerifierChromium() override;
 
   // quic::ProofVerifier interface
@@ -82,7 +83,7 @@ class NET_EXPORT_PRIVATE ProofVerifierChromium : public quic::ProofVerifier {
       const uint16_t port,
       const std::string& server_config,
       quic::QuicTransportVersion quic_version,
-      quic::QuicStringPiece chlo_hash,
+      quiche::QuicheStringPiece chlo_hash,
       const std::vector<std::string>& certs,
       const std::string& cert_sct,
       const std::string& signature,
@@ -115,6 +116,8 @@ class NET_EXPORT_PRIVATE ProofVerifierChromium : public quic::ProofVerifier {
 
   TransportSecurityState* const transport_security_state_;
   CTVerifier* const cert_transparency_verifier_;
+
+  std::set<std::string> hostnames_to_allow_unknown_roots_;
 
   DISALLOW_COPY_AND_ASSIGN(ProofVerifierChromium);
 };

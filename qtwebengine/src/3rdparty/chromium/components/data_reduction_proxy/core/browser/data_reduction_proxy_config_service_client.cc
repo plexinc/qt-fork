@@ -19,13 +19,14 @@
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_split.h"
 #include "base/system/sys_info.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_config.h"
-#include "components/data_reduction_proxy/core/browser/data_reduction_proxy_io_data.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_mutable_config_values.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_request_options.h"
+#include "components/data_reduction_proxy/core/browser/data_reduction_proxy_service.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_util.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_features.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_params.h"
@@ -33,6 +34,7 @@
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_switches.h"
 #include "components/data_reduction_proxy/proto/client_config.pb.h"
 #include "components/data_use_measurement/core/data_use_user_data.h"
+#include "components/previews/core/previews_experiments.h"
 #include "components/variations/net/variations_http_headers.h"
 #include "net/base/host_port_pair.h"
 #include "net/base/load_flags.h"
@@ -105,32 +107,70 @@ std::vector<DataReductionProxyServer> GetProxiesForHTTP(
           server.scheme() == ProxyServer_ProxyScheme_HTTPS)));
     }
   }
-
   return proxies;
+}
+
+bool AllowInsecurePrefetchProxy() {
+  return base::CommandLine::ForCurrentProcess()->HasSwitch(
+      "allow-insecure-prefetch-proxy-for-testing");
+}
+
+std::vector<GURL> GetPrefetchProxyHosts(
+    const data_reduction_proxy::PrefetchProxyConfig& prefetch_config) {
+  std::vector<GURL> hosts;
+
+  // Check for a command line override and maybe early return.
+  std::string cmd_line_override =
+      base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+          "prefetch-proxy-override-proxy-hosts");
+  if (!cmd_line_override.empty()) {
+    std::vector<std::string> split_cmd_line_override =
+        base::SplitString(cmd_line_override, ",", base::TRIM_WHITESPACE,
+                          base::SPLIT_WANT_NONEMPTY);
+
+    for (const std::string& host : split_cmd_line_override) {
+      GURL url(host);
+      if (url.is_valid()) {
+        hosts.push_back(url);
+      }
+    }
+    if (!hosts.empty()) {
+      return hosts;
+    }
+  }
+
+  for (const auto& proxy : prefetch_config.proxy_list()) {
+    if (proxy.type() != PrefetchProxyConfig_Proxy_Type_CONNECT)
+      continue;
+
+    if (proxy.scheme() != PrefetchProxyConfig_Proxy_Scheme_HTTPS &&
+        !AllowInsecurePrefetchProxy()) {
+      LOG(ERROR) << "non-HTTPS PrefetchProxy hosts are not accepted without "
+                    "--allow-insecure-prefetch-proxy-for-testing";
+      continue;
+    }
+
+    std::string scheme =
+        protobuf_parser::SchemeFromPrefetchScheme(proxy.scheme());
+    if (scheme.empty())
+      continue;
+    if (proxy.host().empty())
+      continue;
+    if (proxy.port() == 0)
+      continue;
+
+    url::SchemeHostPort shp(scheme, proxy.host(),
+                            static_cast<uint16_t>(proxy.port()));
+    if (!shp.IsValid())
+      continue;
+
+    hosts.push_back(shp.GetURL());
+  }
+  return hosts;
 }
 
 void RecordAuthExpiredHistogram(bool auth_expired) {
   UMA_HISTOGRAM_BOOLEAN(kUMAConfigServiceAuthExpired, auth_expired);
-}
-
-// Records whether the session key used in the request matches the current
-// sesssion key.
-void RecordAuthExpiredSessionKey(bool matches) {
-  // This enum must remain synchronized with the
-  // DataReductionProxyConfigServiceAuthExpiredSessionKey enum in
-  // metrics/histograms/histograms.xml.
-  enum AuthExpiredSessionKey {
-    AUTH_EXPIRED_SESSION_KEY_MISMATCH = 0,
-    AUTH_EXPIRED_SESSION_KEY_MATCH = 1,
-    AUTH_EXPIRED_SESSION_KEY_BOUNDARY = 2
-  };
-
-  AuthExpiredSessionKey state = matches ? AUTH_EXPIRED_SESSION_KEY_MATCH
-                                        : AUTH_EXPIRED_SESSION_KEY_MISMATCH;
-
-  UMA_HISTOGRAM_ENUMERATION(
-      "DataReductionProxy.ConfigService.AuthExpiredSessionKey", state,
-      AUTH_EXPIRED_SESSION_KEY_BOUNDARY);
 }
 
 }  // namespace
@@ -152,13 +192,13 @@ DataReductionProxyConfigServiceClient::DataReductionProxyConfigServiceClient(
     DataReductionProxyRequestOptions* request_options,
     DataReductionProxyMutableConfigValues* config_values,
     DataReductionProxyConfig* config,
-    DataReductionProxyIOData* io_data,
+    DataReductionProxyService* service,
     network::NetworkConnectionTracker* network_connection_tracker,
     ConfigStorer config_storer)
     : request_options_(request_options),
       config_values_(config_values),
       config_(config),
-      io_data_(io_data),
+      service_(service),
       network_connection_tracker_(network_connection_tracker),
       config_storer_(config_storer),
       backoff_policy_(backoff_policy),
@@ -176,9 +216,11 @@ DataReductionProxyConfigServiceClient::DataReductionProxyConfigServiceClient(
   DCHECK(request_options);
   DCHECK(config_values);
   DCHECK(config);
-  DCHECK(io_data);
+  DCHECK(service);
   DCHECK(config_service_url_.is_valid());
-  DCHECK(!params::IsIncludedInHoldbackFieldTrial());
+  DCHECK(!params::IsIncludedInHoldbackFieldTrial() ||
+         previews::params::IsLitePageServerPreviewsEnabled() ||
+         params::ForceEnableClientConfigServiceForAllDataSaverUsers());
 
   const base::CommandLine& command_line =
       *base::CommandLine::ForCurrentProcess();
@@ -223,7 +265,7 @@ DataReductionProxyConfigServiceClient::CalculateNextConfigRefreshTime(
   return backoff_delay;
 }
 
-void DataReductionProxyConfigServiceClient::InitializeOnIOThread(
+void DataReductionProxyConfigServiceClient::Initialize(
     scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory) {
   DCHECK(url_loader_factory);
 #if defined(OS_ANDROID)
@@ -241,6 +283,22 @@ void DataReductionProxyConfigServiceClient::InitializeOnIOThread(
 void DataReductionProxyConfigServiceClient::SetEnabled(bool enabled) {
   DCHECK(thread_checker_.CalledOnValidThread());
   enabled_ = enabled;
+}
+
+void DataReductionProxyConfigServiceClient::InvalidateAndRetrieveNewConfig() {
+  DCHECK(thread_checker_.CalledOnValidThread());
+
+  InvalidateConfig();
+  DCHECK(config_->GetProxiesForHttp().empty());
+
+  if (fetch_in_progress_) {
+    // If a client config fetch is already in progress, then do not start
+    // another fetch since starting a new fetch will cause extra data
+    // usage, and also cancel the ongoing fetch.
+    return;
+  }
+
+  RetrieveConfig();
 }
 
 void DataReductionProxyConfigServiceClient::RetrieveConfig() {
@@ -298,76 +356,6 @@ void DataReductionProxyConfigServiceClient::ApplySerializedConfig(
   }
 }
 
-bool DataReductionProxyConfigServiceClient::ShouldRetryDueToAuthFailure(
-    const net::HttpRequestHeaders& request_headers,
-    const net::HttpResponseHeaders* response_headers,
-    const net::ProxyServer& proxy_server,
-    const net::LoadTimingInfo& load_timing_info) {
-  DCHECK(thread_checker_.CalledOnValidThread());
-  DCHECK(response_headers);
-
-  if (!config_->FindConfiguredDataReductionProxy(proxy_server))
-    return false;
-
-  if (response_headers->response_code() !=
-      net::HTTP_PROXY_AUTHENTICATION_REQUIRED) {
-    previous_request_failed_authentication_ = false;
-    return false;
-  }
-
-  // If the session key used in the request is different from the current
-  // session key, then the current session key does not need to be
-  // invalidated.
-  base::Optional<std::string> session_key =
-      request_options_->GetSessionKeyFromRequestHeaders(request_headers);
-  if ((session_key.has_value() ? session_key.value() : std::string()) !=
-      request_options_->GetSecureSession()) {
-    RecordAuthExpiredSessionKey(false);
-    return true;
-  }
-  RecordAuthExpiredSessionKey(true);
-
-  // The default backoff logic is to increment the failure count (and
-  // increase the backoff time) with each response failure to the remote
-  // config service, and to decrement the failure count (and decrease the
-  // backoff time) with each response success. In the case where the
-  // config service returns a success response (decrementing the failure
-  // count) but the session key is continually invalid (as a response from
-  // the Data Reduction Proxy and not the config service), the previous
-  // response should be considered a failure in order to ensure the backoff
-  // time continues to increase.
-  if (previous_request_failed_authentication_)
-    GetBackoffEntry()->InformOfRequest(false);
-
-  // Record that a request resulted in an authentication failure.
-  RecordAuthExpiredHistogram(true);
-  previous_request_failed_authentication_ = true;
-  InvalidateConfig();
-  DCHECK(config_->GetProxiesForHttp().empty());
-
-  if (fetch_in_progress_) {
-    // If a client config fetch is already in progress, then do not start
-    // another fetch since starting a new fetch will cause extra data
-    // usage, and also cancel the ongoing fetch.
-    return true;
-  }
-
-  RetrieveConfig();
-
-  if (!load_timing_info.send_start.is_null() &&
-      !load_timing_info.request_start.is_null() &&
-      !network_connection_tracker_->IsOffline() &&
-      last_ip_address_change_ < load_timing_info.request_start) {
-    // Record only if there was no change in the IP address since the
-    // request started.
-    UMA_HISTOGRAM_TIMES(
-        "DataReductionProxy.ConfigService.AuthFailure.LatencyPenalty",
-        base::TimeTicks::Now() - load_timing_info.request_start);
-  }
-
-  return true;
-}
-
 net::BackoffEntry* DataReductionProxyConfigServiceClient::GetBackoffEntry() {
   DCHECK(thread_checker_.CalledOnValidThread());
   return &backoff_entry_;
@@ -415,7 +403,9 @@ void DataReductionProxyConfigServiceClient::OnURLLoadComplete(
 
 void DataReductionProxyConfigServiceClient::RetrieveRemoteConfig() {
   DCHECK(thread_checker_.CalledOnValidThread());
-  DCHECK(!params::IsIncludedInHoldbackFieldTrial());
+  DCHECK(!params::IsIncludedInHoldbackFieldTrial() ||
+         previews::params::IsLitePageServerPreviewsEnabled() ||
+         params::ForceEnableClientConfigServiceForAllDataSaverUsers());
 
   CreateClientConfigRequest request;
   std::string serialized_request;
@@ -440,10 +430,10 @@ void DataReductionProxyConfigServiceClient::RetrieveRemoteConfig() {
   uint32_t build;
   uint32_t patch;
   util::GetChromiumBuildAndPatchAsInts(util::ChromiumVersion(), &build, &patch);
-  version_info->set_client(util::GetStringForClient(io_data_->client()));
+  version_info->set_client(util::GetStringForClient(service_->client()));
   version_info->set_build(build);
   version_info->set_patch(patch);
-  version_info->set_channel(io_data_->channel());
+  version_info->set_channel(service_->channel());
   request.SerializeToString(&serialized_request);
 
   net::NetworkTrafficAnnotationTag traffic_annotation =
@@ -474,7 +464,7 @@ void DataReductionProxyConfigServiceClient::RetrieveRemoteConfig() {
   resource_request->url = config_service_url_;
   resource_request->method = "POST";
   resource_request->load_flags = net::LOAD_BYPASS_PROXY;
-  resource_request->allow_credentials = false;
+  resource_request->credentials_mode = network::mojom::CredentialsMode::kOmit;
   // Attach variations headers.
   url_loader_ = variations::CreateSimpleURLLoaderWithVariationsHeader(
       std::move(resource_request), variations::InIncognito::kNo,
@@ -501,7 +491,6 @@ void DataReductionProxyConfigServiceClient::InvalidateConfig() {
   config_storer_.Run(std::string());
   request_options_->Invalidate();
   config_values_->Invalidate();
-  io_data_->SetPingbackReportingFraction(0.0f);
   config_->OnNewClientConfigFetched();
 }
 
@@ -544,7 +533,7 @@ void DataReductionProxyConfigServiceClient::HandleResponse(
     config_storer_.Run(encoded_config);
 
     // Record timing metrics on successful requests only.
-    const network::ResourceResponseHead* info = url_loader_->ResponseInfo();
+    const network::mojom::URLResponseHead* info = url_loader_->ResponseInfo();
     base::TimeDelta http_request_rtt =
         info->response_start - info->request_start;
     UMA_HISTOGRAM_TIMES("DataReductionProxy.ConfigService.HttpRequestRTT",
@@ -573,19 +562,13 @@ void DataReductionProxyConfigServiceClient::HandleResponse(
 bool DataReductionProxyConfigServiceClient::ParseAndApplyProxyConfig(
     const ClientConfig& config) {
   DCHECK(thread_checker_.CalledOnValidThread());
-  float reporting_fraction = 0.0f;
-  if (config.has_pageload_metrics_config() &&
-      config.pageload_metrics_config().has_reporting_fraction()) {
-    reporting_fraction = config.pageload_metrics_config().reporting_fraction();
-  }
-  DCHECK_LE(0.0f, reporting_fraction);
-  DCHECK_GE(1.0f, reporting_fraction);
-  io_data_->SetPingbackReportingFraction(reporting_fraction);
-
   if (!config.has_proxy_config())
     return false;
 
-  io_data_->SetIgnoreLongTermBlackListRules(
+  service_->UpdatePrefetchProxyHosts(
+      GetPrefetchProxyHosts(config.prefetch_proxy_config()));
+
+  service_->SetIgnoreLongTermBlackListRules(
       config.ignore_long_term_black_list_rules());
 
   // An empty proxy config is OK, and allows the server to effectively turn off

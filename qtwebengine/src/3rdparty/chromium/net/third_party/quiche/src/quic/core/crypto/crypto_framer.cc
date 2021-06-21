@@ -5,6 +5,7 @@
 #include "net/third_party/quiche/src/quic/core/crypto/crypto_framer.h"
 
 #include <string>
+#include <utility>
 
 #include "net/third_party/quiche/src/quic/core/crypto/crypto_protocol.h"
 #include "net/third_party/quiche/src/quic/core/quic_data_reader.h"
@@ -12,9 +13,9 @@
 #include "net/third_party/quiche/src/quic/core/quic_packets.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_fallthrough.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_ptr_util.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_str_cat.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_string_piece.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_endian.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_str_cat.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 
@@ -32,7 +33,7 @@ class OneShotVisitor : public CryptoFramerVisitorInterface {
   void OnError(CryptoFramer* /*framer*/) override { error_ = true; }
 
   void OnHandshakeMessage(const CryptoHandshakeMessage& message) override {
-    out_ = QuicMakeUnique<CryptoHandshakeMessage>(message);
+    out_ = std::make_unique<CryptoHandshakeMessage>(message);
   }
 
   bool error() const { return error_; }
@@ -59,7 +60,7 @@ CryptoFramer::~CryptoFramer() {}
 
 // static
 std::unique_ptr<CryptoHandshakeMessage> CryptoFramer::ParseMessage(
-    QuicStringPiece in) {
+    quiche::QuicheStringPiece in) {
   OneShotVisitor visitor;
   CryptoFramer framer;
 
@@ -80,12 +81,12 @@ const std::string& CryptoFramer::error_detail() const {
   return error_detail_;
 }
 
-bool CryptoFramer::ProcessInput(QuicStringPiece input,
+bool CryptoFramer::ProcessInput(quiche::QuicheStringPiece input,
                                 EncryptionLevel /*level*/) {
   return ProcessInput(input);
 }
 
-bool CryptoFramer::ProcessInput(QuicStringPiece input) {
+bool CryptoFramer::ProcessInput(quiche::QuicheStringPiece input) {
   DCHECK_EQ(QUIC_NO_ERROR, error_);
   if (error_ != QUIC_NO_ERROR) {
     return false;
@@ -117,9 +118,10 @@ bool CryptoFramer::HasTag(QuicTag tag) const {
 }
 
 void CryptoFramer::ForceHandshake() {
-  QuicDataReader reader(buffer_.data(), buffer_.length(), HOST_BYTE_ORDER);
+  QuicDataReader reader(buffer_.data(), buffer_.length(),
+                        quiche::HOST_BYTE_ORDER);
   for (const std::pair<QuicTag, size_t>& item : tags_and_lengths_) {
-    QuicStringPiece value;
+    quiche::QuicheStringPiece value;
     if (reader.BytesRemaining() < item.second) {
       break;
     }
@@ -156,7 +158,7 @@ std::unique_ptr<QuicData> CryptoFramer::ConstructHandshakeMessage(
   }
 
   std::unique_ptr<char[]> buffer(new char[len]);
-  QuicDataWriter writer(len, buffer.get(), HOST_BYTE_ORDER);
+  QuicDataWriter writer(len, buffer.get(), quiche::HOST_BYTE_ORDER);
   if (!writer.WriteTag(message.tag())) {
     DCHECK(false) << "Failed to write message tag.";
     return nullptr;
@@ -230,7 +232,7 @@ std::unique_ptr<QuicData> CryptoFramer::ConstructHandshakeMessage(
     }
   }
 
-  return QuicMakeUnique<QuicData>(buffer.release(), len, true);
+  return std::make_unique<QuicData>(buffer.release(), len, true);
 }
 
 void CryptoFramer::Clear() {
@@ -241,10 +243,11 @@ void CryptoFramer::Clear() {
   state_ = STATE_READING_TAG;
 }
 
-QuicErrorCode CryptoFramer::Process(QuicStringPiece input) {
+QuicErrorCode CryptoFramer::Process(quiche::QuicheStringPiece input) {
   // Add this data to the buffer.
   buffer_.append(input.data(), input.length());
-  QuicDataReader reader(buffer_.data(), buffer_.length(), HOST_BYTE_ORDER);
+  QuicDataReader reader(buffer_.data(), buffer_.length(),
+                        quiche::HOST_BYTE_ORDER);
 
   switch (state_) {
     case STATE_READING_TAG:
@@ -262,7 +265,7 @@ QuicErrorCode CryptoFramer::Process(QuicStringPiece input) {
       }
       reader.ReadUInt16(&num_entries_);
       if (num_entries_ > kMaxEntries) {
-        error_detail_ = QuicStrCat(num_entries_, " entries");
+        error_detail_ = quiche::QuicheStrCat(num_entries_, " entries");
         return QUIC_CRYPTO_TOO_MANY_ENTRIES;
       }
       uint16_t padding;
@@ -284,10 +287,10 @@ QuicErrorCode CryptoFramer::Process(QuicStringPiece input) {
         reader.ReadTag(&tag);
         if (i > 0 && tag <= tags_and_lengths_[i - 1].first) {
           if (tag == tags_and_lengths_[i - 1].first) {
-            error_detail_ = QuicStrCat("Duplicate tag:", tag);
+            error_detail_ = quiche::QuicheStrCat("Duplicate tag:", tag);
             return QUIC_CRYPTO_DUPLICATE_TAG;
           }
-          error_detail_ = QuicStrCat("Tag ", tag, " out of order");
+          error_detail_ = quiche::QuicheStrCat("Tag ", tag, " out of order");
           return QUIC_CRYPTO_TAGS_OUT_OF_ORDER;
         }
 
@@ -295,8 +298,8 @@ QuicErrorCode CryptoFramer::Process(QuicStringPiece input) {
         reader.ReadUInt32(&end_offset);
 
         if (end_offset < last_end_offset) {
-          error_detail_ =
-              QuicStrCat("End offset: ", end_offset, " vs ", last_end_offset);
+          error_detail_ = quiche::QuicheStrCat("End offset: ", end_offset,
+                                               " vs ", last_end_offset);
           return QUIC_CRYPTO_TAGS_OUT_OF_ORDER;
         }
         tags_and_lengths_.push_back(std::make_pair(
@@ -316,7 +319,7 @@ QuicErrorCode CryptoFramer::Process(QuicStringPiece input) {
                         << values_len_ - reader.BytesRemaining() << " bytes.";
       }
       for (const std::pair<QuicTag, size_t>& item : tags_and_lengths_) {
-        QuicStringPiece value;
+        quiche::QuicheStringPiece value;
         if (!reader.ReadStringPiece(&value, item.second)) {
           DCHECK(process_truncated_messages_);
           // Store an empty value.

@@ -4,6 +4,7 @@
 
 #include "third_party/blink/renderer/modules/bluetooth/bluetooth_error.h"
 
+#include "third_party/blink/public/mojom/bluetooth/web_bluetooth.mojom-blink.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 
@@ -18,7 +19,7 @@ const char kGATTServerNotConnectedBase[] =
 }  // namespace
 
 // static
-DOMException* BluetoothError::CreateNotConnectedException(
+String BluetoothError::CreateNotConnectedExceptionMessage(
     BluetoothOperation operation) {
   const char* operation_string = nullptr;
   switch (operation) {
@@ -35,10 +36,15 @@ DOMException* BluetoothError::CreateNotConnectedException(
       operation_string = "perform GATT operations";
       break;
   }
+  return String::Format(kGATTServerNotConnectedBase, operation_string);
+}
 
+// static
+DOMException* BluetoothError::CreateNotConnectedException(
+    BluetoothOperation operation) {
   return MakeGarbageCollected<DOMException>(
       DOMExceptionCode::kNetworkError,
-      String::Format(kGATTServerNotConnectedBase, operation_string));
+      CreateNotConnectedExceptionMessage(operation));
 }
 
 // static

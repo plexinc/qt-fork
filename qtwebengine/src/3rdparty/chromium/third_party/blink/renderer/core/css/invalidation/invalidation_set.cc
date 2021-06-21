@@ -366,11 +366,11 @@ void InvalidationSet::ToTracedValue(TracedValue* value) const {
 
 #ifndef NDEBUG
 void InvalidationSet::Show() const {
-  auto value = std::make_unique<TracedValue>();
-  value->BeginArray("InvalidationSet");
-  ToTracedValue(value.get());
-  value->EndArray();
-  fprintf(stderr, "%s\n", value->ToString().Ascii().c_str());
+  TracedValueJSON value;
+  value.BeginArray("InvalidationSet");
+  ToTracedValue(&value);
+  value.EndArray();
+  LOG(ERROR) << value.ToJSON().Ascii();
 }
 #endif  // NDEBUG
 
@@ -379,6 +379,10 @@ SiblingInvalidationSet::SiblingInvalidationSet(
     : InvalidationSet(InvalidationType::kInvalidateSiblings),
       max_direct_adjacent_selectors_(1),
       descendant_invalidation_set_(std::move(descendants)) {}
+
+SiblingInvalidationSet::SiblingInvalidationSet()
+    : InvalidationSet(InvalidationType::kInvalidateNthSiblings),
+      max_direct_adjacent_selectors_(kDirectAdjacentMax) {}
 
 DescendantInvalidationSet& SiblingInvalidationSet::EnsureSiblingDescendants() {
   if (!sibling_descendant_invalidation_set_)

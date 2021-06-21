@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
@@ -114,7 +115,7 @@ bool BidirectionalStream::ReadData(char* buffer, int capacity) {
 
   PostToNetworkThread(
       FROM_HERE, base::BindOnce(&BidirectionalStream::ReadDataOnNetworkThread,
-                                weak_this_, read_buffer, capacity));
+                                weak_this_, std::move(read_buffer), capacity));
   return true;
 }
 
@@ -130,7 +131,8 @@ bool BidirectionalStream::WriteData(const char* buffer,
   PostToNetworkThread(
       FROM_HERE,
       base::BindOnce(&BidirectionalStream::WriteDataOnNetworkThread, weak_this_,
-                     write_buffer, count, end_of_stream));
+                     std::move(write_buffer), count, end_of_stream));
+
   return true;
 }
 

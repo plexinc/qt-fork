@@ -103,7 +103,7 @@ void SlotAssignmentTest::SetUp() {
 
 void SlotAssignmentTest::SetBody(const char* html) {
   Element* body = GetDocument().body();
-  body->SetInnerHTMLFromString(String::FromUTF8(html));
+  body->setInnerHTML(String::FromUTF8(html));
   ConvertDeclarativeShadowDOMToShadowRoot(*body);
   RemoveWhiteSpaceOnlyTextNode(*body);
 }
@@ -155,8 +155,7 @@ TEST_F(SlotAssignmentTest, AssignedNodesAreSet) {
   Element* host = GetDocument().QuerySelector("#host");
   Element* host_child = GetDocument().QuerySelector("#host-child");
   ShadowRoot* shadow_root = host->OpenShadowRoot();
-  HTMLSlotElement* slot =
-      ToHTMLSlotElementOrNull(shadow_root->QuerySelector("slot"));
+  auto* slot = DynamicTo<HTMLSlotElement>(shadow_root->QuerySelector("slot"));
   ASSERT_NE(nullptr, slot);
 
   EXPECT_EQ(slot, host_child->AssignedSlot());

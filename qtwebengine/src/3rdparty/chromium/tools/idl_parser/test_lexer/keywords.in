@@ -5,7 +5,7 @@ BYTESTRING ByteString
 BYTE byte
 CALLBACK callback
 CONST const
-CREATOR creator
+CONSTRUCTOR constructor
 DELETER deleter
 DICTIONARY dictionary
 DOMSTRING DOMString
@@ -18,11 +18,10 @@ INFINITY Infinity
 INHERIT inherit
 INTERFACE interface
 ITERABLE iterable
-LEGACYCALLER legacycaller
 LONG long
 MAPLIKE maplike
 MIXIN mixin
-NAN Nan
+NAN NaN
 NULL null
 OBJECT object
 OCTET octet

@@ -51,6 +51,7 @@
 #define LINEEDIT_H
 
 #include <QLineEdit>
+#include <qqml.h>
 
 class LineEditExtension : public QObject
 {
@@ -79,5 +80,15 @@ signals:
 private:
     QLineEdit *m_lineedit;
 };
+
+// ![0]
+struct QLineEditForeign
+{
+    Q_GADGET
+    QML_FOREIGN(QLineEdit)
+    QML_NAMED_ELEMENT(QLineEdit)
+    QML_EXTENDED(LineEditExtension)
+};
+// ![0]
 
 #endif // LINEEDIT_H

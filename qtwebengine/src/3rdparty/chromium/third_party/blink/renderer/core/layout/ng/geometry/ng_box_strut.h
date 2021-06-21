@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef NGBoxStrut_h
-#define NGBoxStrut_h
+#ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_GEOMETRY_NG_BOX_STRUT_H_
+#define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_GEOMETRY_NG_BOX_STRUT_H_
 
 #include <utility>
 
@@ -117,6 +117,10 @@ struct CORE_EXPORT NGLineBoxStrut {
 
   LayoutUnit InlineSum() const { return inline_start + inline_end; }
   LayoutUnit BlockSum() const { return line_over + line_under; }
+
+  bool IsEmpty() const {
+    return !inline_start && !inline_end && !line_over && !line_under;
+  }
 
   bool operator==(const NGLineBoxStrut& other) const {
     return inline_start == other.inline_start &&
@@ -241,4 +245,4 @@ inline NGPhysicalBoxStrut NGBoxStrut::ConvertToPhysical(
 
 }  // namespace blink
 
-#endif  // NGBoxStrut_h
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_GEOMETRY_NG_BOX_STRUT_H_

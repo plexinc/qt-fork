@@ -2,6 +2,9 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/buildflag_header.gni")
+import("//components/ui_devtools/devtools.gni")
+
 _inspector_protocol = "//third_party/inspector_protocol"
 import("$_inspector_protocol/inspector_protocol.gni")
 
@@ -19,19 +22,17 @@ _protocol_generated = [
   "Page.h",
   "Protocol.cpp",
   "Protocol.h",
+  "Tracing.h",
+  "Tracing.cpp",
 ]
 
 action("protocol_compatibility") {
   visibility = [ ":*" ]  # Only targets in this file can depend on this.
   script = "$_inspector_protocol/check_protocol_compatibility.py"
-  inputs = [
-    "protocol.json",
-  ]
+  inputs = [ "protocol.json" ]
 
   _stamp = "$target_gen_dir/protocol.stamp"
-  outputs = [
-    _stamp,
-  ]
+  outputs = [ _stamp ]
 
   args = [
     "--stamp",
@@ -44,9 +45,7 @@ inspector_protocol_generate("protocol_generated_sources") {
   inspector_protocol_dir = _inspector_protocol
   visibility = [ ":*" ]  # Only targets in this file can depend on this.
 
-  deps = [
-    ":protocol_compatibility",
-  ]
+  deps = [ ":protocol_compatibility" ]
 
   out_dir = target_gen_dir
   config_file = "inspector_protocol_config.json"
@@ -58,9 +57,17 @@ inspector_protocol_generate("protocol_generated_sources") {
   outputs = _protocol_generated
 }
 
+buildflag_header("buildflags") {
+  header = "buildflags.h"
+  flags = [ "USE_VIZ_DEVTOOLS=$use_viz_devtools" ]
+}
+
 component("ui_devtools") {
   sources = rebase_path(_protocol_generated, ".", target_gen_dir)
   sources += [
+    "agent_util.cc",
+    "agent_util.h",
+    "connector_delegate.h",
     "css_agent.cc",
     "css_agent.h",
     "devtools_base_agent.h",
@@ -79,6 +86,8 @@ component("ui_devtools") {
     "root_element.h",
     "switches.cc",
     "switches.h",
+    "tracing_agent.cc",
+    "tracing_agent.h",
     "ui_element.cc",
     "ui_element.h",
     "ui_element_delegate.h",
@@ -92,16 +101,23 @@ component("ui_devtools") {
   }
 
   deps = [
-    ":devtools_protocol_encoding",
     ":protocol_generated_sources",
     "//base",
+    "//mojo/public/cpp/bindings",
+    "//mojo/public/cpp/system",
     "//net",
+    "//third_party/inspector_protocol:crdtp",
     "//ui/gfx",
   ]
 
   public_deps = [
+    ":buildflags",
     "//services/network/public/cpp",
     "//services/network/public/mojom",
+    "//services/service_manager/public/cpp",
+    "//services/tracing/public/cpp",
+    "//services/tracing/public/mojom",
+    "//third_party/perfetto/gn:default_deps",
   ]
 }
 
@@ -112,20 +128,9 @@ static_library("test_support") {
     "ui_devtools_unittest_utils.h",
   ]
   public_deps = [
-    ":devtools_protocol_encoding",
     ":ui_devtools",
     "//testing/gmock",
-  ]
-}
-
-static_library("devtools_protocol_encoding") {
-  sources = [
-    "devtools_protocol_encoding.cc",
-    "devtools_protocol_encoding.h",
-  ]
-  deps = [
-    "//base",
-    "//third_party/inspector_protocol:encoding",
+    "//third_party/inspector_protocol:crdtp",
   ]
 }
 
@@ -141,6 +146,8 @@ source_set("unit_tests") {
     "css_agent_unittest.cc",
     "devtools_server_unittest.cc",
   ]
+
+  data = [ "//components/test/data/ui_devtools/test_file.cc" ]
 
   deps = [
     ":test_support",

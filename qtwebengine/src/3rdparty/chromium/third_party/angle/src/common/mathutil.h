@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2002-2013 The ANGLE Project Authors. All rights reserved.
+// Copyright 2002 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -34,14 +34,16 @@ const unsigned int Float32One   = 0x3F800000;
 const unsigned short Float16One = 0x3C00;
 
 template <typename T>
-inline bool isPow2(T x)
+inline constexpr bool isPow2(T x)
 {
     static_assert(std::is_integral<T>::value, "isPow2 must be called on an integer type.");
     return (x & (x - 1)) == 0 && (x != 0);
 }
 
-inline int log2(int x)
+template <typename T>
+inline int log2(T x)
 {
+    static_assert(std::is_integral<T>::value, "log2 must be called on an integer type.");
     int r = 0;
     while ((x >> r) > 1)
         r++;
@@ -179,6 +181,14 @@ destType bitCast(const sourceType &source)
     destType output;
     memcpy(&output, &source, copySize);
     return output;
+}
+
+// https://stackoverflow.com/a/37581284
+template <typename T>
+static constexpr double normalize(T value)
+{
+    return value < 0 ? -static_cast<double>(value) / std::numeric_limits<T>::min()
+                     : static_cast<double>(value) / std::numeric_limits<T>::max();
 }
 
 inline unsigned short float32ToFloat16(float fp32)
@@ -447,12 +457,12 @@ inline float float10ToFloat32(unsigned short fp11)
 
 // Convers to and from float and 16.16 fixed point format.
 
-inline float FixedToFloat(uint32_t fixedInput)
+inline float ConvertFixedToFloat(uint32_t fixedInput)
 {
     return static_cast<float>(fixedInput) / 65536.0f;
 }
 
-inline uint32_t FloatToFixed(float floatInput)
+inline uint32_t ConvertFloatToFixed(float floatInput)
 {
     static constexpr uint32_t kHighest = 32767 * 65536 + 65535;
     static constexpr uint32_t kLowest  = static_cast<uint32_t>(-32768 * 65536 + 65535);
@@ -971,54 +981,96 @@ inline uint32_t BitfieldReverse(uint32_t value)
 }
 
 // Count the 1 bits.
-#if defined(_M_IX86) || defined(_M_X64)
-#    define ANGLE_HAS_BITCOUNT_32
+#if defined(_MSC_VER) && !defined(__clang__)
+#    if defined(_M_IX86) || defined(_M_X64)
+namespace priv
+{
+// Check POPCNT instruction support and cache the result.
+// https://docs.microsoft.com/en-us/cpp/intrinsics/popcnt16-popcnt-popcnt64#remarks
+static const bool kHasPopcnt = [] {
+    int info[4];
+    __cpuid(&info[0], 1);
+    return static_cast<bool>(info[2] & 0x800000);
+}();
+}  // namespace priv
+
+// Polyfills for x86/x64 CPUs without POPCNT.
+// https://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetParallel
+inline int BitCountPolyfill(uint32_t bits)
+{
+    bits = bits - ((bits >> 1) & 0x55555555);
+    bits = (bits & 0x33333333) + ((bits >> 2) & 0x33333333);
+    bits = ((bits + (bits >> 4) & 0x0F0F0F0F) * 0x01010101) >> 24;
+    return static_cast<int>(bits);
+}
+
+inline int BitCountPolyfill(uint64_t bits)
+{
+    bits = bits - ((bits >> 1) & 0x5555555555555555ull);
+    bits = (bits & 0x3333333333333333ull) + ((bits >> 2) & 0x3333333333333333ull);
+    bits = ((bits + (bits >> 4) & 0x0F0F0F0F0F0F0F0Full) * 0x0101010101010101ull) >> 56;
+    return static_cast<int>(bits);
+}
+
 inline int BitCount(uint32_t bits)
 {
-    return static_cast<int>(__popcnt(bits));
+    if (priv::kHasPopcnt)
+    {
+        return static_cast<int>(__popcnt(bits));
+    }
+    return BitCountPolyfill(bits);
 }
-#    if defined(_M_X64)
-#        define ANGLE_HAS_BITCOUNT_64
+
 inline int BitCount(uint64_t bits)
 {
-    return static_cast<int>(__popcnt64(bits));
+    if (priv::kHasPopcnt)
+    {
+#        if defined(_M_X64)
+        return static_cast<int>(__popcnt64(bits));
+#        else   // x86
+        return static_cast<int>(__popcnt(static_cast<uint32_t>(bits >> 32)) +
+                                __popcnt(static_cast<uint32_t>(bits)));
+#        endif  // defined(_M_X64)
+    }
+    return BitCountPolyfill(bits);
 }
-#    endif  // defined(_M_X64)
-#endif      // defined(_M_IX86) || defined(_M_X64)
 
-#if defined(ANGLE_PLATFORM_POSIX)
-#    define ANGLE_HAS_BITCOUNT_32
+#    elif defined(_M_ARM) || defined(_M_ARM64)
+
+// MSVC's _CountOneBits* intrinsics are not defined for ARM64, moreover they do not use dedicated
+// NEON instructions.
+
+inline int BitCount(uint32_t bits)
+{
+    // cast bits to 8x8 datatype and use VCNT on it
+    const uint8x8_t vsum = vcnt_u8(vcreate_u8(static_cast<uint64_t>(bits)));
+
+    // pairwise sums: 8x8 -> 16x4 -> 32x2
+    return static_cast<int>(vget_lane_u32(vpaddl_u16(vpaddl_u8(vsum)), 0));
+}
+
+inline int BitCount(uint64_t bits)
+{
+    // cast bits to 8x8 datatype and use VCNT on it
+    const uint8x8_t vsum = vcnt_u8(vcreate_u8(bits));
+
+    // pairwise sums: 8x8 -> 16x4 -> 32x2 -> 64x1
+    return static_cast<int>(vget_lane_u64(vpaddl_u32(vpaddl_u16(vpaddl_u8(vsum))), 0));
+}
+#    endif  // defined(_M_IX86) || defined(_M_X64)
+#endif      // defined(_MSC_VER) && !defined(__clang__)
+
+#if defined(ANGLE_PLATFORM_POSIX) || defined(__clang__)
 inline int BitCount(uint32_t bits)
 {
     return __builtin_popcount(bits);
 }
 
-#    if defined(ANGLE_IS_64_BIT_CPU)
-#        define ANGLE_HAS_BITCOUNT_64
 inline int BitCount(uint64_t bits)
 {
     return __builtin_popcountll(bits);
 }
-#    endif  // defined(ANGLE_IS_64_BIT_CPU)
-#endif      // defined(ANGLE_PLATFORM_POSIX)
-
-int BitCountPolyfill(uint32_t bits);
-
-#if !defined(ANGLE_HAS_BITCOUNT_32)
-inline int BitCount(const uint32_t bits)
-{
-    return BitCountPolyfill(bits);
-}
-#endif  // !defined(ANGLE_HAS_BITCOUNT_32)
-
-#if !defined(ANGLE_HAS_BITCOUNT_64)
-inline int BitCount(const uint64_t bits)
-{
-    return BitCount(static_cast<uint32_t>(bits >> 32)) + BitCount(static_cast<uint32_t>(bits));
-}
-#endif  // !defined(ANGLE_HAS_BITCOUNT_64)
-#undef ANGLE_HAS_BITCOUNT_32
-#undef ANGLE_HAS_BITCOUNT_64
+#endif  // defined(ANGLE_PLATFORM_POSIX) || defined(__clang__)
 
 inline int BitCount(uint8_t bits)
 {
@@ -1042,17 +1094,28 @@ inline unsigned long ScanForward(uint32_t bits)
     return firstBitIndex;
 }
 
-#    if defined(ANGLE_IS_64_BIT_CPU)
 inline unsigned long ScanForward(uint64_t bits)
 {
     ASSERT(bits != 0u);
     unsigned long firstBitIndex = 0ul;
-    unsigned char ret           = _BitScanForward64(&firstBitIndex, bits);
+#    if defined(ANGLE_IS_64_BIT_CPU)
+    unsigned char ret = _BitScanForward64(&firstBitIndex, bits);
+#    else
+    unsigned char ret;
+    if (static_cast<uint32_t>(bits) == 0)
+    {
+        ret = _BitScanForward(&firstBitIndex, static_cast<uint32_t>(bits >> 32));
+        firstBitIndex += 32ul;
+    }
+    else
+    {
+        ret = _BitScanForward(&firstBitIndex, static_cast<uint32_t>(bits));
+    }
+#    endif  // defined(ANGLE_IS_64_BIT_CPU)
     ASSERT(ret != 0u);
     return firstBitIndex;
 }
-#    endif  // defined(ANGLE_IS_64_BIT_CPU)
-#endif      // defined(ANGLE_PLATFORM_WINDOWS)
+#endif  // defined(ANGLE_PLATFORM_WINDOWS)
 
 #if defined(ANGLE_PLATFORM_POSIX)
 inline unsigned long ScanForward(uint32_t bits)
@@ -1061,14 +1124,18 @@ inline unsigned long ScanForward(uint32_t bits)
     return static_cast<unsigned long>(__builtin_ctz(bits));
 }
 
-#    if defined(ANGLE_IS_64_BIT_CPU)
 inline unsigned long ScanForward(uint64_t bits)
 {
     ASSERT(bits != 0u);
+#    if defined(ANGLE_IS_64_BIT_CPU)
     return static_cast<unsigned long>(__builtin_ctzll(bits));
-}
+#    else
+    return static_cast<unsigned long>(static_cast<uint32_t>(bits) == 0
+                                          ? __builtin_ctz(static_cast<uint32_t>(bits >> 32)) + 32
+                                          : __builtin_ctz(static_cast<uint32_t>(bits)));
 #    endif  // defined(ANGLE_IS_64_BIT_CPU)
-#endif      // defined(ANGLE_PLATFORM_POSIX)
+}
+#endif  // defined(ANGLE_PLATFORM_POSIX)
 
 inline unsigned long ScanForward(uint8_t bits)
 {
@@ -1238,6 +1305,13 @@ T roundUp(const T value, const T alignment)
 {
     auto temp = value + alignment - static_cast<T>(1);
     return temp - temp % alignment;
+}
+
+template <typename T>
+constexpr T roundUpPow2(const T value, const T alignment)
+{
+    ASSERT(gl::isPow2(alignment));
+    return (value + alignment - 1) & ~(alignment - 1);
 }
 
 template <typename T>

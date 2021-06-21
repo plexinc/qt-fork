@@ -26,6 +26,15 @@ class User;
 
 namespace arc {
 
+// This enum should be synced with CpuRestrictionState in
+// src/third_party/cros_system_api/dbus/vm_concierge/concierge_service.proto
+enum class CpuRestrictionState {
+  // The CPU usage is relaxed.
+  CPU_RESTRICTION_FOREGROUND = 0,
+  // The CPU usage is tightly restricted.
+  CPU_RESTRICTION_BACKGROUND = 1,
+};
+
 // Name of the crosvm instance when ARCVM is enabled.
 constexpr char kArcVmName[] = "arcvm";
 
@@ -42,11 +51,6 @@ bool IsArcAvailable();
 
 // Returns true if ARC VM is enabled.
 bool IsArcVmEnabled();
-
-// These two methods used for testing only add and remove the arcvm flag so that
-// IsArcVmEnabled() returns the corresponding result.
-void EnableArcVmForTesting();
-void DisableArcVmForTesting();
 
 // Returns true if ARC should always start within the primary user session
 // (opted in user or not), and other supported mode such as guest and Kiosk
@@ -137,10 +141,9 @@ bool IsArcLocaleSyncDisabled();
 bool IsArcPlayAutoInstallDisabled();
 
 // Adjusts the amount of CPU the ARC instance is allowed to use. When
-// |do_restrict| is true, the limit is adjusted so ARC can only use tightly
-// restricted CPU resources.
-// TODO(yusukes): Use enum instead of bool.
-void SetArcCpuRestriction(bool do_restrict);
+// |cpu_restriction_state| is CPU_RESTRICTION_BACKGROUND, the limit is adjusted
+// so ARC can only use tightly restricted CPU resources.
+void SetArcCpuRestriction(CpuRestrictionState cpu_restriction_state);
 
 // Returns the Android density that should be used for the given device scale
 // factor used on chrome.

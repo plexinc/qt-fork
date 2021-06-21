@@ -51,6 +51,7 @@ GLWindowContext_mac::GLWindowContext_mac(const MacWindowInfo& info, const Displa
 }
 
 GLWindowContext_mac::~GLWindowContext_mac() {
+    [NSOpenGLContext clearCurrentContext];
     [fPixelFormat release];
     fPixelFormat = nil;
     [fGLContext release];
@@ -125,7 +126,7 @@ sk_sp<const GrGLInterface> GLWindowContext_mac::onInitializeContext() {
     GLint sampleCount;
     [fPixelFormat getValues:&sampleCount forAttribute:NSOpenGLPFASamples forVirtualScreen:0];
     fSampleCount = sampleCount;
-    fSampleCount = SkTMax(fSampleCount, 1);
+    fSampleCount = std::max(fSampleCount, 1);
 
     const NSRect viewportRect = [fMainView frame];
     fWidth = viewportRect.size.width;
@@ -161,10 +162,10 @@ void GLWindowContext_mac::resize(int w, int h) {
 namespace sk_app {
 namespace window_context_factory {
 
-WindowContext* NewGLForMac(const MacWindowInfo& info, const DisplayParams& params) {
-    WindowContext* ctx = new GLWindowContext_mac(info, params);
+std::unique_ptr<WindowContext> MakeGLForMac(const MacWindowInfo& info,
+                                            const DisplayParams& params) {
+    std::unique_ptr<WindowContext> ctx(new GLWindowContext_mac(info, params));
     if (!ctx->isValid()) {
-        delete ctx;
         return nullptr;
     }
     return ctx;

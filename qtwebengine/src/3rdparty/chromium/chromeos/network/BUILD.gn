@@ -21,6 +21,7 @@ component("network") {
     "//chromeos/services/network_config/public/mojom",
     "//components/account_id",
     "//components/certificate_matching",
+    "//components/crx_file",
     "//components/device_event_log",
     "//components/onc",
     "//components/pref_registry",
@@ -47,10 +48,6 @@ component("network") {
     "client_cert_util.h",
     "device_state.cc",
     "device_state.h",
-    "dhcp_pac_file_fetcher_chromeos.cc",
-    "dhcp_pac_file_fetcher_chromeos.h",
-    "dhcp_pac_file_fetcher_factory_chromeos.cc",
-    "dhcp_pac_file_fetcher_factory_chromeos.h",
     "fast_transition_observer.cc",
     "fast_transition_observer.h",
     "firewall_hole.cc",
@@ -74,6 +71,7 @@ component("network") {
     "network_certificate_handler.h",
     "network_configuration_handler.cc",
     "network_configuration_handler.h",
+    "network_configuration_observer.cc",
     "network_configuration_observer.h",
     "network_connect.cc",
     "network_connect.h",
@@ -87,6 +85,7 @@ component("network") {
     "network_device_handler.h",
     "network_device_handler_impl.cc",
     "network_device_handler_impl.h",
+    "network_event_log.cc",
     "network_event_log.h",
     "network_handler.cc",
     "network_handler.h",
@@ -94,6 +93,9 @@ component("network") {
     "network_handler_callbacks.h",
     "network_ip_config.cc",
     "network_ip_config.h",
+    "network_metadata_observer.h",
+    "network_metadata_store.cc",
+    "network_metadata_store.h",
     "network_profile.cc",
     "network_profile.h",
     "network_profile_handler.cc",
@@ -113,6 +115,8 @@ component("network") {
     "network_ui_data.h",
     "network_util.cc",
     "network_util.h",
+    "onc/certificate_scope.cc",
+    "onc/certificate_scope.h",
     "onc/onc_certificate_importer.h",
     "onc/onc_certificate_importer_impl.cc",
     "onc/onc_certificate_importer_impl.h",
@@ -169,15 +173,14 @@ component("network") {
 
 source_set("test_support") {
   testonly = true
-  public_deps = [
-    ":network",
-  ]
+  public_deps = [ ":network" ]
   deps = [
     "//base",
     "//chromeos:test_utils",
     "//chromeos/dbus:test_support",
     "//chromeos/services/network_config/public/cpp",
     "//chromeos/services/network_config/public/mojom",
+    "//components/sync_preferences:test_support",
     "//dbus",
     "//net:test_support",
     "//testing/gmock",
@@ -246,6 +249,8 @@ source_set("unit_tests") {
     "network_connect_unittest.cc",
     "network_connection_handler_impl_unittest.cc",
     "network_device_handler_unittest.cc",
+    "network_event_log_unittest.cc",
+    "network_metadata_store_unittest.cc",
     "network_sms_handler_unittest.cc",
     "network_state_handler_unittest.cc",
     "network_state_unittest.cc",
@@ -269,9 +274,7 @@ source_set("unit_tests") {
 }
 
 fuzzer_test("variable_expander_fuzzer") {
-  sources = [
-    "onc/variable_expander_fuzzer.cc",
-  ]
+  sources = [ "onc/variable_expander_fuzzer.cc" ]
   seed_corpus = "//chromeos/test/data/variable_expander/fuzzer_corpus"
   dict = "//chromeos/test/data/variable_expander/fuzzer.dict"
   deps = [

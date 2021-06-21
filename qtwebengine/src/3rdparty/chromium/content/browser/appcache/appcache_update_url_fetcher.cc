@@ -10,6 +10,8 @@
 #include "base/command_line.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "components/network_session_configurator/common/network_switches.h"
+#include "content/browser/appcache/appcache_disk_cache_ops.h"
+#include "content/browser/appcache/appcache_update_job_state.h"
 #include "content/browser/appcache/appcache_update_url_loader_request.h"
 #include "net/base/load_flags.h"
 #include "net/http/http_request_headers.h"
@@ -32,7 +34,6 @@ AppCacheUpdateJob::URLFetcher::URLFetcher(const GURL& url,
       fetch_type_(fetch_type),
       buffer_size_(buffer_size),
       request_(std::make_unique<UpdateURLLoaderRequest>(
-          job->service_->url_loader_factory_getter(),
           job->service_->partition(),
           url,
           buffer_size,
@@ -50,6 +51,7 @@ void AppCacheUpdateJob::URLFetcher::Start() {
   } else if (existing_response_headers_.get()) {
     AddConditionalHeaders(existing_response_headers_.get());
   }
+  request_->SetFetchMetadataHeaders();
   request_->Start();
 }
 
@@ -145,6 +147,8 @@ void AppCacheUpdateJob::URLFetcher::AddConditionalHeaders(
     const net::HttpResponseHeaders* headers) {
   DCHECK(request_);
   DCHECK(headers);
+  DCHECK_NE(fetch_type_, FetchType::kNewMasterEntry);
+
   net::HttpRequestHeaders extra_headers;
 
   // Add If-Modified-Since header if response info has Last-Modified header.
@@ -178,12 +182,8 @@ void AppCacheUpdateJob::URLFetcher::OnWriteComplete(int result) {
 }
 
 void AppCacheUpdateJob::URLFetcher::ReadResponseData() {
-  AppCacheUpdateJob::InternalUpdateState state = job_->internal_state_;
-  if (state == AppCacheUpdateJob::CACHE_FAILURE ||
-      state == AppCacheUpdateJob::CANCELLED ||
-      state == AppCacheUpdateJob::COMPLETED) {
+  if (job_->IsFinished())
     return;
-  }
   request_->Read();
 }
 
@@ -250,8 +250,7 @@ bool AppCacheUpdateJob::URLFetcher::MaybeRetryRequest() {
 
   result_ = AppCacheUpdateJob::UPDATE_OK;
   request_ = std::make_unique<UpdateURLLoaderRequest>(
-      job_->service_->url_loader_factory_getter(), job_->service_->partition(),
-      url_, buffer_size_, this);
+      job_->service_->partition(), url_, buffer_size_, this);
   Start();
   return true;
 }

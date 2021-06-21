@@ -2,6 +2,8 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//components/safe_browsing/buildflags.gni")
+
 if (is_android) {
   import("//build/config/android/config.gni")
   import("//build/config/android/rules.gni")
@@ -39,8 +41,6 @@ source_set("internal") {
     "download_stats.cc",
     "download_task_runner.cc",
     "download_ukm_helper.cc",
-    "download_url_loader_factory_getter.cc",
-    "download_url_loader_factory_getter_impl.cc",
     "download_utils.cc",
     "download_worker.cc",
     "download_worker.h",
@@ -59,9 +59,12 @@ source_set("internal") {
     "stream_handle_input_stream.cc",
     "url_download_handler_factory.cc",
     "url_download_request_handle.cc",
+    "url_loader_factory_provider.cc",
   ]
 
   public_deps = [
+    "//components/services/quarantine/public/mojom",
+    "//mojo/public/cpp/bindings",
     "//services/network/public/mojom",
   ]
 
@@ -72,6 +75,7 @@ source_set("internal") {
     "//components/download/quarantine",
     "//components/filename_generation",
     "//components/leveldb_proto",
+    "//components/safe_browsing:buildflags",
     "//mojo/public/c/system",
     "//net",
     "//services/device/public/mojom:mojom",
@@ -79,6 +83,11 @@ source_set("internal") {
     "//services/network/public/cpp",
     "//services/service_manager/public/cpp:cpp",
   ]
+
+  # TODO(crbug/1056278): Enable this on Fuchsia
+  if (safe_browsing_mode > 0 && !is_fuchsia) {
+    deps += [ "//components/safe_browsing/core:file_type_policies" ]
+  }
 
   if (is_win) {
     deps += [ "//components/services/quarantine/public/cpp:features" ]
@@ -100,18 +109,22 @@ source_set("internal") {
 
 if (is_android) {
   android_library("internal_java") {
-    java_files = [ "android/java/src/org/chromium/components/download/DownloadCollectionBridge.java" ]
+    sources = [
+      "android/java/src/org/chromium/components/download/DownloadCollectionBridge.java",
+      "android/java/src/org/chromium/components/download/DownloadDelegate.java",
+    ]
 
     deps = [
       "//base:base_java",
+      "//base:jni_java",
+      "//third_party/android_provider:android_provider_java",
     ]
+    annotation_processor_deps = [ "//base/android/jni_generator:jni_processor" ]
   }
 
   generate_jni("jni_headers") {
     visibility = [ ":*" ]
-    sources = [
-      "android/java/src/org/chromium/components/download/DownloadCollectionBridge.java",
-    ]
+    sources = [ "android/java/src/org/chromium/components/download/DownloadCollectionBridge.java" ]
   }
 }
 
@@ -121,9 +134,7 @@ if (is_android) {
 group("for_tests") {
   visibility = [ ":unit_tests" ]
   if (!is_component_build) {
-    public_deps = [
-      ":internal",
-    ]
+    public_deps = [ ":internal" ]
   }
 }
 

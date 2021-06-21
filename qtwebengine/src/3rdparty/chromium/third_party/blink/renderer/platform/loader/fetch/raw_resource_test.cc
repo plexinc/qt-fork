@@ -44,10 +44,10 @@
 #include "third_party/blink/renderer/platform/loader/testing/replaying_bytes_consumer.h"
 #include "third_party/blink/renderer/platform/scheduler/public/thread.h"
 #include "third_party/blink/renderer/platform/scheduler/public/thread_scheduler.h"
-#include "third_party/blink/renderer/platform/shared_buffer.h"
 #include "third_party/blink/renderer/platform/testing/testing_platform_support_with_mock_scheduler.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
+#include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
 #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
 
 namespace blink {
@@ -59,7 +59,7 @@ class RawResourceTest : public testing::Test {
 
  protected:
   class NoopResponseBodyLoaderClient
-      : public GarbageCollectedFinalized<NoopResponseBodyLoaderClient>,
+      : public GarbageCollected<NoopResponseBodyLoaderClient>,
         public ResponseBodyLoaderClient {
     USING_GARBAGE_COLLECTED_MIXIN(NoopResponseBodyLoaderClient);
 
@@ -92,11 +92,11 @@ TEST_F(RawResourceTest, DontIgnoreAcceptForCacheReuse) {
   ResourceRequest png_request;
   png_request.SetHTTPAccept("image/png");
   png_request.SetRequestorOrigin(source_origin);
-  EXPECT_NE(jpeg_resource->CanReuse(FetchParameters(png_request)),
+  EXPECT_NE(jpeg_resource->CanReuse(FetchParameters(std::move(png_request))),
             Resource::MatchStatus::kOk);
 }
 
-class DummyClient final : public GarbageCollectedFinalized<DummyClient>,
+class DummyClient final : public GarbageCollected<DummyClient>,
                           public RawResourceClient {
   USING_GARBAGE_COLLECTED_MIXIN(DummyClient);
 
@@ -124,9 +124,7 @@ class DummyClient final : public GarbageCollectedFinalized<DummyClient>,
     return number_of_redirects_received_;
   }
   const Vector<char>& Data() { return data_; }
-  void Trace(blink::Visitor* visitor) override {
-    RawResourceClient::Trace(visitor);
-  }
+  void Trace(Visitor* visitor) override { RawResourceClient::Trace(visitor); }
 
  private:
   bool called_;
@@ -135,7 +133,7 @@ class DummyClient final : public GarbageCollectedFinalized<DummyClient>,
 };
 
 // This client adds another client when notified.
-class AddingClient final : public GarbageCollectedFinalized<AddingClient>,
+class AddingClient final : public GarbageCollected<AddingClient>,
                            public RawResourceClient {
   USING_GARBAGE_COLLECTED_MIXIN(AddingClient);
 
@@ -162,7 +160,7 @@ class AddingClient final : public GarbageCollectedFinalized<AddingClient>,
 
   void RemoveClient() { resource_->RemoveClient(dummy_client_); }
 
-  void Trace(blink::Visitor* visitor) override {
+  void Trace(Visitor* visitor) override {
     visitor->Trace(dummy_client_);
     visitor->Trace(resource_);
     RawResourceClient::Trace(visitor);
@@ -192,7 +190,7 @@ TEST_F(RawResourceTest, AddClientDuringCallback) {
 }
 
 // This client removes another client when notified.
-class RemovingClient : public GarbageCollectedFinalized<RemovingClient>,
+class RemovingClient : public GarbageCollected<RemovingClient>,
                        public RawResourceClient {
   USING_GARBAGE_COLLECTED_MIXIN(RemovingClient);
 
@@ -207,7 +205,7 @@ class RemovingClient : public GarbageCollectedFinalized<RemovingClient>,
     resource->RemoveClient(this);
   }
   String DebugName() const override { return "RemovingClient"; }
-  void Trace(blink::Visitor* visitor) override {
+  void Trace(Visitor* visitor) override {
     visitor->Trace(dummy_client_);
     RawResourceClient::Trace(visitor);
   }
@@ -255,7 +253,7 @@ TEST_F(RawResourceTest, PreloadWithAsynchronousAddClient) {
   // Set the response first to make ResourceClient addition asynchronous.
   raw->SetResponse(ResourceResponse(KURL("http://600.613/")));
 
-  FetchParameters params(request);
+  FetchParameters params(std::move(request));
   params.MutableResourceRequest().SetUseStreamOnResponse(false);
   raw->MatchPreload(params, platform_->test_task_runner().get());
   raw->AddClient(dummy_client, platform_->test_task_runner().get());

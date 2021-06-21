@@ -18,6 +18,7 @@
 #include "base/bind.h"
 #include "base/logging.h"
 #include "base/mac/mac_logging.h"
+#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
@@ -438,8 +439,10 @@ gfx::ColorSpace GetImageBufferColorSpace(CVImageBufferRef image_buffer) {
   // the kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange.
   gfx::ColorSpace::RangeID range_id = gfx::ColorSpace::RangeID::LIMITED;
 
-  if (transfer_id == gfx::ColorSpace::TransferID::CUSTOM)
-    return gfx::ColorSpace(primary_id, custom_tr_fn, matrix_id, range_id);
+  if (transfer_id == gfx::ColorSpace::TransferID::CUSTOM) {
+    return gfx::ColorSpace(primary_id, gfx::ColorSpace::TransferID::CUSTOM,
+                           matrix_id, range_id, nullptr, &custom_tr_fn);
+  }
   return gfx::ColorSpace(primary_id, transfer_id, matrix_id, range_id);
 }
 
@@ -650,7 +653,7 @@ bool VTVideoDecodeAccelerator::ConfigureDecoder() {
   nalu_data_sizes.reserve(3);
   nalu_data_ptrs.push_back(&active_sps_.front());
   nalu_data_sizes.push_back(active_sps_.size());
-  if (!last_spsext_.empty()) {
+  if (!active_spsext_.empty()) {
     nalu_data_ptrs.push_back(&active_spsext_.front());
     nalu_data_sizes.push_back(active_spsext_.size());
   }
@@ -763,50 +766,64 @@ void VTVideoDecodeAccelerator::DecodeTask(scoped_refptr<DecoderBuffer> buffer,
     if (result == H264Parser::kEOStream)
       break;
     if (result == H264Parser::kUnsupportedStream) {
-      WriteToMediaLog(MediaLog::MEDIALOG_ERROR, "Unsupported H.264 stream");
+      WriteToMediaLog(MediaLogMessageLevel::kERROR, "Unsupported H.264 stream");
       NotifyError(PLATFORM_FAILURE, SFT_UNSUPPORTED_STREAM);
       return;
     }
     if (result != H264Parser::kOk) {
-      WriteToMediaLog(MediaLog::MEDIALOG_ERROR, "Failed to parse H.264 stream");
+      WriteToMediaLog(MediaLogMessageLevel::kERROR,
+                      "Failed to parse H.264 stream");
       NotifyError(UNREADABLE_INPUT, SFT_INVALID_STREAM);
       return;
     }
     switch (nalu.nal_unit_type) {
-      case H264NALU::kSPS:
-        result = parser_.ParseSPS(&last_sps_id_);
+      case H264NALU::kSPS: {
+        int sps_id = -1;
+        result = parser_.ParseSPS(&sps_id);
         if (result == H264Parser::kUnsupportedStream) {
-          WriteToMediaLog(MediaLog::MEDIALOG_ERROR, "Unsupported SPS");
+          WriteToMediaLog(MediaLogMessageLevel::kERROR, "Unsupported SPS");
           NotifyError(PLATFORM_FAILURE, SFT_UNSUPPORTED_STREAM);
           return;
         }
         if (result != H264Parser::kOk) {
-          WriteToMediaLog(MediaLog::MEDIALOG_ERROR, "Could not parse SPS");
+          WriteToMediaLog(MediaLogMessageLevel::kERROR, "Could not parse SPS");
           NotifyError(UNREADABLE_INPUT, SFT_INVALID_STREAM);
           return;
         }
-        last_sps_.assign(nalu.data, nalu.data + nalu.size);
-        last_spsext_.clear();
+        seen_sps_[sps_id].assign(nalu.data, nalu.data + nalu.size);
+        seen_spsext_.erase(sps_id);
         break;
+      }
 
-      case H264NALU::kSPSExt:
-        last_spsext_.assign(nalu.data, nalu.data + nalu.size);
+      case H264NALU::kSPSExt: {
+        int sps_id = -1;
+        result = parser_.ParseSPSExt(&sps_id);
+        if (result != H264Parser::kOk) {
+          WriteToMediaLog(MediaLogMessageLevel::kERROR,
+                          "Could not parse SPS extension");
+          NotifyError(UNREADABLE_INPUT, SFT_INVALID_STREAM);
+          return;
+        }
+        seen_spsext_[sps_id].assign(nalu.data, nalu.data + nalu.size);
         break;
+      }
 
-      case H264NALU::kPPS:
-        result = parser_.ParsePPS(&last_pps_id_);
+      case H264NALU::kPPS: {
+        int pps_id = -1;
+        result = parser_.ParsePPS(&pps_id);
         if (result == H264Parser::kUnsupportedStream) {
-          WriteToMediaLog(MediaLog::MEDIALOG_ERROR, "Unsupported PPS");
+          WriteToMediaLog(MediaLogMessageLevel::kERROR, "Unsupported PPS");
           NotifyError(PLATFORM_FAILURE, SFT_UNSUPPORTED_STREAM);
           return;
         }
         if (result != H264Parser::kOk) {
-          WriteToMediaLog(MediaLog::MEDIALOG_ERROR, "Could not parse PPS");
+          WriteToMediaLog(MediaLogMessageLevel::kERROR, "Could not parse PPS");
           NotifyError(UNREADABLE_INPUT, SFT_INVALID_STREAM);
           return;
         }
-        last_pps_.assign(nalu.data, nalu.data + nalu.size);
+        seen_pps_[pps_id].assign(nalu.data, nalu.data + nalu.size);
         break;
+      }
 
       case H264NALU::kSliceDataA:
       case H264NALU::kSliceDataB:
@@ -820,50 +837,50 @@ void VTVideoDecodeAccelerator::DecodeTask(scoped_refptr<DecoderBuffer> buffer,
           H264SliceHeader slice_hdr;
           result = parser_.ParseSliceHeader(nalu, &slice_hdr);
           if (result == H264Parser::kUnsupportedStream) {
-            WriteToMediaLog(MediaLog::MEDIALOG_ERROR,
+            WriteToMediaLog(MediaLogMessageLevel::kERROR,
                             "Unsupported slice header");
             NotifyError(PLATFORM_FAILURE, SFT_UNSUPPORTED_STREAM);
             return;
           }
           if (result != H264Parser::kOk) {
-            WriteToMediaLog(MediaLog::MEDIALOG_ERROR,
+            WriteToMediaLog(MediaLogMessageLevel::kERROR,
                             "Could not parse slice header");
             NotifyError(UNREADABLE_INPUT, SFT_INVALID_STREAM);
             return;
           }
 
           // Lookup SPS and PPS.
-          DCHECK_EQ(slice_hdr.pic_parameter_set_id, last_pps_id_);
           const H264PPS* pps = parser_.GetPPS(slice_hdr.pic_parameter_set_id);
           if (!pps) {
-            WriteToMediaLog(MediaLog::MEDIALOG_ERROR,
+            WriteToMediaLog(MediaLogMessageLevel::kERROR,
                             "Missing PPS referenced by slice");
             NotifyError(UNREADABLE_INPUT, SFT_INVALID_STREAM);
             return;
           }
 
-          DCHECK_EQ(pps->seq_parameter_set_id, last_sps_id_);
           const H264SPS* sps = parser_.GetSPS(pps->seq_parameter_set_id);
           if (!sps) {
-            WriteToMediaLog(MediaLog::MEDIALOG_ERROR,
+            WriteToMediaLog(MediaLogMessageLevel::kERROR,
                             "Missing SPS referenced by PPS");
             NotifyError(UNREADABLE_INPUT, SFT_INVALID_STREAM);
             return;
           }
 
           // Record the configuration.
-          // TODO(sandersd): Ideally this would be skipped if we know there
-          // have not been any parameter sets since the last frame.
-          active_sps_ = last_sps_;
-          active_spsext_ = last_spsext_;
-          active_pps_ = last_pps_;
+          DCHECK(seen_pps_.count(slice_hdr.pic_parameter_set_id));
+          DCHECK(seen_sps_.count(pps->seq_parameter_set_id));
+          active_sps_ = seen_sps_[pps->seq_parameter_set_id];
+          // Note: SPS extension lookup may create an empty entry.
+          active_spsext_ = seen_spsext_[pps->seq_parameter_set_id];
+          active_pps_ = seen_pps_[slice_hdr.pic_parameter_set_id];
 
           // Compute and store frame properties. |image_size| gets filled in
           // later, since it comes from the decoder configuration.
           base::Optional<int32_t> pic_order_cnt =
               poc_.ComputePicOrderCnt(sps, slice_hdr);
           if (!pic_order_cnt.has_value()) {
-            WriteToMediaLog(MediaLog::MEDIALOG_ERROR, "Unable to compute POC");
+            WriteToMediaLog(MediaLogMessageLevel::kERROR,
+                            "Unable to compute POC");
             NotifyError(UNREADABLE_INPUT, SFT_INVALID_STREAM);
             return;
           }
@@ -891,7 +908,7 @@ void VTVideoDecodeAccelerator::DecodeTask(scoped_refptr<DecoderBuffer> buffer,
   // error messages for those.
   if (frame->has_slice && waiting_for_idr_) {
     if (!missing_idr_logged_) {
-      WriteToMediaLog(MediaLog::MEDIALOG_ERROR,
+      WriteToMediaLog(MediaLogMessageLevel::kERROR,
                       ("Illegal attempt to decode without IDR. "
                        "Discarding decode requests until the next IDR."));
       missing_idr_logged_ = true;
@@ -914,13 +931,13 @@ void VTVideoDecodeAccelerator::DecodeTask(scoped_refptr<DecoderBuffer> buffer,
       (configured_sps_ != active_sps_ || configured_spsext_ != active_spsext_ ||
        configured_pps_ != active_pps_)) {
     if (active_sps_.empty()) {
-      WriteToMediaLog(MediaLog::MEDIALOG_ERROR,
+      WriteToMediaLog(MediaLogMessageLevel::kERROR,
                       "Invalid configuration (no SPS)");
       NotifyError(INVALID_ARGUMENT, SFT_INVALID_STREAM);
       return;
     }
     if (active_pps_.empty()) {
-      WriteToMediaLog(MediaLog::MEDIALOG_ERROR,
+      WriteToMediaLog(MediaLogMessageLevel::kERROR,
                       "Invalid configuration (no PPS)");
       NotifyError(INVALID_ARGUMENT, SFT_INVALID_STREAM);
       return;
@@ -933,7 +950,7 @@ void VTVideoDecodeAccelerator::DecodeTask(scoped_refptr<DecoderBuffer> buffer,
 
   // If the session is not configured by this point, fail.
   if (!session_) {
-    WriteToMediaLog(MediaLog::MEDIALOG_ERROR,
+    WriteToMediaLog(MediaLogMessageLevel::kERROR,
                     "Cannot decode without configuration");
     NotifyError(INVALID_ARGUMENT, SFT_INVALID_STREAM);
     return;
@@ -1428,7 +1445,7 @@ void VTVideoDecodeAccelerator::NotifyError(
   }
 }
 
-void VTVideoDecodeAccelerator::WriteToMediaLog(MediaLog::MediaLogLevel level,
+void VTVideoDecodeAccelerator::WriteToMediaLog(MediaLogMessageLevel level,
                                                const std::string& message) {
   if (!gpu_task_runner_->BelongsToCurrentThread()) {
     gpu_task_runner_->PostTask(
@@ -1437,10 +1454,10 @@ void VTVideoDecodeAccelerator::WriteToMediaLog(MediaLog::MediaLogLevel level,
     return;
   }
 
-  DVLOG(1) << __func__ << "(" << level << ") " << message;
+  DVLOG(1) << __func__ << "(" << static_cast<int>(level) << ") " << message;
 
   if (media_log_)
-    media_log_->AddLogEvent(level, message);
+    media_log_->AddMessage(level, message);
 }
 
 void VTVideoDecodeAccelerator::QueueFlush(TaskType type) {

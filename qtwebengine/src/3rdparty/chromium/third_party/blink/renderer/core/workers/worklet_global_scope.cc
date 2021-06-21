@@ -5,6 +5,7 @@
 #include "third_party/blink/renderer/core/workers/worklet_global_scope.h"
 
 #include <memory>
+#include "third_party/blink/public/common/browser_interface_broker_proxy.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_source_code.h"
 #include "third_party/blink/renderer/bindings/core/v8/source_location.h"
@@ -70,11 +71,11 @@ WorkletGlobalScope::WorkletGlobalScope(
           // TODO(tzik): Assign an Agent for Worklets after
           // NonMainThreadScheduler gets ready to run microtasks.
           agent,
-          creation_params->off_main_thread_fetch_option,
           creation_params->global_scope_name,
           creation_params->parent_devtools_token,
           creation_params->v8_cache_options,
           creation_params->worker_clients,
+          std::move(creation_params->content_settings_client),
           std::move(creation_params->web_worker_fetch_context),
           reporting_proxy),
       url_(creation_params->script_url),
@@ -115,6 +116,11 @@ WorkletGlobalScope::WorkletGlobalScope(
 
 WorkletGlobalScope::~WorkletGlobalScope() = default;
 
+BrowserInterfaceBrokerProxy& WorkletGlobalScope::GetBrowserInterfaceBroker() {
+  NOTIMPLEMENTED();
+  return GetEmptyBrowserInterfaceBroker();
+}
+
 bool WorkletGlobalScope::IsMainThreadWorkletGlobalScope() const {
   return thread_type_ == ThreadType::kMainThread;
 }
@@ -125,16 +131,6 @@ bool WorkletGlobalScope::IsThreadedWorkletGlobalScope() const {
 
 ExecutionContext* WorkletGlobalScope::GetExecutionContext() const {
   return const_cast<WorkletGlobalScope*>(this);
-}
-
-bool WorkletGlobalScope::IsSecureContext(String& error_message) const {
-  // Until there are APIs that are available in worklets and that
-  // require a privileged context test that checks ancestors, just do
-  // a simple check here.
-  if (GetSecurityOrigin()->IsPotentiallyTrustworthy())
-    return true;
-  error_message = GetSecurityOrigin()->IsPotentiallyTrustworthyErrorMessage();
-  return false;
 }
 
 bool WorkletGlobalScope::IsContextThread() const {
@@ -221,13 +217,11 @@ void WorkletGlobalScope::FetchAndInvokeScript(
   // moduleURLRecord, moduleResponsesMap, credentialOptions, outsideSettings,
   // and insideSettings when it asynchronously completes."
 
-  Modulator* modulator = Modulator::From(ScriptController()->GetScriptState());
-
   // Step 3 to 5 are implemented in
   // WorkletModuleTreeClient::NotifyModuleTreeLoadFinished.
-  WorkletModuleTreeClient* client =
-      MakeGarbageCollected<WorkletModuleTreeClient>(
-          modulator, std::move(outside_settings_task_runner), pending_tasks);
+  auto* client = MakeGarbageCollected<WorkletModuleTreeClient>(
+      ScriptController()->GetScriptState(),
+      std::move(outside_settings_task_runner), pending_tasks);
 
   // TODO(nhiroki): Pass an appropriate destination defined in each worklet
   // spec (e.g., "paint worklet", "audio worklet") (https://crbug.com/843980,
@@ -235,6 +229,7 @@ void WorkletGlobalScope::FetchAndInvokeScript(
   auto destination = mojom::RequestContextType::SCRIPT;
   FetchModuleScript(module_url_record, outside_settings_object,
                     outside_resource_timing_notifier, destination,
+                    network::mojom::RequestDestination::kScript,
                     credentials_mode,
                     ModuleScriptCustomFetchType::kWorkletAddModule, client);
 }
@@ -263,7 +258,7 @@ void WorkletGlobalScope::BindContentSecurityPolicyToExecutionContext() {
   GetContentSecurityPolicy()->SetupSelf(*document_security_origin_);
 }
 
-void WorkletGlobalScope::Trace(blink::Visitor* visitor) {
+void WorkletGlobalScope::Trace(Visitor* visitor) {
   visitor->Trace(frame_);
   WorkerOrWorkletGlobalScope::Trace(visitor);
 }

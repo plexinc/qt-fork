@@ -30,7 +30,7 @@ class MEDIA_EXPORT DefaultDecoderFactory : public DecoderFactory {
       scoped_refptr<base::SingleThreadTaskRunner> task_runner,
       GpuVideoAcceleratorFactories* gpu_factories,
       MediaLog* media_log,
-      const RequestOverlayInfoCB& request_overlay_info_cb,
+      RequestOverlayInfoCB request_overlay_info_cb,
       const gfx::ColorSpace& target_color_space,
       std::vector<std::unique_ptr<VideoDecoder>>* video_decoders) final;
 
@@ -44,6 +44,7 @@ class MEDIA_EXPORT DefaultDecoderFactory : public DecoderFactory {
 
   std::unique_ptr<DecoderFactory> external_decoder_factory_
       GUARDED_BY(shutdown_lock_);
+
   DISALLOW_COPY_AND_ASSIGN(DefaultDecoderFactory);
 };
 

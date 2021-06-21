@@ -279,6 +279,7 @@ bool Display::getConfigAttrib(EGLConfig config, EGLint attribute, EGLint *value)
 	case EGL_MAX_PBUFFER_PIXELS:         *value = configuration->mMaxPBufferPixels;         break;
 	case EGL_RECORDABLE_ANDROID:         *value = configuration->mRecordableAndroid;        break;
 	case EGL_FRAMEBUFFER_TARGET_ANDROID: *value = configuration->mFramebufferTargetAndroid; break;
+	case EGL_BIND_TO_TEXTURE_TARGET_ANGLE: *value = configuration->mBindToTextureTargetANGLE; break;
 	default:
 		return false;
 	}
@@ -381,6 +382,7 @@ EGLSurface Display::createPBufferSurface(EGLConfig config, const EGLint *attribL
 				case GL_RED:
 				case GL_R16UI:
 				case GL_RG:
+				case GL_RGB:
 				case GL_BGRA_EXT:
 				case GL_RGBA:
 					clientBufferFormat = attribList[1];
@@ -470,6 +472,7 @@ EGLSurface Display::createPBufferSurface(EGLConfig config, const EGLint *attribL
 			{
 			case GL_RED:
 			case GL_RG:
+			case GL_RGB:
 			case GL_BGRA_EXT:
 				break;
 			case GL_R16UI:

@@ -6,8 +6,11 @@
 
 #include "net/third_party/quiche/src/quic/core/http/http_constants.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
+#include "net/third_party/quiche/src/quic/test_tools/quic_config_peer.h"
 #include "net/third_party/quiche/src/quic/test_tools/quic_spdy_session_peer.h"
 #include "net/third_party/quiche/src/quic/test_tools/quic_test_utils.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_str_cat.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 namespace test {
@@ -32,11 +35,18 @@ struct TestParams {
   Perspective perspective;
 };
 
+// Used by ::testing::PrintToStringParamName().
+std::string PrintToString(const TestParams& tp) {
+  return quiche::QuicheStrCat(
+      ParsedQuicVersionToString(tp.version), "_",
+      (tp.perspective == Perspective::IS_CLIENT ? "client" : "server"));
+}
+
 std::vector<TestParams> GetTestParams() {
   std::vector<TestParams> params;
   ParsedQuicVersionVector all_supported_versions = AllSupportedVersions();
   for (const auto& version : AllSupportedVersions()) {
-    if (!VersionHasStreamType(version.transport_version)) {
+    if (!VersionUsesHttp3(version.transport_version)) {
       continue;
     }
     for (Perspective p : {Perspective::IS_SERVER, Perspective::IS_CLIENT}) {
@@ -56,11 +66,18 @@ class QpackSendStreamTest : public QuicTestWithParam<TestParams> {
             SupportedVersions(GetParam().version))),
         session_(connection_) {
     session_.Initialize();
-    qpack_send_stream_ = QuicMakeUnique<QpackSendStream>(
-        QuicSpdySessionPeer::GetNextOutgoingUnidirectionalStreamId(&session_),
-        &session_, kQpackEncoderStream);
-    ON_CALL(session_, WritevData(_, _, _, _, _))
-        .WillByDefault(Invoke(MockQuicSession::ConsumeData));
+    QuicConfigPeer::SetReceivedInitialSessionFlowControlWindow(
+        session_.config(), kMinimumFlowControlSendWindow);
+    QuicConfigPeer::SetReceivedInitialMaxStreamDataBytesUnidirectional(
+        session_.config(), kMinimumFlowControlSendWindow);
+    QuicConfigPeer::SetReceivedMaxUnidirectionalStreams(session_.config(), 3);
+    session_.OnConfigNegotiated();
+
+    qpack_send_stream_ =
+        QuicSpdySessionPeer::GetQpackDecoderSendStream(&session_);
+
+    ON_CALL(session_, WritevData(_, _, _, _, _, _))
+        .WillByDefault(Invoke(&session_, &MockQuicSpdySession::ConsumeData));
   }
 
   Perspective perspective() const { return GetParam().perspective; }
@@ -69,33 +86,30 @@ class QpackSendStreamTest : public QuicTestWithParam<TestParams> {
   MockAlarmFactory alarm_factory_;
   StrictMock<MockQuicConnection>* connection_;
   StrictMock<MockQuicSpdySession> session_;
-  std::unique_ptr<QpackSendStream> qpack_send_stream_;
+  QpackSendStream* qpack_send_stream_;
 };
 
 INSTANTIATE_TEST_SUITE_P(Tests,
                          QpackSendStreamTest,
-                         ::testing::ValuesIn(GetTestParams()));
+                         ::testing::ValuesIn(GetTestParams()),
+                         ::testing::PrintToStringParamName());
 
 TEST_P(QpackSendStreamTest, WriteStreamTypeOnlyFirstTime) {
-  if (GetParam().version.handshake_protocol == PROTOCOL_TLS1_3) {
-    // TODO(nharper, b/112643533): Figure out why this test fails when TLS is
-    // enabled and fix it.
-    return;
-  }
   std::string data = "data";
-  EXPECT_CALL(session_, WritevData(_, _, 1, _, _));
-  EXPECT_CALL(session_, WritevData(_, _, data.length(), _, _));
-  qpack_send_stream_->WriteStreamData(QuicStringPiece(data));
+  EXPECT_CALL(session_, WritevData(_, 1, _, _, _, _));
+  EXPECT_CALL(session_, WritevData(_, data.length(), _, _, _, _));
+  qpack_send_stream_->WriteStreamData(quiche::QuicheStringPiece(data));
 
-  EXPECT_CALL(session_, WritevData(_, _, data.length(), _, _));
-  qpack_send_stream_->WriteStreamData(QuicStringPiece(data));
+  EXPECT_CALL(session_, WritevData(_, data.length(), _, _, _, _));
+  qpack_send_stream_->WriteStreamData(quiche::QuicheStringPiece(data));
+  EXPECT_CALL(session_, WritevData(_, _, _, _, _, _)).Times(0);
+  qpack_send_stream_->MaybeSendStreamType();
 }
 
-TEST_P(QpackSendStreamTest, ResetQpackStream) {
-  QuicRstStreamFrame rst_frame(kInvalidControlFrameId, qpack_send_stream_->id(),
-                               QUIC_STREAM_CANCELLED, 1234);
-  EXPECT_CALL(*connection_, CloseConnection(QUIC_INVALID_STREAM_ID, _, _));
-  qpack_send_stream_->OnStreamReset(rst_frame);
+TEST_P(QpackSendStreamTest, StopSendingQpackStream) {
+  EXPECT_CALL(*connection_,
+              CloseConnection(QUIC_HTTP_CLOSED_CRITICAL_STREAM, _, _));
+  qpack_send_stream_->OnStopSending(QUIC_STREAM_CANCELLED);
 }
 
 TEST_P(QpackSendStreamTest, ReceiveDataOnSendStream) {

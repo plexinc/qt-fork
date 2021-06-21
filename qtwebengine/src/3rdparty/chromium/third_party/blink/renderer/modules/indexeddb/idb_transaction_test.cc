@@ -41,6 +41,7 @@
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
 #include "third_party/blink/renderer/core/dom/events/event_queue.h"
+#include "third_party/blink/renderer/core/testing/scoped_mock_overlay_scrollbars.h"
 #include "third_party/blink/renderer/modules/indexeddb/idb_database.h"
 #include "third_party/blink/renderer/modules/indexeddb/idb_database_callbacks.h"
 #include "third_party/blink/renderer/modules/indexeddb/idb_key.h"
@@ -53,8 +54,8 @@
 #include "third_party/blink/renderer/modules/indexeddb/mock_web_idb_database.h"
 #include "third_party/blink/renderer/modules/indexeddb/mock_web_idb_transaction.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
-#include "third_party/blink/renderer/platform/shared_buffer.h"
 #include "third_party/blink/renderer/platform/testing/testing_platform_support.h"
+#include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
 #include "v8/include/v8.h"
 
 namespace blink {
@@ -73,7 +74,8 @@ class FakeIDBDatabaseCallbacks final : public IDBDatabaseCallbacks {
   void OnComplete(int64_t transaction_id) override {}
 };
 
-class IDBTransactionTest : public testing::Test {
+class IDBTransactionTest : public testing::Test,
+                           public ScopedMockOverlayScrollbars {
  protected:
   void SetUp() override {
     url_loader_mock_factory_ = platform_->GetURLLoaderMockFactory();
@@ -93,12 +95,14 @@ class IDBTransactionTest : public testing::Test {
       std::unique_ptr<MockWebIDBTransaction> transaction_backend) {
     db_ = MakeGarbageCollected<IDBDatabase>(
         scope.GetExecutionContext(), std::move(database_backend),
-        MakeGarbageCollected<FakeIDBDatabaseCallbacks>(), scope.GetIsolate());
+        MakeGarbageCollected<FakeIDBDatabaseCallbacks>(), scope.GetIsolate(),
+        mojo::NullRemote());
 
     HashSet<String> transaction_scope = {"store"};
     transaction_ = IDBTransaction::CreateNonVersionChange(
         scope.GetScriptState(), std::move(transaction_backend), kTransactionId,
-        transaction_scope, mojom::IDBTransactionMode::ReadOnly, db_.Get());
+        transaction_scope, mojom::IDBTransactionMode::ReadOnly,
+        mojom::IDBTransactionDurability::Relaxed, db_.Get());
 
     IDBKeyPath store_key_path("primaryKey");
     scoped_refptr<IDBObjectStoreMetadata> store_metadata = base::AdoptRef(

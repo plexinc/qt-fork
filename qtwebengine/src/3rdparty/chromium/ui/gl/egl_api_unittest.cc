@@ -43,14 +43,14 @@ class EGLApiTest : public testing::Test {
   }
 
   void InitializeAPI(const char* disabled_extensions) {
-    api_.reset(new RealEGLApi());
+    api_ = std::make_unique<RealEGLApi>();
     g_current_egl_context = api_.get();
     api_->Initialize(&g_driver_egl);
     if (disabled_extensions) {
       SetDisabledExtensionsEGL(disabled_extensions);
     }
     g_driver_egl.InitializeClientExtensionBindings();
-    GLSurfaceEGL::InitializeDisplay(EGL_DEFAULT_DISPLAY);
+    GLSurfaceEGL::InitializeDisplay(EGLDisplayPlatform(EGL_DEFAULT_DISPLAY));
     g_driver_egl.InitializeExtensionBindings();
   }
 

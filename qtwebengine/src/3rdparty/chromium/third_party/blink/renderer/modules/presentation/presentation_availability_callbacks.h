@@ -21,7 +21,7 @@ namespace blink {
 // TODO(crbug.com/749327): Consider removing this class and have
 // PresentationAvailabilityState use PresentationAvailabilityProperty directly.
 class MODULES_EXPORT PresentationAvailabilityCallbacks
-    : public GarbageCollectedFinalized<PresentationAvailabilityCallbacks> {
+    : public GarbageCollected<PresentationAvailabilityCallbacks> {
  public:
   PresentationAvailabilityCallbacks(PresentationAvailabilityProperty*,
                                     const WTF::Vector<KURL>&);
@@ -30,7 +30,7 @@ class MODULES_EXPORT PresentationAvailabilityCallbacks
   virtual void Resolve(bool value);
   virtual void RejectAvailabilityNotSupported();
 
-  void Trace(blink::Visitor*);
+  void Trace(Visitor*);
 
  private:
   Member<PresentationAvailabilityProperty> resolver_;

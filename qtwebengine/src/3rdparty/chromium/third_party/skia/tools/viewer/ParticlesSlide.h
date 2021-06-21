@@ -17,6 +17,8 @@
 class SkParticleEffect;
 class SkParticleEffectParams;
 
+namespace skresources { class ResourceProvider; }
+
 class ParticlesSlide : public Slide {
 public:
     ParticlesSlide();
@@ -28,8 +30,8 @@ public:
     void draw(SkCanvas* canvas) override;
     bool animate(double) override;
 
-    bool onMouse(SkScalar x, SkScalar y, InputState state,
-                 ModifierKey modifiers) override;
+    bool onMouse(SkScalar x, SkScalar y, skui::InputState state,
+                 skui::ModifierKey modifiers) override;
 
 private:
     void loadEffects(const char* dirname);
@@ -37,7 +39,7 @@ private:
     SkRandom fRandom;
     bool fAnimated = false;
     double fAnimationTime = 0;
-    SkPoint fPlayPosition;
+    SkPoint fMousePos = { 0, 0 };
 
     struct LoadedEffect {
         SkString fName;
@@ -46,11 +48,13 @@ private:
     SkTArray<LoadedEffect> fLoaded;
 
     struct RunningEffect {
-        SkPoint fPosition;
         SkString fName;
         sk_sp<SkParticleEffect> fEffect;
+        bool fTrackMouse;
     };
     SkTArray<RunningEffect> fRunning;
+
+    sk_sp<skresources::ResourceProvider> fResourceProvider;
 };
 
 #endif

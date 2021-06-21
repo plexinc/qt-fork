@@ -13,6 +13,7 @@ TESTS =
 check_PROGRAMS =
 
 EXTRA_DIST += harfbuzz.cc
+EXTRA_DIST += meson.build
 
 # Convenience targets:
 lib: $(BUILT_SOURCES) libharfbuzz.la
@@ -50,12 +51,7 @@ endif
 if HAVE_FREETYPE
 HBCFLAGS += $(FREETYPE_CFLAGS)
 HBLIBS   += $(FREETYPE_LIBS)
-# XXX
-# The following creates a recursive dependency on FreeType if FreeType is
-# built with HarfBuzz support enabled.  Newer pkg-config handles that just
-# fine but pkg-config 0.26 as shipped in Ubuntu 14.04 crashes.  Remove
-# in a year or two, or otherwise work around it...
-#HBDEPS   += $(FREETYPE_DEPS)
+HBDEPS   += $(FREETYPE_DEPS)
 HBSOURCES += $(HB_FT_sources)
 HBHEADERS += $(HB_FT_headers)
 endif
@@ -80,6 +76,13 @@ HBCFLAGS += $(DIRECTWRITE_CXXFLAGS)
 HBNONPCLIBS += $(DIRECTWRITE_LIBS)
 HBSOURCES += $(HB_DIRECTWRITE_sources)
 HBHEADERS += $(HB_DIRECTWRITE_headers)
+endif
+
+if HAVE_GDI
+HBCFLAGS += $(GDI_CXXFLAGS)
+HBNONPCLIBS += $(GDI_LIBS)
+HBSOURCES += $(HB_GDI_sources)
+HBHEADERS += $(HB_GDI_headers)
 endif
 
 if HAVE_CORETEXT
@@ -146,6 +149,7 @@ cmake_DATA = harfbuzz-config.cmake
 EXTRA_DIST += hb-version.h.in harfbuzz.pc.in harfbuzz-config.cmake.in
 
 lib_LTLIBRARIES += libharfbuzz-subset.la
+libharfbuzz_subset_la_LINK = $(chosen_linker) $(libharfbuzz_subset_la_LDFLAGS)
 libharfbuzz_subset_la_SOURCES = $(HB_SUBSET_sources)
 libharfbuzz_subset_la_CPPFLAGS = $(HBCFLAGS) $(CODE_COVERAGE_CFLAGS)
 libharfbuzz_subset_la_LDFLAGS = $(base_link_flags) $(export_symbols_subset) $(CODE_COVERAGE_LDFLAGS)
@@ -283,7 +287,7 @@ ucd-table: gen-ucd-table.py ucd.nounihan.grouped.zip hb-common.h
 use-table: gen-use-table.py IndicSyllabicCategory.txt IndicPositionalCategory.txt UnicodeData.txt Blocks.txt
 	$(AM_V_GEN) $(builddir)/$^ > $(srcdir)/hb-ot-shape-complex-use-table.cc \
 	|| ($(RM) $(srcdir)/hb-ot-shape-complex-use-table.cc; false)
-vowel-constraints: gen-vowel-constraints.py HBIndicVowelConstraints.txt Scripts.txt
+vowel-constraints: gen-vowel-constraints.py ms-use/IndicShapingInvalidCluster.txt Scripts.txt
 	$(AM_V_GEN) $(builddir)/$^ > $(srcdir)/hb-ot-shape-complex-vowel-constraints.cc \
 	|| ($(RM) $(srcdir)/hb-ot-shape-complex-vowel-constraints.cc; false)
 
@@ -313,6 +317,7 @@ harfbuzz.cc: Makefile.sources
 		$(HB_FT_sources) \
 		$(HB_GRAPHITE2_sources) \
 		$(HB_UNISCRIBE_sources) \
+		$(HB_GDI_sources) \
 		$(HB_DIRECTWRITE_sources) \
 		$(HB_CORETEXT_sources) \
 		; do echo '#include "'$$f'"'; done | \
@@ -324,7 +329,9 @@ noinst_PROGRAMS = \
 	main \
 	test \
 	test-buffer-serialize \
+	test-ot-meta \
 	test-ot-name \
+	test-ot-glyphname \
 	test-gpos-size-params \
 	test-gsub-would-substitute \
 	$(NULL)
@@ -342,9 +349,17 @@ test_buffer_serialize_SOURCES = test-buffer-serialize.cc
 test_buffer_serialize_CPPFLAGS = $(HBCFLAGS)
 test_buffer_serialize_LDADD = libharfbuzz.la $(HBLIBS)
 
+test_ot_meta_SOURCES = test-ot-meta.cc
+test_ot_meta_CPPFLAGS = $(HBCFLAGS)
+test_ot_meta_LDADD = libharfbuzz.la $(HBLIBS)
+
 test_ot_name_SOURCES = test-ot-name.cc
 test_ot_name_CPPFLAGS = $(HBCFLAGS)
 test_ot_name_LDADD = libharfbuzz.la $(HBLIBS)
+
+test_ot_glyphname_SOURCES = test-ot-glyphname.cc
+test_ot_glyphname_CPPFLAGS = $(HBCFLAGS)
+test_ot_glyphname_LDADD = libharfbuzz.la $(HBLIBS)
 
 test_gpos_size_params_SOURCES = test-gpos-size-params.cc
 test_gpos_size_params_CPPFLAGS = $(HBCFLAGS)
@@ -353,31 +368,6 @@ test_gpos_size_params_LDADD = libharfbuzz.la $(HBLIBS)
 test_gsub_would_substitute_SOURCES = test-gsub-would-substitute.cc
 test_gsub_would_substitute_CPPFLAGS = $(HBCFLAGS) $(FREETYPE_CFLAGS)
 test_gsub_would_substitute_LDADD = libharfbuzz.la $(HBLIBS) $(FREETYPE_LIBS)
-
-if HAVE_FREETYPE
-if HAVE_CAIRO_FT
-noinst_PROGRAMS += test-ot-color
-test_ot_color_SOURCES = test-ot-color.cc
-test_ot_color_CPPFLAGS = $(HBCFLAGS) $(FREETYPE_CFLAGS) $(CAIRO_FT_CFLAGS)
-test_ot_color_LDADD = libharfbuzz.la $(HBLIBS) $(FREETYPE_LIBS) $(CAIRO_LIBS) $(CAIRO_FT_LIBS)
-endif # HAVE_CAIRO_FT
-endif # HAVE_FREETYPE
-
-dist_check_SCRIPTS = \
-	check-c-linkage-decls.sh \
-	check-externs.sh \
-	check-header-guards.sh \
-	check-includes.sh \
-	check-static-inits.sh \
-	check-symbols.sh \
-	$(NULL)
-TESTS += $(dist_check_SCRIPTS)
-
-if !WITH_LIBSTDCXX
-dist_check_SCRIPTS += \
-	check-libstdc++.sh \
-	$(NULL)
-endif
 
 check_PROGRAMS += \
 	dump-indic-data \
@@ -398,7 +388,7 @@ dump_use_data_SOURCES = dump-use-data.cc hb-ot-shape-complex-use-table.cc
 dump_use_data_CPPFLAGS = $(HBCFLAGS)
 dump_use_data_LDADD = libharfbuzz.la $(HBLIBS)
 
-COMPILED_TESTS = test-algs test-iter test-meta test-ot-tag test-unicode-ranges test-bimap
+COMPILED_TESTS = test-algs test-array test-iter test-meta test-number test-ot-tag test-unicode-ranges test-bimap
 COMPILED_TESTS_CPPFLAGS = $(HBCFLAGS) -DMAIN -UNDEBUG
 COMPILED_TESTS_LDADD = libharfbuzz.la $(HBLIBS)
 check_PROGRAMS += $(COMPILED_TESTS)
@@ -408,6 +398,10 @@ test_algs_SOURCES = test-algs.cc hb-static.cc
 test_algs_CPPFLAGS = $(COMPILED_TESTS_CPPFLAGS)
 test_algs_LDADD = $(COMPILED_TESTS_LDADD)
 
+test_array_SOURCES = test-array.cc
+test_array_CPPFLAGS = $(HBCFLAGS)
+test_array_LDADD = libharfbuzz.la $(HBLIBS)
+
 test_iter_SOURCES = test-iter.cc hb-static.cc
 test_iter_CPPFLAGS = $(COMPILED_TESTS_CPPFLAGS)
 test_iter_LDADD = $(COMPILED_TESTS_LDADD)
@@ -415,6 +409,10 @@ test_iter_LDADD = $(COMPILED_TESTS_LDADD)
 test_meta_SOURCES = test-meta.cc hb-static.cc
 test_meta_CPPFLAGS = $(COMPILED_TESTS_CPPFLAGS)
 test_meta_LDADD = $(COMPILED_TESTS_LDADD)
+
+test_number_SOURCES = test-number.cc hb-number.cc
+test_number_CPPFLAGS = $(COMPILED_TESTS_CPPFLAGS)
+test_number_LDADD = $(COMPILED_TESTS_LDADD)
 
 test_ot_tag_SOURCES = hb-ot-tag.cc
 test_ot_tag_CPPFLAGS = $(COMPILED_TESTS_CPPFLAGS)
@@ -428,8 +426,25 @@ test_bimap_SOURCES = test-bimap.cc hb-static.cc
 test_bimap_CPPFLAGS = $(COMPILED_TESTS_CPPFLAGS)
 test_bimap_LDADD = $(COMPILED_TESTS_LDADD)
 
+dist_check_SCRIPTS = \
+	check-c-linkage-decls.sh \
+	check-externs.sh \
+	check-header-guards.sh \
+	check-includes.sh \
+	check-static-inits.sh \
+	check-symbols.sh \
+	$(NULL)
+TESTS += $(dist_check_SCRIPTS)
+
+if !WITH_LIBSTDCXX
+dist_check_SCRIPTS += \
+	check-libstdc++.sh \
+	$(NULL)
+endif
+
 TESTS_ENVIRONMENT = \
 	srcdir="$(srcdir)" \
+	builddir="$(builddir)" \
 	MAKE="$(MAKE) $(AM_MAKEFLAGS)" \
 	HBSOURCES="$(HBSOURCES)" \
 	HBHEADERS="$(HBHEADERS)" \
@@ -439,7 +454,16 @@ if HAVE_INTROSPECTION
 
 -include $(INTROSPECTION_MAKEFILE)
 INTROSPECTION_GIRS = HarfBuzz-0.0.gir # What does the 0 mean anyway?!
-INTROSPECTION_SCANNER_ARGS = -I$(srcdir) -n hb --identifier-prefix=hb_ --warn-all
+INTROSPECTION_SCANNER_ARGS = \
+	-I$(srcdir) \
+	--warn-all --verbose \
+	--namespace=HarfBuzz \
+	--nsversion=0.0 \
+	--symbol-prefix=hb \
+	--symbol-prefix=hb_gobject \
+	--identifier-prefix=hb_ \
+	--pkg-export=harfbuzz-gobject \
+	--c-include=hb-gobject.h
 INTROSPECTION_COMPILER_ARGS = --includedir=$(srcdir)
 INTROSPECTION_SCANNER_ENV = CC="$(CC)"
 

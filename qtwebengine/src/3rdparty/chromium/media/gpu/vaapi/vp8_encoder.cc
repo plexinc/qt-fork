@@ -18,8 +18,9 @@ constexpr int kCPBWindowSizeMs = 1500;
 
 // Based on WebRTC's defaults.
 constexpr int kMinQP = 4;
-// b/110059922: Tuned 112->113 for bitrate issue in a lower resolution (180p).
-constexpr int kMaxQP = 113;
+// b/110059922, crbug.com/1001900: Tuned 112->117 for bitrate issue in a lower
+// resolution (180p).
+constexpr int kMaxQP = 117;
 constexpr int kDefaultQP = (3 * kMinQP + kMaxQP) / 4;
 }  // namespace
 
@@ -29,8 +30,7 @@ VP8Encoder::EncodeParams::EncodeParams()
       cpb_window_size_ms(kCPBWindowSizeMs),
       cpb_size_bits(0),
       initial_qp(kDefaultQP),
-      min_qp(kMinQP),
-      max_qp(kMaxQP),
+      scaling_settings(kMinQP, kMaxQP),
       error_resilient_mode(false) {}
 
 void VP8Encoder::Reset() {
@@ -87,6 +87,12 @@ size_t VP8Encoder::GetMaxNumOfRefFrames() const {
   return kNumVp8ReferenceBuffers;
 }
 
+ScalingSettings VP8Encoder::GetScalingSettings() const {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  return current_params_.scaling_settings;
+}
+
 bool VP8Encoder::PrepareEncodeJob(EncodeJob* encode_job) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
@@ -137,6 +143,8 @@ bool VP8Encoder::UpdateRates(const VideoBitrateAllocation& bitrate_allocation,
       current_params_.framerate == framerate) {
     return true;
   }
+  VLOGF(2) << "New bitrate: " << bitrate_allocation.GetSumBps()
+           << ", New framerate: " << framerate;
 
   current_params_.bitrate_allocation = bitrate_allocation;
   current_params_.framerate = framerate;
@@ -153,21 +161,25 @@ void VP8Encoder::InitializeFrameHeader() {
   DCHECK(!visible_size_.IsEmpty());
   current_frame_hdr_.width = visible_size_.width();
   current_frame_hdr_.height = visible_size_.height();
-  // Since initial_qp is always kDefaultQP (=31), y_ac_qi should be 27
+  // Since initial_qp is always kDefaultQP (=32), y_ac_qi should be 28
   // (the table index for kDefaultQP, see rfc 14.1. table ac_qlookup)
+  static_assert(kDefaultQP == 32, "kDefault QP is not 32");
   DCHECK_EQ(current_params_.initial_qp, kDefaultQP);
-  constexpr uint8_t kDefaultQPACQIndex = 27;
+  constexpr uint8_t kDefaultQPACQIndex = 28;
   current_frame_hdr_.quantization_hdr.y_ac_qi = kDefaultQPACQIndex;
   current_frame_hdr_.show_frame = true;
   // TODO(sprang): Make this dynamic. Value based on reference implementation
   // in libyami (https://github.com/intel/libyami).
-  current_frame_hdr_.loopfilter_hdr.level = 19;
 
-  // b/138840822: Set mb_no_skip_coeff and loop_filter_adj_enable to 1 as a
-  // workaround of color artifacts issue with a kepler device hw decoder and
-  // ffmpeg sw decoder.
-  current_frame_hdr_.mb_no_skip_coeff = 1;
+  // A VA-API driver recommends to set forced_lf_adjustment on keyframe.
+  // Set loop_filter_adj_enable to 1 here because forced_lf_adjustment is read
+  // only when a macroblock level loop filter adjustment.
   current_frame_hdr_.loopfilter_hdr.loop_filter_adj_enable = 1;
+
+  // Set mb_no_skip_coeff to 1 that some decoders (e.g. kepler) could not decode
+  // correctly a stream encoded with mb_no_skip_coeff=0. It also enables an
+  // encoder to produce a more optimized stream than when mb_no_skip_coeff=0.
+  current_frame_hdr_.mb_no_skip_coeff = 1;
 }
 
 void VP8Encoder::UpdateFrameHeader(bool keyframe) {

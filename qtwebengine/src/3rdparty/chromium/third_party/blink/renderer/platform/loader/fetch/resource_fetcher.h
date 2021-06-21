@@ -31,9 +31,9 @@
 #include <utility>
 
 #include "base/single_thread_task_runner.h"
-#include "services/network/public/cpp/cors/preflight_timing_info.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "third_party/blink/public/mojom/blob/blob_registry.mojom-blink.h"
-#include "third_party/blink/public/mojom/service_worker/controller_service_worker_mode.mojom-blink.h"
+#include "third_party/blink/public/mojom/service_worker/controller_service_worker_mode.mojom-blink-forward.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
 #include "third_party/blink/renderer/platform/loader/fetch/fetch_parameters.h"
 #include "third_party/blink/renderer/platform/loader/fetch/preload_key.h"
@@ -44,7 +44,6 @@
 #include "third_party/blink/renderer/platform/wtf/hash_map.h"
 #include "third_party/blink/renderer/platform/wtf/hash_set.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_hash.h"
-#include "third_party/blink/renderer/platform/wtf/time.h"
 
 namespace blink {
 
@@ -57,7 +56,6 @@ class FetchContext;
 class FrameScheduler;
 class MHTMLArchive;
 class KURL;
-class PreflightTimingInfo;
 class Resource;
 class ResourceError;
 class ResourceLoadObserver;
@@ -79,12 +77,12 @@ struct ResourceLoaderOptions;
 // keep a ResourceFetcher alive past detach if scripts still reference the
 // Document.
 class PLATFORM_EXPORT ResourceFetcher
-    : public GarbageCollectedFinalized<ResourceFetcher> {
+    : public GarbageCollected<ResourceFetcher> {
   USING_PRE_FINALIZER(ResourceFetcher, ClearPreloads);
 
  public:
   // An abstract interface for creating loaders.
-  class LoaderFactory : public GarbageCollectedFinalized<LoaderFactory> {
+  class LoaderFactory : public GarbageCollected<LoaderFactory> {
    public:
     virtual ~LoaderFactory() = default;
 
@@ -104,7 +102,7 @@ class PLATFORM_EXPORT ResourceFetcher
   // in ResourceFetcherInit to ensure correctness of this ResourceFetcher.
   explicit ResourceFetcher(const ResourceFetcherInit&);
   virtual ~ResourceFetcher();
-  virtual void Trace(blink::Visitor*);
+  virtual void Trace(Visitor*);
 
   // - This function returns the same object throughout this fetcher's
   //   entire life.
@@ -170,6 +168,7 @@ class PLATFORM_EXPORT ResourceFetcher
   // call this method explicitly on cases such as ResourceNeedsLoad() returning
   // false.
   bool StartLoad(Resource*);
+  bool StartLoad(Resource*, ResourceRequestBody);
 
   void SetAutoLoadImages(bool);
   void SetImagesEnabled(bool);
@@ -211,9 +210,7 @@ class PLATFORM_EXPORT ResourceFetcher
                           base::TimeTicks finish_time,
                           LoaderFinishType,
                           uint32_t inflight_keepalive_bytes,
-                          bool should_report_corb_blocking,
-                          const WebVector<network::cors::PreflightTimingInfo>&
-                              cors_preflight_timing_info);
+                          bool should_report_corb_blocking);
   void HandleLoaderError(Resource*,
                          const ResourceError&,
                          uint32_t inflight_keepalive_bytes);
@@ -227,9 +224,10 @@ class PLATFORM_EXPORT ResourceFetcher
       ResourceType,
       IsImageSet);
 
-  void UpdateAllImageResourcePriorities();
+  static network::mojom::RequestDestination DetermineRequestDestination(
+      ResourceType);
 
-  void ReloadLoFiImages();
+  void UpdateAllImageResourcePriorities();
 
   // Returns whether the given resource is contained as a preloaded resource.
   bool ContainsAsPreload(Resource*) const;
@@ -243,14 +241,13 @@ class PLATFORM_EXPORT ResourceFetcher
   void EmulateLoadStartedForInspector(Resource*,
                                       const KURL&,
                                       mojom::RequestContextType,
+                                      network::mojom::RequestDestination,
                                       const AtomicString& initiator_name);
 
   // This is called from leak detectors (Real-world leak detector & web test
   // leak detector) to clean up loaders after page navigation before instance
   // counting.
   void PrepareForLeakDetection();
-
-  void SetStaleWhileRevalidateEnabled(bool enabled);
 
   using ResourceFetcherSet = HeapHashSet<WeakMember<ResourceFetcher>>;
   static const ResourceFetcherSet& MainThreadFetchers();
@@ -261,7 +258,7 @@ class PLATFORM_EXPORT ResourceFetcher
 
   ResourceLoadPriority ComputeLoadPriorityForTesting(
       ResourceType type,
-      const ResourceRequest& request,
+      const ResourceRequestHead& request,
       ResourcePriority::VisibilityStatus visibility_statue,
       FetchParameters::DeferOption defer_option,
       FetchParameters::SpeculativePreloadType speculative_preload_type,
@@ -292,7 +289,7 @@ class PLATFORM_EXPORT ResourceFetcher
   void StorePerformanceTimingInitiatorInformation(Resource*);
   ResourceLoadPriority ComputeLoadPriority(
       ResourceType,
-      const ResourceRequest&,
+      const ResourceRequestHead&,
       ResourcePriority::VisibilityStatus,
       FetchParameters::DeferOption = FetchParameters::kNoDefer,
       FetchParameters::SpeculativePreloadType =
@@ -327,7 +324,13 @@ class PLATFORM_EXPORT ResourceFetcher
   void StopFetchingIncludingKeepaliveLoaders();
 
   // RevalidationPolicy enum values are used in UMAs https://crbug.com/579496.
-  enum RevalidationPolicy { kUse, kRevalidate, kReload, kLoad };
+  enum class RevalidationPolicy {
+    kUse,
+    kRevalidate,
+    kReload,
+    kLoad,
+    kMaxValue = kLoad
+  };
 
   // A wrapper just for placing a trace_event macro.
   RevalidationPolicy DetermineRevalidationPolicy(
@@ -417,7 +420,7 @@ class PLATFORM_EXPORT ResourceFetcher
 
   uint32_t inflight_keepalive_bytes_ = 0;
 
-  mojom::blink::BlobRegistryPtr blob_registry_ptr_;
+  mojo::Remote<mojom::blink::BlobRegistry> blob_registry_remote_;
 
   // This is not in the bit field below because we want to use AutoReset.
   bool is_in_request_resource_ = false;
@@ -453,7 +456,7 @@ class ResourceCacheValidationSuppressor {
   }
 
  private:
-  Member<ResourceFetcher> loader_;
+  ResourceFetcher* loader_;
   bool previous_state_;
 
   DISALLOW_COPY_AND_ASSIGN(ResourceCacheValidationSuppressor);
@@ -473,15 +476,15 @@ struct PLATFORM_EXPORT ResourceFetcherInit final {
                       scoped_refptr<base::SingleThreadTaskRunner> task_runner,
                       ResourceFetcher::LoaderFactory* loader_factory);
 
-  const Member<DetachableResourceFetcherProperties> properties;
-  const Member<FetchContext> context;
+  DetachableResourceFetcherProperties* const properties;
+  FetchContext* const context;
   const scoped_refptr<base::SingleThreadTaskRunner> task_runner;
-  const Member<ResourceFetcher::LoaderFactory> loader_factory;
-  Member<DetachableUseCounter> use_counter;
-  Member<DetachableConsoleLogger> console_logger;
+  ResourceFetcher::LoaderFactory* const loader_factory;
+  DetachableUseCounter* use_counter = nullptr;
+  DetachableConsoleLogger* console_logger = nullptr;
   ResourceLoadScheduler::ThrottlingPolicy initial_throttling_policy =
       ResourceLoadScheduler::ThrottlingPolicy::kNormal;
-  Member<MHTMLArchive> archive;
+  MHTMLArchive* archive = nullptr;
   FrameScheduler* frame_scheduler = nullptr;
 
   DISALLOW_COPY_AND_ASSIGN(ResourceFetcherInit);

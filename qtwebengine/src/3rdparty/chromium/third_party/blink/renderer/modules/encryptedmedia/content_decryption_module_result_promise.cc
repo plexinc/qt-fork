@@ -27,8 +27,6 @@ ExceptionCode WebCdmExceptionToExceptionCode(
       return ToExceptionCode(DOMExceptionCode::kInvalidStateError);
     case kWebContentDecryptionModuleExceptionQuotaExceededError:
       return ToExceptionCode(DOMExceptionCode::kQuotaExceededError);
-    case kWebContentDecryptionModuleExceptionUnknownError:
-      return ToExceptionCode(DOMExceptionCode::kUnknownError);
   }
 
   NOTREACHED();
@@ -133,7 +131,7 @@ bool ContentDecryptionModuleResultPromise::IsValidToFulfillPromise() {
   return GetExecutionContext() && !GetExecutionContext()->IsContextDestroyed();
 }
 
-void ContentDecryptionModuleResultPromise::Trace(blink::Visitor* visitor) {
+void ContentDecryptionModuleResultPromise::Trace(Visitor* visitor) {
   visitor->Trace(resolver_);
   ContentDecryptionModuleResult::Trace(visitor);
 }

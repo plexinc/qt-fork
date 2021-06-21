@@ -16,6 +16,7 @@
 #include "base/files/file_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "content/public/browser/browser_thread.h"
 #include "extensions/browser/component_extension_resource_manager.h"
 #include "extensions/browser/extensions_browser_client.h"
@@ -263,7 +264,7 @@ void ImageLoader::LoadImagesAsync(
     const std::vector<ImageRepresentation>& info_list,
     ImageLoaderImageCallback callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  base::PostTaskWithTraitsAndReplyWithResult(
+  base::ThreadPool::PostTaskAndReplyWithResult(
       FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_VISIBLE},
       base::BindOnce(LoadImagesBlocking, info_list,
                      LoadResourceBitmaps(extension, info_list)),
@@ -276,7 +277,7 @@ void ImageLoader::LoadImageFamilyAsync(
     const std::vector<ImageRepresentation>& info_list,
     ImageLoaderImageFamilyCallback callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  base::PostTaskWithTraitsAndReplyWithResult(
+  base::ThreadPool::PostTaskAndReplyWithResult(
       FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_VISIBLE},
       base::BindOnce(LoadImagesBlocking, info_list,
                      LoadResourceBitmaps(extension, info_list)),

@@ -5,6 +5,7 @@
 #ifndef UI_VIEWS_WIDGET_DESKTOP_AURA_DESKTOP_NATIVE_WIDGET_AURA_H_
 #define UI_VIEWS_WIDGET_DESKTOP_AURA_DESKTOP_NATIVE_WIDGET_AURA_H_
 
+#include <memory>
 #include <string>
 
 #include "base/macros.h"
@@ -26,8 +27,8 @@ namespace client {
 class DragDropClient;
 class ScreenPositionClient;
 class WindowParentingClient;
-}
-}
+}  // namespace client
+}  // namespace aura
 
 namespace wm {
 class CompoundEventFilter;
@@ -36,7 +37,7 @@ class FocusController;
 class ShadowController;
 class VisibilityController;
 class WindowModalityController;
-}
+}  // namespace wm
 
 namespace views {
 namespace corewm {
@@ -87,9 +88,7 @@ class VIEWS_EXPORT DesktopNativeWidgetAura
   wm::CompoundEventFilter* root_window_event_filter() {
     return root_window_event_filter_.get();
   }
-  aura::WindowTreeHost* host() {
-    return host_.get();
-  }
+  aura::WindowTreeHost* host() { return host_.get(); }
 
   aura::Window* content_window() { return content_window_; }
 
@@ -102,9 +101,13 @@ class VIEWS_EXPORT DesktopNativeWidgetAura
   // Overridden from internal::NativeWidgetPrivate:
   gfx::NativeWindow GetNativeWindow() const override;
 
+  // Configures the appropriate aura::Windows based on the
+  // DesktopWindowTreeHost's transparency.
+  void UpdateWindowTransparency();
+
  protected:
-  // Overridden from internal::NativeWidgetPrivate:
-  void InitNativeWidget(const Widget::InitParams& params) override;
+  // internal::NativeWidgetPrivate:
+  void InitNativeWidget(Widget::InitParams params) override;
   void OnWidgetInitDone() override;
   NonClientFrameView* CreateNonClientFrameView() override;
   bool ShouldUseNativeFrame() const override;
@@ -191,9 +194,11 @@ class VIEWS_EXPORT DesktopNativeWidgetAura
   bool IsTranslucentWindowOpacitySupported() const override;
   ui::GestureRecognizer* GetGestureRecognizer() override;
   void OnSizeConstraintsChanged() override;
+  void OnNativeViewHierarchyWillChange() override;
+  void OnNativeViewHierarchyChanged() override;
   std::string GetName() const override;
 
-  // Overridden from aura::WindowDelegate:
+  // aura::WindowDelegate:
   gfx::Size GetMinimumSize() const override;
   gfx::Size GetMaximumSize() const override;
   void OnBoundsChanged(const gfx::Rect& old_bounds,
@@ -215,32 +220,32 @@ class VIEWS_EXPORT DesktopNativeWidgetAura
   void GetHitTestMask(SkPath* mask) const override;
   void UpdateVisualState() override;
 
-  // Overridden from ui::EventHandler:
+  // ui::EventHandler:
   void OnKeyEvent(ui::KeyEvent* event) override;
   void OnMouseEvent(ui::MouseEvent* event) override;
   void OnScrollEvent(ui::ScrollEvent* event) override;
   void OnGestureEvent(ui::GestureEvent* event) override;
 
-  // Overridden from wm::ActivationDelegate:
+  // wm::ActivationDelegate:
   bool ShouldActivate() const override;
 
-  // Overridden from wm::ActivationChangeObserver:
+  // wm::ActivationChangeObserver:
   void OnWindowActivated(wm::ActivationChangeObserver::ActivationReason reason,
                          aura::Window* gained_active,
                          aura::Window* lost_active) override;
 
-  // Overridden from aura::client::FocusChangeObserver:
+  // aura::client::FocusChangeObserver:
   void OnWindowFocused(aura::Window* gained_focus,
                        aura::Window* lost_focus) override;
 
-  // Overridden from aura::client::DragDropDelegate:
+  // ura::client::DragDropDelegate:
   void OnDragEntered(const ui::DropTargetEvent& event) override;
   int OnDragUpdated(const ui::DropTargetEvent& event) override;
   void OnDragExited() override;
   int OnPerformDrop(const ui::DropTargetEvent& event,
                     std::unique_ptr<ui::OSExchangeData> data) override;
 
-  // Overridden from aura::WindowTreeHostObserver:
+  // aura::WindowTreeHostObserver:
   void OnHostCloseRequested(aura::WindowTreeHost* host) override;
   void OnHostResized(aura::WindowTreeHost* host) override;
   void OnHostWorkspaceChanged(aura::WindowTreeHost* host) override;
@@ -249,10 +254,6 @@ class VIEWS_EXPORT DesktopNativeWidgetAura
 
  private:
   friend class RootWindowDestructionObserver;
-
-  // To save a clear on platforms where the window is never transparent, the
-  // window is only set as transparent when the glass frame is in use.
-  void UpdateWindowTransparency();
 
   void RootWindowDestroyed();
 

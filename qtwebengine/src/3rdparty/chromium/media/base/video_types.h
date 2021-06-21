@@ -47,15 +47,7 @@ enum VideoPixelFormat {
 
   /* PIXEL_FORMAT_RGB32 = 13,  Deprecated */
   PIXEL_FORMAT_MJPEG = 14,  // MJPEG compressed.
-  // MediaTek proprietary format. MT21 is similar to NV21 except the memory
-  // layout and pixel layout (swizzles). 12bpp with Y plane followed by a 2x2
-  // interleaved VU plane. Each image contains two buffers -- Y plane and VU
-  // plane. Two planes can be non-contiguous in memory. The starting addresses
-  // of Y plane and VU plane are 4KB alignment.
-  // Suppose image dimension is (width, height). For both Y plane and VU plane:
-  // Row pitch = ((width+15)/16) * 16.
-  // Plane size = Row pitch * (((height+31)/32)*32)
-  PIXEL_FORMAT_MT21 = 15,
+  /* PIXEL_FORMAT_MT21 = 15,  Deprecated */
 
   // The P* in the formats below designates the number of bits per pixel
   // component. I.e. P9 is 9-bits per pixel component, P10 is 10-bits per pixel
@@ -78,9 +70,16 @@ enum VideoPixelFormat {
 
   PIXEL_FORMAT_P016LE = 29,  // 24bpp NV12, 16 bits per channel
 
+  PIXEL_FORMAT_XR30 =
+      30,  // 32bpp BGRX, 10 bits per channel, 2 bits ignored, 1 plane
+  PIXEL_FORMAT_XB30 =
+      31,  // 32bpp RGBX, 10 bits per channel, 2 bits ignored, 1 plane
+
+  PIXEL_FORMAT_BGRA = 32,  // 32bpp ARGB (byte-order), 1 plane.
+
   // Please update UMA histogram enumeration when adding new formats here.
   PIXEL_FORMAT_MAX =
-      PIXEL_FORMAT_P016LE,  // Must always be equal to largest entry logged.
+      PIXEL_FORMAT_BGRA,  // Must always be equal to largest entry logged.
 };
 
 // Returns the name of a Format as a string.

@@ -9,27 +9,51 @@
 
 #include "base/logging.h"
 
-FakeApplicationConfigManager::FakeApplicationConfigManager() = default;
+namespace {
+const char kAgentComponentUrl[] =
+    "fuchsia-pkg://fuchsia.com/cast_agent#meta/cast_agent.cmx";
+}  // namespace
 
+// static
+chromium::cast::ApplicationConfig FakeApplicationConfigManager::CreateConfig(
+    const std::string& id,
+    const GURL& url) {
+  chromium::cast::ApplicationConfig app_config;
+  app_config.set_id(id);
+  app_config.set_display_name("Dummy test app");
+  app_config.set_web_url(url.spec());
+  app_config.set_agent_url(kAgentComponentUrl);
+
+  // Add a PROTECTED_MEDIA_IDENTIFIER permission. This is consistent with the
+  // real ApplicationConfigManager.
+  fuchsia::web::PermissionDescriptor permission;
+  permission.set_type(fuchsia::web::PermissionType::PROTECTED_MEDIA_IDENTIFIER);
+  app_config.mutable_permissions()->push_back(std::move(permission));
+
+  return app_config;
+}
+
+FakeApplicationConfigManager::FakeApplicationConfigManager() = default;
 FakeApplicationConfigManager::~FakeApplicationConfigManager() = default;
+
+void FakeApplicationConfigManager::AddAppConfig(
+    chromium::cast::ApplicationConfig app_config) {
+  id_to_config_[app_config.id()] = std::move(app_config);
+}
+
+void FakeApplicationConfigManager::AddApp(const std::string& id,
+                                          const GURL& url) {
+  AddAppConfig(CreateConfig(id, url));
+}
 
 void FakeApplicationConfigManager::GetConfig(std::string id,
                                              GetConfigCallback callback) {
-  if (id_to_url_.find(id) == id_to_url_.end()) {
+  if (id_to_config_.find(id) == id_to_config_.end()) {
     LOG(ERROR) << "Unknown Cast App ID: " << id;
     callback(chromium::cast::ApplicationConfig());
     return;
   }
 
-  chromium::cast::ApplicationConfig app_config;
-  app_config.set_id(id);
-  app_config.set_display_name("Dummy test app");
-  app_config.set_web_url(id_to_url_[id].spec());
-
-  callback(std::move(app_config));
-}
-
-void FakeApplicationConfigManager::AddAppMapping(const std::string& id,
-                                                 const GURL& url) {
-  id_to_url_[id] = url;
+  callback(std::move(std::move(id_to_config_[id])));
+  id_to_config_.erase(id);
 }

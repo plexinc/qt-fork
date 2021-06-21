@@ -11,8 +11,9 @@
 #include <vector>
 
 #include "ash/public/cpp/login_constants.h"
+#include "ash/public/cpp/tablet_mode.h"
 #include "ash/public/cpp/wallpaper_types.h"
-#include "ash/public/interfaces/tray_action.mojom.h"
+#include "ash/public/mojom/tray_action.mojom.h"
 #include "base/bind.h"
 #include "base/i18n/number_formatting.h"
 #include "base/location.h"
@@ -64,7 +65,6 @@
 #include "chrome/browser/profiles/profile_metrics.h"
 #include "chrome/browser/ui/ash/ime_controller_client.h"
 #include "chrome/browser/ui/ash/session_controller_client_impl.h"
-#include "chrome/browser/ui/ash/tablet_mode_client.h"
 #include "chrome/browser/ui/ash/wallpaper_controller_client.h"
 #include "chrome/browser/ui/webui/chromeos/internet_detail_dialog.h"
 #include "chrome/browser/ui/webui/chromeos/login/core_oobe_handler.h"
@@ -97,8 +97,12 @@
 #include "components/user_manager/user_manager.h"
 #include "components/user_manager/user_type.h"
 #include "components/version_info/version_info.h"
+#include "content/public/browser/notification_service.h"
+#include "content/public/browser/notification_source.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
+#include "extensions/browser/api/extensions_api_client.h"
+#include "extensions/browser/api/feedback_private/feedback_private_delegate.h"
 #include "google_apis/gaia/gaia_auth_util.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
 #include "ui/base/ime/chromeos/ime_keyboard.h"
@@ -214,10 +218,6 @@ std::string GetNetworkName(const std::string& service_path) {
 
 }  // namespace
 
-// LoginScreenContext implementation ------------------------------------------
-
-LoginScreenContext::LoginScreenContext() = default;
-
 // SigninScreenHandler implementation ------------------------------------------
 
 SigninScreenHandler::SigninScreenHandler(
@@ -235,8 +235,7 @@ SigninScreenHandler::SigninScreenHandler(
                              ->CapsLockIsEnabled()),
       proxy_auth_dialog_reload_times_(kMaxGaiaReloadForProxyAuthDialog),
       gaia_screen_handler_(gaia_screen_handler),
-      histogram_helper_(new ErrorScreensHistogramHelper("Signin")),
-      weak_factory_(this) {
+      histogram_helper_(new ErrorScreensHistogramHelper("Signin")) {
   DCHECK(network_state_informer_.get());
   DCHECK(error_screen_);
   DCHECK(core_oobe_view_);
@@ -266,9 +265,9 @@ SigninScreenHandler::SigninScreenHandler(
           base::Bind(&SigninScreenHandler::OnAllowedInputMethodsChanged,
                      base::Unretained(this)));
 
-  TabletModeClient* tablet_mode_client = TabletModeClient::Get();
-  tablet_mode_client->AddObserver(this);
-  OnTabletModeToggled(tablet_mode_client->tablet_mode_enabled());
+  ash::TabletMode* tablet_mode = ash::TabletMode::Get();
+  tablet_mode->AddObserver(this);
+  OnTabletModeToggled(tablet_mode->InTabletMode());
 
   WallpaperControllerClient::Get()->AddObserver(this);
 }
@@ -276,7 +275,9 @@ SigninScreenHandler::SigninScreenHandler(
 SigninScreenHandler::~SigninScreenHandler() {
   if (auto* wallpaper_controller_client = WallpaperControllerClient::Get())
     wallpaper_controller_client->RemoveObserver(this);
-  TabletModeClient::Get()->RemoveObserver(this);
+  // Ash maybe released before us.
+  if (ash::TabletMode::Get())
+    ash::TabletMode::Get()->RemoveObserver(this);
   OobeUI* oobe_ui = GetOobeUI();
   if (oobe_ui && oobe_ui_observer_added_)
     oobe_ui->RemoveObserver(this);
@@ -439,6 +440,8 @@ void SigninScreenHandler::RegisterMessages() {
   AddCallback("launchIncognito", &SigninScreenHandler::HandleLaunchIncognito);
   AddCallback("launchPublicSession",
               &SigninScreenHandler::HandleLaunchPublicSession);
+  AddCallback("launchSAMLPublicSession",
+              &SigninScreenHandler::HandleLaunchSAMLPublicSession);
   AddRawCallback("offlineLogin", &SigninScreenHandler::HandleOfflineLogin);
   AddCallback("rebootSystem", &SigninScreenHandler::HandleRebootSystem);
   AddCallback("removeUser", &SigninScreenHandler::HandleRemoveUser);
@@ -478,16 +481,12 @@ void SigninScreenHandler::RegisterMessages() {
   AddCallback("sendFeedback", &SigninScreenHandler::HandleSendFeedback);
 }
 
-void SigninScreenHandler::Show(const LoginScreenContext& context,
-                               bool oobe_ui) {
+void SigninScreenHandler::Show(bool oobe_ui) {
   CHECK(delegate_);
 
   // Just initialize internal fields from context and call ShowImpl().
   oobe_ui_ = oobe_ui;
 
-  std::string email;
-  email = context.email();
-  gaia_screen_handler_->set_populated_email(email);
   ShowImpl();
   histogram_helper_->OnScreenShow();
 }
@@ -513,11 +512,6 @@ void SigninScreenHandler::UpdateState(NetworkError::ErrorReason reason) {
   // force network error UI update.
   bool force_update = reason == NetworkError::ERROR_REASON_FRAME_ERROR;
   UpdateStateInternal(reason, force_update);
-}
-
-void SigninScreenHandler::SetFocusPODCallbackForTesting(
-    base::Closure callback) {
-  test_focus_pod_callback_ = callback;
 }
 
 void SigninScreenHandler::SetOfflineTimeoutForTesting(
@@ -1016,6 +1010,14 @@ void SigninScreenHandler::SuspendDone(const base::TimeDelta& sleep_duration) {
   }
 }
 
+void SigninScreenHandler::OnTabletModeStarted() {
+  OnTabletModeToggled(true);
+}
+
+void SigninScreenHandler::OnTabletModeEnded() {
+  OnTabletModeToggled(false);
+}
+
 void SigninScreenHandler::OnTabletModeToggled(bool enabled) {
   CallJS("login.AccountPickerScreen.setTabletModeState", enabled);
 }
@@ -1100,6 +1102,14 @@ void SigninScreenHandler::HandleLaunchIncognito() {
   UserContext context(user_manager::USER_TYPE_GUEST, EmptyAccountId());
   if (delegate_)
     delegate_->Login(context, SigninSpecifics());
+}
+
+void SigninScreenHandler::HandleLaunchSAMLPublicSession(
+    const std::string& email) {
+  const AccountId account_id = user_manager::known_user::GetAccountId(
+      email, std::string() /* id */, AccountType::UNKNOWN);
+  SigninScreenHandler::HandleLaunchPublicSession(account_id, std::string(),
+                                                 std::string());
 }
 
 void SigninScreenHandler::HandleLaunchPublicSession(
@@ -1237,8 +1247,8 @@ void SigninScreenHandler::HandleLoginVisible(const std::string& source) {
         chrome::NOTIFICATION_LOGIN_OR_LOCK_WEBUI_VISIBLE,
         content::NotificationService::AllSources(),
         content::NotificationService::NoDetails());
-    TRACE_EVENT_ASYNC_END0("ui", "ShowLoginWebUI",
-                           LoginDisplayHostWebUI::kShowLoginWebUIid);
+    TRACE_EVENT_NESTABLE_ASYNC_END0("ui", "ShowLoginWebUI",
+                                    LoginDisplayHostWebUI::kShowLoginWebUIid);
   }
   webui_visible_ = true;
   if (preferences_changed_delayed_)
@@ -1310,8 +1320,6 @@ void SigninScreenHandler::HandleFocusPod(const AccountId& account_id,
 
   if (delegate_ && !is_same_pod_focused)
     delegate_->CheckUserStatus(account_id);
-  if (!test_focus_pod_callback_.is_null())
-    test_focus_pod_callback_.Run();
 
   focused_pod_account_id_ = std::make_unique<AccountId>(account_id);
 
@@ -1367,7 +1375,7 @@ void SigninScreenHandler::SendPublicSessionKeyboardLayouts(
 
 void SigninScreenHandler::HandleGetTabletModeState() {
   CallJS("login.AccountPickerScreen.setTabletModeState",
-         TabletModeClient::Get()->tablet_mode_enabled());
+         ash::TabletMode::Get()->InTabletMode());
 }
 
 void SigninScreenHandler::HandleGetDemoModeState() {

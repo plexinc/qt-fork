@@ -62,12 +62,9 @@ public:
     void    drawSprite(const SkBitmap&, int x, int y, const SkPaint&) const;
     void    drawGlyphRunList(const SkGlyphRunList& glyphRunList,
                              SkGlyphRunListPainter* glyphPainter) const;
-    void    drawVertices(SkVertices::VertexMode mode, int vertexCount,
-                         const SkPoint vertices[], const SkPoint textures[],
-                         const SkColor colors[], const SkVertices::BoneIndices boneIndices[],
-                         const SkVertices::BoneWeights boneWeights[], SkBlendMode bmode,
-                         const uint16_t indices[], int ptCount,
-                         const SkPaint& paint, const SkVertices::Bone bones[], int boneCount) const;
+    void    drawVertices(const SkVertices*, SkBlendMode, const SkPaint&) const;
+    void  drawAtlas(const SkImage*, const SkRSXform[], const SkRect[], const SkColor[], int count,
+                    SkBlendMode, const SkPaint&);
 
     /**
      *  Overwrite the target with the path's coverage (i.e. its mask).
@@ -82,11 +79,11 @@ public:
         this->drawPath(src, paint, nullptr, false, !isHairline, customBlitter);
     }
 
-    void paintPaths(SkSpan<const SkPathPos> pathsAndPositions,
+    void paintPaths(SkDrawableGlyphBuffer* drawables,
                     SkScalar scale,
                     const SkPaint& paint) const override;
 
-    void paintMasks(SkSpan<const SkMask> masks, const SkPaint& paint) const override;
+    void paintMasks(SkDrawableGlyphBuffer* drawables, const SkPaint& paint) const override;
 
     static bool ComputeMaskBounds(const SkRect& devPathBounds, const SkIRect* clipBounds,
                                   const SkMaskFilter* filter, const SkMatrix* filterMatrix,
@@ -126,6 +123,10 @@ public:
 
 private:
     void drawBitmapAsMask(const SkBitmap&, const SkPaint&) const;
+    void draw_fixed_vertices(const SkVertices*, SkBlendMode, const SkPaint&, const SkMatrix&,
+                             const SkPoint dev2[], const SkPoint3 dev3[], SkArenaAlloc*) const;
+    void draw_vdata_vertices(const SkVertices*, const SkPaint&, const SkMatrix&,
+                             const SkPoint[], const SkPoint3[], SkArenaAlloc*) const;
 
     void drawPath(const SkPath&,
                   const SkPaint&,

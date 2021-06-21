@@ -78,18 +78,24 @@ public:
         void setDisabled();
     };
 
-    const Face& frontAndBack() const {
+    const Face& singleSidedFace() const {
         SkASSERT(!this->isDisabled());
         SkASSERT(!this->isTwoSided());
-        return fFront;
+        return fCWFace;
     }
-    const Face& front(GrSurfaceOrigin origin) const {
+    // Returns the stencil settings for triangles that wind clockwise in "post-origin" space.
+    // (i.e., the space that results after a potential y-axis flip on device space for bottom-left
+    // origins.)
+    const Face& postOriginCWFace(GrSurfaceOrigin origin) const {
         SkASSERT(this->isTwoSided());
-        return (kTopLeft_GrSurfaceOrigin == origin) ? fFront : fBack;
+        return (kTopLeft_GrSurfaceOrigin == origin) ? fCWFace : fCCWFace;
     }
-    const Face& back(GrSurfaceOrigin origin) const {
+    // Returns the stencil settings for triangles that wind counter-clockwise in "post-origin"
+    // space. (i.e., the space that results after a potential y-axis flip on device space for
+    // bottom-left origins.)
+    const Face& postOriginCCWFace(GrSurfaceOrigin origin) const {
         SkASSERT(this->isTwoSided());
-        return (kTopLeft_GrSurfaceOrigin == origin) ? fBack : fFront;
+        return (kTopLeft_GrSurfaceOrigin == origin) ? fCCWFace : fCWFace;
     }
 
     /**
@@ -125,11 +131,15 @@ public:
 
 private:
     // Internal flag for backends to optionally mark their tracked stencil state as invalid.
-    enum { kInvalid_PrivateFlag = (kLast_StencilFlag << 1) };
+    // NOTE: This value is outside the declared range of GrStencilFlags, but since that type is
+    // explicitly backed by 'int', it can still represent this constant. clang 11 complains about
+    // mixing enum types in bit operations, so this works around that.
+    static constexpr GrStencilFlags kInvalid_PrivateFlag =
+            static_cast<GrStencilFlags>(kLast_StencilFlag << 1);
 
     uint32_t   fFlags;
-    Face       fFront;
-    Face       fBack;
+    Face       fCWFace;
+    Face       fCCWFace;
 };
 
 #endif

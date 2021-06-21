@@ -2,7 +2,6 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("//build/config/jumbo.gni")
 import("//testing/test.gni")
 import("pdfium.gni")
 
@@ -88,11 +87,9 @@ config("pdfium_core_config") {
   configs = [
     ":pdfium_common_config",
     ":pdfium_public_config",
+    "//build/config/compiler:noshadowing",
   ]
   defines = []
-  if (is_clang) {
-    cflags += [ "-Wshadow" ]
-  }
   if (is_linux) {
     if (current_cpu == "x64") {
       defines += [ "_FX_CPU_=_FX_X64_" ]
@@ -110,7 +107,7 @@ config("pdfium_core_config") {
   configs += [ "//build/config/compiler:no_size_t_to_int_warning" ]
 }
 
-jumbo_source_set("pdfium_public_headers_impl") {
+source_set("pdfium_public_headers_impl") {
   sources = [
     "public/cpp/fpdf_deleters.h",
     "public/cpp/fpdf_scopers.h",
@@ -124,6 +121,7 @@ jumbo_source_set("pdfium_public_headers_impl") {
     "public/fpdf_flatten.h",
     "public/fpdf_formfill.h",
     "public/fpdf_fwlevent.h",
+    "public/fpdf_javascript.h",
     "public/fpdf_ppo.h",
     "public/fpdf_progressive.h",
     "public/fpdf_save.h",
@@ -137,23 +135,20 @@ jumbo_source_set("pdfium_public_headers_impl") {
 }
 
 group("pdfium_public_headers") {
-  public_deps = [
-    ":pdfium_public_headers_impl",
-  ]
+  public_deps = [ ":pdfium_public_headers_impl" ]
   public_configs = [
     ":pdfium_public_config",
     ":pdfium_implementation_config",
   ]
 }
 
-jumbo_component("pdfium") {
+component("pdfium") {
   libs = []
   configs += [ ":pdfium_core_config" ]
   public_configs = [ ":pdfium_public_config" ]
 
   deps = [
     "constants",
-    "core/fpdfapi",
     "core/fpdfapi/page",
     "core/fpdfapi/parser",
     "core/fpdfdoc",
@@ -196,6 +191,7 @@ jumbo_component("pdfium") {
   }
 
   if (pdf_is_complete_lib) {
+    static_component_type = "static_library"
     complete_static_lib = true
     configs -= [ "//build/config/compiler:thin_archive" ]
   }
@@ -231,9 +227,7 @@ group("pdfium_unittest_deps") {
 
 test("pdfium_unittests") {
   testonly = true
-  sources = [
-    "testing/unit_test_main.cpp",
-  ]
+  sources = [ "testing/unit_test_main.cpp" ]
   deps = [
     "core/fdrm:unittests",
     "core/fpdfapi/edit:unittests",
@@ -269,11 +263,11 @@ test("pdfium_unittests") {
 
   if (pdf_enable_xfa) {
     deps += [
+      "core/fxcrt/css:unittests",
       "fxbarcode:unittests",
       "xfa/fde:unittests",
       "xfa/fgas:unittests",
       "xfa/fgas/layout:unittests",
-      "xfa/fwl:unittests",
       "xfa/fxfa:unittests",
       "xfa/fxfa/fm2js:unittests",
       "xfa/fxfa/parser:unittests",
@@ -302,9 +296,7 @@ group("pdfium_embeddertest_deps") {
 
 test("pdfium_embeddertests") {
   testonly = true
-  sources = [
-    "testing/embedder_test_main.cpp",
-  ]
+  sources = [ "testing/embedder_test_main.cpp" ]
   deps = [
     "core/fpdfapi/edit:embeddertests",
     "core/fpdfapi/parser:embeddertests",
@@ -347,9 +339,7 @@ test("pdfium_embeddertests") {
 
 executable("pdfium_diff") {
   testonly = true
-  sources = [
-    "testing/image_diff/image_diff.cpp",
-  ]
+  sources = [ "testing/image_diff/image_diff.cpp" ]
   deps = [
     ":pdfium",
     "core/fxcrt",
@@ -362,18 +352,14 @@ executable("pdfium_diff") {
 }
 
 if (pdf_is_standalone) {
-  jumbo_source_set("samples") {
+  source_set("samples") {
     testonly = true
-    deps = [
-      "//samples",
-    ]
+    deps = [ "//samples" ]
   }
 
   group("fuzzers") {
     testonly = true
-    deps = [
-      "//testing/fuzzers",
-    ]
+    deps = [ "//testing/fuzzers" ]
   }
 }
 

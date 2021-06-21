@@ -22,7 +22,7 @@ namespace blink {
 
 namespace {
 
-class NoopClient final : public GarbageCollectedFinalized<NoopClient>,
+class NoopClient final : public GarbageCollected<NoopClient>,
                          public BytesConsumer::Client {
   USING_GARBAGE_COLLECTED_MIXIN(NoopClient);
 
@@ -31,7 +31,7 @@ class NoopClient final : public GarbageCollectedFinalized<NoopClient>,
   String DebugName() const override { return "NoopClient"; }
 };
 
-class TeeHelper final : public GarbageCollectedFinalized<TeeHelper>,
+class TeeHelper final : public GarbageCollected<TeeHelper>,
                         public BytesConsumer::Client {
   USING_GARBAGE_COLLECTED_MIXIN(TeeHelper);
 
@@ -113,7 +113,7 @@ class TeeHelper final : public GarbageCollectedFinalized<TeeHelper>,
   BytesConsumer* Destination1() const { return destination1_; }
   BytesConsumer* Destination2() const { return destination2_; }
 
-  void Trace(blink::Visitor* visitor) override {
+  void Trace(Visitor* visitor) override {
     visitor->Trace(src_);
     visitor->Trace(destination1_);
     visitor->Trace(destination2_);
@@ -122,7 +122,7 @@ class TeeHelper final : public GarbageCollectedFinalized<TeeHelper>,
 
  private:
   using Result = BytesConsumer::Result;
-  class Chunk final : public GarbageCollectedFinalized<Chunk> {
+  class Chunk final : public GarbageCollected<Chunk> {
    public:
     Chunk(const char* data, wtf_size_t size) {
       buffer_.ReserveInitialCapacity(size);
@@ -138,7 +138,7 @@ class TeeHelper final : public GarbageCollectedFinalized<TeeHelper>,
     const char* data() const { return buffer_.data(); }
     wtf_size_t size() const { return buffer_.size(); }
 
-    void Trace(blink::Visitor* visitor) {}
+    void Trace(Visitor* visitor) {}
 
    private:
     Vector<char> buffer_;
@@ -268,7 +268,7 @@ class TeeHelper final : public GarbageCollectedFinalized<TeeHelper>,
 
     bool IsCancelled() const { return is_cancelled_; }
 
-    void Trace(blink::Visitor* visitor) override {
+    void Trace(Visitor* visitor) override {
       visitor->Trace(execution_context_);
       visitor->Trace(tee_);
       visitor->Trace(client_);

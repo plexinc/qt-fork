@@ -5,25 +5,20 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_EXECUTION_CONTEXT_REMOTE_SECURITY_CONTEXT_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_EXECUTION_CONTEXT_REMOTE_SECURITY_CONTEXT_H_
 
+#include "third_party/blink/public/common/feature_policy/feature_policy.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/execution_context/security_context.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 
 namespace blink {
 
-class CORE_EXPORT RemoteSecurityContext
-    : public GarbageCollectedFinalized<RemoteSecurityContext>,
-      public SecurityContext {
-  USING_GARBAGE_COLLECTED_MIXIN(RemoteSecurityContext);
-
+class CORE_EXPORT RemoteSecurityContext final : public SecurityContext {
  public:
   RemoteSecurityContext();
 
-  void Trace(blink::Visitor*) override;
-
   void SetReplicatedOrigin(scoped_refptr<SecurityOrigin>);
   void ResetReplicatedContentSecurityPolicy();
-  void ResetAndEnforceSandboxFlags(WebSandboxFlags flags);
+  void ResetAndEnforceSandboxFlags(mojom::blink::WebSandboxFlags flags);
 
   // Constructs the enforcement FeaturePolicy struct for this security context.
   // The resulting FeaturePolicy is a combination of:

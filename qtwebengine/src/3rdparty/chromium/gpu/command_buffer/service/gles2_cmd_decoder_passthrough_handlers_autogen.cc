@@ -4487,8 +4487,8 @@ error::Error GLES2DecoderPassthroughImpl::HandleScheduleDCLayerCHROMIUM(
   const volatile gles2::cmds::ScheduleDCLayerCHROMIUM& c =
       *static_cast<const volatile gles2::cmds::ScheduleDCLayerCHROMIUM*>(
           cmd_data);
-  GLuint y_texture_id = static_cast<GLuint>(c.y_texture_id);
-  GLuint uv_texture_id = static_cast<GLuint>(c.uv_texture_id);
+  GLuint texture_0 = static_cast<GLuint>(c.texture_0);
+  GLuint texture_1 = static_cast<GLuint>(c.texture_1);
   GLint z_order = static_cast<GLint>(c.z_order);
   GLint content_x = static_cast<GLint>(c.content_x);
   GLint content_y = static_cast<GLint>(c.content_y);
@@ -4511,7 +4511,7 @@ error::Error GLES2DecoderPassthroughImpl::HandleScheduleDCLayerCHROMIUM(
   GLint clip_height = static_cast<GLint>(c.clip_height);
   GLuint protected_video_type = static_cast<GLuint>(c.protected_video_type);
   error::Error error = DoScheduleDCLayerCHROMIUM(
-      y_texture_id, uv_texture_id, z_order, content_x, content_y, content_width,
+      texture_0, texture_1, z_order, content_x, content_y, content_width,
       content_height, quad_x, quad_y, quad_width, quad_height, transform_c1r1,
       transform_c2r1, transform_c1r2, transform_c2r2, transform_tx,
       transform_ty, is_clipped, clip_x, clip_y, clip_width, clip_height,
@@ -4522,91 +4522,14 @@ error::Error GLES2DecoderPassthroughImpl::HandleScheduleDCLayerCHROMIUM(
   return error::kNoError;
 }
 
-error::Error GLES2DecoderPassthroughImpl::HandleMatrixLoadfCHROMIUMImmediate(
+error::Error GLES2DecoderPassthroughImpl::HandleContextVisibilityHintCHROMIUM(
     uint32_t immediate_data_size,
     const volatile void* cmd_data) {
-  const volatile gles2::cmds::MatrixLoadfCHROMIUMImmediate& c =
-      *static_cast<const volatile gles2::cmds::MatrixLoadfCHROMIUMImmediate*>(
+  const volatile gles2::cmds::ContextVisibilityHintCHROMIUM& c =
+      *static_cast<const volatile gles2::cmds::ContextVisibilityHintCHROMIUM*>(
           cmd_data);
-  if (!features().chromium_path_rendering) {
-    return error::kUnknownCommand;
-  }
-
-  GLenum matrixMode = static_cast<GLenum>(c.matrixMode);
-  uint32_t m_size;
-  if (!GLES2Util::ComputeDataSize<GLfloat, 16>(1, &m_size)) {
-    return error::kOutOfBounds;
-  }
-  if (m_size > immediate_data_size) {
-    return error::kOutOfBounds;
-  }
-  volatile const GLfloat* m = GetImmediateDataAs<volatile const GLfloat*>(
-      c, m_size, immediate_data_size);
-  if (m == nullptr) {
-    return error::kOutOfBounds;
-  }
-  error::Error error = DoMatrixLoadfCHROMIUM(matrixMode, m);
-  if (error != error::kNoError) {
-    return error;
-  }
-  return error::kNoError;
-}
-
-error::Error GLES2DecoderPassthroughImpl::HandleMatrixLoadIdentityCHROMIUM(
-    uint32_t immediate_data_size,
-    const volatile void* cmd_data) {
-  const volatile gles2::cmds::MatrixLoadIdentityCHROMIUM& c =
-      *static_cast<const volatile gles2::cmds::MatrixLoadIdentityCHROMIUM*>(
-          cmd_data);
-  if (!features().chromium_path_rendering) {
-    return error::kUnknownCommand;
-  }
-
-  GLenum matrixMode = static_cast<GLenum>(c.matrixMode);
-  error::Error error = DoMatrixLoadIdentityCHROMIUM(matrixMode);
-  if (error != error::kNoError) {
-    return error;
-  }
-  return error::kNoError;
-}
-
-error::Error GLES2DecoderPassthroughImpl::HandleIsPathCHROMIUM(
-    uint32_t immediate_data_size,
-    const volatile void* cmd_data) {
-  const volatile gles2::cmds::IsPathCHROMIUM& c =
-      *static_cast<const volatile gles2::cmds::IsPathCHROMIUM*>(cmd_data);
-  if (!features().chromium_path_rendering) {
-    return error::kUnknownCommand;
-  }
-
-  GLuint path = c.path;
-  typedef cmds::IsPathCHROMIUM::Result Result;
-  Result* result = GetSharedMemoryAs<Result*>(
-      c.result_shm_id, c.result_shm_offset, sizeof(*result));
-  if (!result) {
-    return error::kOutOfBounds;
-  }
-  error::Error error = DoIsPathCHROMIUM(path, result);
-  if (error != error::kNoError) {
-    return error;
-  }
-  return error::kNoError;
-}
-
-error::Error GLES2DecoderPassthroughImpl::HandlePathStencilFuncCHROMIUM(
-    uint32_t immediate_data_size,
-    const volatile void* cmd_data) {
-  const volatile gles2::cmds::PathStencilFuncCHROMIUM& c =
-      *static_cast<const volatile gles2::cmds::PathStencilFuncCHROMIUM*>(
-          cmd_data);
-  if (!features().chromium_path_rendering) {
-    return error::kUnknownCommand;
-  }
-
-  GLenum func = static_cast<GLenum>(c.func);
-  GLint ref = static_cast<GLint>(c.ref);
-  GLuint mask = static_cast<GLuint>(c.mask);
-  error::Error error = DoPathStencilFuncCHROMIUM(func, ref, mask);
+  GLboolean visibility = static_cast<GLboolean>(c.visibility);
+  error::Error error = DoContextVisibilityHintCHROMIUM(visibility);
   if (error != error::kNoError) {
     return error;
   }
@@ -4639,21 +4562,6 @@ error::Error GLES2DecoderPassthroughImpl::HandleBlendBarrierKHR(
   }
 
   error::Error error = DoBlendBarrierKHR();
-  if (error != error::kNoError) {
-    return error;
-  }
-  return error::kNoError;
-}
-
-error::Error
-GLES2DecoderPassthroughImpl::HandleApplyScreenSpaceAntialiasingCHROMIUM(
-    uint32_t immediate_data_size,
-    const volatile void* cmd_data) {
-  if (!features().chromium_screen_space_antialiasing) {
-    return error::kUnknownCommand;
-  }
-
-  error::Error error = DoApplyScreenSpaceAntialiasingCHROMIUM();
   if (error != error::kNoError) {
     return error;
   }
@@ -4952,6 +4860,28 @@ GLES2DecoderPassthroughImpl::HandleEndSharedImageAccessDirectCHROMIUM(
           cmd_data);
   GLuint texture = static_cast<GLuint>(c.texture);
   error::Error error = DoEndSharedImageAccessDirectCHROMIUM(texture);
+  if (error != error::kNoError) {
+    return error;
+  }
+  return error::kNoError;
+}
+
+error::Error
+GLES2DecoderPassthroughImpl::HandleBeginBatchReadAccessSharedImageCHROMIUM(
+    uint32_t immediate_data_size,
+    const volatile void* cmd_data) {
+  error::Error error = DoBeginBatchReadAccessSharedImageCHROMIUM();
+  if (error != error::kNoError) {
+    return error;
+  }
+  return error::kNoError;
+}
+
+error::Error
+GLES2DecoderPassthroughImpl::HandleEndBatchReadAccessSharedImageCHROMIUM(
+    uint32_t immediate_data_size,
+    const volatile void* cmd_data) {
+  error::Error error = DoEndBatchReadAccessSharedImageCHROMIUM();
   if (error != error::kNoError) {
     return error;
   }

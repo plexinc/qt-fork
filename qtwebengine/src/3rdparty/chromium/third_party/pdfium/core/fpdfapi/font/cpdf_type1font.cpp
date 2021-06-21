@@ -16,7 +16,7 @@
 #include "core/fxge/fx_freetype.h"
 
 #if defined(OS_MACOSX)
-#include "core/fxge/apple/apple_int.h"
+#include "core/fxge/apple/fx_mac_impl.h"
 #endif
 
 #if defined(OS_IOS)
@@ -91,7 +91,7 @@ CPDF_Type1Font* CPDF_Type1Font::AsType1Font() {
 }
 
 bool CPDF_Type1Font::Load() {
-  m_Base14Font = CFX_FontMapper::GetStandardFontName(&m_BaseFont);
+  m_Base14Font = CFX_FontMapper::GetStandardFontName(&m_BaseFontName);
   if (!IsBase14Font())
     return LoadCommon();
 

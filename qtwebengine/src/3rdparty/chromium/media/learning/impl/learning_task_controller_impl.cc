@@ -49,7 +49,9 @@ LearningTaskControllerImpl::~LearningTaskControllerImpl() = default;
 
 void LearningTaskControllerImpl::BeginObservation(
     base::UnguessableToken id,
-    const FeatureVector& features) {
+    const FeatureVector& features,
+    const base::Optional<TargetValue>& default_target,
+    const base::Optional<ukm::SourceId>& source_id) {
   // TODO(liberato): Should we enforce that the right number of features are
   // present here?  Right now, we allow it to be shorter, so that features from
   // a FeatureProvider may be omitted.  Of course, they have to be at the end in
@@ -58,7 +60,13 @@ void LearningTaskControllerImpl::BeginObservation(
   if (!trainer_)
     return;
 
-  helper_->BeginObservation(id, features);
+  // We don't support default targets, since we're the base learner and can't
+  // easily do that.  However, defaults are handled by (weak) controllers
+  // handed out by LearningSessionImpl.  So, we don't bother since they never
+  // get here anyway.
+  DCHECK(!default_target);
+
+  helper_->BeginObservation(id, features, source_id);
 }
 
 void LearningTaskControllerImpl::CompleteObservation(
@@ -73,6 +81,25 @@ void LearningTaskControllerImpl::CancelObservation(base::UnguessableToken id) {
   if (!trainer_)
     return;
   helper_->CancelObservation(id);
+}
+
+void LearningTaskControllerImpl::UpdateDefaultTarget(
+    base::UnguessableToken id,
+    const base::Optional<TargetValue>& default_target) {
+  NOTREACHED();
+}
+
+const LearningTask& LearningTaskControllerImpl::GetLearningTask() {
+  return task_;
+}
+
+void LearningTaskControllerImpl::PredictDistribution(
+    const FeatureVector& features,
+    PredictionCB callback) {
+  if (model_)
+    std::move(callback).Run(model_->PredictDistribution(features));
+  else
+    std::move(callback).Run(base::nullopt);
 }
 
 void LearningTaskControllerImpl::AddFinishedExample(LabelledExample example,

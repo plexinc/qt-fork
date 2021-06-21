@@ -12,13 +12,10 @@
 #include "base/optional.h"
 #include "content/common/content_export.h"
 #include "mojo/public/cpp/bindings/receiver.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "services/media_session/public/mojom/media_controller.mojom.h"
 #include "ui/base/accelerators/media_keys_listener.h"
 #include "ui/events/keycodes/keyboard_codes.h"
-
-namespace service_manager {
-class Connector;
-}  // namespace service_manager
 
 namespace content {
 
@@ -27,7 +24,7 @@ class CONTENT_EXPORT HardwareKeyMediaController
     : public media_session::mojom::MediaControllerObserver,
       public ui::MediaKeysListener::Delegate {
  public:
-  explicit HardwareKeyMediaController(service_manager::Connector* connector);
+  HardwareKeyMediaController();
   ~HardwareKeyMediaController() override;
 
   // media_session::mojom::MediaControllerObserver:
@@ -48,8 +45,8 @@ class CONTENT_EXPORT HardwareKeyMediaController
 
   void FlushForTesting();
   void SetMediaControllerForTesting(
-      media_session::mojom::MediaControllerPtr controller) {
-    media_controller_ptr_ = std::move(controller);
+      mojo::Remote<media_session::mojom::MediaController> controller) {
+    media_controller_remote_ = std::move(controller);
   }
 
  private:
@@ -66,7 +63,7 @@ class CONTENT_EXPORT HardwareKeyMediaController
   void PerformAction(media_session::mojom::MediaSessionAction action);
 
   // Used to control the active session.
-  media_session::mojom::MediaControllerPtr media_controller_ptr_;
+  mojo::Remote<media_session::mojom::MediaController> media_controller_remote_;
 
   // Used to check whether a play/pause key should play or pause (based on
   // current playback state).

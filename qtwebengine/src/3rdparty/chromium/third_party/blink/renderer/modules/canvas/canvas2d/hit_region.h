@@ -7,15 +7,15 @@
 
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_hit_region_options.h"
 #include "third_party/blink/renderer/core/dom/element.h"
-#include "third_party/blink/renderer/modules/canvas/canvas2d/hit_region_options.h"
 #include "third_party/blink/renderer/platform/graphics/path.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/wtf/linked_hash_set.h"
 
 namespace blink {
 
-class HitRegion final : public GarbageCollectedFinalized<HitRegion> {
+class HitRegion final : public GarbageCollected<HitRegion> {
  public:
   HitRegion(const Path&, const HitRegionOptions*);
   virtual ~HitRegion() = default;
@@ -28,7 +28,7 @@ class HitRegion final : public GarbageCollectedFinalized<HitRegion> {
   const Path& GetPath() const { return path_; }
   Element* Control() const { return control_.Get(); }
 
-  void Trace(blink::Visitor*);
+  void Trace(Visitor*);
 
  private:
   String id_;
@@ -37,8 +37,7 @@ class HitRegion final : public GarbageCollectedFinalized<HitRegion> {
   WindRule fill_rule_;
 };
 
-class HitRegionManager final
-    : public GarbageCollectedFinalized<HitRegionManager> {
+class HitRegionManager final : public GarbageCollected<HitRegionManager> {
  public:
   HitRegionManager() = default;
   ~HitRegionManager() {}
@@ -57,7 +56,7 @@ class HitRegionManager final
 
   unsigned GetHitRegionsCount() const;
 
-  void Trace(blink::Visitor*);
+  void Trace(Visitor*);
 
  private:
   typedef HeapLinkedHashSet<Member<HitRegion>> HitRegionList;

@@ -30,38 +30,28 @@
 
 #include "third_party/blink/renderer/platform/wtf/wtf.h"
 
+#include "base/third_party/double_conversion/double-conversion/double-conversion.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/partitions.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
 #include "third_party/blink/renderer/platform/wtf/date_math.h"
-#include "third_party/blink/renderer/platform/wtf/dtoa/double-conversion.h"
+#include "third_party/blink/renderer/platform/wtf/dtoa.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
 #include "third_party/blink/renderer/platform/wtf/stack_util.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_statics.h"
 #include "third_party/blink/renderer/platform/wtf/thread_specific.h"
 #include "third_party/blink/renderer/platform/wtf/threading.h"
-#include "third_party/blink/renderer/platform/wtf/typed_arrays/array_buffer_contents.h"
 
 namespace WTF {
 
 bool g_initialized;
-void (*g_call_on_main_thread_function)(MainThreadFunction, void*);
 base::PlatformThreadId g_main_thread_identifier;
-
-namespace internal {
-
-void CallOnMainThread(MainThreadFunction* function, void* context) {
-  (*g_call_on_main_thread_function)(function, context);
-}
-
-}  // namespace internal
 
 bool IsMainThread() {
   return CurrentThread() == g_main_thread_identifier;
 }
 
-void Initialize(void (*call_on_main_thread_function)(MainThreadFunction,
-                                                     void*)) {
+void Initialize() {
   // WTF, and Blink in general, cannot handle being re-initialized.
   // Make that explicit here.
   CHECK(!g_initialized);
@@ -73,8 +63,8 @@ void Initialize(void (*call_on_main_thread_function)(MainThreadFunction,
   // Force initialization of static DoubleToStringConverter converter variable
   // inside EcmaScriptConverter function while we are in single thread mode.
   double_conversion::DoubleToStringConverter::EcmaScriptConverter();
+  internal::GetDoubleConverter();
 
-  g_call_on_main_thread_function = call_on_main_thread_function;
   internal::InitializeMainThreadStackEstimate();
   AtomicString::Init();
   StringStatics::Init();

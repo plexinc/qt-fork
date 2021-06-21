@@ -10,6 +10,7 @@
 
 #include "base/containers/small_map.h"
 #include "base/memory/ptr_util.h"
+#include "media/base/video_types.h"
 #include "media/gpu/macros.h"
 #include "media/parsers/vp8_parser.h"
 #include "media/video/video_decode_accelerator.h"
@@ -33,7 +34,7 @@ class SupportResolutionChecker : public V4L2StatefulWorkaround {
       VideoCodecProfile profile);
   ~SupportResolutionChecker() override = default;
 
-  Result Apply(const uint8_t* data, size_t size, size_t* endpos) override;
+  Result Apply(const uint8_t* data, size_t size) override;
 
  private:
   using SupportedProfileMap = base::small_map<
@@ -76,6 +77,10 @@ SupportResolutionChecker::CreateIfNeeded(V4L2Device::Type device_type,
   constexpr uint32_t supported_input_fourccs[] = {
       V4L2_PIX_FMT_VP8,
   };
+
+  // Recreate the V4L2 device in order to close the opened decoder, since
+  // we are about to query the supported decode profiles.
+  device = V4L2Device::Create();
   auto supported_profiles = device->GetSupportedDecodeProfiles(
       base::size(supported_input_fourccs), supported_input_fourccs);
   SupportedProfileMap supported_profile_map;
@@ -89,8 +94,7 @@ SupportResolutionChecker::CreateIfNeeded(V4L2Device::Type device_type,
 
 V4L2StatefulWorkaround::Result SupportResolutionChecker::Apply(
     const uint8_t* data,
-    size_t size,
-    size_t* endpos) {
+    size_t size) {
   Vp8FrameHeader fhdr;
   vp8_parser_->ParseFrame(data, size, &fhdr);
   if (fhdr.IsKeyframe()) {

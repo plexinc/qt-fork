@@ -50,8 +50,8 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/web_preferences.h"
-#include "content/public/common/webrtc_ip_handling_policy.h"
 #include "media/base/media_switches.h"
+#include "third_party/blink/public/common/peerconnection/webrtc_ip_handling_policy.h"
 #include "third_party/blink/public/mojom/renderer_preferences.mojom.h"
 #include "ui/base/ui_base_switches.h"
 #include "ui/events/event_switches.h"
@@ -112,9 +112,8 @@ WebEngineSettings::~WebEngineSettings()
     if (parentSettings)
         parentSettings->childSettings.remove(this);
     // In QML the profile and its settings may be garbage collected before the page and its settings.
-    for (WebEngineSettings *settings : qAsConst(childSettings)) {
-        settings->parentSettings = 0;
-    }
+    for (WebEngineSettings *settings : qAsConst(childSettings))
+        settings->parentSettings = nullptr;
 }
 
 void WebEngineSettings::overrideWebPreferences(content::WebContents *webContents, content::WebPreferences *prefs)
@@ -128,9 +127,8 @@ void WebEngineSettings::overrideWebPreferences(content::WebContents *webContents
         webPreferences.reset(new content::WebPreferences(*prefs));
 
     if (webContents
-            && webContents->GetRenderViewHost()
             && applySettingsToRendererPreferences(webContents->GetMutableRendererPrefs())) {
-        webContents->GetRenderViewHost()->SyncRendererPrefs();
+        webContents->SyncRendererPrefs();
     }
 }
 
@@ -142,11 +140,15 @@ void WebEngineSettings::setAttribute(WebEngineSettings::Attribute attr, bool on)
 
 bool WebEngineSettings::testAttribute(WebEngineSettings::Attribute attr) const
 {
-    if (!parentSettings) {
-        Q_ASSERT(s_defaultAttributes.contains(attr));
-        return m_attributes.value(attr, s_defaultAttributes.value(attr));
-    }
-    return m_attributes.value(attr, parentSettings->testAttribute(attr));
+    auto it = m_attributes.constFind(attr);
+    if (it != m_attributes.constEnd())
+        return *it;
+
+    if (parentSettings)
+        return parentSettings->testAttribute(attr);
+
+    Q_ASSERT(s_defaultAttributes.contains(attr));
+    return s_defaultAttributes.value(attr);
 }
 
 bool WebEngineSettings::isAttributeExplicitlySet(Attribute attr) const
@@ -248,7 +250,7 @@ void WebEngineSettings::initDefaults()
         s_defaultAttributes.insert(LinksIncludedInFocusChain, true);
         s_defaultAttributes.insert(LocalStorageEnabled, true);
         s_defaultAttributes.insert(LocalContentCanAccessRemoteUrls, false);
-        s_defaultAttributes.insert(XSSAuditingEnabled, true);
+        s_defaultAttributes.insert(XSSAuditingEnabled, false);
         s_defaultAttributes.insert(SpatialNavigationEnabled, false);
         s_defaultAttributes.insert(LocalContentCanAccessFileUrls, true);
         s_defaultAttributes.insert(HyperlinkAuditingEnabled, false);
@@ -334,13 +336,15 @@ void WebEngineSettings::doApply()
 {
     if (webPreferences.isNull())
         return;
+
+    m_batchTimer.stop();
     // Override with our settings when applicable
     applySettingsToWebPreferences(webPreferences.data());
     Q_ASSERT(m_adapter);
     m_adapter->updateWebPreferences(*webPreferences.data());
 
     if (applySettingsToRendererPreferences(m_adapter->webContents()->GetMutableRendererPrefs()))
-        m_adapter->webContents()->GetRenderViewHost()->SyncRendererPrefs();
+        m_adapter->webContents()->SyncRendererPrefs();
 }
 
 void WebEngineSettings::applySettingsToWebPreferences(content::WebPreferences *prefs)
@@ -366,7 +370,6 @@ void WebEngineSettings::applySettingsToWebPreferences(content::WebPreferences *p
     prefs->local_storage_enabled = testAttribute(LocalStorageEnabled);
     prefs->databases_enabled = testAttribute(LocalStorageEnabled);
     prefs->allow_universal_access_from_file_urls = testAttribute(LocalContentCanAccessRemoteUrls);
-    prefs->xss_auditor_enabled = testAttribute(XSSAuditingEnabled);
     prefs->spatial_navigation_enabled = testAttribute(SpatialNavigationEnabled);
     prefs->allow_file_access_from_file_urls = testAttribute(LocalContentCanAccessFileUrls);
     prefs->hyperlink_auditing_enabled = testAttribute(HyperlinkAuditingEnabled);
@@ -404,24 +407,23 @@ void WebEngineSettings::applySettingsToWebPreferences(content::WebPreferences *p
 
     // Set the theme colors. Based on chrome_content_browser_client.cc:
     const ui::NativeTheme *webTheme = ui::NativeTheme::GetInstanceForWeb();
-    if (webTheme) {
-#if !defined(OS_MACOSX)
-        // Mac has a concept of high contrast that does not relate to forced colors.
-        prefs->forced_colors = webTheme->UsesHighContrastColors()
-                                   ? blink::ForcedColors::kActive
-                                   : blink::ForcedColors::kNone;
-#endif  // !defined(OS_MACOSX)
-        switch (webTheme->GetPreferredColorScheme()) {
-          case ui::NativeTheme::PreferredColorScheme::kDark:
-            prefs->preferred_color_scheme = blink::PreferredColorScheme::kDark;
-            break;
-          case ui::NativeTheme::PreferredColorScheme::kLight:
-            prefs->preferred_color_scheme = blink::PreferredColorScheme::kLight;
-            break;
-          case ui::NativeTheme::PreferredColorScheme::kNoPreference:
-            prefs->preferred_color_scheme = blink::PreferredColorScheme::kNoPreference;
-        }
-    }
+    // WebPreferences::preferred_color_scheme was deleted in Chromium 80, but it
+    // will make a comeback in Chromium 82...
+    //
+    // See also: https://chromium-review.googlesource.com/c/chromium/src/+/2079192
+    //
+    // if (webTheme) {
+    //     switch (webTheme->GetPreferredColorScheme()) {
+    //       case ui::NativeTheme::PreferredColorScheme::kDark:
+    //         prefs->preferred_color_scheme = blink::PreferredColorScheme::kDark;
+    //         break;
+    //       case ui::NativeTheme::PreferredColorScheme::kLight:
+    //         prefs->preferred_color_scheme = blink::PreferredColorScheme::kLight;
+    //         break;
+    //       case ui::NativeTheme::PreferredColorScheme::kNoPreference:
+    //         prefs->preferred_color_scheme = blink::PreferredColorScheme::kNoPreference;
+    //     }
+    // }
 
     // Apply native CaptionStyle parameters.
     base::Optional<ui::CaptionStyle> style;
@@ -453,8 +455,8 @@ bool WebEngineSettings::applySettingsToRendererPreferences(blink::mojom::Rendere
 #if QT_CONFIG(webengine_webrtc)
     if (!base::CommandLine::ForCurrentProcess()->HasSwitch(switches::kForceWebRtcIPHandlingPolicy)) {
         std::string webrtc_ip_handling_policy = testAttribute(WebEngineSettings::WebRTCPublicInterfacesOnly)
-                                              ? content::kWebRTCIPHandlingDefaultPublicInterfaceOnly
-                                              : content::kWebRTCIPHandlingDefault;
+                                              ? blink::kWebRTCIPHandlingDefaultPublicInterfaceOnly
+                                              : blink::kWebRTCIPHandlingDefault;
         if (prefs->webrtc_ip_handling_policy != webrtc_ip_handling_policy) {
             prefs->webrtc_ip_handling_policy = webrtc_ip_handling_policy;
             changed = true;

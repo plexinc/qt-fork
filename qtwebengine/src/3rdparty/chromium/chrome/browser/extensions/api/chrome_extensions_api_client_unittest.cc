@@ -6,7 +6,7 @@
 
 #include "base/macros.h"
 #include "chrome/common/webui_url_constants.h"
-#include "content/public/test/test_browser_thread_bundle.h"
+#include "content/public/test/browser_task_environment.h"
 #include "extensions/browser/api/web_request/web_request_info.h"
 #include "google_apis/gaia/gaia_urls.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -19,7 +19,7 @@ class ChromeExtensionsAPIClientTest : public testing::Test {
   ChromeExtensionsAPIClientTest() = default;
 
  private:
-  content::TestBrowserThreadBundle thread_bundle_;
+  content::BrowserTaskEnvironment task_environment_;
   DISALLOW_COPY_AND_ASSIGN(ChromeExtensionsAPIClientTest);
 };
 
@@ -38,7 +38,7 @@ TEST_F(ChromeExtensionsAPIClientTest, ShouldHideResponseHeader) {
 TEST_F(ChromeExtensionsAPIClientTest, ShouldHideBrowserNetworkRequest) {
   ChromeExtensionsAPIClient client;
 
-  auto create_params = [](content::ResourceType type) {
+  auto create_params = [](blink::mojom::ResourceType type) {
     WebRequestInfoInitParams request_params;
     request_params.url = GURL("https://example.com/script.js");
     request_params.initiator =
@@ -52,16 +52,16 @@ TEST_F(ChromeExtensionsAPIClientTest, ShouldHideBrowserNetworkRequest) {
   // not be visible to extensions.
   EXPECT_TRUE(client.ShouldHideBrowserNetworkRequest(
       nullptr /* context */,
-      WebRequestInfo(create_params(content::ResourceType::kScript))));
+      WebRequestInfo(create_params(blink::mojom::ResourceType::kScript))));
 
   // Main frame requests should always be visible to extensions.
   EXPECT_FALSE(client.ShouldHideBrowserNetworkRequest(
       nullptr /* context */,
-      WebRequestInfo(create_params(content::ResourceType::kMainFrame))));
+      WebRequestInfo(create_params(blink::mojom::ResourceType::kMainFrame))));
 
   // Similar requests made by the renderer should be visible to extensions.
   WebRequestInfoInitParams params =
-      create_params(content::ResourceType::kScript);
+      create_params(blink::mojom::ResourceType::kScript);
   params.render_process_id = 2;
   EXPECT_FALSE(client.ShouldHideBrowserNetworkRequest(
       nullptr /* context */, WebRequestInfo(std::move(params))));

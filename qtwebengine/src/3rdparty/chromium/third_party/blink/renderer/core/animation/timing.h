@@ -45,14 +45,6 @@ namespace blink {
 class EffectTiming;
 class ComputedEffectTiming;
 
-static inline bool IsNull(double value) {
-  return std::isnan(value);
-}
-
-static inline double NullValue() {
-  return std::numeric_limits<double>::quiet_NaN();
-}
-
 struct CORE_EXPORT Timing {
   USING_FAST_MALLOC(Timing);
 
@@ -64,9 +56,33 @@ struct CORE_EXPORT Timing {
     kPhaseAfter,
     kPhaseNone,
   };
+  // Represents the animation direction from the Web Animations spec, see
+  // https://drafts.csswg.org/web-animations-1/#animation-direction.
+  enum AnimationDirection {
+    kForwards,
+    kBackwards,
+  };
+
+  // Timing properties set via AnimationEffect.updateTiming override their
+  // corresponding CSS properties.
+  enum AnimationTimingOverride {
+    kOverrideNode = 0,
+    kOverrideDirection = 1,
+    kOverrideDuration = 1 << 1,
+    kOverrideEndDelay = 1 << 2,
+    kOverideFillMode = 1 << 3,
+    kOverrideIterationCount = 1 << 4,
+    kOverrideIterationStart = 1 << 5,
+    kOverrideStartDelay = 1 << 6,
+    kOverrideTimingFunction = 1 << 7,
+    kOverrideAll = (1 << 8) - 1
+  };
 
   using FillMode = CompositorKeyframeModel::FillMode;
   using PlaybackDirection = CompositorKeyframeModel::Direction;
+
+  static bool IsNull(double value) { return std::isnan(value); }
+  static double NullValue() { return std::numeric_limits<double>::quiet_NaN(); }
 
   static String FillModeString(FillMode);
   static FillMode StringToFillMode(const String&);
@@ -80,7 +96,8 @@ struct CORE_EXPORT Timing {
         iteration_count(1),
         iteration_duration(base::nullopt),
         direction(PlaybackDirection::NORMAL),
-        timing_function(LinearTimingFunction::Shared()) {}
+        timing_function(LinearTimingFunction::Shared()),
+        timing_overrides(kOverrideNode) {}
 
   void AssertValid() const {
     DCHECK(std::isfinite(start_delay));
@@ -115,6 +132,16 @@ struct CORE_EXPORT Timing {
 
   bool operator!=(const Timing& other) const { return !(*this == other); }
 
+  // Explicit changes to animation timing through the web animations API,
+  // override timing changes due to CSS style.
+  void SetTimingOverride(AnimationTimingOverride override) {
+    timing_overrides |= override;
+  }
+  bool HasTimingOverride(AnimationTimingOverride override) {
+    return timing_overrides & override;
+  }
+  bool HasTimingOverrides() { return timing_overrides != kOverrideNode; }
+
   double start_delay;
   double end_delay;
   FillMode fill_mode;
@@ -125,23 +152,33 @@ struct CORE_EXPORT Timing {
 
   PlaybackDirection direction;
   scoped_refptr<TimingFunction> timing_function;
+  // Mask of timing attributes that are set by calls to
+  // AnimationEffect.updateTiming. Once set, these attributes ignore changes
+  // based on the CSS style.
+  uint16_t timing_overrides;
 
   struct CalculatedTiming {
     DISALLOW_NEW();
-    Phase phase;
-    double current_iteration;
-    base::Optional<double> progress;
-    bool is_current;
-    bool is_in_effect;
-    bool is_in_play;
-    double local_time = NullValue();
-    double time_to_forwards_effect_change;
-    double time_to_reverse_effect_change;
+    Phase phase = Phase::kPhaseNone;
+    base::Optional<double> current_iteration = 0;
+    base::Optional<double> progress = 0;
+    bool is_current = false;
+    bool is_in_effect = false;
+    bool is_in_play = false;
+    base::Optional<double> local_time;
+    AnimationTimeDelta time_to_forwards_effect_change =
+        AnimationTimeDelta::Max();
+    AnimationTimeDelta time_to_reverse_effect_change =
+        AnimationTimeDelta::Max();
+    AnimationTimeDelta time_to_next_iteration = AnimationTimeDelta::Max();
   };
 
-  ComputedEffectTiming* getComputedTiming(
-      const Timing::CalculatedTiming& calculated_timing,
-      bool is_keyframe_effect) const;
+  CalculatedTiming CalculateTimings(base::Optional<double> local_time,
+                                    AnimationDirection animation_direction,
+                                    bool is_keyframe_effect,
+                                    base::Optional<double> playback_rate) const;
+  ComputedEffectTiming* getComputedTiming(const CalculatedTiming& calculated,
+                                          bool is_keyframe_effect) const;
 };
 
 }  // namespace blink

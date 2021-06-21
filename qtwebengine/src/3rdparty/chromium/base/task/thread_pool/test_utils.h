@@ -9,10 +9,10 @@
 
 #include "base/callback.h"
 #include "base/task/common/checked_lock.h"
+#include "base/task/post_job.h"
 #include "base/task/task_features.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool/delayed_task_manager.h"
-#include "base/task/thread_pool/job_task_source.h"
 #include "base/task/thread_pool/pooled_task_runner_delegate.h"
 #include "base/task/thread_pool/sequence.h"
 #include "base/task/thread_pool/task_tracker.h"
@@ -62,7 +62,8 @@ class MockPooledTaskRunnerDelegate : public PooledTaskRunnerDelegate {
   bool PostTaskWithSequence(Task task,
                             scoped_refptr<Sequence> sequence) override;
   bool EnqueueJobTaskSource(scoped_refptr<JobTaskSource> task_source) override;
-  bool IsRunningPoolWithTraits(const TaskTraits& traits) const override;
+  void RemoveJobTaskSource(scoped_refptr<JobTaskSource> task_source) override;
+  bool ShouldYield(const TaskSource* task_source) const override;
   void UpdatePriority(scoped_refptr<TaskSource> task_source,
                       TaskPriority priority) override;
 
@@ -76,31 +77,40 @@ class MockPooledTaskRunnerDelegate : public PooledTaskRunnerDelegate {
   ThreadGroup* thread_group_ = nullptr;
 };
 
-// A simple JobTaskSource that will give |worker_task| a fixed number of times,
+// A simple MockJobTask that will give |worker_task| a fixed number of times,
 // possibly in parallel.
-class MockJobTaskSource : public JobTaskSource {
+class MockJobTask : public base::RefCountedThreadSafe<MockJobTask> {
  public:
   // Gives |worker_task| to requesting workers |num_tasks_to_run| times.
-  // Allowing at most |max_concurrency| workers to be running |worker_task| in
-  // parallel.
-  MockJobTaskSource(const Location& from_here,
-                    base::RepeatingClosure worker_task,
-                    const TaskTraits& traits,
-                    size_t num_tasks_to_run,
-                    size_t max_concurrency);
+  MockJobTask(base::RepeatingCallback<void(JobDelegate*)> worker_task,
+              size_t num_tasks_to_run);
 
   // Gives |worker_task| to a single requesting worker.
-  MockJobTaskSource(const Location& from_here,
-                    base::OnceClosure worker_task,
-                    const TaskTraits& traits);
+  MockJobTask(base::OnceClosure worker_task);
 
-  size_t GetMaxConcurrency() const override;
+  // Updates the remaining number of time |worker_task| runs to
+  // |num_tasks_to_run|.
+  void SetNumTasksToRun(size_t num_tasks_to_run) {
+    remaining_num_tasks_to_run_ = num_tasks_to_run;
+  }
+
+  size_t GetMaxConcurrency() const;
+  void Run(JobDelegate* delegate);
+
+  scoped_refptr<JobTaskSource> GetJobTaskSource(
+      const Location& from_here,
+      const TaskTraits& traits,
+      PooledTaskRunnerDelegate* delegate);
 
  private:
-  ~MockJobTaskSource() override;
+  friend class base::RefCountedThreadSafe<MockJobTask>;
 
+  ~MockJobTask();
+
+  base::RepeatingCallback<void(JobDelegate*)> worker_task_;
   std::atomic_size_t remaining_num_tasks_to_run_;
-  const size_t max_concurrency_;
+
+  DISALLOW_COPY_AND_ASSIGN(MockJobTask);
 };
 
 // An enumeration of possible thread pool types. Used to parametrize relevant
@@ -125,20 +135,18 @@ scoped_refptr<Sequence> CreateSequenceWithTask(
 // Creates a TaskRunner that posts tasks to the thread group owned by
 // |pooled_task_runner_delegate| with the |execution_mode|.
 // Caveat: this does not support TaskSourceExecutionMode::kSingleThread.
-scoped_refptr<TaskRunner> CreateTaskRunnerWithExecutionMode(
+scoped_refptr<TaskRunner> CreatePooledTaskRunnerWithExecutionMode(
     TaskSourceExecutionMode execution_mode,
     MockPooledTaskRunnerDelegate* mock_pooled_task_runner_delegate,
-    const TaskTraits& traits = {ThreadPool()});
+    const TaskTraits& traits = {});
 
-scoped_refptr<TaskRunner> CreateTaskRunner(
+scoped_refptr<TaskRunner> CreatePooledTaskRunner(
     const TaskTraits& traits,
     MockPooledTaskRunnerDelegate* mock_pooled_task_runner_delegate);
 
-scoped_refptr<SequencedTaskRunner> CreateSequencedTaskRunner(
+scoped_refptr<SequencedTaskRunner> CreatePooledSequencedTaskRunner(
     const TaskTraits& traits,
     MockPooledTaskRunnerDelegate* mock_pooled_task_runner_delegate);
-
-void WaitWithoutBlockingObserver(WaitableEvent* event);
 
 RegisteredTaskSource QueueAndRunTaskSource(
     TaskTracker* task_tracker,

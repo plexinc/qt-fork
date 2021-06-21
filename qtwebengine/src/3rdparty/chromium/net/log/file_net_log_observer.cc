@@ -15,11 +15,13 @@
 #include "base/files/file_util.h"
 #include "base/json/json_writer.h"
 #include "base/logging.h"
+#include "base/memory/ptr_util.h"
 #include "base/numerics/clamped_math.h"
 #include "base/sequenced_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/synchronization/lock.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/values.h"
 #include "net/log/net_log_capture_mode.h"
 #include "net/log/net_log_entry.h"
@@ -41,7 +43,7 @@ scoped_refptr<base::SequencedTaskRunner> CreateFileTaskRunner() {
   //
   // These intentionally block shutdown to ensure the log file has finished
   // being written.
-  return base::CreateSequencedTaskRunnerWithTraits(
+  return base::ThreadPool::CreateSequencedTaskRunner(
       {base::MayBlock(), base::TaskPriority::USER_VISIBLE,
        base::TaskShutdownBehavior::BLOCK_SHUTDOWN});
 }
@@ -386,9 +388,9 @@ void FileNetLogObserver::StopObserving(std::unique_ptr<base::Value> polled_data,
   net_log()->RemoveObserver(this);
 
   base::OnceClosure bound_flush_then_stop =
-      base::Bind(&FileNetLogObserver::FileWriter::FlushThenStop,
-                 base::Unretained(file_writer_.get()), write_queue_,
-                 base::Passed(&polled_data));
+      base::BindOnce(&FileNetLogObserver::FileWriter::FlushThenStop,
+                     base::Unretained(file_writer_.get()), write_queue_,
+                     std::move(polled_data));
 
   // Note that PostTaskAndReply() requires a non-null closure.
   if (!optional_callback.is_null()) {
@@ -625,7 +627,7 @@ void FileNetLogObserver::FileWriter::DeleteAllFiles() {
 
   if (IsBounded()) {
     current_event_file_.Close();
-    base::DeleteFile(inprogress_dir_path_, true);
+    base::DeleteFileRecursively(inprogress_dir_path_);
   }
 
   // Only delete |final_log_file_| if it was created internally.
@@ -760,7 +762,7 @@ void FileNetLogObserver::FileWriter::StitchFinalLogFile() {
 
   // Delete the inprogress directory (and anything that may still be left inside
   // it).
-  base::DeleteFile(inprogress_dir_path_, true);
+  base::DeleteFileRecursively(inprogress_dir_path_);
 }
 
 void FileNetLogObserver::FileWriter::CreateInprogressDirectory() {

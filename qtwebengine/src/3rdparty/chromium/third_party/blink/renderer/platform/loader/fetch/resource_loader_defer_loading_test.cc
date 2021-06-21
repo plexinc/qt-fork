@@ -5,7 +5,9 @@
 #include "third_party/blink/renderer/platform/loader/fetch/resource_loader.h"
 
 #include "base/bind.h"
+#include "mojo/public/cpp/base/big_buffer.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink.h"
 #include "third_party/blink/public/platform/web_runtime_features.h"
 #include "third_party/blink/public/platform/web_url_loader.h"
 #include "third_party/blink/public/platform/web_url_loader_factory.h"
@@ -66,9 +68,10 @@ class ResourceLoaderDefersLoadingTest::TestCodeCacheLoader
   ~TestCodeCacheLoader() override = default;
 
   // CodeCacheLoader methods:
-  void FetchFromCodeCacheSynchronously(const GURL& url,
-                                       base::Time* response_time_out,
-                                       WebVector<uint8_t>* data_out) override {}
+  void FetchFromCodeCacheSynchronously(
+      const GURL& url,
+      base::Time* response_time_out,
+      mojo_base::BigBuffer* buffer_out) override {}
   void FetchFromCodeCache(
       blink::mojom::CodeCacheType cache_type,
       const GURL& url,
@@ -88,17 +91,30 @@ class ResourceLoaderDefersLoadingTest::TestWebURLLoader final
       : defers_flag_ptr_(defers_flag_ptr) {}
   ~TestWebURLLoader() override = default;
 
-  void LoadSynchronously(const WebURLRequest&,
-                         WebURLLoaderClient*,
-                         WebURLResponse&,
-                         base::Optional<WebURLError>&,
-                         WebData&,
-                         int64_t& encoded_data_length,
-                         int64_t& encoded_body_length,
-                         WebBlobInfo& downloaded_blob) override {
+  void LoadSynchronously(
+      std::unique_ptr<network::ResourceRequest> request,
+      scoped_refptr<WebURLRequest::ExtraData> request_extra_data,
+      int requestor_id,
+      bool download_to_network_cache_only,
+      bool pass_response_pipe_to_client,
+      bool no_mime_sniffing,
+      base::TimeDelta timeout_interval,
+      WebURLLoaderClient*,
+      WebURLResponse&,
+      base::Optional<WebURLError>&,
+      WebData&,
+      int64_t& encoded_data_length,
+      int64_t& encoded_body_length,
+      WebBlobInfo& downloaded_blob) override {
     NOTREACHED();
   }
-  void LoadAsynchronously(const WebURLRequest&, WebURLLoaderClient*) override {}
+  void LoadAsynchronously(
+      std::unique_ptr<network::ResourceRequest> request,
+      scoped_refptr<WebURLRequest::ExtraData> request_extra_data,
+      int requestor_id,
+      bool download_to_network_cache_only,
+      bool no_mime_sniffing,
+      WebURLLoaderClient*) override {}
 
   void SetDefersLoading(bool defers) override { *defers_flag_ptr_ = defers; }
   void DidChangePriority(WebURLRequest::Priority, int) override {
@@ -174,7 +190,7 @@ TEST_F(ResourceLoaderDefersLoadingTest, CodeCacheFetchCheckDefers) {
   ResourceRequest request;
   request.SetUrl(test_url_);
   request.SetRequestContext(mojom::RequestContextType::FETCH);
-  FetchParameters fetch_parameters(request);
+  FetchParameters fetch_parameters(std::move(request));
 
   Resource* resource = RawResource::Fetch(fetch_parameters, fetcher, nullptr);
 
@@ -197,7 +213,7 @@ TEST_F(ResourceLoaderDefersLoadingTest, CodeCacheFetchSyncReturn) {
   ResourceRequest request;
   request.SetUrl(test_url_);
   request.SetRequestContext(mojom::RequestContextType::FETCH);
-  FetchParameters fetch_parameters(request);
+  FetchParameters fetch_parameters(std::move(request));
 
   Resource* resource = RawResource::Fetch(fetch_parameters, fetcher, nullptr);
   DCHECK(resource);
@@ -211,7 +227,7 @@ TEST_F(ResourceLoaderDefersLoadingTest, ChangeDefersToFalse) {
   ResourceRequest request;
   request.SetUrl(test_url_);
   request.SetRequestContext(mojom::RequestContextType::FETCH);
-  FetchParameters fetch_parameters(request);
+  FetchParameters fetch_parameters(std::move(request));
 
   Resource* resource = RawResource::Fetch(fetch_parameters, fetcher, nullptr);
   DCHECK(web_url_loader_defers_);
@@ -229,7 +245,7 @@ TEST_F(ResourceLoaderDefersLoadingTest, ChangeDefersToTrue) {
   ResourceRequest request;
   request.SetUrl(test_url_);
   request.SetRequestContext(mojom::RequestContextType::FETCH);
-  FetchParameters fetch_parameters(request);
+  FetchParameters fetch_parameters(std::move(request));
 
   Resource* resource = RawResource::Fetch(fetch_parameters, fetcher, nullptr);
   DCHECK(web_url_loader_defers_);
@@ -251,7 +267,7 @@ TEST_F(ResourceLoaderDefersLoadingTest, ChangeDefersMultipleTimes) {
   request.SetUrl(test_url_);
   request.SetRequestContext(mojom::RequestContextType::FETCH);
 
-  FetchParameters fetch_parameters(request);
+  FetchParameters fetch_parameters(std::move(request));
   Resource* resource = RawResource::Fetch(fetch_parameters, fetcher, nullptr);
   DCHECK(web_url_loader_defers_);
 

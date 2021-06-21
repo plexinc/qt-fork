@@ -2,8 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ui/wm/core/capture_controller.h"
-
 #include <memory>
 
 #include "base/logging.h"
@@ -21,6 +19,7 @@
 #include "ui/views/widget/desktop_aura/desktop_screen_position_client.h"
 #include "ui/views/widget/root_view.h"
 #include "ui/views/widget/widget.h"
+#include "ui/wm/core/capture_controller.h"
 
 // NOTE: these tests do native capture, so they have to be in
 // interactive_ui_tests.
@@ -41,9 +40,7 @@ class DesktopViewInputTest : public View {
   }
 
   // Resets state maintained by this class.
-  void Reset() {
-    received_gesture_event_ = false;
-  }
+  void Reset() { received_gesture_event_ = false; }
 
   bool received_gesture_event() const { return received_gesture_event_; }
 
@@ -61,7 +58,7 @@ views::Widget* CreateWidget() {
   params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
   params.native_widget = new DesktopNativeWidgetAura(widget);
   params.bounds = gfx::Rect(0, 0, 200, 100);
-  widget->Init(params);
+  widget->Init(std::move(params));
   widget->Show();
   return widget;
 }
@@ -107,7 +104,7 @@ TEST_F(DesktopCaptureControllerTest, CaptureWindowInputEventTest) {
   params.bounds = gfx::Rect(50, 50, 650, 650);
   params.native_widget = test::CreatePlatformNativeWidgetImpl(
       params, widget1.get(), test::kStubCapture, nullptr);
-  widget1->Init(params);
+  widget1->Init(std::move(params));
   internal::RootView* root1 =
       static_cast<internal::RootView*>(widget1->GetRootView());
 
@@ -129,7 +126,7 @@ TEST_F(DesktopCaptureControllerTest, CaptureWindowInputEventTest) {
   params.bounds = gfx::Rect(50, 50, 650, 650);
   params.native_widget = test::CreatePlatformNativeWidgetImpl(
       params, widget2.get(), test::kStubCapture, nullptr);
-  widget2->Init(params);
+  widget2->Init(std::move(params));
 
   internal::RootView* root2 =
       static_cast<internal::RootView*>(widget2->GetRootView());

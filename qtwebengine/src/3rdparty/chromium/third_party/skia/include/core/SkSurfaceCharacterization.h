@@ -11,13 +11,15 @@
 #include "include/gpu/GrTypes.h"
 
 #include "include/core/SkColorSpace.h"
+#include "include/core/SkImageInfo.h"
 #include "include/core/SkRefCnt.h"
 #include "include/core/SkSurfaceProps.h"
 
 class SkColorSpace;
 
-#if SK_SUPPORT_GPU
 #include "include/gpu/GrBackendSurface.h"
+
+#if SK_SUPPORT_GPU
 // TODO: remove the GrContext.h include once Flutter is updated
 #include "include/gpu/GrContext.h"
 #include "include/gpu/GrContextThreadSafeProxy.h"
@@ -59,7 +61,28 @@ public:
         return !(*this == other);
     }
 
+    /*
+     * Return a new surface characterization with the only difference being a different width
+     * and height
+     */
     SkSurfaceCharacterization createResized(int width, int height) const;
+
+    /*
+     * Return a new surface characterization with only a replaced color space
+     */
+    SkSurfaceCharacterization createColorSpace(sk_sp<SkColorSpace>) const;
+
+    /*
+     * Return a new surface characterization with the backend format replaced. A colorType
+     * must also be supplied to indicate the interpretation of the new format.
+     */
+    SkSurfaceCharacterization createBackendFormat(SkColorType colorType,
+                                                  const GrBackendFormat& backendFormat) const;
+
+    /*
+     * Return a new surface characterization with just a different use of FBO0 (in GL)
+     */
+    SkSurfaceCharacterization createFBO0(bool usesGLFBO0) const;
 
     GrContextThreadSafeProxy* contextInfo() const { return fContextInfo.get(); }
     sk_sp<GrContextThreadSafeProxy> refContextInfo() const { return fContextInfo; }
@@ -70,6 +93,7 @@ public:
     const SkImageInfo& imageInfo() const { return fImageInfo; }
     const GrBackendFormat& backendFormat() const { return fBackendFormat; }
     GrSurfaceOrigin origin() const { return fOrigin; }
+    SkISize dimensions() const { return fImageInfo.dimensions(); }
     int width() const { return fImageInfo.width(); }
     int height() const { return fImageInfo.height(); }
     SkColorType colorType() const { return fImageInfo.colorType(); }
@@ -183,6 +207,18 @@ public:
     SkSurfaceCharacterization() : fSurfaceProps(0, kUnknown_SkPixelGeometry) { }
 
     SkSurfaceCharacterization createResized(int width, int height) const {
+        return *this;
+    }
+
+    SkSurfaceCharacterization createColorSpace(sk_sp<SkColorSpace>) const {
+        return *this;
+    }
+
+    SkSurfaceCharacterization createBackendFormat(SkColorType, const GrBackendFormat&) const {
+        return *this;
+    }
+
+    SkSurfaceCharacterization createFBO0(bool usesGLFBO0) const {
         return *this;
     }
 

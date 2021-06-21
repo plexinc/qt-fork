@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "base/logging.h"
+#include "third_party/blink/public/mojom/security_context/insecure_request_policy.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_controller.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
@@ -25,14 +26,14 @@ namespace blink {
 namespace {
 
 class IsolatedWorldCSPDelegate final
-    : public GarbageCollectedFinalized<IsolatedWorldCSPDelegate>,
+    : public GarbageCollected<IsolatedWorldCSPDelegate>,
       public ContentSecurityPolicyDelegate {
   USING_GARBAGE_COLLECTED_MIXIN(IsolatedWorldCSPDelegate);
 
  public:
   IsolatedWorldCSPDelegate(Document& document,
                            scoped_refptr<SecurityOrigin> security_origin,
-                           int world_id,
+                           int32_t world_id,
                            bool apply_policy)
       : document_(&document),
         security_origin_(std::move(security_origin)),
@@ -41,13 +42,17 @@ class IsolatedWorldCSPDelegate final
     DCHECK(security_origin_);
   }
 
-  void Trace(blink::Visitor* visitor) override {
+  void Trace(Visitor* visitor) override {
     visitor->Trace(document_);
     ContentSecurityPolicyDelegate::Trace(visitor);
   }
 
   const SecurityOrigin* GetSecurityOrigin() override {
     return security_origin_.get();
+  }
+
+  SecureContextMode GetSecureContextMode() override {
+    return SecureContextMode::kSecureContext;
   }
 
   const KURL& Url() const override {
@@ -60,14 +65,14 @@ class IsolatedWorldCSPDelegate final
   }
 
   // Isolated world CSPs don't support these directives: "sandbox",
-  // "treat-as-public-address", "trusted-types" and "upgrade-insecure-requests".
+  // "trusted-types" and "upgrade-insecure-requests".
+  //
   // These directives depend on ExecutionContext for their implementation and
   // since isolated worlds don't have their own ExecutionContext, these are not
   // supported.
   void SetSandboxFlags(SandboxFlags) override {}
-  void SetAddressSpace(mojom::IPAddressSpace) override {}
   void SetRequireTrustedTypes() override {}
-  void AddInsecureRequestPolicy(WebInsecureRequestPolicy) override {}
+  void AddInsecureRequestPolicy(mojom::blink::InsecureRequestPolicy) override {}
 
   // TODO(crbug.com/916885): Figure out if we want to support violation
   // reporting for isolated world CSPs.
@@ -109,16 +114,17 @@ class IsolatedWorldCSPDelegate final
       const String& directive_text) override {
     // This allows users to set breakpoints in the Devtools for the case when
     // script execution is blocked by CSP.
-    probe::ScriptExecutionBlockedByCSP(document_, directive_text);
+    probe::ScriptExecutionBlockedByCSP(document_->ToExecutionContext(),
+                                       directive_text);
   }
 
   void DidAddContentSecurityPolicies(
-      const blink::WebVector<WebContentSecurityPolicy>&) override {}
+      WTF::Vector<network::mojom::blink::ContentSecurityPolicyPtr>) override {}
 
  private:
   const Member<Document> document_;
   const scoped_refptr<SecurityOrigin> security_origin_;
-  const int world_id_;
+  const int32_t world_id_;
 
   // Whether the 'IsolatedWorldCSP' feature is enabled, and we are applying the
   // CSP provided by the isolated world.
@@ -135,7 +141,7 @@ IsolatedWorldCSP& IsolatedWorldCSP::Get() {
 }
 
 void IsolatedWorldCSP::SetContentSecurityPolicy(
-    int world_id,
+    int32_t world_id,
     const String& policy,
     scoped_refptr<SecurityOrigin> self_origin) {
   DCHECK(IsMainThread());
@@ -153,7 +159,7 @@ void IsolatedWorldCSP::SetContentSecurityPolicy(
   csp_map_.Set(world_id, policy_info);
 }
 
-bool IsolatedWorldCSP::HasContentSecurityPolicy(int world_id) const {
+bool IsolatedWorldCSP::HasContentSecurityPolicy(int32_t world_id) const {
   DCHECK(IsMainThread());
   DCHECK(DOMWrapperWorld::IsIsolatedWorldId(world_id));
 
@@ -163,7 +169,7 @@ bool IsolatedWorldCSP::HasContentSecurityPolicy(int world_id) const {
 
 ContentSecurityPolicy* IsolatedWorldCSP::CreateIsolatedWorldCSP(
     Document& document,
-    int world_id) {
+    int32_t world_id) {
   DCHECK(IsMainThread());
   DCHECK(DOMWrapperWorld::IsIsolatedWorldId(world_id));
 
@@ -184,9 +190,9 @@ ContentSecurityPolicy* IsolatedWorldCSP::CreateIsolatedWorldCSP(
   csp->BindToDelegate(*delegate);
 
   if (apply_policy) {
-    csp->AddPolicyFromHeaderValue(policy,
-                                  kContentSecurityPolicyHeaderTypeEnforce,
-                                  kContentSecurityPolicyHeaderSourceHTTP);
+    csp->AddPolicyFromHeaderValue(
+        policy, network::mojom::ContentSecurityPolicyType::kEnforce,
+        network::mojom::ContentSecurityPolicySource::kHTTP);
   }
 
   return csp;

@@ -48,9 +48,22 @@
 
 namespace blink {
 
+namespace {
+
+unsigned AdjustLinkMatchType(EInsideLink inside_link,
+                             unsigned link_match_type) {
+  if (inside_link == EInsideLink::kNotInsideLink)
+    return CSSSelector::kMatchLink;
+  return link_match_type;
+}
+
+}  // namespace
+
 ElementRuleCollector::ElementRuleCollector(const ElementResolveContext& context,
                                            const SelectorFilter& filter,
-                                           ComputedStyle* style)
+                                           MatchResult& result,
+                                           ComputedStyle* style,
+                                           EInsideLink inside_link)
     : context_(context),
       selector_filter_(filter),
       style_(style),
@@ -60,7 +73,9 @@ ElementRuleCollector::ElementRuleCollector(const ElementResolveContext& context,
           selector_filter_.ParentStackIsConsistent(context.ParentNode())),
       same_origin_only_(false),
       matching_ua_rules_(false),
-      include_empty_rules_(false) {}
+      include_empty_rules_(false),
+      inside_link_(inside_link),
+      result_(result) {}
 
 ElementRuleCollector::~ElementRuleCollector() = default;
 
@@ -73,7 +88,7 @@ StyleRuleList* ElementRuleCollector::MatchedStyleRuleList() {
   return style_rule_list_.Release();
 }
 
-CSSRuleList* ElementRuleCollector::MatchedCSSRuleList() {
+RuleIndexList* ElementRuleCollector::MatchedCSSRuleList() {
   DCHECK_EQ(mode_, SelectorChecker::kCollectingCSSRules);
   return css_rule_list_.Release();
 }
@@ -88,9 +103,9 @@ inline StyleRuleList* ElementRuleCollector::EnsureStyleRuleList() {
   return style_rule_list_;
 }
 
-inline StaticCSSRuleList* ElementRuleCollector::EnsureRuleList() {
+inline RuleIndexList* ElementRuleCollector::EnsureRuleList() {
   if (!css_rule_list_)
-    css_rule_list_ = MakeGarbageCollected<StaticCSSRuleList>();
+    css_rule_list_ = MakeGarbageCollected<RuleIndexList>();
   return css_rule_list_.Get();
 }
 
@@ -99,7 +114,9 @@ void ElementRuleCollector::AddElementStyleProperties(
     bool is_cacheable) {
   if (!property_set)
     return;
-  result_.AddMatchedProperties(property_set);
+  auto link_match_type = static_cast<unsigned>(CSSSelector::kMatchAll);
+  result_.AddMatchedProperties(
+      property_set, AdjustLinkMatchType(inside_link_, link_match_type));
   if (!is_cacheable)
     result_.SetIsCacheable(false);
 }
@@ -133,6 +150,7 @@ void ElementRuleCollector::CollectMatchingRulesForList(
       &context_.GetElement(), SelectorChecker::kVisitedMatchEnabled);
   context.scope = match_request.scope;
   context.pseudo_id = pseudo_style_request_.pseudo_id;
+  context.is_from_vtt = match_request.is_from_vtt;
 
   unsigned rejected = 0;
   unsigned fast_rejected = 0;
@@ -259,8 +277,6 @@ void ElementRuleCollector::CollectMatchingPartPseudoRules(
     const MatchRequest& match_request,
     PartNames& part_names,
     ShadowV0CascadeOrder cascade_order) {
-  if (!RuntimeEnabledFeatures::CSSPartPseudoElementEnabled())
-    return;
   CollectMatchingRulesForList(match_request.rule_set->PartPseudoRules(),
                               cascade_order, match_request, &part_names);
 }
@@ -287,18 +303,19 @@ CSSRule* ElementRuleCollector::FindStyleRule(CSSRuleCollection* css_rules,
 
 void ElementRuleCollector::AppendCSSOMWrapperForRule(
     CSSStyleSheet* parent_style_sheet,
-    StyleRule* rule) {
+    const RuleData* rule_data) {
   // |parentStyleSheet| is 0 if and only if the |rule| is coming from User
   // Agent. In this case, it is safe to create CSSOM wrappers without
   // parentStyleSheets as they will be used only by inspector which will not try
   // to edit them.
   CSSRule* css_rule = nullptr;
+  StyleRule* rule = rule_data->Rule();
   if (parent_style_sheet)
     css_rule = FindStyleRule(parent_style_sheet, rule);
   else
     css_rule = rule->CreateCSSOMWrapper();
   DCHECK(!parent_style_sheet || css_rule);
-  EnsureRuleList()->Rules().push_back(css_rule);
+  EnsureRuleList()->emplace_back(css_rule, rule_data->SelectorIndex());
 }
 
 void ElementRuleCollector::SortAndTransferMatchedRules() {
@@ -314,10 +331,11 @@ void ElementRuleCollector::SortAndTransferMatchedRules() {
   }
 
   if (mode_ == SelectorChecker::kCollectingCSSRules) {
-    for (unsigned i = 0; i < matched_rules_.size(); ++i)
+    for (unsigned i = 0; i < matched_rules_.size(); ++i) {
       AppendCSSOMWrapperForRule(
           const_cast<CSSStyleSheet*>(matched_rules_[i].ParentStyleSheet()),
-          matched_rules_[i].GetRuleData()->Rule());
+          matched_rules_[i].GetRuleData());
+    }
     return;
   }
 
@@ -325,7 +343,8 @@ void ElementRuleCollector::SortAndTransferMatchedRules() {
   for (unsigned i = 0; i < matched_rules_.size(); i++) {
     const RuleData* rule_data = matched_rules_[i].GetRuleData();
     result_.AddMatchedProperties(
-        &rule_data->Rule()->Properties(), rule_data->LinkMatchType(),
+        &rule_data->Rule()->Properties(),
+        AdjustLinkMatchType(inside_link_, rule_data->LinkMatchType()),
         rule_data->GetValidPropertyFilter(matching_ua_rules_));
   }
 }
@@ -350,7 +369,8 @@ void ElementRuleCollector::DidMatchRule(
          dynamic_pseudo == kPseudoIdAfter) &&
         !rule_data->Rule()->Properties().HasProperty(CSSPropertyID::kContent))
       return;
-    style_->SetHasPseudoStyle(dynamic_pseudo);
+    if (!rule_data->Rule()->Properties().IsEmpty())
+      style_->SetHasPseudoElementStyle(dynamic_pseudo);
   } else {
     matched_rules_.push_back(MatchedRule(
         rule_data, result.specificity, cascade_order,

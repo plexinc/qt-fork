@@ -14,7 +14,6 @@
 #include <vector>
 
 #include "base/callback.h"
-#include "base/feature_list.h"
 #include "base/files/file_path.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/ref_counted.h"
@@ -45,8 +44,6 @@ class BackendCleanupTracker;
 class SimpleIndexDelegate;
 class SimpleIndexFile;
 struct SimpleIndexLoadResult;
-
-NET_EXPORT_PRIVATE extern const base::Feature kSimpleCacheEvictionWithSize;
 
 class NET_EXPORT_PRIVATE EntryMetadata {
  public:
@@ -185,7 +182,8 @@ class NET_EXPORT_PRIVATE SimpleIndex
                              const EntryMetadata& entry_metadata);
 
   // Executes the |callback| when the index is ready. Allows multiple callbacks.
-  net::Error ExecuteWhenReady(net::CompletionOnceCallback callback);
+  // Never synchronous.
+  void ExecuteWhenReady(net::CompletionOnceCallback callback);
 
   // Returns entries from the index that have last accessed time matching the
   // range between |initial_time| and |end_time| where open intervals are
@@ -302,7 +300,7 @@ class NET_EXPORT_PRIVATE SimpleIndex
   base::TimeTicks last_write_to_disk_;
 
   base::OneShotTimer write_to_disk_timer_;
-  base::Closure write_to_disk_cb_;
+  base::RepeatingClosure write_to_disk_cb_;
 
   typedef std::list<net::CompletionOnceCallback> CallbackList;
   CallbackList to_run_when_initialized_;

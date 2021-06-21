@@ -18,6 +18,7 @@ class GrGLSLPrimitiveProcessor;
 class GrGLSLXferProcessor;
 class GrPipeline;
 class GrPrimitiveProcessor;
+class GrProgramInfo;
 class GrRenderTarget;
 class GrTextureProxy;
 
@@ -112,18 +113,17 @@ public:
     };
 
     /**
-     * This function uploads uniforms, calls each GrGLSL*Processor's setData. It binds all fragment
-     * processor textures. Primitive process textures can be bound using this function or by
-     * calling updatePrimitiveProcessorTextureBindings.
+     * This function uploads uniforms and calls each GrGLSL*Processor's setData.
      *
      * It is the caller's responsibility to ensure the program is bound before calling.
      */
-    void updateUniformsAndTextureBindings(const GrRenderTarget*, GrSurfaceOrigin,
-                                          const GrPrimitiveProcessor&, const GrPipeline&,
-                                          const GrTextureProxy* const primitiveProcessorTextures[]);
+    void updateUniforms(const GrRenderTarget*, const GrProgramInfo&);
 
-    void updatePrimitiveProcessorTextureBindings(const GrPrimitiveProcessor&,
-                                                 const GrTextureProxy* const[]);
+    /**
+     * Binds all primitive processor and fragment processor textures.
+     */
+    void bindTextures(const GrPrimitiveProcessor&, const GrSurfaceProxy* const primProcTextures[],
+                      const GrPipeline&);
 
     int vertexStride() const { return fVertexStride; }
     int instanceStride() const { return fInstanceStride; }
@@ -141,9 +141,6 @@ public:
     }
 
 private:
-    // A helper to loop over effects, set the transforms (via subclass) and bind textures
-    void setFragmentData(const GrPipeline&, int* nextTexSamplerIdx);
-
     // Helper for setData() that sets the view matrix and loads the render target height uniform
     void setRenderTargetState(const GrRenderTarget*, GrSurfaceOrigin, const GrPrimitiveProcessor&);
 

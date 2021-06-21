@@ -9,7 +9,7 @@
 #include <algorithm>
 #include <memory>
 
-#include "core/fpdfapi/page/cpdf_dibbase.h"
+#include "core/fpdfapi/page/cpdf_dib.h"
 #include "core/fpdfapi/page/cpdf_docpagedata.h"
 #include "core/fpdfapi/page/cpdf_image.h"
 #include "core/fpdfapi/page/cpdf_imageobject.h"
@@ -18,6 +18,7 @@
 #include "core/fpdfapi/page/cpdf_pageobject.h"
 #include "core/fpdfapi/page/cpdf_shadingpattern.h"
 #include "core/fpdfapi/page/cpdf_tilingpattern.h"
+#include "core/fpdfapi/page/cpdf_transferfunc.h"
 #include "core/fpdfapi/parser/cpdf_array.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_document.h"
@@ -25,7 +26,6 @@
 #include "core/fpdfapi/render/cpdf_pagerendercache.h"
 #include "core/fpdfapi/render/cpdf_rendercontext.h"
 #include "core/fpdfapi/render/cpdf_renderstatus.h"
-#include "core/fpdfapi/render/cpdf_transferfunc.h"
 #include "core/fxcrt/fx_safe_types.h"
 #include "core/fxcrt/maybe_owned.h"
 #include "core/fxge/cfx_defaultrenderdevice.h"
@@ -62,14 +62,11 @@ bool CPDF_ImageRenderer::StartLoadDIBBase() {
   if (!GetUnitRect().has_value())
     return false;
 
-  if (m_Loader.Start(m_pImageObject.Get(),
-                     m_pRenderStatus->GetContext()->GetPageCache(), m_bStdCS,
-                     m_pRenderStatus->GetGroupFamily(),
-                     m_pRenderStatus->GetLoadMask(), m_pRenderStatus.Get())) {
-    m_Mode = Mode::kDefault;
-    return true;
-  }
-  return false;
+  if (!m_Loader.Start(m_pImageObject.Get(), m_pRenderStatus.Get(), m_bStdCS))
+    return false;
+
+  m_Mode = Mode::kDefault;
+  return true;
 }
 
 bool CPDF_ImageRenderer::StartRenderDIBBase() {
@@ -77,7 +74,7 @@ bool CPDF_ImageRenderer::StartRenderDIBBase() {
     return false;
 
   CPDF_GeneralState& state = m_pImageObject->m_GeneralState;
-  m_BitmapAlpha = FXSYS_round(255 * state.GetFillAlpha());
+  m_BitmapAlpha = FXSYS_roundf(255 * state.GetFillAlpha());
   m_pDIBBase = m_Loader.GetBitmap();
   if (GetRenderOptions().ColorModeIs(CPDF_RenderOptions::kAlpha) &&
       !m_Loader.GetMask()) {
@@ -110,9 +107,7 @@ bool CPDF_ImageRenderer::StartRenderDIBBase() {
     m_pDIBBase = pClone;
   }
   m_ResampleOptions = FXDIB_ResampleOptions();
-  if (GetRenderOptions().GetOptions().bForceDownsample)
-    m_ResampleOptions.bInterpolateDownsample = true;
-  else if (GetRenderOptions().GetOptions().bForceHalftone)
+  if (GetRenderOptions().GetOptions().bForceHalftone)
     m_ResampleOptions.bHalftone = true;
 
   if (m_pRenderStatus->GetRenderDevice()->GetDeviceType() !=
@@ -377,7 +372,7 @@ bool CPDF_ImageRenderer::DrawMaskedImage() {
 }
 
 bool CPDF_ImageRenderer::StartDIBBase() {
-  if (!m_ResampleOptions.bInterpolateDownsample && m_pDIBBase->GetBPP() > 1) {
+  if (m_pDIBBase->GetBPP() > 1) {
     FX_SAFE_SIZE_T image_size = m_pDIBBase->GetBPP();
     image_size /= 8;
     image_size *= m_pDIBBase->GetWidth();
@@ -385,7 +380,7 @@ bool CPDF_ImageRenderer::StartDIBBase() {
     if (!image_size.IsValid())
       return false;
 
-    if (image_size.ValueOrDie() > FPDF_HUGE_IMAGE_SIZE &&
+    if (image_size.ValueOrDie() > kHugeImageSize &&
         !m_ResampleOptions.bHalftone) {
       m_ResampleOptions.bInterpolateBilinear = true;
     }

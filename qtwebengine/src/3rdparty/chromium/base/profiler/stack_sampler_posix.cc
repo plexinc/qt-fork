@@ -12,9 +12,10 @@
 namespace base {
 
 std::unique_ptr<StackSampler> StackSampler::Create(
-    PlatformThreadId thread_id,
+    SamplingProfilerThreadToken thread_token,
     ModuleCache* module_cache,
-    StackSamplerTestDelegate* test_delegate) {
+    StackSamplerTestDelegate* test_delegate,
+    std::unique_ptr<Unwinder> native_unwinder) {
   return nullptr;
 }
 
@@ -28,14 +29,8 @@ size_t StackSampler::GetStackBufferSize() {
     pthread_attr_destroy(&attr);
   }
 
-// If we can't get stack limit from pthreads then use default value.
-#if defined(OS_ANDROID)
-  // 1MB is default thread limit set by Android at art/runtime/thread_pool.h.
-  constexpr size_t kDefaultStackLimit = 1 << 20;
-#else
   // Maximum limits under NPTL implementation.
   constexpr size_t kDefaultStackLimit = 4 * (1 << 20);
-#endif
   return stack_size > 0 ? stack_size : kDefaultStackLimit;
 }
 

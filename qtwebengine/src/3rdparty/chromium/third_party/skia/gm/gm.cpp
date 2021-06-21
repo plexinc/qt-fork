@@ -6,6 +6,7 @@
  */
 
 #include "gm/gm.h"
+#include "gm/verifiers/gmverifier.h"
 #include "include/core/SkBitmap.h"
 #include "include/core/SkBlendMode.h"
 #include "include/core/SkCanvas.h"
@@ -66,7 +67,6 @@ static void draw_gpu_only_message(SkCanvas* canvas) {
 GM::GM(SkColor bgColor) {
     fMode = kGM_Mode;
     fBGColor = bgColor;
-    fCanvasIsDeferred = false;
     fHaveCalledOnceBeforeDraw = false;
 }
 
@@ -143,6 +143,11 @@ bool GM::animate(double nanos) { return this->onAnimate(nanos); }
 
 bool GM::runAsBench() const { return false; }
 void GM::modifyGrContextOptions(GrContextOptions* options) {}
+
+std::unique_ptr<verifiers::VerifierList> GM::getVerifiers() const {
+    // No verifiers by default.
+    return nullptr;
+}
 
 void GM::onOnceBeforeDraw() {}
 

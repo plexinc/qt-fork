@@ -9,14 +9,19 @@
 #include <utility>
 
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
+#include "base/message_loop/message_pump_type.h"
 #include "base/message_loop/timer_slack.h"
+#include "base/sequenced_task_runner.h"
 #include "base/single_thread_task_runner.h"
 #include "base/task/sequence_manager/task_queue_impl.h"
 #include "base/task/sequence_manager/task_time_observer.h"
 #include "base/time/default_tick_clock.h"
 
 namespace base {
+
+class MessagePump;
+class TaskObserver;
+
 namespace sequence_manager {
 
 class TimeDomain;
@@ -80,18 +85,12 @@ class BASE_EXPORT SequenceManager {
     // so we are making Settings move-only in preparation.
     Settings(Settings&& move_from) noexcept;
 
-    MessagePump::Type message_loop_type = MessagePump::Type::DEFAULT;
+    MessagePumpType message_loop_type = MessagePumpType::DEFAULT;
     bool randomised_sampling_enabled = false;
     const TickClock* clock = DefaultTickClock::GetInstance();
 
     // If true, add the timestamp the task got queued to the task.
     bool add_queue_time_to_tasks = false;
-
-    // If true, the scheduler will bypass the priority-based anti-starvation
-    // logic that prevents indefinite starvation of lower priority tasks in the
-    // presence of higher priority tasks by occasionally selecting lower
-    // priority task queues over higher priority task queues.
-    bool anti_starvation_logic_for_priorities_disabled = false;
 
 #if DCHECK_IS_ON()
     // TODO(alexclarke): Consider adding command line flags to control these.
@@ -99,6 +98,11 @@ class BASE_EXPORT SequenceManager {
       kNone,
       kEnabled,
       kEnabledWithBacktrace,
+
+      // Logs high priority tasks and the lower priority tasks they skipped
+      // past.  Useful for debugging test failures caused by scheduler policy
+      // changes.
+      kReorderedOnly,
     };
     TaskLogging task_execution_logging = TaskLogging::kNone;
 
@@ -138,8 +142,12 @@ class BASE_EXPORT SequenceManager {
   // performs this initialization automatically.
   virtual void BindToCurrentThread() = 0;
 
+  // Returns the task runner the current task was posted on. Returns null if no
+  // task is currently running. Must be called on the bound thread.
+  virtual scoped_refptr<SequencedTaskRunner> GetTaskRunnerForCurrentTask() = 0;
+
   // Finishes the initialization for a SequenceManager created via
-  // CreateUnboundSequenceManagerWithPump(). Must not be called in any other
+  // CreateUnboundSequenceManager(). Must not be called in any other
   // circumstances. The ownership of the pump is transferred to SequenceManager.
   virtual void BindToMessagePump(std::unique_ptr<MessagePump> message_pump) = 0;
 
@@ -235,6 +243,14 @@ class BASE_EXPORT SequenceManager {
   virtual std::unique_ptr<NativeWorkHandle> OnNativeWorkPending(
       TaskQueue::QueuePriority priority) = 0;
 
+  // Adds an observer which reports task execution. Can only be called on the
+  // same thread that |this| is running on.
+  virtual void AddTaskObserver(TaskObserver* task_observer) = 0;
+
+  // Removes an observer which reports task execution. Can only be called on the
+  // same thread that |this| is running on.
+  virtual void RemoveTaskObserver(TaskObserver* task_observer) = 0;
+
  protected:
   virtual std::unique_ptr<internal::TaskQueueImpl> CreateTaskQueueImpl(
       const TaskQueue::Spec& spec) = 0;
@@ -245,8 +261,8 @@ class BASE_EXPORT SequenceManager::Settings::Builder {
   Builder();
   ~Builder();
 
-  // Sets the MessagePump::Type which is used to create a MessagePump.
-  Builder& SetMessagePumpType(MessagePump::Type message_loop_type);
+  // Sets the MessagePumpType which is used to create a MessagePump.
+  Builder& SetMessagePumpType(MessagePumpType message_loop_type);
 
   Builder& SetRandomisedSamplingEnabled(bool randomised_sampling_enabled);
 
@@ -255,18 +271,6 @@ class BASE_EXPORT SequenceManager::Settings::Builder {
 
   // Whether or not queueing timestamp will be added to tasks.
   Builder& SetAddQueueTimeToTasks(bool add_queue_time_to_tasks);
-
-  // Sets whether priority-based anti-starvation logic is disabled. By default,
-  // the scheduler uses priority-based anti-starvation logic that prevents
-  // indefinite starvation of lower priority tasks in the presence of higher
-  // priority tasks by occasionally selecting lower priority task queues over
-  // higher priority task queues.
-  //
-  // Note: this does not affect the anti-starvation logic that is in place for
-  // preventing delayed tasks from starving immediate tasks, which is always
-  // enabled.
-  Builder& SetAntiStarvationLogicForPrioritiesDisabled(
-      bool anti_starvation_logic_for_priorities_disabled);
 
 #if DCHECK_IS_ON()
   // Controls task execution logging.
@@ -327,12 +331,6 @@ CreateSequenceManagerOnCurrentThreadWithPump(
 // initialized on the current thread and then needs to be bound and initialized
 // on the target thread by calling one of the Bind*() methods.
 BASE_EXPORT std::unique_ptr<SequenceManager> CreateUnboundSequenceManager(
-    SequenceManager::Settings settings = SequenceManager::Settings());
-
-// Create a SequenceManager that runs on top of |task_runner|.
-// TODO(alexclarke): Change |task_runner| to a SequencedTaskRunner.
-BASE_EXPORT std::unique_ptr<SequenceManager> CreateFunneledSequenceManager(
-    scoped_refptr<SingleThreadTaskRunner> task_runner,
     SequenceManager::Settings settings = SequenceManager::Settings());
 
 }  // namespace sequence_manager

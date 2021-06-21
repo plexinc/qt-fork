@@ -41,7 +41,7 @@ struct ConnectionManager::DumpProcessesForTracingTracking
 
 struct ConnectionManager::Connection {
   Connection(CompleteCallback complete_cb,
-             mojom::ProfilingClientPtr client,
+             mojo::PendingRemote<mojom::ProfilingClient> client,
              mojom::ProcessType process_type,
              uint32_t sampling_rate,
              mojom::StackMode stack_mode)
@@ -49,7 +49,7 @@ struct ConnectionManager::Connection {
         process_type(process_type),
         stack_mode(stack_mode),
         sampling_rate(sampling_rate) {
-    this->client.set_connection_error_handler(std::move(complete_cb));
+    this->client.set_disconnect_handler(std::move(complete_cb));
   }
 
   bool HeapDumpNeedsVmRegions() {
@@ -58,9 +58,11 @@ struct ConnectionManager::Connection {
            stack_mode == mojom::StackMode::MIXED;
   }
 
-  mojom::ProfilingClientPtr client;
+  mojo::Remote<mojom::ProfilingClient> client;
   mojom::ProcessType process_type;
   mojom::StackMode stack_mode;
+
+  bool started_profiling = false;
 
   // When sampling is enabled, allocations are recorded with probability (size /
   // sampling_rate) when size < sampling_rate. When size >= sampling_rate, the
@@ -72,16 +74,17 @@ struct ConnectionManager::Connection {
 };
 
 ConnectionManager::ConnectionManager() {
-  metrics_timer_.Start(
-      FROM_HERE, base::TimeDelta::FromHours(24),
-      base::Bind(&ConnectionManager::ReportMetrics, base::Unretained(this)));
+  metrics_timer_.Start(FROM_HERE, base::TimeDelta::FromHours(24),
+                       base::BindRepeating(&ConnectionManager::ReportMetrics,
+                                           base::Unretained(this)));
 }
 ConnectionManager::~ConnectionManager() = default;
 
-void ConnectionManager::OnNewConnection(base::ProcessId pid,
-                                        mojom::ProfilingClientPtr client,
-                                        mojom::ProcessType process_type,
-                                        mojom::ProfilingParamsPtr params) {
+void ConnectionManager::OnNewConnection(
+    base::ProcessId pid,
+    mojo::PendingRemote<mojom::ProfilingClient> client,
+    mojom::ProcessType process_type,
+    mojom::ProfilingParamsPtr params) {
   base::AutoLock lock(connections_lock_);
 
   // Attempting to start profiling on an already profiled processs should have
@@ -105,7 +108,9 @@ void ConnectionManager::OnNewConnection(base::ProcessId pid,
   auto connection = std::make_unique<Connection>(
       std::move(complete_cb), std::move(client), process_type,
       params->sampling_rate, params->stack_mode);
-  connection->client->StartProfiling(std::move(params));
+  connection->client->StartProfiling(
+      std::move(params), base::BindOnce(&ConnectionManager::OnProfilingStarted,
+                                        weak_factory_.GetWeakPtr(), pid));
   connections_[pid] = std::move(connection);
 }
 
@@ -113,8 +118,10 @@ std::vector<base::ProcessId> ConnectionManager::GetConnectionPids() {
   base::AutoLock lock(connections_lock_);
   std::vector<base::ProcessId> results;
   results.reserve(connections_.size());
-  for (const auto& pair : connections_)
-    results.push_back(pair.first);
+  for (const auto& pair : connections_) {
+    if (pair.second->started_profiling)
+      results.push_back(pair.first);
+  }
   return results;
 }
 
@@ -135,6 +142,16 @@ void ConnectionManager::OnConnectionComplete(base::ProcessId pid) {
   auto found = connections_.find(pid);
   CHECK(found != connections_.end());
   connections_.erase(found);
+}
+
+void ConnectionManager::OnProfilingStarted(base::ProcessId pid) {
+  base::AutoLock lock(connections_lock_);
+
+  // It's possible that the client disconnected in the short time before
+  // profiling started.
+  auto found = connections_.find(pid);
+  if (found != connections_.end())
+    found->second->started_profiling = true;
 }
 
 void ConnectionManager::ReportMetrics() {
@@ -200,31 +217,10 @@ bool ConnectionManager::ConvertProfileToExportParams(
                        .first->second;
     }
 
-    size_t alloc_size = sample->size;
-    size_t alloc_count = 1;
-
-    // If allocations were sampled, then we need to desample to return accurate
-    // results.
-    // TODO(alph): Move it closer to the the sampler, so other components
-    // wouldn't care about the math.
-    if (alloc_size < sampling_rate && alloc_size != 0) {
-      // To desample, we need to know the probability P that an allocation will
-      // be sampled. Once we know P, we still have to deal with discretization.
-      // Let's say that there's 1 allocation with P=0.85. Should we report 1 or
-      // 2 allocations? Should we report a fudged size (size / 0.85), or a
-      // discreted size, e.g. (1 * size) or (2 * size)? There are tradeoffs.
-      //
-      // We choose to emit a fudged size, which will return a more accurate
-      // total allocation size, but less accurate per-allocation size.
-      //
-      // The aggregate probability that an allocation will be sampled is
-      // alloc_size / sampling_rate. For a more detailed treatise, see
-      // https://bugs.chromium.org/p/chromium/issues/detail?id=810748#c4
-      float desampling_multiplier =
-          static_cast<float>(sampling_rate) / static_cast<float>(alloc_size);
-      alloc_count *= desampling_multiplier;
-      alloc_size *= desampling_multiplier;
-    }
+    size_t alloc_size = sample->total;
+    float alloc_count = 1;
+    if (sample->size != 0)
+      alloc_count = float(sample->total) / float(sample->size);
 
     std::vector<Address> stack(sample->stack.begin(), sample->stack.end());
     AllocationMetrics& metrics =

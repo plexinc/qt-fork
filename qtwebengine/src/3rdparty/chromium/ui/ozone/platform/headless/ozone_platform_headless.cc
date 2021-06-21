@@ -12,11 +12,12 @@
 #include "build/build_config.h"
 #include "ui/base/cursor/ozone/bitmap_cursor_factory_ozone.h"
 #include "ui/base/ime/input_method_minimal.h"
+#include "ui/display/types/native_display_delegate.h"
 #include "ui/events/ozone/layout/keyboard_layout_engine_manager.h"
 #include "ui/events/ozone/layout/stub/stub_keyboard_layout_engine.h"
 #include "ui/events/platform/platform_event_source.h"
 #include "ui/ozone/common/stub_overlay_manager.h"
-#include "ui/ozone/platform/headless/headless_native_display_delegate.h"
+#include "ui/ozone/platform/headless/headless_screen.h"
 #include "ui/ozone/platform/headless/headless_surface_factory.h"
 #include "ui/ozone/platform/headless/headless_window.h"
 #include "ui/ozone/platform/headless/headless_window_manager.h"
@@ -82,12 +83,16 @@ class OzonePlatformHeadless : public OzonePlatform {
   }
   std::unique_ptr<display::NativeDisplayDelegate> CreateNativeDisplayDelegate()
       override {
-    return std::make_unique<HeadlessNativeDisplayDelegate>();
+    return nullptr;
+  }
+  std::unique_ptr<PlatformScreen> CreateScreen() override {
+    return std::make_unique<HeadlessScreen>();
   }
   std::unique_ptr<InputMethod> CreateInputMethod(
-      internal::InputMethodDelegate* delegate) override {
+      internal::InputMethodDelegate* delegate,
+      gfx::AcceleratedWidget widget) override {
 #if defined(OS_FUCHSIA)
-    return std::make_unique<InputMethodFuchsia>(delegate);
+    return std::make_unique<InputMethodFuchsia>(delegate, widget);
 #else
     return std::make_unique<InputMethodMinimal>(delegate);
 #endif
@@ -99,8 +104,9 @@ class OzonePlatformHeadless : public OzonePlatform {
     // This unbreaks tests that create their own.
     if (!PlatformEventSource::GetInstance())
       platform_event_source_ = std::make_unique<HeadlessPlatformEventSource>();
+    keyboard_layout_engine_ = std::make_unique<StubKeyboardLayoutEngine>();
     KeyboardLayoutEngineManager::SetKeyboardLayoutEngine(
-        std::make_unique<StubKeyboardLayoutEngine>());
+        keyboard_layout_engine_.get());
 
     overlay_manager_ = std::make_unique<StubOverlayManager>();
     input_controller_ = CreateStubInputController();
@@ -114,6 +120,7 @@ class OzonePlatformHeadless : public OzonePlatform {
   }
 
  private:
+  std::unique_ptr<KeyboardLayoutEngine> keyboard_layout_engine_;
   std::unique_ptr<HeadlessWindowManager> window_manager_;
   std::unique_ptr<HeadlessSurfaceFactory> surface_factory_;
   std::unique_ptr<PlatformEventSource> platform_event_source_;

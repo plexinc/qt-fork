@@ -36,8 +36,10 @@ jumbo_component("aura") {
     "input_state_lookup_win.h",
     "layout_manager.h",
     "null_window_targeter.h",
+    "scoped_enable_unadjusted_mouse_events.h",
     "scoped_keyboard_hook.h",
     "scoped_simple_keyboard_hook.h",
+    "scoped_window_event_targeting_blocker.h",
     "scoped_window_targeter.h",
     "window.h",
     "window_delegate.h",
@@ -75,11 +77,14 @@ jumbo_component("aura") {
     "input_state_lookup.cc",
     "input_state_lookup_win.cc",
     "layout_manager.cc",
+    "native_window_occlusion_tracker.cc",
+    "native_window_occlusion_tracker.h",
     "native_window_occlusion_tracker_win.cc",
     "native_window_occlusion_tracker_win.h",
     "null_window_targeter.cc",
     "scoped_keyboard_hook.cc",
     "scoped_simple_keyboard_hook.cc",
+    "scoped_window_event_targeting_blocker.cc",
     "scoped_window_targeter.cc",
     "window.cc",
     "window_delegate.cc",
@@ -108,7 +113,6 @@ jumbo_component("aura") {
     "//components/viz/client",
     "//components/viz/common",
     "//components/viz/host",
-    "//components/viz/service",
     "//gpu/ipc/client",
     "//mojo/public/cpp/system",
     "//services/service_manager/public/cpp",
@@ -116,6 +120,7 @@ jumbo_component("aura") {
     "//ui/base",
     "//ui/base/clipboard",
     "//ui/base/ime/init",
+    "//ui/base/mojom:cursor_type",
     "//ui/display",
     "//ui/events",
     "//ui/events:dom_keyboard_layout",
@@ -129,6 +134,7 @@ jumbo_component("aura") {
   ]
 
   public_deps = [
+    "//ui/base/cursor",
     "//ui/base/ime",
     "//ui/compositor",
   ]
@@ -161,6 +167,8 @@ jumbo_component("aura") {
     public += [ "screen_ozone.h" ]
     sources += [ "screen_ozone.cc" ]
   }
+
+  configs += [ "//build/config/compiler:noshadowing" ]
 }
 
 jumbo_static_library("test_support") {
@@ -168,8 +176,6 @@ jumbo_static_library("test_support") {
   sources = [
     "test/aura_test_base.cc",
     "test/aura_test_base.h",
-    "test/aura_test_context_factory.cc",
-    "test/aura_test_context_factory.h",
     "test/aura_test_helper.cc",
     "test/aura_test_helper.h",
     "test/aura_test_utils.cc",
@@ -212,13 +218,16 @@ jumbo_static_library("test_support") {
     "//ui/base:buildflags",
   ]
   deps = [
+    "//base",
     "//base/test:test_support",
     "//cc:test_support",
     "//components/viz/test:test_support",
     "//skia",
     "//testing/gtest",
     "//ui/base:test_support",
+    "//ui/base/cursor",
     "//ui/base/ime/init",
+    "//ui/base/mojom:cursor_type",
     "//ui/compositor:test_support",
     "//ui/display",
     "//ui/display/manager",
@@ -242,21 +251,28 @@ jumbo_static_library("test_support") {
       "test/x11_event_sender.h",
     ]
 
-    deps += [ "//ui/gfx/x" ]
+    deps += [
+      "//ui/events/platform/x11",
+      "//ui/gfx/x",
+    ]
   }
 
   if (use_ozone) {
+    if (is_fuchsia) {
+      deps += [ "//ui/ozone" ]
+    }
     sources += [ "test/ui_controls_factory_ozone.cc" ]
+  }
+
+  if (is_linux) {
+    deps += [ "//ui/platform_window/common" ]
   }
 }
 
-executable("demo") {
-  output_name = "aura_demo"
+executable("aura_demo") {
   testonly = true
 
-  sources = [
-    "demo/demo_main.cc",
-  ]
+  sources = [ "demo/demo_main.cc" ]
 
   deps = [
     ":aura",
@@ -266,6 +282,7 @@ executable("demo") {
     "//build/win:default_exe_manifest",
     "//components/viz/host",
     "//components/viz/service",
+    "//mojo/core/embedder",
     "//skia",
     "//third_party/icu",
     "//ui/base",
@@ -330,9 +347,7 @@ test("aura_unittests") {
     "//ui/wm",
   ]
 
-  data_deps = [
-    "//third_party/mesa_headers",
-  ]
+  data_deps = [ "//third_party/mesa_headers" ]
 }
 
 # This target is added as a dependency of browser interactive_ui_tests. It must
@@ -340,9 +355,7 @@ test("aura_unittests") {
 source_set("aura_interactive_ui_tests") {
   testonly = true
   if (is_win) {
-    sources = [
-      "native_window_occlusion_tracker_win_interactive_test.cc",
-    ]
+    sources = [ "native_window_occlusion_tracker_win_interactive_test.cc" ]
 
     deps = [
       ":aura",

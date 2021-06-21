@@ -50,11 +50,18 @@ class PRINTING_EXPORT CupsOptionProvider {
 // share an http connection which the CupsConnection closes on destruction.
 class PRINTING_EXPORT CupsPrinter : public CupsOptionProvider {
  public:
-  // Create a printer with a connection defined by |http| and |dest|.  |info|
-  // can be null and will be lazily initialized when needed.
-  CupsPrinter(http_t* http,
-              std::unique_ptr<cups_dest_t, DestinationDeleter> dest,
-              std::unique_ptr<cups_dinfo_t, DestInfoDeleter> info);
+  // Represents the margins that CUPS reports for some given media.
+  // Its members are valued in PWG units (100ths of mm).
+  // This struct approximates a cups_size_t, which is BLRT.
+  struct CupsMediaMargins {
+    int bottom;
+    int left;
+    int right;
+    int top;
+  };
+
+  // Create a printer with a connection defined by |http| and |dest|.
+  CupsPrinter(http_t* http, ScopedDestination dest);
 
   CupsPrinter(CupsPrinter&& printer);
 
@@ -80,8 +87,13 @@ class PRINTING_EXPORT CupsPrinter : public CupsOptionProvider {
 
   std::string GetMakeAndModel() const;
 
-  // Returns true if the printer is currently reachable and working.
-  bool IsAvailable() const;
+  // Returns the "printer-info" option of the printer as configured in CUPS.
+  std::string GetInfo() const;
+
+  std::string GetUri() const;
+
+  // Lazily initialize dest info as it can require a network call
+  bool EnsureDestInfo() const;
 
   // Populates |basic_info| with the relevant information about the printer
   bool ToPrinterInfo(PrinterBasicInfo* basic_info) const;
@@ -123,18 +135,24 @@ class PRINTING_EXPORT CupsPrinter : public CupsOptionProvider {
   // Returns false if it failed for any reason.
   bool CancelJob(int job_id);
 
- private:
-  // Lazily initialize dest info as it can require a network call
-  bool InitializeDestInfo() const;
+  // Queries CUPS for the margins of the media named by |media_id|.
+  //
+  // A |media_id| is any vendor ID known to CUPS for a given printer.
+  // Vendor IDs are exemplified by the keys of the big map in
+  // print_media_l10n.cc.
+  //
+  // Returns all zeroes if the CUPS API call fails.
+  CupsMediaMargins GetMediaMarginsByName(const std::string& media_id);
 
+ private:
   // http connection owned by the CupsConnection which created this object
   http_t* const cups_http_;
 
   // information to identify a printer
-  std::unique_ptr<cups_dest_t, DestinationDeleter> destination_;
+  ScopedDestination destination_;
 
   // opaque object containing printer attributes and options
-  mutable std::unique_ptr<cups_dinfo_t, DestInfoDeleter> dest_info_;
+  mutable ScopedDestInfo dest_info_;
 
   DISALLOW_COPY_AND_ASSIGN(CupsPrinter);
 };

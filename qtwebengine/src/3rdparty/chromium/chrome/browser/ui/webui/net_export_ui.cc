@@ -8,6 +8,7 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/bind.h"
@@ -29,7 +30,7 @@
 #include "chrome/browser/ui/chrome_select_file_policy.h"
 #include "chrome/common/channel_info.h"
 #include "chrome/common/url_constants.h"
-#include "components/grit/components_resources.h"
+#include "components/grit/dev_ui_components_resources.h"
 #include "components/net_log/net_export_file_writer.h"
 #include "components/net_log/net_export_ui_constants.h"
 #include "content/public/browser/browser_thread.h"
@@ -61,7 +62,7 @@ content::WebUIDataSource* CreateNetExportHTMLSource() {
   content::WebUIDataSource* source =
       content::WebUIDataSource::Create(chrome::kChromeUINetExportHost);
 
-  source->SetJsonPath("strings.js");
+  source->UseStringsJs();
   source->AddResourcePath(net_log::kNetExportUIJS, IDR_NET_LOG_NET_EXPORT_JS);
   source->SetDefaultResource(IDR_NET_LOG_NET_EXPORT_HTML);
   return source;
@@ -212,7 +213,7 @@ void NetExportMessageHandler::OnEnableNotifyUIWithState(
 void NetExportMessageHandler::OnStartNetLog(const base::ListValue* list) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
-  const base::Value::ListStorage& params = list->GetList();
+  base::Value::ConstListView params = list->GetList();
 
   // Determine the capture mode.
   capture_mode_ = net::NetLogCaptureMode::kDefault;

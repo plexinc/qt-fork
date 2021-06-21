@@ -34,12 +34,6 @@ void GL_BINDING_CALL MockGLInterface::Mock_glActiveTexture(GLenum texture) {
   interface_->ActiveTexture(texture);
 }
 
-void GL_BINDING_CALL
-MockGLInterface::Mock_glApplyFramebufferAttachmentCMAAINTEL(void) {
-  MakeGlMockFunctionUnique("glApplyFramebufferAttachmentCMAAINTEL");
-  interface_->ApplyFramebufferAttachmentCMAAINTEL();
-}
-
 void GL_BINDING_CALL MockGLInterface::Mock_glAttachShader(GLuint program,
                                                           GLuint shader) {
   MakeGlMockFunctionUnique("glAttachShader");
@@ -511,6 +505,14 @@ MockGLInterface::Mock_glClientWaitSync(GLsync sync,
   return interface_->ClientWaitSync(sync, flags, timeout);
 }
 
+GLenum GL_BINDING_CALL
+MockGLInterface::Mock_glClientWaitSyncAPPLE(GLsync sync,
+                                            GLbitfield flags,
+                                            GLuint64 timeout) {
+  MakeGlMockFunctionUnique("glClientWaitSyncAPPLE");
+  return interface_->ClientWaitSyncAPPLE(sync, flags, timeout);
+}
+
 void GL_BINDING_CALL MockGLInterface::Mock_glColorMask(GLboolean red,
                                                        GLboolean green,
                                                        GLboolean blue,
@@ -959,6 +961,13 @@ MockGLInterface::Mock_glDeleteFramebuffersEXT(GLsizei n,
 }
 
 void GL_BINDING_CALL
+MockGLInterface::Mock_glDeleteMemoryObjectsEXT(GLsizei n,
+                                               const GLuint* memoryObjects) {
+  MakeGlMockFunctionUnique("glDeleteMemoryObjectsEXT");
+  interface_->DeleteMemoryObjectsEXT(n, memoryObjects);
+}
+
+void GL_BINDING_CALL
 MockGLInterface::Mock_glDeletePathsCHROMIUM(GLuint path, GLsizei range) {
   MakeGlMockFunctionUnique("glDeletePathsCHROMIUM");
   interface_->DeletePathsNV(path, range);
@@ -1037,6 +1046,11 @@ void GL_BINDING_CALL MockGLInterface::Mock_glDeleteSync(GLsync sync) {
   interface_->DeleteSync(sync);
 }
 
+void GL_BINDING_CALL MockGLInterface::Mock_glDeleteSyncAPPLE(GLsync sync) {
+  MakeGlMockFunctionUnique("glDeleteSyncAPPLE");
+  interface_->DeleteSyncAPPLE(sync);
+}
+
 void GL_BINDING_CALL
 MockGLInterface::Mock_glDeleteTextures(GLsizei n, const GLuint* textures) {
   MakeGlMockFunctionUnique("glDeleteTextures");
@@ -1099,6 +1113,12 @@ void GL_BINDING_CALL MockGLInterface::Mock_glDetachShader(GLuint program,
 void GL_BINDING_CALL MockGLInterface::Mock_glDisable(GLenum cap) {
   MakeGlMockFunctionUnique("glDisable");
   interface_->Disable(cap);
+}
+
+void GL_BINDING_CALL
+MockGLInterface::Mock_glDisableExtensionANGLE(const char* name) {
+  MakeGlMockFunctionUnique("glDisableExtensionANGLE");
+  interface_->DisableExtensionANGLE(name);
 }
 
 void GL_BINDING_CALL
@@ -1167,6 +1187,40 @@ MockGLInterface::Mock_glDrawArraysInstancedARB(GLenum mode,
                                                GLsizei primcount) {
   MakeGlMockFunctionUnique("glDrawArraysInstancedARB");
   interface_->DrawArraysInstancedANGLE(mode, first, count, primcount);
+}
+
+void GL_BINDING_CALL
+MockGLInterface::Mock_glDrawArraysInstancedBaseInstance(GLenum mode,
+                                                        GLint first,
+                                                        GLsizei count,
+                                                        GLsizei primcount,
+                                                        GLuint baseinstance) {
+  MakeGlMockFunctionUnique("glDrawArraysInstancedBaseInstance");
+  interface_->DrawArraysInstancedBaseInstanceANGLE(mode, first, count,
+                                                   primcount, baseinstance);
+}
+
+void GL_BINDING_CALL
+MockGLInterface::Mock_glDrawArraysInstancedBaseInstanceANGLE(
+    GLenum mode,
+    GLint first,
+    GLsizei count,
+    GLsizei primcount,
+    GLuint baseinstance) {
+  MakeGlMockFunctionUnique("glDrawArraysInstancedBaseInstanceANGLE");
+  interface_->DrawArraysInstancedBaseInstanceANGLE(mode, first, count,
+                                                   primcount, baseinstance);
+}
+
+void GL_BINDING_CALL MockGLInterface::Mock_glDrawArraysInstancedBaseInstanceEXT(
+    GLenum mode,
+    GLint first,
+    GLsizei count,
+    GLsizei primcount,
+    GLuint baseinstance) {
+  MakeGlMockFunctionUnique("glDrawArraysInstancedBaseInstanceEXT");
+  interface_->DrawArraysInstancedBaseInstanceANGLE(mode, first, count,
+                                                   primcount, baseinstance);
 }
 
 void GL_BINDING_CALL MockGLInterface::Mock_glDrawBuffer(GLenum mode) {
@@ -1239,6 +1293,49 @@ MockGLInterface::Mock_glDrawElementsInstancedARB(GLenum mode,
 }
 
 void GL_BINDING_CALL
+MockGLInterface::Mock_glDrawElementsInstancedBaseVertexBaseInstance(
+    GLenum mode,
+    GLsizei count,
+    GLenum type,
+    const void* indices,
+    GLsizei primcount,
+    GLint baseVertex,
+    GLuint baseInstance) {
+  MakeGlMockFunctionUnique("glDrawElementsInstancedBaseVertexBaseInstance");
+  interface_->DrawElementsInstancedBaseVertexBaseInstanceANGLE(
+      mode, count, type, indices, primcount, baseVertex, baseInstance);
+}
+
+void GL_BINDING_CALL
+MockGLInterface::Mock_glDrawElementsInstancedBaseVertexBaseInstanceANGLE(
+    GLenum mode,
+    GLsizei count,
+    GLenum type,
+    const void* indices,
+    GLsizei primcount,
+    GLint baseVertex,
+    GLuint baseInstance) {
+  MakeGlMockFunctionUnique(
+      "glDrawElementsInstancedBaseVertexBaseInstanceANGLE");
+  interface_->DrawElementsInstancedBaseVertexBaseInstanceANGLE(
+      mode, count, type, indices, primcount, baseVertex, baseInstance);
+}
+
+void GL_BINDING_CALL
+MockGLInterface::Mock_glDrawElementsInstancedBaseVertexBaseInstanceEXT(
+    GLenum mode,
+    GLsizei count,
+    GLenum type,
+    const void* indices,
+    GLsizei primcount,
+    GLint baseVertex,
+    GLuint baseInstance) {
+  MakeGlMockFunctionUnique("glDrawElementsInstancedBaseVertexBaseInstanceEXT");
+  interface_->DrawElementsInstancedBaseVertexBaseInstanceANGLE(
+      mode, count, type, indices, primcount, baseVertex, baseInstance);
+}
+
+void GL_BINDING_CALL
 MockGLInterface::Mock_glDrawRangeElements(GLenum mode,
                                           GLuint start,
                                           GLuint end,
@@ -1290,6 +1387,12 @@ void GL_BINDING_CALL MockGLInterface::Mock_glEndQueryEXT(GLenum target) {
   interface_->EndQuery(target);
 }
 
+void GL_BINDING_CALL
+MockGLInterface::Mock_glEndTilingQCOM(GLbitfield preserveMask) {
+  MakeGlMockFunctionUnique("glEndTilingQCOM");
+  interface_->EndTilingQCOM(preserveMask);
+}
+
 void GL_BINDING_CALL MockGLInterface::Mock_glEndTransformFeedback(void) {
   MakeGlMockFunctionUnique("glEndTransformFeedback");
   interface_->EndTransformFeedback();
@@ -1304,6 +1407,12 @@ GLsync GL_BINDING_CALL MockGLInterface::Mock_glFenceSync(GLenum condition,
                                                          GLbitfield flags) {
   MakeGlMockFunctionUnique("glFenceSync");
   return interface_->FenceSync(condition, flags);
+}
+
+GLsync GL_BINDING_CALL
+MockGLInterface::Mock_glFenceSyncAPPLE(GLenum condition, GLbitfield flags) {
+  MakeGlMockFunctionUnique("glFenceSyncAPPLE");
+  return interface_->FenceSyncAPPLE(condition, flags);
 }
 
 void GL_BINDING_CALL MockGLInterface::Mock_glFinish(void) {
@@ -1347,6 +1456,14 @@ MockGLInterface::Mock_glFramebufferParameteri(GLenum target,
                                               GLenum pname,
                                               GLint param) {
   MakeGlMockFunctionUnique("glFramebufferParameteri");
+  interface_->FramebufferParameteri(target, pname, param);
+}
+
+void GL_BINDING_CALL
+MockGLInterface::Mock_glFramebufferParameteriMESA(GLenum target,
+                                                  GLenum pname,
+                                                  GLint param) {
+  MakeGlMockFunctionUnique("glFramebufferParameteriMESA");
   interface_->FramebufferParameteri(target, pname, param);
 }
 
@@ -2812,11 +2929,28 @@ MockGLInterface::Mock_glImportMemoryFdEXT(GLuint memory,
 }
 
 void GL_BINDING_CALL
+MockGLInterface::Mock_glImportMemoryZirconHandleANGLE(GLuint memory,
+                                                      GLuint64 size,
+                                                      GLenum handleType,
+                                                      GLuint handle) {
+  MakeGlMockFunctionUnique("glImportMemoryZirconHandleANGLE");
+  interface_->ImportMemoryZirconHandleANGLE(memory, size, handleType, handle);
+}
+
+void GL_BINDING_CALL
 MockGLInterface::Mock_glImportSemaphoreFdEXT(GLuint semaphore,
                                              GLenum handleType,
                                              GLint fd) {
   MakeGlMockFunctionUnique("glImportSemaphoreFdEXT");
   interface_->ImportSemaphoreFdEXT(semaphore, handleType, fd);
+}
+
+void GL_BINDING_CALL
+MockGLInterface::Mock_glImportSemaphoreZirconHandleANGLE(GLuint semaphore,
+                                                         GLenum handleType,
+                                                         GLuint handle) {
+  MakeGlMockFunctionUnique("glImportSemaphoreZirconHandleANGLE");
+  interface_->ImportSemaphoreZirconHandleANGLE(semaphore, handleType, handle);
 }
 
 void GL_BINDING_CALL
@@ -2948,6 +3082,11 @@ GLboolean GL_BINDING_CALL MockGLInterface::Mock_glIsSync(GLsync sync) {
   return interface_->IsSync(sync);
 }
 
+GLboolean GL_BINDING_CALL MockGLInterface::Mock_glIsSyncAPPLE(GLsync sync) {
+  MakeGlMockFunctionUnique("glIsSyncAPPLE");
+  return interface_->IsSyncAPPLE(sync);
+}
+
 GLboolean GL_BINDING_CALL MockGLInterface::Mock_glIsTexture(GLuint texture) {
   MakeGlMockFunctionUnique("glIsTexture");
   return interface_->IsTexture(texture);
@@ -3065,6 +3204,14 @@ MockGLInterface::Mock_glMemoryBarrierEXT(GLbitfield barriers) {
   interface_->MemoryBarrierEXT(barriers);
 }
 
+void GL_BINDING_CALL
+MockGLInterface::Mock_glMemoryObjectParameterivEXT(GLuint memoryObject,
+                                                   GLenum pname,
+                                                   const GLint* param) {
+  MakeGlMockFunctionUnique("glMemoryObjectParameterivEXT");
+  interface_->MemoryObjectParameterivEXT(memoryObject, pname, param);
+}
+
 void GL_BINDING_CALL MockGLInterface::Mock_glMinSampleShading(GLfloat value) {
   MakeGlMockFunctionUnique("glMinSampleShading");
   interface_->MinSampleShading(value);
@@ -3091,6 +3238,19 @@ void GL_BINDING_CALL MockGLInterface::Mock_glMultiDrawArraysInstancedANGLE(
 }
 
 void GL_BINDING_CALL
+MockGLInterface::Mock_glMultiDrawArraysInstancedBaseInstanceANGLE(
+    GLenum mode,
+    const GLint* firsts,
+    const GLsizei* counts,
+    const GLsizei* instanceCounts,
+    const GLuint* baseInstances,
+    GLsizei drawcount) {
+  MakeGlMockFunctionUnique("glMultiDrawArraysInstancedBaseInstanceANGLE");
+  interface_->MultiDrawArraysInstancedBaseInstanceANGLE(
+      mode, firsts, counts, instanceCounts, baseInstances, drawcount);
+}
+
+void GL_BINDING_CALL
 MockGLInterface::Mock_glMultiDrawElementsANGLE(GLenum mode,
                                                const GLsizei* counts,
                                                GLenum type,
@@ -3110,6 +3270,23 @@ void GL_BINDING_CALL MockGLInterface::Mock_glMultiDrawElementsInstancedANGLE(
   MakeGlMockFunctionUnique("glMultiDrawElementsInstancedANGLE");
   interface_->MultiDrawElementsInstancedANGLE(mode, counts, type, indices,
                                               instanceCounts, drawcount);
+}
+
+void GL_BINDING_CALL
+MockGLInterface::Mock_glMultiDrawElementsInstancedBaseVertexBaseInstanceANGLE(
+    GLenum mode,
+    const GLsizei* counts,
+    GLenum type,
+    const GLvoid* const* indices,
+    const GLsizei* instanceCounts,
+    const GLint* baseVertices,
+    const GLuint* baseInstances,
+    GLsizei drawcount) {
+  MakeGlMockFunctionUnique(
+      "glMultiDrawElementsInstancedBaseVertexBaseInstanceANGLE");
+  interface_->MultiDrawElementsInstancedBaseVertexBaseInstanceANGLE(
+      mode, counts, type, indices, instanceCounts, baseVertices, baseInstances,
+      drawcount);
 }
 
 void GL_BINDING_CALL MockGLInterface::Mock_glObjectLabel(GLenum identifier,
@@ -3921,6 +4098,16 @@ MockGLInterface::Mock_glSignalSemaphoreEXT(GLuint semaphore,
   MakeGlMockFunctionUnique("glSignalSemaphoreEXT");
   interface_->SignalSemaphoreEXT(semaphore, numBufferBarriers, buffers,
                                  numTextureBarriers, textures, dstLayouts);
+}
+
+void GL_BINDING_CALL
+MockGLInterface::Mock_glStartTilingQCOM(GLuint x,
+                                        GLuint y,
+                                        GLuint width,
+                                        GLuint height,
+                                        GLbitfield preserveMask) {
+  MakeGlMockFunctionUnique("glStartTilingQCOM");
+  interface_->StartTilingQCOM(x, y, width, height, preserveMask);
 }
 
 void GL_BINDING_CALL
@@ -4990,6 +5177,13 @@ void GL_BINDING_CALL MockGLInterface::Mock_glWaitSync(GLsync sync,
   interface_->WaitSync(sync, flags, timeout);
 }
 
+void GL_BINDING_CALL MockGLInterface::Mock_glWaitSyncAPPLE(GLsync sync,
+                                                           GLbitfield flags,
+                                                           GLuint64 timeout) {
+  MakeGlMockFunctionUnique("glWaitSyncAPPLE");
+  interface_->WaitSyncAPPLE(sync, flags, timeout);
+}
+
 void GL_BINDING_CALL
 MockGLInterface::Mock_glWindowRectanglesEXT(GLenum mode,
                                             GLsizei n,
@@ -5008,9 +5202,6 @@ MockGLInterface::GetGLProcAddress(const char* name) {
     return reinterpret_cast<GLFunctionPointerType>(Mock_glActiveShaderProgram);
   if (strcmp(name, "glActiveTexture") == 0)
     return reinterpret_cast<GLFunctionPointerType>(Mock_glActiveTexture);
-  if (strcmp(name, "glApplyFramebufferAttachmentCMAAINTEL") == 0)
-    return reinterpret_cast<GLFunctionPointerType>(
-        Mock_glApplyFramebufferAttachmentCMAAINTEL);
   if (strcmp(name, "glAttachShader") == 0)
     return reinterpret_cast<GLFunctionPointerType>(Mock_glAttachShader);
   if (strcmp(name, "glBeginQuery") == 0)
@@ -5142,6 +5333,8 @@ MockGLInterface::GetGLProcAddress(const char* name) {
     return reinterpret_cast<GLFunctionPointerType>(Mock_glClearTexSubImageEXT);
   if (strcmp(name, "glClientWaitSync") == 0)
     return reinterpret_cast<GLFunctionPointerType>(Mock_glClientWaitSync);
+  if (strcmp(name, "glClientWaitSyncAPPLE") == 0)
+    return reinterpret_cast<GLFunctionPointerType>(Mock_glClientWaitSyncAPPLE);
   if (strcmp(name, "glColorMask") == 0)
     return reinterpret_cast<GLFunctionPointerType>(Mock_glColorMask);
   if (strcmp(name, "glCompileShader") == 0)
@@ -5245,6 +5438,9 @@ MockGLInterface::GetGLProcAddress(const char* name) {
   if (strcmp(name, "glDeleteFramebuffersEXT") == 0)
     return reinterpret_cast<GLFunctionPointerType>(
         Mock_glDeleteFramebuffersEXT);
+  if (strcmp(name, "glDeleteMemoryObjectsEXT") == 0)
+    return reinterpret_cast<GLFunctionPointerType>(
+        Mock_glDeleteMemoryObjectsEXT);
   if (strcmp(name, "glDeletePathsCHROMIUM") == 0)
     return reinterpret_cast<GLFunctionPointerType>(Mock_glDeletePathsCHROMIUM);
   if (strcmp(name, "glDeletePathsNV") == 0)
@@ -5273,6 +5469,8 @@ MockGLInterface::GetGLProcAddress(const char* name) {
     return reinterpret_cast<GLFunctionPointerType>(Mock_glDeleteShader);
   if (strcmp(name, "glDeleteSync") == 0)
     return reinterpret_cast<GLFunctionPointerType>(Mock_glDeleteSync);
+  if (strcmp(name, "glDeleteSyncAPPLE") == 0)
+    return reinterpret_cast<GLFunctionPointerType>(Mock_glDeleteSyncAPPLE);
   if (strcmp(name, "glDeleteTextures") == 0)
     return reinterpret_cast<GLFunctionPointerType>(Mock_glDeleteTextures);
   if (strcmp(name, "glDeleteTransformFeedbacks") == 0)
@@ -5298,6 +5496,9 @@ MockGLInterface::GetGLProcAddress(const char* name) {
     return reinterpret_cast<GLFunctionPointerType>(Mock_glDetachShader);
   if (strcmp(name, "glDisable") == 0)
     return reinterpret_cast<GLFunctionPointerType>(Mock_glDisable);
+  if (strcmp(name, "glDisableExtensionANGLE") == 0)
+    return reinterpret_cast<GLFunctionPointerType>(
+        Mock_glDisableExtensionANGLE);
   if (strcmp(name, "glDisableVertexAttribArray") == 0)
     return reinterpret_cast<GLFunctionPointerType>(
         Mock_glDisableVertexAttribArray);
@@ -5321,6 +5522,15 @@ MockGLInterface::GetGLProcAddress(const char* name) {
   if (strcmp(name, "glDrawArraysInstancedARB") == 0)
     return reinterpret_cast<GLFunctionPointerType>(
         Mock_glDrawArraysInstancedARB);
+  if (strcmp(name, "glDrawArraysInstancedBaseInstance") == 0)
+    return reinterpret_cast<GLFunctionPointerType>(
+        Mock_glDrawArraysInstancedBaseInstance);
+  if (strcmp(name, "glDrawArraysInstancedBaseInstanceANGLE") == 0)
+    return reinterpret_cast<GLFunctionPointerType>(
+        Mock_glDrawArraysInstancedBaseInstanceANGLE);
+  if (strcmp(name, "glDrawArraysInstancedBaseInstanceEXT") == 0)
+    return reinterpret_cast<GLFunctionPointerType>(
+        Mock_glDrawArraysInstancedBaseInstanceEXT);
   if (strcmp(name, "glDrawBuffer") == 0)
     return reinterpret_cast<GLFunctionPointerType>(Mock_glDrawBuffer);
   if (strcmp(name, "glDrawBuffers") == 0)
@@ -5342,6 +5552,15 @@ MockGLInterface::GetGLProcAddress(const char* name) {
   if (strcmp(name, "glDrawElementsInstancedARB") == 0)
     return reinterpret_cast<GLFunctionPointerType>(
         Mock_glDrawElementsInstancedARB);
+  if (strcmp(name, "glDrawElementsInstancedBaseVertexBaseInstance") == 0)
+    return reinterpret_cast<GLFunctionPointerType>(
+        Mock_glDrawElementsInstancedBaseVertexBaseInstance);
+  if (strcmp(name, "glDrawElementsInstancedBaseVertexBaseInstanceANGLE") == 0)
+    return reinterpret_cast<GLFunctionPointerType>(
+        Mock_glDrawElementsInstancedBaseVertexBaseInstanceANGLE);
+  if (strcmp(name, "glDrawElementsInstancedBaseVertexBaseInstanceEXT") == 0)
+    return reinterpret_cast<GLFunctionPointerType>(
+        Mock_glDrawElementsInstancedBaseVertexBaseInstanceEXT);
   if (strcmp(name, "glDrawRangeElements") == 0)
     return reinterpret_cast<GLFunctionPointerType>(Mock_glDrawRangeElements);
   if (strcmp(name, "glEGLImageTargetRenderbufferStorageOES") == 0)
@@ -5361,6 +5580,8 @@ MockGLInterface::GetGLProcAddress(const char* name) {
     return reinterpret_cast<GLFunctionPointerType>(Mock_glEndQueryARB);
   if (strcmp(name, "glEndQueryEXT") == 0)
     return reinterpret_cast<GLFunctionPointerType>(Mock_glEndQueryEXT);
+  if (strcmp(name, "glEndTilingQCOM") == 0)
+    return reinterpret_cast<GLFunctionPointerType>(Mock_glEndTilingQCOM);
   if (strcmp(name, "glEndTransformFeedback") == 0)
     return reinterpret_cast<GLFunctionPointerType>(Mock_glEndTransformFeedback);
   if (strcmp(name, "glEndTransformFeedbackEXT") == 0)
@@ -5368,6 +5589,8 @@ MockGLInterface::GetGLProcAddress(const char* name) {
         Mock_glEndTransformFeedbackEXT);
   if (strcmp(name, "glFenceSync") == 0)
     return reinterpret_cast<GLFunctionPointerType>(Mock_glFenceSync);
+  if (strcmp(name, "glFenceSyncAPPLE") == 0)
+    return reinterpret_cast<GLFunctionPointerType>(Mock_glFenceSyncAPPLE);
   if (strcmp(name, "glFinish") == 0)
     return reinterpret_cast<GLFunctionPointerType>(Mock_glFinish);
   if (strcmp(name, "glFinishFenceAPPLE") == 0)
@@ -5385,6 +5608,9 @@ MockGLInterface::GetGLProcAddress(const char* name) {
   if (strcmp(name, "glFramebufferParameteri") == 0)
     return reinterpret_cast<GLFunctionPointerType>(
         Mock_glFramebufferParameteri);
+  if (strcmp(name, "glFramebufferParameteriMESA") == 0)
+    return reinterpret_cast<GLFunctionPointerType>(
+        Mock_glFramebufferParameteriMESA);
   if (strcmp(name, "glFramebufferRenderbuffer") == 0)
     return reinterpret_cast<GLFunctionPointerType>(
         Mock_glFramebufferRenderbuffer);
@@ -5803,8 +6029,14 @@ MockGLInterface::GetGLProcAddress(const char* name) {
     return reinterpret_cast<GLFunctionPointerType>(Mock_glHint);
   if (strcmp(name, "glImportMemoryFdEXT") == 0)
     return reinterpret_cast<GLFunctionPointerType>(Mock_glImportMemoryFdEXT);
+  if (strcmp(name, "glImportMemoryZirconHandleANGLE") == 0)
+    return reinterpret_cast<GLFunctionPointerType>(
+        Mock_glImportMemoryZirconHandleANGLE);
   if (strcmp(name, "glImportSemaphoreFdEXT") == 0)
     return reinterpret_cast<GLFunctionPointerType>(Mock_glImportSemaphoreFdEXT);
+  if (strcmp(name, "glImportSemaphoreZirconHandleANGLE") == 0)
+    return reinterpret_cast<GLFunctionPointerType>(
+        Mock_glImportSemaphoreZirconHandleANGLE);
   if (strcmp(name, "glInsertEventMarkerEXT") == 0)
     return reinterpret_cast<GLFunctionPointerType>(Mock_glInsertEventMarkerEXT);
   if (strcmp(name, "glInvalidateFramebuffer") == 0)
@@ -5852,6 +6084,8 @@ MockGLInterface::GetGLProcAddress(const char* name) {
     return reinterpret_cast<GLFunctionPointerType>(Mock_glIsShader);
   if (strcmp(name, "glIsSync") == 0)
     return reinterpret_cast<GLFunctionPointerType>(Mock_glIsSync);
+  if (strcmp(name, "glIsSyncAPPLE") == 0)
+    return reinterpret_cast<GLFunctionPointerType>(Mock_glIsSyncAPPLE);
   if (strcmp(name, "glIsTexture") == 0)
     return reinterpret_cast<GLFunctionPointerType>(Mock_glIsTexture);
   if (strcmp(name, "glIsTransformFeedback") == 0)
@@ -5894,6 +6128,9 @@ MockGLInterface::GetGLProcAddress(const char* name) {
         Mock_glMemoryBarrierByRegion);
   if (strcmp(name, "glMemoryBarrierEXT") == 0)
     return reinterpret_cast<GLFunctionPointerType>(Mock_glMemoryBarrierEXT);
+  if (strcmp(name, "glMemoryObjectParameterivEXT") == 0)
+    return reinterpret_cast<GLFunctionPointerType>(
+        Mock_glMemoryObjectParameterivEXT);
   if (strcmp(name, "glMinSampleShading") == 0)
     return reinterpret_cast<GLFunctionPointerType>(Mock_glMinSampleShading);
   if (strcmp(name, "glMultiDrawArraysANGLE") == 0)
@@ -5901,12 +6138,19 @@ MockGLInterface::GetGLProcAddress(const char* name) {
   if (strcmp(name, "glMultiDrawArraysInstancedANGLE") == 0)
     return reinterpret_cast<GLFunctionPointerType>(
         Mock_glMultiDrawArraysInstancedANGLE);
+  if (strcmp(name, "glMultiDrawArraysInstancedBaseInstanceANGLE") == 0)
+    return reinterpret_cast<GLFunctionPointerType>(
+        Mock_glMultiDrawArraysInstancedBaseInstanceANGLE);
   if (strcmp(name, "glMultiDrawElementsANGLE") == 0)
     return reinterpret_cast<GLFunctionPointerType>(
         Mock_glMultiDrawElementsANGLE);
   if (strcmp(name, "glMultiDrawElementsInstancedANGLE") == 0)
     return reinterpret_cast<GLFunctionPointerType>(
         Mock_glMultiDrawElementsInstancedANGLE);
+  if (strcmp(name, "glMultiDrawElementsInstancedBaseVertexBaseInstanceANGLE") ==
+      0)
+    return reinterpret_cast<GLFunctionPointerType>(
+        Mock_glMultiDrawElementsInstancedBaseVertexBaseInstanceANGLE);
   if (strcmp(name, "glObjectLabel") == 0)
     return reinterpret_cast<GLFunctionPointerType>(Mock_glObjectLabel);
   if (strcmp(name, "glObjectLabelKHR") == 0)
@@ -6126,6 +6370,8 @@ MockGLInterface::GetGLProcAddress(const char* name) {
     return reinterpret_cast<GLFunctionPointerType>(Mock_glShaderSource);
   if (strcmp(name, "glSignalSemaphoreEXT") == 0)
     return reinterpret_cast<GLFunctionPointerType>(Mock_glSignalSemaphoreEXT);
+  if (strcmp(name, "glStartTilingQCOM") == 0)
+    return reinterpret_cast<GLFunctionPointerType>(Mock_glStartTilingQCOM);
   if (strcmp(name, "glStencilFillPathCHROMIUM") == 0)
     return reinterpret_cast<GLFunctionPointerType>(
         Mock_glStencilFillPathCHROMIUM);
@@ -6394,6 +6640,8 @@ MockGLInterface::GetGLProcAddress(const char* name) {
     return reinterpret_cast<GLFunctionPointerType>(Mock_glWaitSemaphoreEXT);
   if (strcmp(name, "glWaitSync") == 0)
     return reinterpret_cast<GLFunctionPointerType>(Mock_glWaitSync);
+  if (strcmp(name, "glWaitSyncAPPLE") == 0)
+    return reinterpret_cast<GLFunctionPointerType>(Mock_glWaitSyncAPPLE);
   if (strcmp(name, "glWindowRectanglesEXT") == 0)
     return reinterpret_cast<GLFunctionPointerType>(Mock_glWindowRectanglesEXT);
   return reinterpret_cast<GLFunctionPointerType>(&MockGlInvalidFunction);

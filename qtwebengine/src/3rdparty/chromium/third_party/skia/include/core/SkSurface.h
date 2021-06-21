@@ -18,6 +18,10 @@
 #include <android/hardware_buffer.h>
 #endif
 
+#ifdef SK_METAL
+#include "include/gpu/mtl/GrMtlTypes.h"
+#endif
+
 class SkCanvas;
 class SkDeferredDisplayList;
 class SkPaint;
@@ -51,7 +55,7 @@ public:
 
         Pixel buffer size should be info height times computed rowBytes.
         Pixels are not initialized.
-        To access pixels after drawing, call flush() or peekPixels().
+        To access pixels after drawing, peekPixels() or readPixels().
 
         @param imageInfo     width, height, SkColorType, SkAlphaType, SkColorSpace,
                              of raster surface; width and height must be greater than zero
@@ -105,8 +109,7 @@ public:
         info contains SkColorType and SkAlphaType supported by raster surface;
         rowBytes is large enough to contain info width pixels of SkColorType, or is zero.
 
-        If rowBytes is not zero, subsequent images returned by makeImageSnapshot()
-        have the same rowBytes.
+        If rowBytes is zero, a suitable value will be chosen internally.
 
         @param imageInfo     width, height, SkColorType, SkAlphaType, SkColorSpace,
                              of raster surface; width and height must be greater than zero
@@ -184,14 +187,7 @@ public:
 
         @param context             GPU context
         @param backendTexture      texture residing on GPU
-        @param origin              one of: kBottomLeft_GrSurfaceOrigin, kTopLeft_GrSurfaceOrigin
         @param sampleCnt           samples per pixel, or 0 to disable full scene anti-aliasing
-        @param colorType           one of:
-                                   kUnknown_SkColorType, kAlpha_8_SkColorType, kRGB_565_SkColorType,
-                                   kARGB_4444_SkColorType, kRGBA_8888_SkColorType,
-                                   kRGB_888x_SkColorType, kBGRA_8888_SkColorType,
-                                   kRGBA_1010102_SkColorType, kRGB_101010x_SkColorType,
-                                   kGray_8_SkColorType, kRGBA_F16_SkColorType
         @param colorSpace          range of colors; may be nullptr
         @param surfaceProps        LCD striping orientation and setting for device independent
                                    fonts; may be nullptr
@@ -222,15 +218,6 @@ public:
 
         @param context                  GPU context
         @param backendRenderTarget      GPU intermediate memory buffer
-        @param origin                   one of:
-                                        kBottomLeft_GrSurfaceOrigin, kTopLeft_GrSurfaceOrigin
-        @param colorType                one of:
-                                        kUnknown_SkColorType, kAlpha_8_SkColorType,
-                                        kRGB_565_SkColorType,
-                                        kARGB_4444_SkColorType, kRGBA_8888_SkColorType,
-                                        kRGB_888x_SkColorType, kBGRA_8888_SkColorType,
-                                        kRGBA_1010102_SkColorType, kRGB_101010x_SkColorType,
-                                        kGray_8_SkColorType, kRGBA_F16_SkColorType
         @param colorSpace               range of colors
         @param surfaceProps             LCD striping orientation and setting for device independent
                                         fonts; may be nullptr
@@ -264,14 +251,7 @@ public:
 
         @param context         GPU context
         @param backendTexture  texture residing on GPU
-        @param origin          one of: kBottomLeft_GrSurfaceOrigin, kTopLeft_GrSurfaceOrigin
         @param sampleCnt       samples per pixel, or 0 to disable full scene anti-aliasing
-        @param colorType       one of:
-                               kUnknown_SkColorType, kAlpha_8_SkColorType, kRGB_565_SkColorType,
-                               kARGB_4444_SkColorType, kRGBA_8888_SkColorType,
-                               kRGB_888x_SkColorType, kBGRA_8888_SkColorType,
-                               kRGBA_1010102_SkColorType, kRGB_101010x_SkColorType,
-                               kGray_8_SkColorType, kRGBA_F16_SkColorType
         @param colorSpace      range of colors; may be nullptr
         @param surfaceProps    LCD striping orientation and setting for device independent
                                fonts; may be nullptr
@@ -295,12 +275,11 @@ public:
         Only available on Android, when __ANDROID_API__ is defined to be 26 or greater.
 
         Currently this is only supported for buffers that can be textured as well as rendered to.
-        In other workds that must have both AHARDWAREBUFFER_USAGE_GPU_COLOR_OUTPUT and
+        In other words that must have both AHARDWAREBUFFER_USAGE_GPU_COLOR_OUTPUT and
         AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE usage bits.
 
         @param context         GPU context
         @param hardwareBuffer  AHardwareBuffer Android hardware buffer
-        @param origin          one of: kBottomLeft_GrSurfaceOrigin, kTopLeft_GrSurfaceOrigin
         @param colorSpace      range of colors; may be nullptr
         @param surfaceProps    LCD striping orientation and setting for device independent
                                fonts; may be nullptr
@@ -311,6 +290,62 @@ public:
                                                     GrSurfaceOrigin origin,
                                                     sk_sp<SkColorSpace> colorSpace,
                                                     const SkSurfaceProps* surfaceProps);
+#endif
+
+#ifdef SK_METAL
+    /** Creates SkSurface from CAMetalLayer.
+        Returned SkSurface takes a reference on the CAMetalLayer. The ref on the layer will be
+        released when the SkSurface is destroyed.
+
+        Only available when Metal API is enabled.
+
+        Will grab the current drawable from the layer and use its texture as a backendRT to
+        create a renderable surface.
+
+        @param context         GPU context
+        @param layer           GrMTLHandle (expected to be a CAMetalLayer*)
+        @param sampleCnt       samples per pixel, or 0 to disable full scene anti-aliasing
+        @param colorSpace      range of colors; may be nullptr
+        @param surfaceProps    LCD striping orientation and setting for device independent
+                               fonts; may be nullptr
+        @param drawable        Pointer to drawable to be filled in when this surface is
+                               instantiated; may not be nullptr
+        @return                created SkSurface, or nullptr
+     */
+    static sk_sp<SkSurface> MakeFromCAMetalLayer(GrContext* context,
+                                                 GrMTLHandle layer,
+                                                 GrSurfaceOrigin origin,
+                                                 int sampleCnt,
+                                                 SkColorType colorType,
+                                                 sk_sp<SkColorSpace> colorSpace,
+                                                 const SkSurfaceProps* surfaceProps,
+                                                 GrMTLHandle* drawable);
+
+    /** Creates SkSurface from MTKView.
+        Returned SkSurface takes a reference on the MTKView. The ref on the layer will be
+        released when the SkSurface is destroyed.
+
+        Only available when Metal API is enabled.
+
+        Will grab the current drawable from the layer and use its texture as a backendRT to
+        create a renderable surface.
+
+        @param context         GPU context
+        @param layer           GrMTLHandle (expected to be a MTKView*)
+        @param sampleCnt       samples per pixel, or 0 to disable full scene anti-aliasing
+        @param colorSpace      range of colors; may be nullptr
+        @param surfaceProps    LCD striping orientation and setting for device independent
+                               fonts; may be nullptr
+        @return                created SkSurface, or nullptr
+     */
+    static sk_sp<SkSurface> MakeFromMTKView(GrContext* context,
+                                            GrMTLHandle mtkView,
+                                            GrSurfaceOrigin origin,
+                                            int sampleCnt,
+                                            SkColorType colorType,
+                                            sk_sp<SkColorSpace> colorSpace,
+                                            const SkSurfaceProps* surfaceProps)
+                                            SK_API_AVAILABLE(macos(10.11), ios(9.0));
 #endif
 
     /** Returns SkSurface on GPU indicated by context. Allocates memory for
@@ -331,11 +366,9 @@ public:
         If SK_SUPPORT_GPU is defined as zero, has no effect and returns nullptr.
 
         @param context               GPU context
-        @param budgeted              one of: SkBudgeted::kNo, SkBudgeted::kYes
         @param imageInfo             width, height, SkColorType, SkAlphaType, SkColorSpace;
                                      width, or height, or both, may be zero
         @param sampleCount           samples per pixel, or 0 to disable full scene anti-aliasing
-        @param surfaceOrigin         one of: kBottomLeft_GrSurfaceOrigin, kTopLeft_GrSurfaceOrigin
         @param surfaceProps          LCD striping orientation and setting for device independent
                                      fonts; may be nullptr
         @param shouldCreateWithMips  hint that SkSurface will host mip map images
@@ -361,7 +394,6 @@ public:
         SkSurface bottom-left corner is pinned to the origin.
 
         @param context      GPU context
-        @param budgeted     one of: SkBudgeted::kNo, SkBudgeted::kYes
         @param imageInfo    width, height, SkColorType, SkAlphaType, SkColorSpace,
                             of raster surface; width, or height, or both, may be zero
         @param sampleCount  samples per pixel, or 0 to disable multi-sample anti-aliasing
@@ -385,7 +417,6 @@ public:
         SkSurface bottom-left corner is pinned to the origin.
 
         @param context    GPU context
-        @param budgeted   one of: SkBudgeted::kNo, SkBudgeted::kYes
         @param imageInfo  width, height, SkColorType, SkAlphaType, SkColorSpace,
                           of raster surface; width, or height, or both, may be zero
         @return           SkSurface if all parameters are valid; otherwise, nullptr
@@ -404,7 +435,6 @@ public:
 
         @param context           GPU context
         @param characterization  description of the desired SkSurface
-        @param budgeted          one of: SkBudgeted::kNo, SkBudgeted::kYes
         @return                  SkSurface if all parameters are valid; otherwise, nullptr
     */
     static sk_sp<SkSurface> MakeRenderTarget(GrRecordingContext* context,
@@ -453,6 +483,8 @@ public:
         @param width   one or greater
         @param height  one or greater
         @return        SkSurface if width and height are positive; otherwise, nullptr
+
+        example: https://fiddle.skia.org/c/@Surface_MakeNull
     */
     static sk_sp<SkSurface> MakeNull(int width, int height);
 
@@ -477,6 +509,8 @@ public:
         notifyContentWillChange().
 
         @return  unique content identifier
+
+        example: https://fiddle.skia.org/c/@Surface_notifyContentWillChange
     */
     uint32_t generationID();
 
@@ -493,7 +527,7 @@ public:
 
         TODO: Can kRetain_ContentChangeMode be deprecated?
 
-        @param mode  one of: kDiscard_ContentChangeMode, kRetain_ContentChangeMode
+        example: https://fiddle.skia.org/c/@Surface_notifyContentWillChange
     */
     void notifyContentWillChange(ContentChangeMode mode);
 
@@ -524,9 +558,6 @@ public:
 
         The returned GrBackendTexture should be discarded if the SkSurface is drawn to or deleted.
 
-        @param backendHandleAccess  one of:  kFlushRead_BackendHandleAccess,
-                                    kFlushWrite_BackendHandleAccess,
-                                    kDiscardWrite_BackendHandleAccess
         @return                     GPU texture reference; invalid on failure
     */
     GrBackendTexture getBackendTexture(BackendHandleAccess backendHandleAccess);
@@ -538,9 +569,6 @@ public:
         The returned GrBackendRenderTarget should be discarded if the SkSurface is drawn to
         or deleted.
 
-        @param backendHandleAccess  one of:  kFlushRead_BackendHandleAccess,
-                                    kFlushWrite_BackendHandleAccess,
-                                    kDiscardWrite_BackendHandleAccess
         @return                     GPU render target reference; invalid on failure
     */
     GrBackendRenderTarget getBackendRenderTarget(BackendHandleAccess backendHandleAccess);
@@ -551,13 +579,14 @@ public:
         used. The GrBackendFormat and dimensions of replacement texture must match that of
         the original.
 
-        @param backendTexture      the new backing texture for the surface.
-        @param origin              one of: kBottomLeft_GrSurfaceOrigin, kTopLeft_GrSurfaceOrigin
+        @param backendTexture      the new backing texture for the surface
+        @param mode                Retain or discard current Content
         @param textureReleaseProc  function called when texture can be released
         @param releaseContext      state passed to textureReleaseProc
      */
     bool replaceBackendTexture(const GrBackendTexture& backendTexture,
                                GrSurfaceOrigin origin,
+                               ContentChangeMode mode = kRetain_ContentChangeMode,
                                TextureReleaseProc textureReleaseProc = nullptr,
                                ReleaseContext releaseContext = nullptr);
 
@@ -566,6 +595,8 @@ public:
         is deleted.
 
         @return  drawing SkCanvas for SkSurface
+
+        example: https://fiddle.skia.org/c/@Surface_getCanvas
     */
     SkCanvas* getCanvas();
 
@@ -579,6 +610,8 @@ public:
         @param imageInfo  width, height, SkColorType, SkAlphaType, SkColorSpace,
                           of SkSurface; width and height must be greater than zero
         @return           compatible SkSurface or nullptr
+
+        example: https://fiddle.skia.org/c/@Surface_makeSurface
     */
     sk_sp<SkSurface> makeSurface(const SkImageInfo& imageInfo);
 
@@ -592,6 +625,8 @@ public:
         SkBudgeted::kYes.
 
         @return  SkImage initialized with SkSurface contents
+
+        example: https://fiddle.skia.org/c/@Surface_makeImageSnapshot
     */
     sk_sp<SkImage> makeImageSnapshot();
 
@@ -603,6 +638,8 @@ public:
      *    it and the surface.
      *  - If bounds does not intersect the surface, then this returns nullptr.
      *  - If bounds == the surface, then this is the same as calling the no-parameter variant.
+
+        example: https://fiddle.skia.org/c/@Surface_makeImageSnapshot_2
      */
     sk_sp<SkImage> makeImageSnapshot(const SkIRect& bounds);
 
@@ -616,6 +653,8 @@ public:
         @param y       vertical offset in SkCanvas
         @param paint   SkPaint containing SkBlendMode, SkColorFilter, SkImageFilter,
                        and so on; or nullptr
+
+        example: https://fiddle.skia.org/c/@Surface_draw
     */
     void draw(SkCanvas* canvas, SkScalar x, SkScalar y, const SkPaint* paint);
 
@@ -627,6 +666,8 @@ public:
 
         @param pixmap  storage for pixel state if pixels are readable; otherwise, ignored
         @return        true if SkSurface has direct access to pixels
+
+        example: https://fiddle.skia.org/c/@Surface_peekPixels
     */
     bool peekPixels(SkPixmap* pixmap);
 
@@ -656,6 +697,8 @@ public:
         @param srcX  offset into readable pixels on x-axis; may be negative
         @param srcY  offset into readable pixels on y-axis; may be negative
         @return      true if pixels were copied
+
+        example: https://fiddle.skia.org/c/@Surface_readPixels
     */
     bool readPixels(const SkPixmap& dst, int srcX, int srcY);
 
@@ -718,40 +761,70 @@ public:
         @param srcX  offset into readable pixels on x-axis; may be negative
         @param srcY  offset into readable pixels on y-axis; may be negative
         @return      true if pixels were copied
+
+        example: https://fiddle.skia.org/c/@Surface_readPixels_3
     */
     bool readPixels(const SkBitmap& dst, int srcX, int srcY);
 
-    /** Makes pixel data available to caller, possibly asynchronously. Can perform rescaling.
+    /** The result from asyncRescaleAndReadPixels() or asyncRescaleAndReadPixelsYUV420(). */
+    class AsyncReadResult {
+    public:
+        AsyncReadResult(const AsyncReadResult&) = delete;
+        AsyncReadResult(AsyncReadResult&&) = delete;
+        AsyncReadResult& operator=(const AsyncReadResult&) = delete;
+        AsyncReadResult& operator=(AsyncReadResult&&) = delete;
+
+        virtual ~AsyncReadResult() = default;
+        virtual int count() const = 0;
+        virtual const void* data(int i) const = 0;
+        virtual size_t rowBytes(int i) const = 0;
+
+    protected:
+        AsyncReadResult() = default;
+    };
+
+    /** Client-provided context that is passed to client-provided ReadPixelsContext. */
+    using ReadPixelsContext = void*;
+
+    /**  Client-provided callback to asyncRescaleAndReadPixels() or
+         asyncRescaleAndReadPixelsYUV420() that is called when read result is ready or on failure.
+     */
+    using ReadPixelsCallback = void(ReadPixelsContext, std::unique_ptr<const AsyncReadResult>);
+
+    /** Controls the gamma that rescaling occurs in for asyncRescaleAndReadPixels() and
+        asyncRescaleAndReadPixelsYUV420().
+     */
+    enum RescaleGamma : bool { kSrc, kLinear };
+
+    /** Makes surface pixel data available to caller, possibly asynchronously. It can also rescale
+        the surface pixels.
 
         Currently asynchronous reads are only supported on the GPU backend and only when the
         underlying 3D API supports transfer buffers and CPU/GPU synchronization primitives. In all
         other cases this operates synchronously.
 
-        Data is read from the source rectangle, is optionally converted to a linear gamma, is
+        Data is read from the source sub-rectangle, is optionally converted to a linear gamma, is
         rescaled to the size indicated by 'info', is then converted to the color space, color type,
-        and alpha type of 'info'.
+        and alpha type of 'info'. A 'srcRect' that is not contained by the bounds of the surface
+        causes failure.
 
-        When the pixel data is ready the caller's ReadPixelsCallback is called with a pointer to
-        the data in the requested color type, alpha type, and color space. The data pointer is
-        only valid for the duration of the callback.
+        When the pixel data is ready the caller's ReadPixelsCallback is called with a
+        AsyncReadResult containing pixel data in the requested color type, alpha type, and color
+        space. The AsyncReadResult will have count() == 1. Upon failure the callback is called
+        with nullptr for AsyncReadResult.
 
-        Upon failure the the callback is called with nullptr as the data pointer.
+        The data is valid for the lifetime of AsyncReadResult with the exception that if the
+        SkSurface is GPU-backed the data is immediately invalidated if the GrContext is abandoned
+        or destroyed.
 
-        If the src rectangle is not contained by the bounds of the surface then failure occurs.
-
-        Failure is indicated by calling callback with a nullptr for 'data'.
-
-        @param info             info of the requested pixels
-        @param srcRect          subrectangle of surface to read
-        @param rescaleGamma     controls whether rescaling is done in the surface's gamma or whether
-                                the source data is transformed to a linear gamma before rescaling.
-        @param rescaleQuality   controls the quality (and cost) of the rescaling
-        @param callback         function to call with result of the read
-        @param context          passed to callback
+        @param info            info of the requested pixels
+        @param srcRect         subrectangle of surface to read
+        @param rescaleGamma    controls whether rescaling is done in the surface's gamma or whether
+                               the source data is transformed to a linear gamma before rescaling.
+        @param rescaleQuality  controls the quality (and cost) of the rescaling
+        @param callback        function to call with result of the read
+        @param context         passed to callback
      */
-    using ReadPixelsContext = void*;
-    using ReadPixelsCallback = void(ReadPixelsContext, const void* data, size_t rowBytes);
-    enum RescaleGamma : bool { kSrc, kLinear };
     void asyncRescaleAndReadPixels(const SkImageInfo& info, const SkIRect& srcRect,
                                    RescaleGamma rescaleGamma, SkFilterQuality rescaleQuality,
                                    ReadPixelsCallback callback, ReadPixelsContext context);
@@ -760,30 +833,37 @@ public:
         Similar to asyncRescaleAndReadPixels but performs an additional conversion to YUV. The
         RGB->YUV conversion is controlled by 'yuvColorSpace'. The YUV data is returned as three
         planes ordered y, u, v. The u and v planes are half the width and height of the resized
-        rectangle. Currently this fails if dstW or dstH are not even.
+        rectangle. The y, u, and v values are single bytes. Currently this fails if 'dstSize'
+        width and height are not even. A 'srcRect' that is not contained by the bounds of the
+        surface causes failure.
 
-        On failure the callback is called with a null data pointer array. Fails if srcRect is not
-        contained in the surface bounds.
+        When the pixel data is ready the caller's ReadPixelsCallback is called with a
+        AsyncReadResult containing the planar data. The AsyncReadResult will have count() == 3.
+        Upon failure the callback is called with nullptr for AsyncReadResult.
+
+        The data is valid for the lifetime of AsyncReadResult with the exception that if the
+        SkSurface is GPU-backed the data is immediately invalidated if the GrContext is abandoned
+        or destroyed.
 
         @param yuvColorSpace  The transformation from RGB to YUV. Applied to the resized image
                               after it is converted to dstColorSpace.
         @param dstColorSpace  The color space to convert the resized image to, after rescaling.
         @param srcRect        The portion of the surface to rescale and convert to YUV planes.
-        @param dstW           The width to rescale srcRect to
-        @param dstH           The height to rescale srcRect to
-        @param rescaleGamma     controls whether rescaling is done in the surface's gamma or whether
-                                the source data is transformed to a linear gamma before rescaling.
-        @param rescaleQuality   controls the quality (and cost) of the rescaling
-        @param callback         function to call with the planar read result
-        @param context          passed to callback
+        @param dstSize        The size to rescale srcRect to
+        @param rescaleGamma   controls whether rescaling is done in the surface's gamma or whether
+                              the source data is transformed to a linear gamma before rescaling.
+        @param rescaleQuality controls the quality (and cost) of the rescaling
+        @param callback       function to call with the planar read result
+        @param context        passed to callback
      */
-    using ReadPixelsCallbackYUV420 = void(ReadPixelsContext, const void* data[3],
-                                          size_t rowBytes[3]);
     void asyncRescaleAndReadPixelsYUV420(SkYUVColorSpace yuvColorSpace,
-                                         sk_sp<SkColorSpace> dstColorSpace, const SkIRect& srcRect,
-                                         int dstW, int dstH, RescaleGamma rescaleGamma,
+                                         sk_sp<SkColorSpace> dstColorSpace,
+                                         const SkIRect& srcRect,
+                                         const SkISize& dstSize,
+                                         RescaleGamma rescaleGamma,
                                          SkFilterQuality rescaleQuality,
-                                         ReadPixelsCallbackYUV420 callback, ReadPixelsContext);
+                                         ReadPixelsCallback callback,
+                                         ReadPixelsContext);
 
     /** Copies SkRect of pixels from the src SkPixmap to the SkSurface.
 
@@ -797,6 +877,8 @@ public:
         @param src   storage for pixels to copy to SkSurface
         @param dstX  x-axis position relative to SkSurface to begin copy; may be negative
         @param dstY  y-axis position relative to SkSurface to begin copy; may be negative
+
+        example: https://fiddle.skia.org/c/@Surface_writePixels
     */
     void writePixels(const SkPixmap& src, int dstX, int dstY);
 
@@ -812,6 +894,8 @@ public:
         @param src   storage for pixels to copy to SkSurface
         @param dstX  x-axis position relative to SkSurface to begin copy; may be negative
         @param dstY  y-axis position relative to SkSurface to begin copy; may be negative
+
+        example: https://fiddle.skia.org/c/@Surface_writePixels_2
     */
     void writePixels(const SkBitmap& src, int dstX, int dstY);
 
@@ -858,7 +942,6 @@ public:
 
         @param access  type of access the call will do on the backend object after flush
         @param info    flush options
-        @return        one of: GrSemaphoresSubmitted::kYes, GrSemaphoresSubmitted::kNo
     */
     GrSemaphoresSubmitted flush(BackendSurfaceAccess access, const GrFlushInfo& info);
 
@@ -905,6 +988,8 @@ public:
 
         @param characterization  properties for parallel drawing
         @return                  true if supported
+
+        example: https://fiddle.skia.org/c/@Surface_characterize
     */
     bool characterize(SkSurfaceCharacterization* characterization) const;
 
@@ -916,6 +1001,8 @@ public:
 
         @param deferredDisplayList  drawing commands
         @return                     false if deferredDisplayList is not compatible
+
+        example: https://fiddle.skia.org/c/@Surface_draw_2
     */
     bool draw(SkDeferredDisplayList* deferredDisplayList);
 

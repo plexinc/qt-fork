@@ -7,7 +7,11 @@
 
 #include <string>
 
-#include "services/tracing/public/cpp/perfetto/android_system_producer.h"
+#include "services/tracing/public/cpp/perfetto/posix_system_producer.h"
+
+namespace base {
+class ScopedTempDir;
+}
 
 namespace perfetto {
 class ServiceIPCHost;
@@ -23,6 +27,7 @@ class MockSystemService {
  public:
   MockSystemService(const std::string& consumer_socket,
                     const std::string& producer_socket);
+  MockSystemService(const base::ScopedTempDir& tmp_dir);
   ~MockSystemService();
 
   perfetto::TracingService* GetService();
@@ -30,31 +35,32 @@ class MockSystemService {
   const std::string& producer() const;
 
  private:
-  const std::string consumer_;
-  const std::string producer_;
+  void StartService();
+
+  const bool used_tmpdir_;
+  const char* old_tmpdir_ = nullptr;
+  std::string consumer_;
+  std::string producer_;
   std::unique_ptr<perfetto::ServiceIPCHost> service_;
   std::unique_ptr<perfetto::base::TaskRunner> task_runner_;
 };
 
-class MockAndroidSystemProducer : public AndroidSystemProducer {
+class MockPosixSystemProducer : public PosixSystemProducer {
  public:
-  MockAndroidSystemProducer(
+  MockPosixSystemProducer(
       const std::string& socket,
       bool check_sdk_level = false,
       uint32_t num_data_sources = 0,
       base::OnceClosure data_source_enabled_callback = base::OnceClosure(),
       base::OnceClosure data_source_disabled_callback = base::OnceClosure());
 
-  ~MockAndroidSystemProducer() override;
+  ~MockPosixSystemProducer() override;
 
   void StartDataSource(
       perfetto::DataSourceInstanceID id,
       const perfetto::DataSourceConfig& data_source_config) override;
 
   void StopDataSource(perfetto::DataSourceInstanceID id) override;
-
-  void CommitData(const perfetto::CommitDataRequest& commit,
-                  CommitDataCallback callback = {}) override;
 
   void SetDataSourceEnabledCallback(
       base::OnceClosure data_source_enabled_callback);

@@ -9,8 +9,9 @@
 
 #include "base/memory/scoped_refptr.h"
 #include "device/gamepad/public/mojom/gamepad.mojom-blink.h"
-#include "third_party/blink/public/platform/web_gamepad_listener.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "third_party/blink/renderer/core/frame/platform_event_dispatcher.h"
+#include "third_party/blink/renderer/modules/gamepad/gamepad_listener.h"
 
 namespace device {
 class Gamepad;
@@ -21,10 +22,9 @@ namespace blink {
 
 class GamepadSharedMemoryReader;
 
-class GamepadDispatcher final
-    : public GarbageCollectedFinalized<GamepadDispatcher>,
-      public PlatformEventDispatcher,
-      public WebGamepadListener {
+class GamepadDispatcher final : public GarbageCollected<GamepadDispatcher>,
+                                public PlatformEventDispatcher,
+                                public GamepadListener {
   USING_GARBAGE_COLLECTED_MIXIN(GamepadDispatcher);
 
  public:
@@ -43,12 +43,12 @@ class GamepadDispatcher final
                               device::mojom::blink::GamepadHapticsManager::
                                   ResetVibrationActuatorCallback);
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
 
  private:
   void InitializeHaptics();
 
-  // WebGamepadListener
+  // GamepadListener
   void DidConnectGamepad(uint32_t index, const device::Gamepad&) override;
   void DidDisconnectGamepad(uint32_t index, const device::Gamepad&) override;
   void ButtonOrAxisDidChange(uint32_t index, const device::Gamepad&) override;
@@ -62,10 +62,11 @@ class GamepadDispatcher final
                                              bool connected);
 
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
-  std::unique_ptr<GamepadSharedMemoryReader> reader_;
-  device::mojom::blink::GamepadHapticsManagerPtr gamepad_haptics_manager_;
+  Member<GamepadSharedMemoryReader> reader_;
+  mojo::Remote<device::mojom::blink::GamepadHapticsManager>
+      gamepad_haptics_manager_remote_;
 };
 
 }  // namespace blink
 
-#endif
+#endif  // THIRD_PARTY_BLINK_RENDERER_MODULES_GAMEPAD_GAMEPAD_DISPATCHER_H_

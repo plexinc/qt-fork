@@ -3,6 +3,7 @@
 # found in the LICENSE file.
 
 import("//build/config/jumbo.gni")
+import("//media/gpu/args.gni")
 import("//media/media_options.gni")
 import("//third_party/libaom/options.gni")
 
@@ -139,7 +140,7 @@ jumbo_source_set("filters") {
     deps += [ "//third_party/libvpx" ]
   }
 
-  if (enable_libaom_decoder) {
+  if (enable_libaom) {
     sources += [
       "aom_video_decoder.cc",
       "aom_video_decoder.h",
@@ -155,6 +156,14 @@ jumbo_source_set("filters") {
     deps += [ "//third_party/dav1d" ]
   }
 
+  if (enable_libgav1_decoder) {
+    sources += [
+      "gav1_video_decoder.cc",
+      "gav1_video_decoder.h",
+    ]
+    deps += [ "//third_party/libgav1" ]
+  }
+
   if (media_use_ffmpeg) {
     if (proprietary_codecs) {
       sources += [
@@ -164,7 +173,7 @@ jumbo_source_set("filters") {
         "ffmpeg_h264_to_annex_b_bitstream_converter.h",
       ]
 
-      if (enable_hevc_demuxing) {
+      if (enable_platform_hevc) {
         sources += [
           "ffmpeg_h265_to_annex_b_bitstream_converter.cc",
           "ffmpeg_h265_to_annex_b_bitstream_converter.h",
@@ -196,7 +205,7 @@ jumbo_source_set("filters") {
     deps += [ "//media/base/android" ]
   }
 
-  if (current_cpu != "arm" && is_linux) {
+  if (use_vaapi) {
     sources += [
       "h264_bitstream_buffer.cc",
       "h264_bitstream_buffer.h",
@@ -209,8 +218,16 @@ jumbo_source_set("filters") {
       "fuchsia/fuchsia_video_decoder.h",
     ]
     deps += [
-      "//third_party/fuchsia-sdk/sdk:media",
-      "//third_party/fuchsia-sdk/sdk:mediacodec",
+      "//gpu/command_buffer/client",
+      "//gpu/command_buffer/common",
+      "//gpu/ipc/common",
+      "//media/fuchsia/cdm",
+      "//media/fuchsia/common",
+      "//third_party/fuchsia-sdk/sdk/fidl/fuchsia.media",
+      "//third_party/fuchsia-sdk/sdk/fidl/fuchsia.mediacodec",
+      "//third_party/fuchsia-sdk/sdk/fidl/fuchsia.sysmem",
+      "//third_party/fuchsia-sdk/sdk/pkg/sys_cpp",
+      "//ui/ozone",
     ]
   }
 }
@@ -311,6 +328,12 @@ source_set("unit_tests") {
 
   if (is_fuchsia) {
     sources += [ "fuchsia/fuchsia_video_decoder_unittest.cc" ]
+    deps += [
+      "//components/viz/test:test_support",
+      "//gpu/command_buffer/client",
+      "//third_party/fuchsia-sdk/sdk/fidl/fuchsia.sysmem",
+      "//third_party/fuchsia-sdk/sdk/pkg/sys_cpp",
+    ]
   }
 
   # libvpx for running vpx test on chromecast doesn't support high bit depth.
@@ -352,7 +375,7 @@ source_set("unit_tests") {
     sources += [ "vpx_video_decoder_unittest.cc" ]
   }
 
-  if (enable_libaom_decoder) {
+  if (enable_libaom) {
     sources += [ "aom_video_decoder_unittest.cc" ]
   }
 
@@ -360,7 +383,11 @@ source_set("unit_tests") {
     sources += [ "dav1d_video_decoder_unittest.cc" ]
   }
 
-  if (current_cpu != "arm" && is_linux) {
+  if (enable_libgav1_decoder) {
+    sources += [ "gav1_video_decoder_unittest.cc" ]
+  }
+
+  if (use_vaapi) {
     sources += [ "h264_bitstream_buffer_unittest.cc" ]
   }
 

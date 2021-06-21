@@ -33,7 +33,7 @@ class AppLoadObserver : public ExtensionRegistryObserver {
  public:
   AppLoadObserver(content::BrowserContext* browser_context,
                   base::Callback<void(const Extension*)> callback)
-      : callback_(callback), extension_registry_observer_(this) {
+      : callback_(callback) {
     extension_registry_observer_.Add(ExtensionRegistry::Get(browser_context));
   }
 
@@ -45,7 +45,7 @@ class AppLoadObserver : public ExtensionRegistryObserver {
  private:
   base::Callback<void(const Extension*)> callback_;
   ScopedObserver<ExtensionRegistry, ExtensionRegistryObserver>
-      extension_registry_observer_;
+      extension_registry_observer_{this};
   DISALLOW_COPY_AND_ASSIGN(AppLoadObserver);
 };
 
@@ -677,7 +677,7 @@ IN_PROC_BROWSER_TEST_F(FileSystemApiTest, FileSystemApiRestoreDirectoryEntry) {
 IN_PROC_BROWSER_TEST_F(FileSystemApiTest, RequestFileSystem_NotChromeOS) {
   ASSERT_TRUE(RunPlatformAppTestWithFlags(
       "api_test/file_system/request_file_system_not_chromeos",
-      kFlagIgnoreManifestWarnings))
+      kFlagIgnoreManifestWarnings, kFlagNone))
       << message_;
 }
 #endif

@@ -7,6 +7,7 @@
 #include <memory>
 
 #include "third_party/blink/renderer/bindings/core/v8/serialization/post_message_helper.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_window_post_message_options.h"
 #include "third_party/blink/renderer/bindings/core/v8/window_proxy_manager.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/events/message_event.h"
@@ -20,7 +21,6 @@
 #include "third_party/blink/renderer/core/frame/location.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/core/frame/user_activation.h"
-#include "third_party/blink/renderer/core/frame/window_post_message_options.h"
 #include "third_party/blink/renderer/core/input/input_device_capabilities.h"
 #include "third_party/blink/renderer/core/inspector/console_message.h"
 #include "third_party/blink/renderer/core/loader/mixed_content_checker.h"
@@ -28,6 +28,7 @@
 #include "third_party/blink/renderer/core/page/focus_controller.h"
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/probe/core_probes.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
@@ -44,10 +45,21 @@ DOMWindow::~DOMWindow() {
   DCHECK(!frame_);
 }
 
-v8::Local<v8::Object> DOMWindow::Wrap(v8::Isolate* isolate,
-                                      v8::Local<v8::Object> creation_context) {
-  NOTREACHED();
-  return v8::Local<v8::Object>();
+v8::Local<v8::Value> DOMWindow::Wrap(v8::Isolate* isolate,
+                                     v8::Local<v8::Object> creation_context) {
+  // TODO(yukishiino): Get understanding of why it's possible to initialize
+  // the context after the frame is detached.  And then, remove the following
+  // lines.  See also https://crbug.com/712638 .
+  Frame* frame = GetFrame();
+  if (!frame)
+    return v8::Null(isolate);
+
+  // TODO(yukishiino): Make this function always return the non-empty handle
+  // even if the frame is detached because the global proxy must always exist
+  // per spec.
+  ScriptState* script_state = ScriptState::From(isolate->GetCurrentContext());
+  return frame->GetWindowProxy(script_state->World())
+      ->GlobalProxyIfNotDetached();
 }
 
 v8::Local<v8::Object> DOMWindow::AssociateWithWrapper(
@@ -118,7 +130,7 @@ DOMWindow* DOMWindow::top() const {
 void DOMWindow::postMessage(v8::Isolate* isolate,
                             const ScriptValue& message,
                             const String& target_origin,
-                            Vector<ScriptValue>& transfer,
+                            HeapVector<ScriptValue>& transfer,
                             ExceptionState& exception_state) {
   WindowPostMessageOptions* options = WindowPostMessageOptions::Create();
   options->setTargetOrigin(target_origin);
@@ -167,7 +179,8 @@ bool DOMWindow::IsCurrentlyDisplayedInFrame() const {
 //
 // http://crbug.com/17325
 String DOMWindow::SanitizedCrossDomainAccessErrorMessage(
-    const LocalDOMWindow* accessing_window) const {
+    const LocalDOMWindow* accessing_window,
+    CrossDocumentAccessPolicy cross_document_access) const {
   if (!accessing_window || !accessing_window->document() || !GetFrame())
     return String();
 
@@ -177,9 +190,14 @@ String DOMWindow::SanitizedCrossDomainAccessErrorMessage(
 
   const SecurityOrigin* active_origin =
       accessing_window->document()->GetSecurityOrigin();
-  String message = "Blocked a frame with origin \"" +
-                   active_origin->ToString() +
-                   "\" from accessing a cross-origin frame.";
+  String message;
+  if (cross_document_access == CrossDocumentAccessPolicy::kDisallowed) {
+    message = "Blocked a restricted frame with origin \"" +
+              active_origin->ToString() + "\" from accessing another frame.";
+  } else {
+    message = "Blocked a frame with origin \"" + active_origin->ToString() +
+              "\" from accessing a cross-origin frame.";
+  }
 
   // FIXME: Evaluate which details from 'crossDomainAccessErrorMessage' may
   // safely be reported to JavaScript.
@@ -188,7 +206,8 @@ String DOMWindow::SanitizedCrossDomainAccessErrorMessage(
 }
 
 String DOMWindow::CrossDomainAccessErrorMessage(
-    const LocalDOMWindow* accessing_window) const {
+    const LocalDOMWindow* accessing_window,
+    CrossDocumentAccessPolicy cross_document_access) const {
   if (!accessing_window || !accessing_window->document() || !GetFrame())
     return String();
 
@@ -202,11 +221,14 @@ String DOMWindow::CrossDomainAccessErrorMessage(
       accessing_window->document()->GetSecurityOrigin();
   const SecurityOrigin* target_origin =
       GetFrame()->GetSecurityContext()->GetSecurityOrigin();
+  auto* local_dom_window = DynamicTo<LocalDOMWindow>(this);
   // It's possible for a remote frame to be same origin with respect to a
   // local frame, but it must still be treated as a disallowed cross-domain
   // access. See https://crbug.com/601629.
   DCHECK(GetFrame()->IsRemoteFrame() ||
-         !active_origin->CanAccess(target_origin));
+         !active_origin->CanAccess(target_origin) ||
+         (local_dom_window && accessing_window->document()->GetAgent() !=
+                                  local_dom_window->document()->GetAgent()));
 
   String message = "Blocked a frame with origin \"" +
                    active_origin->ToString() +
@@ -220,23 +242,26 @@ String DOMWindow::CrossDomainAccessErrorMessage(
   // aren't replicated.  For now, construct the URL using the replicated
   // origin for RemoteFrames. If the target frame is remote and sandboxed,
   // there isn't anything else to show other than "null" for its origin.
-  auto* local_dom_window = DynamicTo<LocalDOMWindow>(this);
   KURL target_url = local_dom_window
                         ? local_dom_window->document()->Url()
                         : KURL(NullURL(), target_origin->ToString());
-  if (GetFrame()->GetSecurityContext()->IsSandboxed(WebSandboxFlags::kOrigin) ||
-      accessing_window->document()->IsSandboxed(WebSandboxFlags::kOrigin)) {
+  if (GetFrame()->GetSecurityContext()->IsSandboxed(
+          mojom::blink::WebSandboxFlags::kOrigin) ||
+      accessing_window->document()->IsSandboxed(
+          mojom::blink::WebSandboxFlags::kOrigin)) {
     message = "Blocked a frame at \"" +
               SecurityOrigin::Create(active_url)->ToString() +
               "\" from accessing a frame at \"" +
               SecurityOrigin::Create(target_url)->ToString() + "\". ";
     if (GetFrame()->GetSecurityContext()->IsSandboxed(
-            WebSandboxFlags::kOrigin) &&
-        accessing_window->document()->IsSandboxed(WebSandboxFlags::kOrigin))
+            mojom::blink::WebSandboxFlags::kOrigin) &&
+        accessing_window->document()->IsSandboxed(
+            mojom::blink::WebSandboxFlags::kOrigin))
       return "Sandbox access violation: " + message +
              " Both frames are sandboxed and lack the \"allow-same-origin\" "
              "flag.";
-    if (GetFrame()->GetSecurityContext()->IsSandboxed(WebSandboxFlags::kOrigin))
+    if (GetFrame()->GetSecurityContext()->IsSandboxed(
+            mojom::blink::WebSandboxFlags::kOrigin))
       return "Sandbox access violation: " + message +
              " The frame being accessed is sandboxed and lacks the "
              "\"allow-same-origin\" flag.";
@@ -273,6 +298,8 @@ String DOMWindow::CrossDomainAccessErrorMessage(
            target_origin->Domain() +
            "\", but the frame requesting access did not. Both must set "
            "\"document.domain\" to the same value to allow access.";
+  if (cross_document_access == CrossDocumentAccessPolicy::kDisallowed)
+    return message + "The document-access policy denied access.";
 
   // Default.
   return message + "Protocols, domains, and ports must match.";
@@ -306,10 +333,10 @@ void DOMWindow::Close(LocalDOMWindow* incumbent_window) {
   if (!page->OpenedByDOM() && GetFrame()->Client()->BackForwardLength() > 1 &&
       !allow_scripts_to_close_windows) {
     active_document->domWindow()->GetFrameConsole()->AddMessage(
-        ConsoleMessage::Create(
+        MakeGarbageCollected<ConsoleMessage>(
             mojom::ConsoleMessageSource::kJavaScript,
             mojom::ConsoleMessageLevel::kWarning,
-            "Scripts may close only the windows that were opened by it."));
+            "Scripts may close only the windows that were opened by them."));
     return;
   }
 
@@ -359,7 +386,7 @@ void DOMWindow::focus(v8::Isolate* isolate) {
     DCHECK(IsMainThread());
     allow_focus =
         opener() && (opener() != this) &&
-        (To<Document>(incumbent_execution_context)->domWindow() == opener());
+        (Document::From(incumbent_execution_context)->domWindow() == opener());
   }
 
   // If we're a top level window, bring the window to the front.
@@ -455,8 +482,8 @@ void DOMWindow::DoPostMessage(scoped_refptr<SerializedScriptValue> message,
   }
 
   if (!source_document->GetContentSecurityPolicy()->AllowConnectToSource(
-          target_url, RedirectStatus::kNoRedirect,
-          SecurityViolationReportingPolicy::kSuppressReporting)) {
+          target_url, target_url, RedirectStatus::kNoRedirect,
+          ReportingDisposition::kSuppressReporting)) {
     UseCounter::Count(
         source_document,
         WebFeature::kPostMessageOutgoingWouldBeBlockedByConnectSrc);
@@ -482,11 +509,17 @@ void DOMWindow::DoPostMessage(scoped_refptr<SerializedScriptValue> message,
       user_activation, options->transferUserActivation(), allow_autoplay);
 
   // Transfer user activation state in the source's renderer when
-  // |transferUserActivation| is true.
+  // |transferUserActivation| is true. We are making an expriment with
+  // dynamic delegation of "autoplay" capability using this post message
+  // approach to transfer user activation.
   // TODO(lanwei): we should execute the below code after the post task fires
   // (for both local and remote posting messages).
-  if (RuntimeEnabledFeatures::UserActivationPostMessageTransferEnabled() &&
-      options->transferUserActivation() &&
+  bool should_transfer_user_activation =
+      RuntimeEnabledFeatures::UserActivationPostMessageTransferEnabled() &&
+      options->transferUserActivation();
+  should_transfer_user_activation =
+      should_transfer_user_activation || allow_autoplay;
+  if (should_transfer_user_activation &&
       LocalFrame::HasTransientUserActivation(source_frame)) {
     GetFrame()->TransferUserActivationFrom(source_frame);
 
@@ -500,7 +533,7 @@ void DOMWindow::DoPostMessage(scoped_refptr<SerializedScriptValue> message,
   SchedulePostMessage(event, std::move(target), source_document);
 }
 
-void DOMWindow::Trace(blink::Visitor* visitor) {
+void DOMWindow::Trace(Visitor* visitor) {
   visitor->Trace(frame_);
   visitor->Trace(window_proxy_manager_);
   visitor->Trace(input_capabilities_);

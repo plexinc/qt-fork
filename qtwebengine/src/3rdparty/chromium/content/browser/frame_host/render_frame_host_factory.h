@@ -36,8 +36,6 @@ class CONTENT_EXPORT RenderFrameHostFactory {
       FrameTree* frame_tree,
       FrameTreeNode* frame_tree_node,
       int32_t routing_id,
-      int32_t widget_routing_id,
-      bool hidden,
       bool renderer_initiated_creation);
 
   // Returns true if there is currently a globally-registered factory.
@@ -56,8 +54,6 @@ class CONTENT_EXPORT RenderFrameHostFactory {
       FrameTree* frame_tree,
       FrameTreeNode* frame_tree_node,
       int32_t routing_id,
-      int32_t widget_routing_id,
-      bool hidden,
       bool renderer_initiated_creation) = 0;
 
   // Registers a factory to be called when new RenderFrameHostImpls are created.

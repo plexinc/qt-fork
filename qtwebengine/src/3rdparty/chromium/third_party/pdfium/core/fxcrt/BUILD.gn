@@ -2,13 +2,13 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("//build/config/jumbo.gni")
 import("../../pdfium.gni")
 import("../../testing/test.gni")
 
-jumbo_source_set("fxcrt") {
+source_set("fxcrt") {
   sources = [
     "autorestorer.h",
+    "byteorder.h",
     "bytestring.cpp",
     "bytestring.h",
     "cfx_binarybuf.cpp",
@@ -22,6 +22,8 @@ jumbo_source_set("fxcrt") {
     "cfx_readonlymemorystream.h",
     "cfx_seekablestreamproxy.cpp",
     "cfx_seekablestreamproxy.h",
+    "cfx_timer.cpp",
+    "cfx_timer.h",
     "cfx_utf8decoder.cpp",
     "cfx_utf8decoder.h",
     "cfx_utf8encoder.cpp",
@@ -39,6 +41,7 @@ jumbo_source_set("fxcrt") {
     "fx_extension.h",
     "fx_memory.cpp",
     "fx_memory.h",
+    "fx_memory_wrappers.h",
     "fx_number.cpp",
     "fx_number.h",
     "fx_random.cpp",
@@ -62,6 +65,7 @@ jumbo_source_set("fxcrt") {
     "string_data_template.h",
     "string_pool_template.h",
     "string_view_template.h",
+    "timerhandler_iface.h",
     "tree_node.h",
     "unowned_ptr.h",
     "weak_ptr.h",
@@ -97,9 +101,7 @@ jumbo_source_set("fxcrt") {
     "../../third_party:pdfium_base",
     "../../xfa/*",
   ]
-  deps = [
-    "../../third_party:pdfium_base",
-  ]
+  deps = [ "../../third_party:pdfium_base" ]
   public_deps = [
     "../../:freetype_common",
     "../../third_party:pdfium_base",
@@ -130,14 +132,17 @@ jumbo_source_set("fxcrt") {
 pdfium_unittest_source_set("unittests") {
   sources = [
     "autorestorer_unittest.cpp",
+    "byteorder_unittest.cpp",
     "bytestring_unittest.cpp",
     "cfx_bitstream_unittest.cpp",
     "cfx_seekablestreamproxy_unittest.cpp",
+    "cfx_timer_unittest.cpp",
     "cfx_widetextbuf_unittest.cpp",
     "fx_bidi_unittest.cpp",
     "fx_coordinates_unittest.cpp",
     "fx_extension_unittest.cpp",
     "fx_memory_unittest.cpp",
+    "fx_memory_wrappers_unittest.cpp",
     "fx_number_unittest.cpp",
     "fx_random_unittest.cpp",
     "fx_string_unittest.cpp",
@@ -165,15 +170,7 @@ pdfium_unittest_source_set("unittests") {
   pdfium_root_dir = "../../"
 
   if (pdf_enable_xfa) {
-    sources += [
-      "cfx_memorystream_unittest.cpp",
-      "css/cfx_cssdeclaration_unittest.cpp",
-      "css/cfx_cssstylesheet_unittest.cpp",
-      "css/cfx_cssvaluelistparser_unittest.cpp",
-    ]
-    deps += [
-      "../fpdfapi/parser",
-      "css",
-    ]
+    sources += [ "cfx_memorystream_unittest.cpp" ]
+    deps += [ "../fpdfapi/parser" ]
   }
 }

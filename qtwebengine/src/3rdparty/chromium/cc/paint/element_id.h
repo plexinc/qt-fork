@@ -16,7 +16,6 @@
 #include "cc/paint/paint_export.h"
 
 namespace base {
-class Value;
 namespace trace_event {
 class TracedValue;
 }  // namespace trace_event
@@ -59,9 +58,8 @@ struct CC_PAINT_EXPORT ElementId {
   explicit operator bool() const { return !!id_; }
 
   void AddToTracedValue(base::trace_event::TracedValue* res) const;
-  std::unique_ptr<base::Value> AsValue() const;
 
-  ElementIdType GetInternalValue() const;
+  ElementIdType GetStableId() const;
 
   std::string ToString() const;
 

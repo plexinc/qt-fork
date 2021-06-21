@@ -6,8 +6,9 @@
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_MEDIASESSION_TYPE_CONVERTERS_H_
 
 #include "third_party/blink/public/mojom/mediasession/media_session.mojom-blink.h"
-#include "third_party/blink/renderer/modules/mediasession/media_session_action_details.h"
-#include "third_party/blink/renderer/modules/mediasession/media_session_seek_to_action_details.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_media_position_state.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_media_session_action_details.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_media_session_seek_to_action_details.h"
 
 namespace mojo {
 
@@ -24,6 +25,13 @@ struct TypeConverter<blink::MediaSessionSeekToActionDetails*,
                      blink::mojom::blink::MediaSessionActionDetailsPtr> {
   static blink::MediaSessionSeekToActionDetails* Convert(
       const blink::mojom::blink::MediaSessionActionDetailsPtr& details);
+};
+
+template <>
+struct TypeConverter<media_session::mojom::blink::MediaPositionPtr,
+                     blink::MediaPositionState*> {
+  static media_session::mojom::blink::MediaPositionPtr Convert(
+      const blink::MediaPositionState* position);
 };
 
 }  // namespace mojo

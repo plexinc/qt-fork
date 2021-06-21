@@ -15,25 +15,19 @@ import("//testing/test.gni")
 ##------------------------------------------------------------------------------
 
 process_version_rc_template("chrome_elf_resources") {
-  sources = [
-    "chrome_elf.ver",
-  ]
+  sources = [ "chrome_elf.ver" ]
   output = "$target_gen_dir/chrome_elf_version.rc"
 }
 
 # This manifest matches what GYP produces. It may not even be necessary.
 windows_manifest("chrome_elf_manifest") {
-  sources = [
-    as_invoker_manifest,
-  ]
+  sources = [ as_invoker_manifest ]
 }
 
 # Users of chrome_elf exports can depend on this target, which doesn't
 # pin them to linking either chrome_elf.dll or test_stubs.
 source_set("chrome_elf_main_include") {
-  sources = [
-    "chrome_elf_main.h",
-  ]
+  sources = [ "chrome_elf_main.h" ]
 }
 
 # For code that isn't Chrome-the browser, like test binaries, these stubs stand
@@ -70,7 +64,6 @@ shared_library("chrome_elf") {
   }
 
   deps = [
-    ":blacklist",
     ":chrome_elf_manifest",
     ":chrome_elf_resources",
     ":constants",
@@ -81,47 +74,26 @@ shared_library("chrome_elf") {
     ":third_party_dlls",
     "//chrome/install_static:install_static_util",
     "//chrome/install_static:primary_module",
-    "//components/crash/content/app:crash_export_thunks",
+    "//components/crash/core/app:crash_export_thunks",
   ]
 
   configs += [ "//build/config/win:windowed" ]
   configs -= [ "//build/config/win:console" ]
 
-  # Delay loads in this list will prevent user32.dll
-  # from loading too early.
-  ldflags = [
-    "/DELAYLOAD:advapi32.dll",
-    "/DELAYLOAD:dbghelp.dll",
-    "/DELAYLOAD:ole32.dll",
-    "/DELAYLOAD:oleaut32.dll",
-    "/DELAYLOAD:propsys.dll",
-    "/DELAYLOAD:rpcrt4.dll",
-    "/DELAYLOAD:shell32.dll",
-    "/DELAYLOAD:shlwapi.dll",
-    "/DELAYLOAD:user32.dll",
-    "/DELAYLOAD:winmm.dll",
+  configs += [
+    "//build/config/win:delayloads",
+    "//build/config/win:delayloads_not_for_child_dll",
   ]
+
   if (current_cpu == "x86") {
     # Don"t set an x64 base address (to avoid breaking HE-ASLR).
-    ldflags += [ "/BASE:0x01c20000" ]
+    ldflags = [ "/BASE:0x01c20000" ]
   }
 }
 
 ##------------------------------------------------------------------------------
 ## chrome_elf sub targets
 ##------------------------------------------------------------------------------
-
-static_library("blacklist") {
-  sources = [
-    "blacklist/blacklist.cc",
-    "blacklist/blacklist.h",
-  ]
-  deps = [
-    ":constants",
-    ":nt_registry",
-    "//chrome/install_static:install_static_util",
-  ]
-}
 
 source_set("constants") {
   sources = [
@@ -143,7 +115,7 @@ static_library("crash") {
     "//base",  # This needs to go.  DEP of app, crash_keys, client.
     "//base:base_static",  # pe_image
     "//chrome/install_static:install_static_util",
-    "//components/crash/content/app",
+    "//components/crash/core/app",
     "//components/crash/core/common",  # crash_keys
     "//components/version_info:channel",
     "//content/public/common:result_codes",
@@ -152,9 +124,7 @@ static_library("crash") {
 }
 
 source_set("dll_hash") {
-  deps = [
-    "//base",
-  ]
+  deps = [ "//base" ]
   sources = [
     "dll_hash/dll_hash.cc",
     "dll_hash/dll_hash.h",
@@ -162,9 +132,7 @@ source_set("dll_hash") {
 }
 
 executable("dll_hash_main") {
-  sources = [
-    "dll_hash/dll_hash_main.cc",
-  ]
+  sources = [ "dll_hash/dll_hash_main.cc" ]
   deps = [
     ":dll_hash",
     "//build/win:default_exe_manifest",
@@ -181,9 +149,7 @@ static_library("hook_util") {
     ":nt_registry",  # utils
     "//base:base_static",  # pe_image
   ]
-  public_deps = [
-    "//sandbox",
-  ]
+  public_deps = [ "//sandbox" ]
 }
 
 # This target contains utility functions which must only depend on
@@ -194,13 +160,6 @@ static_library("nt_registry") {
     "nt_registry/nt_registry.cc",
     "nt_registry/nt_registry.h",
   ]
-  if (is_official_build && full_wpo_on_official == true) {
-    # This library doen't build with WPO enabled due to a MSVC compiler bug.
-    # TODO(pennymac|sebmarchand): Remove this once MS has fixed this compiler
-    # bug: https://connect.microsoft.com/VisualStudio/feedback/details/3104499
-    configs -= [ "//build/config/compiler:default_optimization" ]
-    configs += [ "//build/config/compiler:optimize_no_wpo" ]
-  }
 
   libs = [ "kernel32.lib" ]
 }
@@ -231,9 +190,13 @@ source_set("sha1") {
   ]
 }
 
-static_library("third_party_dlls") {
+source_set("third_party_dlls") {
   visibility = [ ":*" ]  # Only targets in this file can depend on this.
   sources = [
+    "third_party_dlls/beacon.cc",
+    "third_party_dlls/beacon.h",
+    "third_party_dlls/hardcoded_blocklist.cc",
+    "third_party_dlls/hardcoded_blocklist.h",
     "third_party_dlls/hook.cc",
     "third_party_dlls/hook.h",
     "third_party_dlls/logs.cc",
@@ -244,7 +207,7 @@ static_library("third_party_dlls") {
     "third_party_dlls/packed_list_file.h",
   ]
   public_deps = [
-    ":blacklist",
+    ":constants",
     ":crash",
     ":hook_util",
     ":nt_registry",
@@ -278,13 +241,13 @@ source_set("third_party_shared_defines") {
 test("chrome_elf_unittests") {
   output_name = "chrome_elf_unittests"
   sources = [
-    "blacklist/test/blacklist_test.cc",
     "chrome_elf_util_unittest.cc",
     "hook_util/test/hook_util_test.cc",
     "nt_registry/nt_registry_unittest.cc",
     "pe_image_safe/pe_image_safe_unittest.cc",
     "run_all_unittests.cc",
     "sha1/sha1_unittest.cc",
+    "third_party_dlls/beacon_unittest.cc",
     "third_party_dlls/logs_unittest.cc",
     "third_party_dlls/main_unittest.cc",
     "third_party_dlls/main_unittest_exe.h",
@@ -292,7 +255,6 @@ test("chrome_elf_unittests") {
   ]
   include_dirs = [ "$target_gen_dir" ]
   deps = [
-    ":blacklist",
     ":constants",
     ":crash",
     ":hook_util",
@@ -308,7 +270,7 @@ test("chrome_elf_unittests") {
     "//chrome/common:version_header",
     "//chrome/install_static:install_static_util",
     "//chrome/install_static/test:test_support",
-    "//components/crash/content/app:test_support",
+    "//components/crash/core/app:test_support",
     "//sandbox",
     "//testing/gtest",
   ]
@@ -334,9 +296,7 @@ shared_library("hook_util_test_dll") {
 
 shared_library("main_unittest_dll_1") {
   testonly = true
-  sources = [
-    "third_party_dlls/main_unittest_dll_1.cc",
-  ]
+  sources = [ "third_party_dlls/main_unittest_dll_1.cc" ]
 
   # Disable sanitizer instrumentation in the test DLLs to avoid unwanted
   # exports.
@@ -375,6 +335,6 @@ executable("third_party_dlls_test_exe") {
     "//base/test:test_support",
     "//build/win:default_exe_manifest",
     "//chrome/install_static:install_static_util",
-    "//components/crash/content/app:crash_export_stubs",
+    "//components/crash/core/app:crash_export_stubs",
   ]
 }

@@ -8,6 +8,8 @@
 #ifndef SKSL_IRGENERATOR
 #define SKSL_IRGENERATOR
 
+#include <map>
+
 #include "src/sksl/SkSLASTFile.h"
 #include "src/sksl/SkSLASTNode.h"
 #include "src/sksl/SkSLErrorReporter.h"
@@ -95,7 +97,6 @@ private:
                                      std::vector<std::unique_ptr<Expression>> arguments);
     int coercionCost(const Expression& expr, const Type& type);
     std::unique_ptr<Expression> coerce(std::unique_ptr<Expression> expr, const Type& type);
-    std::unique_ptr<Expression> convertAppend(int offset, const std::vector<ASTNode>& args);
     std::unique_ptr<Block> convertBlock(const ASTNode& block);
     std::unique_ptr<Statement> convertBreak(const ASTNode& b);
     std::unique_ptr<Expression> convertNumberConstructor(
@@ -155,12 +156,11 @@ private:
     std::unordered_map<String, Program::Settings::Value> fCapsMap;
     std::shared_ptr<SymbolTable> fRootSymbolTable;
     std::shared_ptr<SymbolTable> fSymbolTable;
-    // holds extra temp variable declarations needed for the current function
-    std::vector<std::unique_ptr<Statement>> fExtraVars;
+    // Symbols which have definitions in the include files. The bool tells us whether this
+    // intrinsic has been included already.
+    std::map<String, std::pair<std::unique_ptr<ProgramElement>, bool>>* fIntrinsics = nullptr;
     int fLoopLevel;
     int fSwitchLevel;
-    // count of temporary variables we have created
-    int fTmpCount;
     ErrorReporter& fErrors;
     int fInvocations;
     std::vector<std::unique_ptr<ProgramElement>>* fProgramElements;
@@ -168,7 +168,6 @@ private:
     Variable* fRTAdjust;
     Variable* fRTAdjustInterfaceBlock;
     int fRTAdjustFieldIndex;
-    bool fStarted = false;
 
     friend class AutoSymbolTable;
     friend class AutoLoopLevel;

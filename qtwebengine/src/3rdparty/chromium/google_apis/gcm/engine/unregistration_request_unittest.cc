@@ -101,8 +101,8 @@ void GCMUnregistrationRequestTest::CreateRequest() {
   request_.reset(new UnregistrationRequest(
       GURL(kRegistrationURL), request_info, std::move(request_handler),
       GetBackoffPolicy(),
-      base::Bind(&UnregistrationRequestTest::UnregistrationCallback,
-                 base::Unretained(this)),
+      base::BindOnce(&UnregistrationRequestTest::UnregistrationCallback,
+                     base::Unretained(this)),
       max_retry_count_, url_loader_factory(),
       base::ThreadTaskRunnerHandle::Get(), &recorder_, std::string()));
 }
@@ -115,8 +115,8 @@ TEST_F(GCMUnregistrationRequestTest, RequestDataPassedToFetcher) {
   const network::ResourceRequest* pending_request;
   ASSERT_TRUE(
       test_url_loader_factory()->IsPending(kRegistrationURL, &pending_request));
-  EXPECT_TRUE(pending_request->load_flags & net::LOAD_DO_NOT_SEND_COOKIES);
-  EXPECT_TRUE(pending_request->load_flags & net::LOAD_DO_NOT_SAVE_COOKIES);
+  EXPECT_EQ(network::mojom::CredentialsMode::kOmit,
+            pending_request->credentials_mode);
 
   // Verify that authorization header was put together properly.
   const net::HttpRequestHeaders* headers =
@@ -318,8 +318,8 @@ void InstaceIDDeleteTokenRequestTest::CreateRequest(
   request_.reset(new UnregistrationRequest(
       GURL(kRegistrationURL), request_info, std::move(request_handler),
       GetBackoffPolicy(),
-      base::Bind(&UnregistrationRequestTest::UnregistrationCallback,
-                 base::Unretained(this)),
+      base::BindOnce(&UnregistrationRequestTest::UnregistrationCallback,
+                     base::Unretained(this)),
       max_retry_count(), url_loader_factory(),
       base::ThreadTaskRunnerHandle::Get(), &recorder_, std::string()));
 }

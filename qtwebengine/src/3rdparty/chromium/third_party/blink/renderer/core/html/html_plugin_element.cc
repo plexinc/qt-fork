@@ -22,6 +22,8 @@
 
 #include "third_party/blink/renderer/core/html/html_plugin_element.h"
 
+#include "third_party/blink/public/mojom/feature_policy/feature_policy.mojom-blink.h"
+#include "third_party/blink/public/mojom/feature_policy/policy_value.mojom-blink-forward.h"
 #include "third_party/blink/public/mojom/loader/request_context_frame_type.mojom-blink.h"
 #include "third_party/blink/public/platform/web_url_request.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_controller.h"
@@ -51,7 +53,8 @@
 #include "third_party/blink/renderer/core/page/plugin_data.h"
 #include "third_party/blink/renderer/core/page/scrolling/scrolling_coordinator.h"
 #include "third_party/blink/renderer/platform/bindings/v8_per_isolate_data.h"
-#include "third_party/blink/renderer/platform/instrumentation/histogram.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
+#include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_request.h"
 #include "third_party/blink/renderer/platform/network/mime/mime_type_from_url.h"
 #include "third_party/blink/renderer/platform/network/mime/mime_type_registry.h"
@@ -59,8 +62,6 @@
 #include "third_party/blink/renderer/platform/scheduler/public/scheduling_policy.h"
 
 namespace blink {
-
-using namespace html_names;
 
 namespace {
 
@@ -94,12 +95,22 @@ void PluginParameters::AppendNameWithValue(const String& name,
   values_.push_back(value);
 }
 
-int PluginParameters::FindStringInNames(const String& str) {
-  for (wtf_size_t i = 0; i < names_.size(); ++i) {
-    if (DeprecatedEqualIgnoringCase(names_[i], str))
-      return i;
+void PluginParameters::MapDataParamToSrc() {
+  auto* src = std::find_if(names_.begin(), names_.end(), [](auto name) {
+    return EqualIgnoringASCIICase(name, "src");
+  });
+
+  if (src != names_.end()) {
+    return;
   }
-  return -1;
+
+  auto* data = std::find_if(names_.begin(), names_.end(), [](auto name) {
+    return EqualIgnoringASCIICase(name, "data");
+  });
+
+  if (data != names_.end()) {
+    AppendNameWithValue("src", values_[data - names_.begin()]);
+  }
 }
 
 HTMLPlugInElement::HTMLPlugInElement(
@@ -149,7 +160,8 @@ void HTMLPlugInElement::SetPersistedPlugin(WebPluginContainerImpl* plugin) {
   persisted_plugin_ = plugin;
 }
 
-void HTMLPlugInElement::SetFocused(bool focused, WebFocusType focus_type) {
+void HTMLPlugInElement::SetFocused(bool focused,
+                                   mojom::blink::FocusType focus_type) {
   WebPluginContainerImpl* plugin = OwnedPlugin();
   if (plugin)
     plugin->SetFocused(focused, focus_type);
@@ -228,7 +240,7 @@ void HTMLPlugInElement::AttachLayoutTree(AttachContext& context) {
         ToLayoutImage(layout_object)->ImageResource();
     image_resource->SetImageResource(image_loader_->GetContent());
   }
-  if (!layout_object->IsFloatingOrOutOfFlowPositioned())
+  if (layout_object->AffectsWhitespaceSiblings())
     context.previous_in_flow = layout_object;
 
   dispose_view_ = false;
@@ -269,7 +281,8 @@ ParsedFeaturePolicy HTMLPlugInElement::ConstructContainerPolicy(
   // https://fullscreen.spec.whatwg.org/#model
   ParsedFeaturePolicy container_policy;
   ParsedFeaturePolicyDeclaration allowlist(
-      mojom::FeaturePolicyFeature::kFullscreen, mojom::PolicyValueType::kBool);
+      mojom::blink::FeaturePolicyFeature::kFullscreen,
+      mojom::blink::PolicyValueType::kBool);
   container_policy.push_back(allowlist);
   return container_policy;
 }
@@ -291,7 +304,8 @@ void HTMLPlugInElement::DetachLayoutTree(bool performing_reattach) {
   // Only try to persist a plugin we actually own.
   WebPluginContainerImpl* plugin = OwnedPlugin();
   if (plugin && keep_plugin) {
-    SetPersistedPlugin(ToWebPluginContainerImpl(ReleaseEmbeddedContentView()));
+    SetPersistedPlugin(
+        To<WebPluginContainerImpl>(ReleaseEmbeddedContentView()));
   } else {
     // A persisted plugin isn't processed and hooked up immediately
     // (synchronously) when attaching the layout object, so it's possible that
@@ -312,6 +326,7 @@ void HTMLPlugInElement::DetachLayoutTree(bool performing_reattach) {
   if (!performing_reattach)
     SetDisposeView();
 
+  RemovePluginFromFrameView(plugin);
   ResetInstance();
 
   HTMLFrameOwnerElement::DetachLayoutTree(performing_reattach);
@@ -390,14 +405,15 @@ WebPluginContainerImpl* HTMLPlugInElement::PluginEmbeddedContentView() const {
 WebPluginContainerImpl* HTMLPlugInElement::OwnedPlugin() const {
   EmbeddedContentView* view = OwnedEmbeddedContentView();
   if (view && view->IsPluginView())
-    return ToWebPluginContainerImpl(view);
+    return To<WebPluginContainerImpl>(view);
   return nullptr;
 }
 
 bool HTMLPlugInElement::IsPresentationAttribute(
     const QualifiedName& name) const {
-  if (name == kWidthAttr || name == kHeightAttr || name == kVspaceAttr ||
-      name == kHspaceAttr || name == kAlignAttr)
+  if (name == html_names::kWidthAttr || name == html_names::kHeightAttr ||
+      name == html_names::kVspaceAttr || name == html_names::kHspaceAttr ||
+      name == html_names::kAlignAttr)
     return true;
   return HTMLFrameOwnerElement::IsPresentationAttribute(name);
 }
@@ -406,17 +422,17 @@ void HTMLPlugInElement::CollectStyleForPresentationAttribute(
     const QualifiedName& name,
     const AtomicString& value,
     MutableCSSPropertyValueSet* style) {
-  if (name == kWidthAttr) {
+  if (name == html_names::kWidthAttr) {
     AddHTMLLengthToStyle(style, CSSPropertyID::kWidth, value);
-  } else if (name == kHeightAttr) {
+  } else if (name == html_names::kHeightAttr) {
     AddHTMLLengthToStyle(style, CSSPropertyID::kHeight, value);
-  } else if (name == kVspaceAttr) {
+  } else if (name == html_names::kVspaceAttr) {
     AddHTMLLengthToStyle(style, CSSPropertyID::kMarginTop, value);
     AddHTMLLengthToStyle(style, CSSPropertyID::kMarginBottom, value);
-  } else if (name == kHspaceAttr) {
+  } else if (name == html_names::kHspaceAttr) {
     AddHTMLLengthToStyle(style, CSSPropertyID::kMarginLeft, value);
     AddHTMLLengthToStyle(style, CSSPropertyID::kMarginRight, value);
-  } else if (name == kAlignAttr) {
+  } else if (name == html_names::kAlignAttr) {
     ApplyAlignmentAttributeToStyle(value, style);
   } else {
     HTMLFrameOwnerElement::CollectStyleForPresentationAttribute(name, value,
@@ -456,7 +472,7 @@ LayoutEmbeddedContent* HTMLPlugInElement::LayoutEmbeddedContentForJSBindings()
   // Needs to load the plugin immediatedly because this function is called
   // when JavaScript code accesses the plugin.
   // FIXME: Check if dispatching events here is safe.
-  GetDocument().UpdateStyleAndLayout();
+  GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kJavaScript);
   if (auto* view = GetDocument().View())
     view->FlushAnyPendingPostLayoutTasks();
 
@@ -516,8 +532,7 @@ HTMLPlugInElement::ObjectContentType HTMLPlugInElement::GetObjectContentType()
   bool plugin_supports_mime_type =
       plugin_data && plugin_data->SupportsMimeType(mime_type);
   if (plugin_supports_mime_type &&
-      plugin_data->IsExternalPluginMimeType(mime_type) &&
-      RuntimeEnabledFeatures::MimeHandlerViewInCrossProcessFrameEnabled()) {
+      plugin_data->IsExternalPluginMimeType(mime_type)) {
     return ObjectContentType::kExternalPlugin;
   }
 
@@ -579,6 +594,16 @@ bool HTMLPlugInElement::RequestObject(const PluginParameters& plugin_params) {
     ResetInstance();
   if (object_type == ObjectContentType::kFrame ||
       object_type == ObjectContentType::kImage || handled_externally) {
+    if (object_type == ObjectContentType::kFrame) {
+      UseCounter::Count(GetDocument(),
+                        WebFeature::kPluginElementLoadedDocument);
+    } else if (object_type == ObjectContentType::kImage) {
+      UseCounter::Count(GetDocument(), WebFeature::kPluginElementLoadedImage);
+    } else {
+      UseCounter::Count(GetDocument(),
+                        WebFeature::kPluginElementLoadedExternal);
+    }
+
     if (ContentFrame() && ContentFrame()->IsRemoteFrame()) {
       // During lazy reattaching, the plugin element loses EmbeddedContentView.
       // Since the ContentFrame() is not torn down the options here are to
@@ -626,15 +651,17 @@ bool HTMLPlugInElement::LoadPlugin(const KURL& url,
   loaded_url_ = url;
 
   if (persisted_plugin_) {
+    auto* plugin = persisted_plugin_.Get();
     SetEmbeddedContentView(persisted_plugin_.Release());
+    layout_object->GetFrameView()->AddPlugin(plugin);
   } else {
     bool load_manually =
-        GetDocument().IsPluginDocument() && !GetDocument().ContainsPlugins();
+        IsA<PluginDocument>(GetDocument()) && !GetDocument().ContainsPlugins();
     WebPluginContainerImpl* plugin = frame->Client()->CreatePlugin(
         *this, url, plugin_params.Names(), plugin_params.Values(), mime_type,
         load_manually);
     if (!plugin) {
-      if (layout_object && !layout_object->ShowsUnavailablePluginIndicator()) {
+      if (!layout_object->ShowsUnavailablePluginIndicator()) {
         plugin_is_available_ = false;
         layout_object->SetPluginAvailability(
             LayoutEmbeddedObject::kPluginMissing);
@@ -642,12 +669,8 @@ bool HTMLPlugInElement::LoadPlugin(const KURL& url,
       return false;
     }
 
-    if (layout_object) {
-      SetEmbeddedContentView(plugin);
-      layout_object->GetFrameView()->AddPlugin(plugin);
-    } else {
-      SetPersistedPlugin(plugin);
-    }
+    SetEmbeddedContentView(plugin);
+    layout_object->GetFrameView()->AddPlugin(plugin);
   }
 
   GetDocument().SetContainsPlugins();
@@ -667,7 +690,7 @@ bool HTMLPlugInElement::LoadPlugin(const KURL& url,
 }
 
 void HTMLPlugInElement::DispatchErrorEvent() {
-  if (GetDocument().IsPluginDocument() && GetDocument().LocalOwner()) {
+  if (IsA<PluginDocument>(GetDocument()) && GetDocument().LocalOwner()) {
     GetDocument().LocalOwner()->DispatchEvent(
         *Event::Create(event_type_names::kError));
   } else {
@@ -703,23 +726,42 @@ bool HTMLPlugInElement::AllowedToLoadObject(const KURL& url,
   // is specified.
   return (!mime_type.IsEmpty() && url.IsEmpty()) ||
          !MixedContentChecker::ShouldBlockFetch(
-             frame, mojom::RequestContextType::OBJECT,
+             frame, mojom::RequestContextType::OBJECT, url,
              ResourceRequest::RedirectStatus::kNoRedirect, url);
 }
 
 bool HTMLPlugInElement::AllowedToLoadPlugin(const KURL& url,
                                             const String& mime_type) {
-  if (GetDocument().IsSandboxed(WebSandboxFlags::kPlugins)) {
-    GetDocument().AddConsoleMessage(
-        ConsoleMessage::Create(mojom::ConsoleMessageSource::kSecurity,
-                               mojom::ConsoleMessageLevel::kError,
-                               "Failed to load '" + url.ElidedString() +
-                                   "' as a plugin, because the "
-                                   "frame into which the plugin "
-                                   "is loading is sandboxed."));
+  if (GetDocument().IsSandboxed(mojom::blink::WebSandboxFlags::kPlugins)) {
+    GetDocument().AddConsoleMessage(MakeGarbageCollected<ConsoleMessage>(
+        mojom::ConsoleMessageSource::kSecurity,
+        mojom::ConsoleMessageLevel::kError,
+        "Failed to load '" + url.ElidedString() +
+            "' as a plugin, because the "
+            "frame into which the plugin "
+            "is loading is sandboxed."));
     return false;
   }
   return true;
+}
+
+void HTMLPlugInElement::RemovePluginFromFrameView(
+    WebPluginContainerImpl* plugin) {
+  if (!plugin)
+    return;
+
+  auto* layout_object = GetLayoutEmbeddedObject();
+  if (!layout_object)
+    return;
+
+  auto* frame_view = layout_object->GetFrameView();
+  if (!frame_view)
+    return;
+
+  if (!frame_view->Plugins().Contains(plugin))
+    return;
+
+  frame_view->RemovePlugin(plugin);
 }
 
 void HTMLPlugInElement::DidAddUserAgentShadowRoot(ShadowRoot&) {

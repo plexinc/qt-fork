@@ -76,13 +76,12 @@ void LinkImport::Process() {
 
   ResourceRequest resource_request(GetDocument().CompleteURL(url));
   network::mojom::ReferrerPolicy referrer_policy = owner_->GetReferrerPolicy();
-  resource_request.SetReferrerPolicy(
-      referrer_policy, ResourceRequest::SetReferrerPolicyLocation::kLinkImport);
+  resource_request.SetReferrerPolicy(referrer_policy);
 
   ResourceLoaderOptions options;
   options.initiator_info.name = owner_->localName();
 
-  FetchParameters params(resource_request, options);
+  FetchParameters params(std::move(resource_request), options);
   params.SetCharset(GetCharset());
   params.SetContentSecurityPolicyNonce(owner_->nonce());
 

@@ -78,6 +78,8 @@ void QOutlineMapper::curveTo(const QPointF &cp1, const QPointF &cp2, const QPoin
     printf("QOutlineMapper::curveTo() (%f, %f)\n", ep.x(), ep.y());
 #endif
 
+    if (!m_elements.size())
+        return;
     QBezier bezier = QBezier::fromPoints(m_elements.last(), cp1, cp2, ep);
 
     bool outsideClip = false;
@@ -209,7 +211,7 @@ void QOutlineMapper::endOutline()
             elements[i] = m_transform.map(elements[i]);
     } else {
         const QVectorPath vp((qreal *)elements, m_elements.size(),
-                             m_element_types.size() ? m_element_types.data() : 0);
+                             m_element_types.size() ? m_element_types.data() : nullptr);
         QPainterPath path = vp.convertToPainterPath();
         path = m_transform.map(path);
         if (!(m_outline.flags & QT_FT_OUTLINE_EVEN_ODD_FILL))

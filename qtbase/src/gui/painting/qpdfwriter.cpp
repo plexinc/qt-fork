@@ -55,7 +55,7 @@ public:
         : QObjectPrivate()
     {
         engine = new QPdfEngine();
-        output = 0;
+        output = nullptr;
         pdfVersion = QPdfWriter::PdfVersion_1_4;
     }
     ~QPdfWriterPrivate()
@@ -266,6 +266,50 @@ int QPdfWriter::resolution() const
     return d->engine->resolution();
 }
 
+/*!
+    \since 5.15
+
+    Sets the document metadata. This metadata is not influenced by the setTitle / setCreator methods,
+    so is up to the user to keep it consistent.
+    \a xmpMetadata contains XML formatted metadata to embed into the PDF file.
+
+    \sa documentXmpMetadata()
+*/
+
+void QPdfWriter::setDocumentXmpMetadata(const QByteArray &xmpMetadata)
+{
+    Q_D(const QPdfWriter);
+    d->engine->setDocumentXmpMetadata(xmpMetadata);
+}
+
+/*!
+    \since 5.15
+
+    Gets the document metadata, as it was provided with a call to setDocumentXmpMetadata. It will not
+    return the default metadata.
+
+    \sa setDocumentXmpMetadata()
+*/
+
+QByteArray QPdfWriter::documentXmpMetadata() const
+{
+    Q_D(const QPdfWriter);
+    return d->engine->documentXmpMetadata();
+}
+
+/*!
+    \since 5.15
+
+    Adds \a fileName attachment to the PDF with (optional) \a mimeType.
+    \a data contains the raw file data to embed into the PDF file.
+*/
+
+void QPdfWriter::addFileAttachment(const QString &fileName, const QByteArray &data, const QString &mimeType)
+{
+    Q_D(QPdfWriter);
+    d->engine->addFileAttachment(fileName, data, mimeType);
+}
+
 // Defined in QPagedPaintDevice but non-virtual, add QPdfWriter specific doc here
 #ifdef Q_QDOC
 /*!
@@ -316,7 +360,7 @@ int QPdfWriter::resolution() const
     You should not call any painting methods between a call to setPageOrientation()
     and newPage() as the wrong paint metrics may be used.
 
-    To get the current QPageLayout::Orientation use pageLayout().pageOrientation().
+    To get the current QPageLayout::Orientation use pageLayout().orientation().
 
     Returns true if the page orientation was successfully set to \a orientation.
 
@@ -334,7 +378,7 @@ int QPdfWriter::resolution() const
     You should not call any painting methods between a call to setPageMargins()
     and newPage() as the wrong paint metrics may be used.
 
-    To get the current page margins use pageLayout().pageMargins().
+    To get the current page margins use pageLayout().margins().
 
     Returns true if the page margins were successfully set to \a margins.
 
@@ -352,7 +396,7 @@ int QPdfWriter::resolution() const
     You should not call any painting methods between a call to setPageMargins()
     and newPage() as the wrong paint metrics may be used.
 
-    To get the current page margins use pageLayout().pageMargins().
+    To get the current page margins use pageLayout().margins().
 
     Returns true if the page margins were successfully set to \a margins.
 

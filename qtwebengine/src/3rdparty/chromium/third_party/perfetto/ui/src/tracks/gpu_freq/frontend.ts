@@ -51,10 +51,6 @@ class GpuFreqTrack extends Track<Config, Data> {
     const {timeScale, visibleWindowTime} = globals.frontendLocalState;
     const data = this.data();
 
-    if (this.shouldRequestData(
-            data, visibleWindowTime.start, visibleWindowTime.end)) {
-      globals.requestTrackData(this.trackState.id);
-    }
     if (data === undefined) return;  // Can't possibly draw anything.
 
     assertTrue(data.tsStarts.length === data.freqKHz.length);
@@ -110,7 +106,7 @@ class GpuFreqTrack extends Track<Config, Data> {
     ctx.fill();
     ctx.stroke();
 
-    ctx.font = '10px Google Sans';
+    ctx.font = '10px Roboto Condensed';
 
     if (this.hoveredValue !== undefined && this.hoveredTs !== undefined) {
       let text = `Freq: ${this.hoveredValue.toLocaleString()}kHz`;
@@ -118,7 +114,6 @@ class GpuFreqTrack extends Track<Config, Data> {
         text = `Weighted avg freq: ${this.hoveredValue.toLocaleString()}kHz`;
       }
 
-      const width = ctx.measureText(text).width;
       ctx.fillStyle = `hsl(${hue}, 45%, 75%)`;
       ctx.strokeStyle = `hsl(${hue}, 45%, 45%)`;
 
@@ -143,11 +138,7 @@ class GpuFreqTrack extends Track<Config, Data> {
       ctx.stroke();
 
       // Draw the tooltip.
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-      ctx.fillRect(this.mouseXpos + 5, MARGIN_TOP, width + 16, RECT_HEIGHT);
-      ctx.fillStyle = 'hsl(200, 50%, 40%)';
-      const centerY = MARGIN_TOP + RECT_HEIGHT / 2;
-      ctx.fillText(text, this.mouseXpos + 10, centerY - 3);
+      this.drawTrackHoverTooltip(ctx, this.mouseXpos, text);
     }
 
     // Write the Y scale on the top left corner.
@@ -161,6 +152,7 @@ class GpuFreqTrack extends Track<Config, Data> {
     // show a gray rectangle with a "Loading..." label.
     checkerboardExcept(
         ctx,
+        this.getHeight(),
         timeScale.timeToPx(visibleWindowTime.start),
         timeScale.timeToPx(visibleWindowTime.end),
         timeScale.timeToPx(data.start),

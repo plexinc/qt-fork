@@ -9,6 +9,8 @@
 
 #include <stddef.h>
 
+#include <string>
+
 #include "testing/gtest/include/gtest/gtest.h"
 #include "net/third_party/quiche/src/http2/decoder/decode_buffer.h"
 #include "net/third_party/quiche/src/http2/decoder/decode_status.h"
@@ -18,12 +20,10 @@
 #include "net/third_party/quiche/src/http2/http2_constants_test_util.h"
 #include "net/third_party/quiche/src/http2/http2_structures.h"
 #include "net/third_party/quiche/src/http2/platform/api/http2_logging.h"
-#include "net/third_party/quiche/src/http2/platform/api/http2_reconstruct_object.h"
-#include "net/third_party/quiche/src/http2/platform/api/http2_string.h"
-#include "net/third_party/quiche/src/http2/platform/api/http2_string_piece.h"
 #include "net/third_party/quiche/src/http2/test_tools/frame_parts.h"
 #include "net/third_party/quiche/src/http2/tools/http2_frame_builder.h"
 #include "net/third_party/quiche/src/http2/tools/random_decoder_test.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace http2 {
 namespace test {
@@ -61,7 +61,7 @@ class PayloadDecoderBaseTest : public RandomDecoderTest {
     frame_header_is_set_ = true;
   }
 
-  FrameDecoderState* mutable_state() { return &frame_decoder_state_; }
+  FrameDecoderState* mutable_state() { return frame_decoder_state_.get(); }
 
   // Randomize the payload decoder, sets the payload decoder's frame_header_,
   // then start decoding the payload. Called by RandomDecoderTest. This method
@@ -81,7 +81,7 @@ class PayloadDecoderBaseTest : public RandomDecoderTest {
   // Given the specified payload (without the common frame header), decode
   // it with several partitionings of the payload.
   ::testing::AssertionResult DecodePayloadAndValidateSeveralWays(
-      Http2StringPiece payload,
+      quiche::QuicheStringPiece payload,
       Validator validator);
 
   // TODO(jamessynge): Add helper method for verifying these are both non-zero,
@@ -102,7 +102,7 @@ class PayloadDecoderBaseTest : public RandomDecoderTest {
  private:
   bool frame_header_is_set_ = false;
   Http2FrameHeader frame_header_;
-  FrameDecoderState frame_decoder_state_;
+  std::unique_ptr<FrameDecoderState> frame_decoder_state_;
 };
 
 // Base class for payload decoders of type Decoder, with corresponding test
@@ -155,7 +155,7 @@ class AbstractPayloadDecoderTest : public PayloadDecoderBaseTest {
   }
 
   void PreparePayloadDecoder() override {
-    Http2DefaultReconstructObject(&payload_decoder_, RandomPtr());
+    payload_decoder_ = std::make_unique<Decoder>();
   }
 
   Http2FrameDecoderListener* PrepareListener() override {
@@ -175,14 +175,14 @@ class AbstractPayloadDecoderTest : public PayloadDecoderBaseTest {
   // Start decoding the payload.
   DecodeStatus StartDecodingPayload(DecodeBuffer* db) override {
     HTTP2_DVLOG(2) << "StartDecodingPayload, db->Remaining=" << db->Remaining();
-    return payload_decoder_.StartDecodingPayload(mutable_state(), db);
+    return payload_decoder_->StartDecodingPayload(mutable_state(), db);
   }
 
   // Resume decoding the payload.
   DecodeStatus ResumeDecodingPayload(DecodeBuffer* db) override {
     HTTP2_DVLOG(2) << "ResumeDecodingPayload, db->Remaining="
                    << db->Remaining();
-    return payload_decoder_.ResumeDecodingPayload(mutable_state(), db);
+    return payload_decoder_->ResumeDecodingPayload(mutable_state(), db);
   }
 
   // Decode one frame's payload and confirm that the listener recorded the
@@ -190,7 +190,7 @@ class AbstractPayloadDecoderTest : public PayloadDecoderBaseTest {
   // will be decoded several times with different partitionings of the payload,
   // and after each the validator will be called.
   AssertionResult DecodePayloadAndValidateSeveralWays(
-      Http2StringPiece payload,
+      quiche::QuicheStringPiece payload,
       const FrameParts& expected) {
     auto validator = [&expected, this]() -> AssertionResult {
       VERIFY_FALSE(listener_.IsInProgress());
@@ -209,7 +209,7 @@ class AbstractPayloadDecoderTest : public PayloadDecoderBaseTest {
   // std::nullptr_t (not extra validation).
   template <typename WrappedValidator>
   ::testing::AssertionResult VerifyDetectsFrameSizeError(
-      Http2StringPiece payload,
+      quiche::QuicheStringPiece payload,
       const Http2FrameHeader& header,
       WrappedValidator wrapped_validator) {
     set_frame_header(header);
@@ -248,7 +248,7 @@ class AbstractPayloadDecoderTest : public PayloadDecoderBaseTest {
   // randomly selected flag bits not excluded by FlagsAffectingPayloadDecoding.
   ::testing::AssertionResult VerifyDetectsMultipleFrameSizeErrors(
       uint8_t required_flags,
-      Http2StringPiece unpadded_payload,
+      quiche::QuicheStringPiece unpadded_payload,
       ApproveSize approve_size,
       int total_pad_length) {
     // required_flags should come from those that are defined for the frame
@@ -306,7 +306,7 @@ class AbstractPayloadDecoderTest : public PayloadDecoderBaseTest {
   // As above, but for frames without padding.
   ::testing::AssertionResult VerifyDetectsFrameSizeError(
       uint8_t required_flags,
-      Http2StringPiece unpadded_payload,
+      quiche::QuicheStringPiece unpadded_payload,
       const ApproveSize& approve_size) {
     Http2FrameType frame_type = DecoderPeer::FrameType();
     uint8_t known_flags = KnownFlagsMaskForFrameType(frame_type);
@@ -317,13 +317,7 @@ class AbstractPayloadDecoderTest : public PayloadDecoderBaseTest {
   }
 
   Listener listener_;
-  union {
-    // Confirm at compile time that Decoder can be in an anonymous union,
-    // i.e. complain loudly if Decoder has members that prevent this, as it
-    // becomes annoying and possibly difficult to deal with non-anonymous
-    // unions and such union members.
-    Decoder payload_decoder_;
-  };
+  std::unique_ptr<Decoder> payload_decoder_;
 };
 
 // A base class for tests parameterized by the total number of bytes of
@@ -385,7 +379,7 @@ class AbstractPaddablePayloadDecoderTest
   // amount of missing padding is as specified. header.IsPadded must be true,
   // and the payload must be empty or the PadLength field must be too large.
   ::testing::AssertionResult VerifyDetectsPaddingTooLong(
-      Http2StringPiece payload,
+      quiche::QuicheStringPiece payload,
       const Http2FrameHeader& header,
       size_t expected_missing_length) {
     set_frame_header(header);
@@ -429,7 +423,7 @@ class AbstractPaddablePayloadDecoderTest
     }
 
     HTTP2_VLOG(1) << "payload_length=" << payload_length;
-    Http2String payload = fb.buffer().substr(0, payload_length);
+    std::string payload = fb.buffer().substr(0, payload_length);
 
     // The missing length is the amount we cut off the end, unless
     // payload_length is zero, in which case the decoder knows only that 1

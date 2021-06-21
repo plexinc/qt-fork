@@ -44,7 +44,7 @@ namespace blink {
 // |secondInteger| are used.
 // For example, see SVGFEDropShadowElement::stdDeviation{X,Y}()
 class SVGAnimatedIntegerOptionalInteger
-    : public GarbageCollectedFinalized<SVGAnimatedIntegerOptionalInteger>,
+    : public GarbageCollected<SVGAnimatedIntegerOptionalInteger>,
       public SVGAnimatedPropertyCommon<SVGIntegerOptionalInteger> {
   USING_GARBAGE_COLLECTED_MIXIN(SVGAnimatedIntegerOptionalInteger);
 
@@ -60,7 +60,7 @@ class SVGAnimatedIntegerOptionalInteger
   SVGAnimatedInteger* FirstInteger() { return first_integer_.Get(); }
   SVGAnimatedInteger* SecondInteger() { return second_integer_.Get(); }
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
 
  protected:
   Member<SVGAnimatedInteger> first_integer_;

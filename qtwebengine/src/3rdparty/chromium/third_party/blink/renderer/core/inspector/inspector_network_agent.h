@@ -39,6 +39,7 @@
 #include "third_party/blink/renderer/core/inspector/inspector_base_agent.h"
 #include "third_party/blink/renderer/core/inspector/inspector_page_agent.h"
 #include "third_party/blink/renderer/core/inspector/protocol/Network.h"
+#include "third_party/blink/renderer/platform/blob/blob_data.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_load_priority.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
@@ -54,7 +55,6 @@ class WebSocketHandshakeRequest;
 
 namespace blink {
 
-class BlobDataHandle;
 class Document;
 class DocumentLoader;
 class ExecutionContext;
@@ -81,7 +81,7 @@ class CORE_EXPORT InspectorNetworkAgent final
                         WorkerGlobalScope*,
                         v8_inspector::V8InspectorSession*);
   ~InspectorNetworkAgent() override;
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
 
   void Restore() override;
 
@@ -150,7 +150,6 @@ class CORE_EXPORT InspectorNetworkAgent final
                    const AtomicString& method,
                    const KURL&,
                    bool async,
-                   EncodedFormData* form_data,
                    const HTTPHeaderMap& headers,
                    bool include_crendentials);
   void DidFinishXHR(XMLHttpRequest*);
@@ -165,7 +164,7 @@ class CORE_EXPORT InspectorNetworkAgent final
 
   void FrameScheduledNavigation(LocalFrame*,
                                 const KURL&,
-                                double delay,
+                                base::TimeDelta delay,
                                 ClientNavigationReason);
   void FrameClearedScheduledNavigation(LocalFrame*);
 
@@ -257,6 +256,7 @@ class CORE_EXPORT InspectorNetworkAgent final
   bool CanGetResponseBodyBlob(const String& request_id);
   void GetResponseBodyBlob(const String& request_id,
                            std::unique_ptr<GetResponseBodyCallback>);
+  ExecutionContext* GetTargetExecutionContext() const;
 
   static std::unique_ptr<protocol::Network::Initiator> BuildInitiatorObject(
       Document*,

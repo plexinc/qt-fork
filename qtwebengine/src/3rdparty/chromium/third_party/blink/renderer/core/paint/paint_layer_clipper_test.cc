@@ -11,7 +11,6 @@
 #include "third_party/blink/renderer/core/paint/paint_layer.h"
 #include "third_party/blink/renderer/core/testing/core_unit_test_helper.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
-#include "third_party/blink/renderer/platform/web_test_support.h"
 
 namespace blink {
 
@@ -19,16 +18,6 @@ class PaintLayerClipperTest : public RenderingTest {
  public:
   PaintLayerClipperTest()
       : RenderingTest(MakeGarbageCollected<EmptyLocalFrameClient>()) {}
-
-  void SetUp() override {
-    WebTestSupport::SetMockThemeEnabledForTest(true);
-    RenderingTest::SetUp();
-  }
-
-  void TearDown() override {
-    RenderingTest::TearDown();
-    WebTestSupport::SetMockThemeEnabledForTest(false);
-  }
 };
 
 TEST_F(PaintLayerClipperTest, ParentBackgroundClipRectSubpixelAccumulation) {
@@ -194,21 +183,12 @@ TEST_F(PaintLayerClipperTest, ControlClip) {
       .CalculateRects(context,
                       &target_paint_layer->GetLayoutObject().FirstFragment(),
                       nullptr, layer_bounds, background_rect, foreground_rect);
-#if defined(OS_MACOSX)
-  // If the PaintLayer clips overflow, the background rect is intersected with
-  // the PaintLayer bounds...
-  EXPECT_EQ(PhysicalRect(3, 4, 210, 28), background_rect.Rect());
-  // and the foreground rect is intersected with the control clip in this case.
-  EXPECT_EQ(PhysicalRect(8, 8, 200, 18), foreground_rect.Rect());
-  EXPECT_EQ(PhysicalRect(8, 8, 200, 18), layer_bounds);
-#else
   // If the PaintLayer clips overflow, the background rect is intersected with
   // the PaintLayer bounds...
   EXPECT_EQ(PhysicalRect(8, 8, 200, 300), background_rect.Rect());
   // and the foreground rect is intersected with the control clip in this case.
   EXPECT_EQ(PhysicalRect(10, 10, 196, 296), foreground_rect.Rect());
   EXPECT_EQ(PhysicalRect(8, 8, 200, 300), layer_bounds);
-#endif
 }
 
 TEST_F(PaintLayerClipperTest, RoundedClip) {
@@ -285,12 +265,7 @@ TEST_F(PaintLayerClipperTest, RoundedClipNested) {
   EXPECT_EQ(PhysicalRect(0, 0, 500, 500), layer_bounds);
 }
 
-// TODO(https://crbug.com/795645): This test is failing on the ChromeOS bot.
-#if defined(OS_CHROMEOS)
-TEST_F(PaintLayerClipperTest, DISABLED_ControlClipSelect) {
-#else
 TEST_F(PaintLayerClipperTest, ControlClipSelect) {
-#endif
   SetBodyInnerHTML(R"HTML(
     <select id='target' style='position: relative; width: 100px;
         background: none; border: none; padding: 0px 15px 0px 5px;'>
@@ -299,9 +274,8 @@ TEST_F(PaintLayerClipperTest, ControlClipSelect) {
       </option>
     </select>
   )HTML");
-  Element* target = GetDocument().getElementById("target");
-  PaintLayer* target_paint_layer =
-      ToLayoutBoxModelObject(target->GetLayoutObject())->Layer();
+  LayoutBox* target = ToLayoutBox(GetLayoutObjectByElementId("target"));
+  PaintLayer* target_paint_layer = target->Layer();
   ClipRectsContext context(
       GetDocument().GetLayoutView()->Layer(),
       &GetDocument().GetLayoutView()->FirstFragment(), kUncachedClipRects,
@@ -315,15 +289,12 @@ TEST_F(PaintLayerClipperTest, ControlClipSelect) {
       .CalculateRects(context,
                       &target_paint_layer->GetLayoutObject().FirstFragment(),
                       nullptr, layer_bounds, background_rect, foreground_rect);
-// The control clip for a select excludes the area for the down arrow.
-#if defined(OS_MACOSX)
-  EXPECT_EQ(PhysicalRect(16, 9, 79, 13), foreground_rect.Rect());
-#elif defined(OS_WIN)
-  EXPECT_EQ(PhysicalRect(17, 9, 60, 16), foreground_rect.Rect());
-#else
-  EXPECT_EQ(PhysicalRect(17, 9, 60, 15), foreground_rect.Rect());
-#endif
-}  // namespace blink
+
+  PhysicalRect content_box_rect = target->PhysicalContentBoxRect();
+  EXPECT_GT(foreground_rect.Rect().X(),
+            content_box_rect.X() + target->Location().X());
+  EXPECT_LE(foreground_rect.Rect().Width(), content_box_rect.Width());
+}
 
 TEST_F(PaintLayerClipperTest, LayoutSVGRootChild) {
   SetBodyInnerHTML(R"HTML(
@@ -364,10 +335,9 @@ TEST_F(PaintLayerClipperTest, ContainPaintClip) {
 
   PaintLayer* layer =
       ToLayoutBoxModelObject(GetLayoutObjectByElementId("target"))->Layer();
-  ClipRectsContext context(layer, &layer->GetLayoutObject().FirstFragment(),
-                           kPaintingClipRectsIgnoringOverflowClip,
-                           kIgnorePlatformOverlayScrollbarSize,
-                           kIgnoreOverflowClip);
+  ClipRectsContext context(
+      layer, &layer->GetLayoutObject().FirstFragment(), kPaintingClipRects,
+      kIgnorePlatformOverlayScrollbarSize, kIgnoreOverflowClip);
   PhysicalRect layer_bounds;
   ClipRect background_rect, foreground_rect;
 
@@ -403,8 +373,8 @@ TEST_F(PaintLayerClipperTest, NestedContainPaintClip) {
       ToLayoutBoxModelObject(GetLayoutObjectByElementId("target"))->Layer();
   ClipRectsContext context(
       layer->Parent(), &layer->Parent()->GetLayoutObject().FirstFragment(),
-      kPaintingClipRectsIgnoringOverflowClip,
-      kIgnorePlatformOverlayScrollbarSize, kIgnoreOverflowClip);
+      kPaintingClipRects, kIgnorePlatformOverlayScrollbarSize,
+      kIgnoreOverflowClip);
   PhysicalRect layer_bounds;
   ClipRect background_rect, foreground_rect;
 
@@ -648,10 +618,9 @@ TEST_F(PaintLayerClipperTest, IgnoreRootLayerClipWithCSSClip) {
       ToLayoutBoxModelObject(GetLayoutObjectByElementId("root"))->Layer();
   PaintLayer* target =
       ToLayoutBoxModelObject(GetLayoutObjectByElementId("target"))->Layer();
-  ClipRectsContext context(root, &root->GetLayoutObject().FirstFragment(),
-                           kPaintingClipRectsIgnoringOverflowClip,
-                           kIgnorePlatformOverlayScrollbarSize,
-                           kIgnoreOverflowClip);
+  ClipRectsContext context(
+      root, &root->GetLayoutObject().FirstFragment(), kPaintingClipRects,
+      kIgnorePlatformOverlayScrollbarSize, kIgnoreOverflowClip);
   PhysicalRect infinite_rect(LayoutRect::InfiniteIntRect());
   PhysicalRect layer_bounds(infinite_rect);
   ClipRect background_rect(infinite_rect);
@@ -684,10 +653,9 @@ TEST_F(PaintLayerClipperTest, IgnoreRootLayerClipWithOverflowClip) {
       ToLayoutBoxModelObject(GetLayoutObjectByElementId("root"))->Layer();
   PaintLayer* target =
       ToLayoutBoxModelObject(GetLayoutObjectByElementId("target"))->Layer();
-  ClipRectsContext context(root, &root->GetLayoutObject().FirstFragment(),
-                           kPaintingClipRectsIgnoringOverflowClip,
-                           kIgnorePlatformOverlayScrollbarSize,
-                           kIgnoreOverflowClip);
+  ClipRectsContext context(
+      root, &root->GetLayoutObject().FirstFragment(), kPaintingClipRects,
+      kIgnorePlatformOverlayScrollbarSize, kIgnoreOverflowClip);
   PhysicalRect infinite_rect(LayoutRect::InfiniteIntRect());
   PhysicalRect layer_bounds(infinite_rect);
   ClipRect background_rect(infinite_rect);
@@ -721,10 +689,9 @@ TEST_F(PaintLayerClipperTest, IgnoreRootLayerClipWithBothClip) {
       ToLayoutBoxModelObject(GetLayoutObjectByElementId("root"))->Layer();
   PaintLayer* target =
       ToLayoutBoxModelObject(GetLayoutObjectByElementId("target"))->Layer();
-  ClipRectsContext context(root, &root->GetLayoutObject().FirstFragment(),
-                           kPaintingClipRectsIgnoringOverflowClip,
-                           kIgnorePlatformOverlayScrollbarSize,
-                           kIgnoreOverflowClip);
+  ClipRectsContext context(
+      root, &root->GetLayoutObject().FirstFragment(), kPaintingClipRects,
+      kIgnorePlatformOverlayScrollbarSize, kIgnoreOverflowClip);
   PhysicalRect infinite_rect(LayoutRect::InfiniteIntRect());
   PhysicalRect layer_bounds(infinite_rect);
   ClipRect background_rect(infinite_rect);

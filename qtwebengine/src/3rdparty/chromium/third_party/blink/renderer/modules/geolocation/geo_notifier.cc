@@ -4,12 +4,12 @@
 
 #include "third_party/blink/renderer/modules/geolocation/geo_notifier.h"
 
+#include "base/metrics/histogram_functions.h"
 #include "third_party/blink/public/platform/task_type.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_position_options.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/modules/geolocation/geolocation.h"
-#include "third_party/blink/renderer/modules/geolocation/position_error.h"
-#include "third_party/blink/renderer/modules/geolocation/position_options.h"
-#include "third_party/blink/renderer/platform/instrumentation/histogram.h"
+#include "third_party/blink/renderer/modules/geolocation/geolocation_position_error.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
 
 namespace blink {
@@ -30,13 +30,14 @@ GeoNotifier::GeoNotifier(Geolocation* geolocation,
   DCHECK(geolocation_);
   DCHECK(success_callback_);
 
-  DEFINE_STATIC_LOCAL(CustomCountHistogram, timeout_histogram,
-                      ("Geolocation.Timeout", 0,
-                       1000 * 60 * 10 /* 10 minute max */, 20 /* buckets */));
-  timeout_histogram.Count(options_->timeout());
+  base::UmaHistogramCustomTimes(
+      "Geolocation.Timeout",
+      base::TimeDelta::FromMilliseconds(options_->timeout()),
+      base::TimeDelta::FromMilliseconds(1), base::TimeDelta::FromMinutes(10),
+      /* buckets = */ 20);
 }
 
-void GeoNotifier::Trace(blink::Visitor* visitor) {
+void GeoNotifier::Trace(Visitor* visitor) {
   visitor->Trace(geolocation_);
   visitor->Trace(options_);
   visitor->Trace(success_callback_);
@@ -45,7 +46,7 @@ void GeoNotifier::Trace(blink::Visitor* visitor) {
   visitor->Trace(fatal_error_);
 }
 
-void GeoNotifier::SetFatalError(PositionError* error) {
+void GeoNotifier::SetFatalError(GeolocationPositionError* error) {
   // If a fatal error has already been set, stick with it. This makes sure that
   // when permission is denied, this is the error reported, as required by the
   // spec.
@@ -67,7 +68,7 @@ void GeoNotifier::RunSuccessCallback(Geoposition* position) {
   success_callback_->InvokeAndReportException(nullptr, position);
 }
 
-void GeoNotifier::RunErrorCallback(PositionError* error) {
+void GeoNotifier::RunErrorCallback(GeolocationPositionError* error) {
   if (error_callback_)
     error_callback_->InvokeAndReportException(nullptr, error);
 }
@@ -85,7 +86,7 @@ bool GeoNotifier::IsTimerActive() const {
   return timer_->IsActive();
 }
 
-void GeoNotifier::Timer::Trace(blink::Visitor* visitor) {
+void GeoNotifier::Timer::Trace(Visitor* visitor) {
   visitor->Trace(notifier_);
 }
 
@@ -132,14 +133,15 @@ void GeoNotifier::TimerFired(TimerBase*) {
 
   if (error_callback_) {
     error_callback_->InvokeAndReportException(
-        nullptr, MakeGarbageCollected<PositionError>(PositionError::kTimeout,
-                                                     "Timeout expired"));
+        nullptr, MakeGarbageCollected<GeolocationPositionError>(
+                     GeolocationPositionError::kTimeout, "Timeout expired"));
   }
 
-  DEFINE_STATIC_LOCAL(CustomCountHistogram, timeout_expired_histogram,
-                      ("Geolocation.TimeoutExpired", 0,
-                       1000 * 60 * 10 /* 10 minute max */, 20 /* buckets */));
-  timeout_expired_histogram.Count(options_->timeout());
+  base::UmaHistogramCustomTimes(
+      "Geolocation.TimeoutExpired",
+      base::TimeDelta::FromMilliseconds(options_->timeout()),
+      base::TimeDelta::FromMilliseconds(1), base::TimeDelta::FromMinutes(10),
+      /* buckets = */ 20);
 
   geolocation_->RequestTimedOut(this);
 }

@@ -145,7 +145,6 @@ static inline QTouchDevice *createTouchDevice()
     Dispatches mouse and touch events. Separate for code cleanliness.
 
     \internal
-    \ingroup qt-lighthouse-win
 */
 
 QWindowsMouseHandler::QWindowsMouseHandler() = default;
@@ -165,14 +164,14 @@ void QWindowsMouseHandler::clearEvents()
 
 Qt::MouseButtons QWindowsMouseHandler::queryMouseButtons()
 {
-    Qt::MouseButtons result = nullptr;
+    Qt::MouseButtons result;
     const bool mouseSwapped = GetSystemMetrics(SM_SWAPBUTTON);
     if (GetAsyncKeyState(VK_LBUTTON) < 0)
         result |= mouseSwapped ? Qt::RightButton: Qt::LeftButton;
     if (GetAsyncKeyState(VK_RBUTTON) < 0)
         result |= mouseSwapped ? Qt::LeftButton : Qt::RightButton;
     if (GetAsyncKeyState(VK_MBUTTON) < 0)
-        result |= Qt::MidButton;
+        result |= Qt::MiddleButton;
     if (GetAsyncKeyState(VK_XBUTTON1) < 0)
         result |= Qt::XButton1;
     if (GetAsyncKeyState(VK_XBUTTON2) < 0)
@@ -216,11 +215,11 @@ static inline MouseEvent eventFromMsg(const MSG &msg)
     case WM_LBUTTONDBLCLK: // Qt QPA does not handle double clicks, send as press
         return {QEvent::MouseButtonPress, Qt::LeftButton};
     case WM_MBUTTONDOWN:
-        return {QEvent::MouseButtonPress, Qt::MidButton};
+        return {QEvent::MouseButtonPress, Qt::MiddleButton};
     case WM_MBUTTONUP:
-        return {QEvent::MouseButtonRelease, Qt::MidButton};
+        return {QEvent::MouseButtonRelease, Qt::MiddleButton};
     case WM_MBUTTONDBLCLK:
-        return {QEvent::MouseButtonPress, Qt::MidButton};
+        return {QEvent::MouseButtonPress, Qt::MiddleButton};
     case WM_RBUTTONDOWN:
         return {QEvent::MouseButtonPress, Qt::RightButton};
     case WM_RBUTTONUP:
@@ -242,11 +241,11 @@ static inline MouseEvent eventFromMsg(const MSG &msg)
     case WM_NCLBUTTONDBLCLK:
         return {QEvent::NonClientAreaMouseButtonPress, Qt::LeftButton};
     case WM_NCMBUTTONDOWN:
-        return {QEvent::NonClientAreaMouseButtonPress, Qt::MidButton};
+        return {QEvent::NonClientAreaMouseButtonPress, Qt::MiddleButton};
     case WM_NCMBUTTONUP:
-        return {QEvent::NonClientAreaMouseButtonRelease, Qt::MidButton};
+        return {QEvent::NonClientAreaMouseButtonRelease, Qt::MiddleButton};
     case WM_NCMBUTTONDBLCLK:
-        return {QEvent::NonClientAreaMouseButtonPress, Qt::MidButton};
+        return {QEvent::NonClientAreaMouseButtonPress, Qt::MiddleButton};
     case WM_NCRBUTTONDOWN:
         return {QEvent::NonClientAreaMouseButtonPress, Qt::RightButton};
     case WM_NCRBUTTONUP:
@@ -630,7 +629,7 @@ bool QWindowsMouseHandler::translateTouchEvent(QWindow *window, HWND,
 
     QTouchPointList touchPoints;
     touchPoints.reserve(winTouchPointCount);
-    Qt::TouchPointStates allStates = nullptr;
+    Qt::TouchPointStates allStates;
 
     GetTouchInputInfo(reinterpret_cast<HTOUCHINPUT>(msg.lParam),
                       UINT(msg.wParam), winTouchInputs.data(), sizeof(TOUCHINPUT));

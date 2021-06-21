@@ -28,6 +28,13 @@ SkImageInfo RecordPaintCanvas::imageInfo() const {
   return GetCanvas()->imageInfo();
 }
 
+void* RecordPaintCanvas::accessTopLayerPixels(SkImageInfo* info,
+                                              size_t* rowBytes,
+                                              SkIPoint* origin) {
+  // Modifications to the underlying pixels cannot be saved.
+  return nullptr;
+}
+
 void RecordPaintCanvas::flush() {
   // This is a noop when recording.
 }
@@ -289,12 +296,7 @@ bool RecordPaintCanvas::isClipEmpty() const {
   return GetCanvas()->isClipEmpty();
 }
 
-bool RecordPaintCanvas::isClipRect() const {
-  DCHECK(InitializedWithRecordingBounds());
-  return GetCanvas()->isClipRect();
-}
-
-const SkMatrix& RecordPaintCanvas::getTotalMatrix() const {
+SkMatrix RecordPaintCanvas::getTotalMatrix() const {
   return GetCanvas()->getTotalMatrix();
 }
 
@@ -306,6 +308,10 @@ void RecordPaintCanvas::Annotate(AnnotationType type,
 
 void RecordPaintCanvas::recordCustomData(uint32_t id) {
   list_->push<CustomDataOp>(id);
+}
+
+void RecordPaintCanvas::setNodeId(int node_id) {
+  list_->push<SetNodeIdOp>(node_id);
 }
 
 const SkNoDrawCanvas* RecordPaintCanvas::GetCanvas() const {

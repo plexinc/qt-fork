@@ -33,6 +33,7 @@
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/inspector/console_message.h"
+#include "third_party/blink/renderer/core/probe/async_task_id.h"
 #include "third_party/blink/renderer/core/probe/core_probes.h"
 #include "third_party/blink/renderer/modules/webdatabase/change_version_data.h"
 #include "third_party/blink/renderer/modules/webdatabase/change_version_wrapper.h"
@@ -50,6 +51,7 @@
 #include "third_party/blink/renderer/modules/webdatabase/sqlite/sqlite_transaction.h"
 #include "third_party/blink/renderer/modules/webdatabase/storage_log.h"
 #include "third_party/blink/renderer/modules/webdatabase/web_database_host.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
@@ -268,7 +270,7 @@ Database::~Database() {
   DCHECK(!Opened());
 }
 
-void Database::Trace(blink::Visitor* visitor) {
+void Database::Trace(Visitor* visitor) {
   visitor->Trace(database_context_);
   ScriptWrappable::Trace(visitor);
 }
@@ -291,21 +293,25 @@ bool Database::OpenAndVerifyVersion(bool set_version_in_new_database,
     if (success && IsNew()) {
       STORAGE_DVLOG(1)
           << "Scheduling DatabaseCreationCallbackTask for database " << this;
+      auto task_id = std::make_unique<probe::AsyncTaskId>();
       probe::AsyncTaskScheduled(GetExecutionContext(), "openDatabase",
-                                creation_callback);
+                                task_id.get());
       GetExecutionContext()
           ->GetTaskRunner(TaskType::kDatabaseAccess)
-          ->PostTask(FROM_HERE, WTF::Bind(&Database::RunCreationCallback,
-                                          WrapPersistent(this),
-                                          WrapPersistent(creation_callback)));
+          ->PostTask(
+              FROM_HERE,
+              WTF::Bind(&Database::RunCreationCallback, WrapPersistent(this),
+                        WrapPersistent(creation_callback), std::move(task_id)));
     }
   }
 
   return success;
 }
 
-void Database::RunCreationCallback(V8DatabaseCallback* creation_callback) {
-  probe::AsyncTask async_task(GetExecutionContext(), creation_callback);
+void Database::RunCreationCallback(
+    V8DatabaseCallback* creation_callback,
+    std::unique_ptr<probe::AsyncTaskId> task_id) {
+  probe::AsyncTask async_task(GetExecutionContext(), task_id.get());
   creation_callback->InvokeAndReportException(nullptr, this);
 }
 
@@ -741,9 +747,9 @@ void Database::ReportSqliteError(int sqlite_error_code) {
 }
 
 void Database::LogErrorMessage(const String& message) {
-  GetExecutionContext()->AddConsoleMessage(
-      ConsoleMessage::Create(mojom::ConsoleMessageSource::kStorage,
-                             mojom::ConsoleMessageLevel::kError, message));
+  GetExecutionContext()->AddConsoleMessage(MakeGarbageCollected<ConsoleMessage>(
+      mojom::ConsoleMessageSource::kStorage, mojom::ConsoleMessageLevel::kError,
+      message));
 }
 
 ExecutionContext* Database::GetExecutionContext() const {

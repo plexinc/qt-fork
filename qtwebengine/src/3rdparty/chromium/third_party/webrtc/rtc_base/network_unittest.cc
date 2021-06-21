@@ -15,6 +15,7 @@
 #include <memory>
 #include <vector>
 
+#include "absl/strings/match.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/net_helpers.h"
 #include "rtc_base/network_monitor.h"
@@ -47,10 +48,10 @@ class FakeNetworkMonitor : public NetworkMonitorBase {
   AdapterType GetAdapterType(const std::string& if_name) override {
     // Note that the name matching rules are different from the
     // GetAdapterTypeFromName in NetworkManager.
-    if (if_name.find("wifi") == 0) {
+    if (absl::StartsWith(if_name, "wifi")) {
       return ADAPTER_TYPE_WIFI;
     }
-    if (if_name.find("cellular") == 0) {
+    if (absl::StartsWith(if_name, "cellular")) {
       return ADAPTER_TYPE_CELLULAR;
     }
     return ADAPTER_TYPE_UNKNOWN;
@@ -859,6 +860,12 @@ TEST_F(NetworkTest, TestGetAdapterTypeFromNameMatching) {
   ClearNetworks(manager);
   ReleaseIfAddrs(addr_list);
 
+  strcpy(if_name, "wlan0");
+  addr_list = InstallIpv6Network(if_name, ipv6_address1, ipv6_mask, manager);
+  EXPECT_EQ(ADAPTER_TYPE_WIFI, GetAdapterType(manager));
+  ClearNetworks(manager);
+  ReleaseIfAddrs(addr_list);
+
 #if defined(WEBRTC_IOS)
   strcpy(if_name, "pdp_ip0");
   addr_list = InstallIpv6Network(if_name, ipv6_address1, ipv6_mask, manager);
@@ -879,12 +886,6 @@ TEST_F(NetworkTest, TestGetAdapterTypeFromNameMatching) {
   ClearNetworks(manager);
   ReleaseIfAddrs(addr_list);
 
-  strcpy(if_name, "wlan1");
-  addr_list = InstallIpv6Network(if_name, ipv6_address2, ipv6_mask, manager);
-  EXPECT_EQ(ADAPTER_TYPE_WIFI, GetAdapterType(manager));
-  ClearNetworks(manager);
-  ReleaseIfAddrs(addr_list);
-
   strcpy(if_name, "v4-rmnet_data0");
   addr_list = InstallIpv6Network(if_name, ipv6_address2, ipv6_mask, manager);
   EXPECT_EQ(ADAPTER_TYPE_CELLULAR, GetAdapterType(manager));
@@ -896,63 +897,9 @@ TEST_F(NetworkTest, TestGetAdapterTypeFromNameMatching) {
   EXPECT_EQ(ADAPTER_TYPE_CELLULAR, GetAdapterType(manager));
   ClearNetworks(manager);
   ReleaseIfAddrs(addr_list);
-#else
-  // TODO(deadbeef): If not iOS or Android, "wlan0" should be treated as
-  // "unknown"? Why? This should be fixed if there's no good reason.
-  strcpy(if_name, "wlan0");
-  addr_list = InstallIpv6Network(if_name, ipv6_address1, ipv6_mask, manager);
-
-  EXPECT_EQ(ADAPTER_TYPE_UNKNOWN, GetAdapterType(manager));
-  ClearNetworks(manager);
-  ReleaseIfAddrs(addr_list);
 #endif
 }
 #endif  // defined(WEBRTC_POSIX)
-
-#if defined(WEBRTC_LINUX) && !defined(WEBRTC_ANDROID)
-// If you want to test non-default routes, you can do the following on a linux
-// machine:
-// 1) Load the dummy network driver:
-// sudo modprobe dummy
-// sudo ifconfig dummy0 127.0.0.1
-// 2) Run this test and confirm the output says it found a dummy route (and
-// passes).
-// 3) When done:
-// sudo rmmmod dummy
-TEST_F(NetworkTest, TestIgnoreNonDefaultRoutes) {
-  BasicNetworkManager manager;
-  NetworkManager::NetworkList list;
-  list = GetNetworks(manager, false);
-  bool found_dummy = false;
-  RTC_LOG(LS_INFO) << "Looking for dummy network: ";
-  for (NetworkManager::NetworkList::iterator it = list.begin();
-       it != list.end(); ++it) {
-    RTC_LOG(LS_INFO) << "  Network name: " << (*it)->name();
-    found_dummy |= (*it)->name().find("dummy0") != std::string::npos;
-  }
-  for (NetworkManager::NetworkList::iterator it = list.begin();
-       it != list.end(); ++it) {
-    delete (*it);
-  }
-  if (!found_dummy) {
-    RTC_LOG(LS_INFO) << "No dummy found, quitting.";
-    return;
-  }
-  RTC_LOG(LS_INFO) << "Found dummy, running again while ignoring non-default "
-                   << "routes.";
-  manager.set_ignore_non_default_routes(true);
-  list = GetNetworks(manager, false);
-  for (NetworkManager::NetworkList::iterator it = list.begin();
-       it != list.end(); ++it) {
-    RTC_LOG(LS_INFO) << "  Network name: " << (*it)->name();
-    EXPECT_TRUE((*it)->name().find("dummy0") == std::string::npos);
-  }
-  for (NetworkManager::NetworkList::iterator it = list.begin();
-       it != list.end(); ++it) {
-    delete (*it);
-  }
-}
-#endif
 
 // Test MergeNetworkList successfully combines all IPs for the same
 // prefix/length into a single Network.

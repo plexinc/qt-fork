@@ -14,16 +14,16 @@
 #include <memory>
 #include <ostream>
 #include <sstream>
+#include <string>
 #include <tuple>
 #include <type_traits>
 #include <vector>
 
-#include "testing/gmock/include/gmock/gmock.h"
-#include "testing/gtest/include/gtest/gtest.h"
 #include "net/third_party/quiche/src/http2/http2_structures_test_util.h"
 #include "net/third_party/quiche/src/http2/platform/api/http2_string_utils.h"
 #include "net/third_party/quiche/src/http2/platform/api/http2_test_helpers.h"
 #include "net/third_party/quiche/src/http2/test_tools/http2_random.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_str_cat.h"
 
 using ::testing::AssertionResult;
 using ::testing::AssertionSuccess;
@@ -171,7 +171,7 @@ INSTANTIATE_TEST_SUITE_P(IsEndStream,
 TEST_P(IsEndStreamTest, IsEndStream) {
   const bool is_set =
       (flags_ & Http2FrameFlag::END_STREAM) == Http2FrameFlag::END_STREAM;
-  Http2String flags_string;
+  std::string flags_string;
   Http2FrameHeader v(0, type_, flags_, 0);
   switch (type_) {
     case Http2FrameType::DATA:
@@ -208,7 +208,7 @@ INSTANTIATE_TEST_SUITE_P(IsAck,
                                  Values(~Http2FrameFlag::ACK, 0xff)));
 TEST_P(IsACKTest, IsAck) {
   const bool is_set = (flags_ & Http2FrameFlag::ACK) == Http2FrameFlag::ACK;
-  Http2String flags_string;
+  std::string flags_string;
   Http2FrameHeader v(0, type_, flags_, 0);
   switch (type_) {
     case Http2FrameType::SETTINGS:
@@ -246,7 +246,7 @@ INSTANTIATE_TEST_SUITE_P(IsEndHeaders,
 TEST_P(IsEndHeadersTest, IsEndHeaders) {
   const bool is_set =
       (flags_ & Http2FrameFlag::END_HEADERS) == Http2FrameFlag::END_HEADERS;
-  Http2String flags_string;
+  std::string flags_string;
   Http2FrameHeader v(0, type_, flags_, 0);
   switch (type_) {
     case Http2FrameType::HEADERS:
@@ -287,7 +287,7 @@ INSTANTIATE_TEST_SUITE_P(IsPadded,
 TEST_P(IsPaddedTest, IsPadded) {
   const bool is_set =
       (flags_ & Http2FrameFlag::PADDED) == Http2FrameFlag::PADDED;
-  Http2String flags_string;
+  std::string flags_string;
   Http2FrameHeader v(0, type_, flags_, 0);
   switch (type_) {
     case Http2FrameType::DATA:
@@ -326,7 +326,7 @@ INSTANTIATE_TEST_SUITE_P(HasPriority,
 TEST_P(HasPriorityTest, HasPriority) {
   const bool is_set =
       (flags_ & Http2FrameFlag::PRIORITY) == Http2FrameFlag::PRIORITY;
-  Http2String flags_string;
+  std::string flags_string;
   Http2FrameHeader v(0, type_, flags_, 0);
   switch (type_) {
     case Http2FrameType::HEADERS:
@@ -439,7 +439,8 @@ TEST(Http2PushPromiseTest, Misc) {
 
   std::stringstream s;
   s << v;
-  EXPECT_EQ(Http2StrCat("promised_stream_id=", promised_stream_id), s.str());
+  EXPECT_EQ(quiche::QuicheStrCat("promised_stream_id=", promised_stream_id),
+            s.str());
 
   // High-bit is reserved, but not used, so we can set it.
   promised_stream_id |= 0x80000000;
@@ -496,8 +497,9 @@ TEST(Http2WindowUpdateTest, Misc) {
 
   std::stringstream s;
   s << v;
-  EXPECT_EQ(Http2StrCat("window_size_increment=", window_size_increment),
-            s.str());
+  EXPECT_EQ(
+      quiche::QuicheStrCat("window_size_increment=", window_size_increment),
+      s.str());
 
   // High-bit is reserved, but not used, so we can set it.
   window_size_increment |= 0x80000000;
@@ -521,7 +523,7 @@ TEST(Http2AltSvcTest, Misc) {
 
   std::stringstream s;
   s << v;
-  EXPECT_EQ(Http2StrCat("origin_length=", origin_length), s.str());
+  EXPECT_EQ(quiche::QuicheStrCat("origin_length=", origin_length), s.str());
 
   Http2AltSvcFields w{++origin_length};
   EXPECT_EQ(w, w);

@@ -13,6 +13,7 @@
 #include "base/sequence_checker.h"
 #include "base/system/system_monitor.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "device/udev_linux/udev.h"
 #include "device/udev_linux/udev_watcher.h"
 
@@ -114,7 +115,7 @@ void DeviceMonitorLinux::BlockingTaskRunnerHelper::OnDevicesChanged(
 }
 
 DeviceMonitorLinux::DeviceMonitorLinux()
-    : blocking_task_runner_(base::CreateSequencedTaskRunnerWithTraits(
+    : blocking_task_runner_(base::ThreadPool::CreateSequencedTaskRunner(
           {base::MayBlock(), base::TaskPriority::USER_VISIBLE,
            base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN})),
       blocking_task_helper_(new BlockingTaskRunnerHelper,

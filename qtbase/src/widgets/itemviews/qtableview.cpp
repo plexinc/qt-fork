@@ -1431,7 +1431,7 @@ void QTableView::paintEvent(QPaintEvent *event)
     const bool showGrid = d->showGrid;
     const int gridSize = showGrid ? 1 : 0;
     const int gridHint = style()->styleHint(QStyle::SH_Table_GridLineColor, &option, this);
-    const QColor gridColor = static_cast<QRgb>(gridHint);
+    const QColor gridColor = QColor::fromRgba(static_cast<QRgb>(gridHint));
     const QPen gridPen = QPen(gridColor, 0, d->gridStyle);
     const QHeaderView *verticalHeader = d->verticalHeader;
     const QHeaderView *horizontalHeader = d->horizontalHeader;
@@ -2939,14 +2939,17 @@ void QTableView::timerEvent(QTimerEvent *event)
     Q_D(QTableView);
 
     if (event->timerId() == d->columnResizeTimerID) {
-        updateGeometries();
-        killTimer(d->columnResizeTimerID);
-        d->columnResizeTimerID = 0;
+        const int oldScrollMax = horizontalScrollBar()->maximum();
+        if (horizontalHeader()->d_func()->state != QHeaderViewPrivate::ResizeSection) {
+            updateGeometries();
+            killTimer(d->columnResizeTimerID);
+            d->columnResizeTimerID = 0;
+        }
 
         QRect rect;
         int viewportHeight = d->viewport->height();
         int viewportWidth = d->viewport->width();
-        if (d->hasSpans()) {
+        if (d->hasSpans() || horizontalScrollBar()->value() == oldScrollMax) {
             rect = QRect(0, 0, viewportWidth, viewportHeight);
         } else {
             for (int i = d->columnsToUpdate.size()-1; i >= 0; --i) {
@@ -2964,14 +2967,17 @@ void QTableView::timerEvent(QTimerEvent *event)
     }
 
     if (event->timerId() == d->rowResizeTimerID) {
-        updateGeometries();
-        killTimer(d->rowResizeTimerID);
-        d->rowResizeTimerID = 0;
+        const int oldScrollMax = verticalScrollBar()->maximum();
+        if (verticalHeader()->d_func()->state != QHeaderViewPrivate::ResizeSection) {
+            updateGeometries();
+            killTimer(d->rowResizeTimerID);
+            d->rowResizeTimerID = 0;
+        }
 
         int viewportHeight = d->viewport->height();
         int viewportWidth = d->viewport->width();
         int top;
-        if (d->hasSpans()) {
+        if (d->hasSpans() || verticalScrollBar()->value() == oldScrollMax) {
             top = 0;
         } else {
             top = viewportHeight;
@@ -3199,11 +3205,11 @@ void QTableView::sortByColumn(int column, Qt::SortOrder order)
     Q_D(QTableView);
     if (column < -1)
         return;
-    // If sorting is enabled it will emit a signal connected to
-    // _q_sortIndicatorChanged, which then actually sorts
     d->horizontalHeader->setSortIndicator(column, order);
-    // If sorting is not enabled, force to sort now
-    if (!d->sortingEnabled)
+    // If sorting is not enabled or has the same order as before, force to sort now
+    // else sorting will be trigger through sortIndicatorChanged()
+    if (!d->sortingEnabled ||
+        (d->horizontalHeader->sortIndicatorSection() == column && d->horizontalHeader->sortIndicatorOrder() == order))
         d->model->sort(column, order);
 }
 

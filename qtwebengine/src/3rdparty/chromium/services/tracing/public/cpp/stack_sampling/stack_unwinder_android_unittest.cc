@@ -6,9 +6,11 @@
 
 #include "base/android/jni_generator/jni_generator_helper.h"
 #include "base/bind.h"
+#include "base/profiler/stack_buffer.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/task/post_task.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/task/thread_pool.h"
+#include "base/test/task_environment.h"
 #include "base/trace_event/cfi_backtrace_android.h"
 #include "services/tracing/jni_headers/UnwindTestHelper_jni.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -33,7 +35,7 @@ class StackUnwinderTest : public testing::Test {
 
  private:
   StackUnwinderAndroid unwinder_;
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::TaskEnvironment task_environment_;
 
   DISALLOW_COPY_AND_ASSIGN(StackUnwinderTest);
 };
@@ -60,7 +62,7 @@ TEST_F(StackUnwinderTest, UnwindCurrentThread) {
 
 TEST_F(StackUnwinderTest, UnwindOtherThread) {
   base::WaitableEvent unwind_finished_event;
-  auto task_runner = base::CreateSingleThreadTaskRunnerWithTraits(
+  auto task_runner = base::ThreadPool::CreateSingleThreadTaskRunner(
       {base::MayBlock(), base::TaskPriority::BEST_EFFORT});
 
   auto callback = [](StackUnwinderAndroid* unwinder, base::PlatformThreadId tid,
@@ -105,7 +107,7 @@ TEST_F(StackUnwinderTest, UnwindOtherThread) {
 }
 
 TEST_F(StackUnwinderTest, UnwindOtherThreadOnJNICall) {
-  auto task_runner = base::CreateSingleThreadTaskRunnerWithTraits(
+  auto task_runner = base::ThreadPool::CreateSingleThreadTaskRunner(
       {base::MayBlock(), base::TaskPriority::BEST_EFFORT});
 
   auto callback = [](StackUnwinderAndroid* unwinder, base::PlatformThreadId tid,

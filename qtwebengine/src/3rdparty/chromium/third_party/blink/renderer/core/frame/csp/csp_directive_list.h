@@ -6,9 +6,9 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_FRAME_CSP_CSP_DIRECTIVE_LIST_H_
 
 #include "base/macros.h"
-#include "third_party/blink/public/platform/web_content_security_policy.h"
 #include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
 #include "third_party/blink/renderer/core/frame/csp/media_list_directive.h"
+#include "third_party/blink/renderer/core/frame/csp/require_trusted_types_for_directive.h"
 #include "third_party/blink/renderer/core/frame/csp/source_list_directive.h"
 #include "third_party/blink/renderer/core/frame/csp/string_list_directive.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
@@ -16,7 +16,7 @@
 #include "third_party/blink/renderer/platform/network/content_security_policy_parsers.h"
 #include "third_party/blink/renderer/platform/network/http_parsers.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
-#include "third_party/blink/renderer/platform/weborigin/security_violation_reporting_policy.h"
+#include "third_party/blink/renderer/platform/weborigin/reporting_disposition.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
@@ -28,27 +28,29 @@ enum class ResourceType : uint8_t;
 
 typedef HeapVector<Member<SourceListDirective>> SourceListDirectiveVector;
 
-class CORE_EXPORT CSPDirectiveList
-    : public GarbageCollectedFinalized<CSPDirectiveList> {
+class CORE_EXPORT CSPDirectiveList final
+    : public GarbageCollected<CSPDirectiveList> {
  public:
   static CSPDirectiveList* Create(ContentSecurityPolicy*,
                                   const UChar* begin,
                                   const UChar* end,
-                                  ContentSecurityPolicyHeaderType,
-                                  ContentSecurityPolicyHeaderSource,
+                                  network::mojom::ContentSecurityPolicyType,
+                                  network::mojom::ContentSecurityPolicySource,
                                   bool should_parse_wasm_eval = false);
 
   CSPDirectiveList(ContentSecurityPolicy*,
-                   ContentSecurityPolicyHeaderType,
-                   ContentSecurityPolicyHeaderSource);
+                   network::mojom::ContentSecurityPolicyType,
+                   network::mojom::ContentSecurityPolicySource);
 
   void Parse(const UChar* begin,
              const UChar* end,
              bool should_parse_wasm_eval = false);
 
   const String& Header() const { return header_; }
-  ContentSecurityPolicyHeaderType HeaderType() const { return header_type_; }
-  ContentSecurityPolicyHeaderSource HeaderSource() const {
+  network::mojom::ContentSecurityPolicyType HeaderType() const {
+    return header_type_;
+  }
+  network::mojom::ContentSecurityPolicySource HeaderSource() const {
     return header_source_;
   }
 
@@ -58,30 +60,34 @@ class CORE_EXPORT CSPDirectiveList
                    const String& nonce,
                    const String& context_url,
                    const WTF::OrdinalNumber& context_line,
-                   SecurityViolationReportingPolicy) const;
+                   ReportingDisposition) const;
 
-  bool AllowEval(ScriptState*,
-                 SecurityViolationReportingPolicy,
+  // Returns whether or not the Javascript code generation should call back the
+  // CSP checker before any script evaluation from a string is being made.
+  bool ShouldCheckEval() const;
+
+  bool AllowEval(ReportingDisposition,
                  ContentSecurityPolicy::ExceptionStatus,
                  const String& script_content) const;
-  bool AllowWasmEval(ScriptState*,
-                     SecurityViolationReportingPolicy,
+  bool AllowWasmEval(ReportingDisposition,
                      ContentSecurityPolicy::ExceptionStatus,
                      const String& script_content) const;
   bool AllowPluginType(const String& type,
                        const String& type_attribute,
                        const KURL&,
-                       SecurityViolationReportingPolicy) const;
+                       ReportingDisposition) const;
 
   bool AllowFromSource(ContentSecurityPolicy::DirectiveType,
                        const KURL&,
+                       const KURL& url_before_redirects,
                        ResourceRequest::RedirectStatus,
-                       SecurityViolationReportingPolicy,
+                       ReportingDisposition,
                        const String& nonce = String(),
                        const IntegrityMetadataSet& = IntegrityMetadataSet(),
                        ParserDisposition = kParserInserted) const;
 
-  bool AllowTrustedTypePolicy(const String& policy_name) const;
+  bool AllowTrustedTypePolicy(const String& policy_name,
+                              bool is_duplicate) const;
 
   // |allowAncestors| does not need to know whether the resource was a
   // result of a redirect. After a redirect, source paths are usually
@@ -89,24 +95,23 @@ class CORE_EXPORT CSPDirectiveList
   // request was redirected, but this is not a concern for ancestors,
   // because a child frame can't manipulate the URL of a cross-origin
   // parent.
-  bool AllowAncestors(LocalFrame*,
-                      const KURL&,
-                      SecurityViolationReportingPolicy) const;
+  bool AllowAncestors(LocalFrame*, const KURL&, ReportingDisposition) const;
   bool AllowDynamic(ContentSecurityPolicy::DirectiveType) const;
   bool AllowDynamicWorker() const;
 
   bool AllowRequestWithoutIntegrity(mojom::RequestContextType,
                                     const KURL&,
                                     ResourceRequest::RedirectStatus,
-                                    SecurityViolationReportingPolicy) const;
+                                    ReportingDisposition) const;
 
   bool AllowTrustedTypeAssignmentFailure(const String& message,
-                                         const String& sample) const;
+                                         const String& sample,
+                                         const String& sample_prefix) const;
 
   bool StrictMixedContentChecking() const {
     return strict_mixed_content_checking_enforced_;
   }
-  void ReportMixedContent(const KURL& mixed_url,
+  void ReportMixedContent(const KURL& blocked_url,
                           ResourceRequest::RedirectStatus) const;
 
   bool ShouldDisableEval() const {
@@ -119,7 +124,7 @@ class CORE_EXPORT CSPDirectiveList
     return eval_disabled_error_message_;
   }
   bool IsReportOnly() const {
-    return header_type_ == kContentSecurityPolicyHeaderTypeReport;
+    return header_type_ == network::mojom::ContentSecurityPolicyType::kReport;
   }
   bool IsActiveForConnections() const {
     return OperativeDirective(
@@ -158,9 +163,31 @@ class CORE_EXPORT CSPDirectiveList
   // * navigate-to
   // The exported directives only contains sources that affect navigation. For
   // instance it doesn't contains 'unsafe-inline' or 'unsafe-eval'
-  WebContentSecurityPolicy ExposeForNavigationalChecks() const;
+  network::mojom::blink::ContentSecurityPolicyPtr ExposeForNavigationalChecks()
+      const;
 
-  void Trace(blink::Visitor*);
+  // We consider `object-src` restrictions to be reasonable iff they're
+  // equivalent to `object-src 'none'`.
+  bool IsObjectRestrictionReasonable() const;
+
+  // We consider `base-uri` restrictions to be reasonable iff they're equivalent
+  // to `base-uri 'none'` or `base-uri 'self'`.
+  bool IsBaseRestrictionReasonable() const;
+
+  // We consider `script-src` restrictions to be reasonable iff they're not
+  // URL-based (e.g. they contain only nonces and hashes, or they use
+  // 'strict-dynamic'). Neither `'unsafe-eval'` nor `'unsafe-hashes'` affect
+  // this judgement.
+  bool IsScriptRestrictionReasonable() const;
+
+  bool RequiresTrustedTypes() const {
+    return require_trusted_types_for_ && require_trusted_types_for_->require();
+  }
+  bool TrustedTypesAllowDuplicates() const {
+    return trusted_types_ && trusted_types_->IsAllowDuplicates();
+  }
+
+  void Trace(Visitor*);
 
  private:
   FRIEND_TEST_ALL_PREFIXES(CSPDirectiveListTest, IsMatchingNoncePresent);
@@ -183,8 +210,8 @@ class CORE_EXPORT CSPDirectiveList
   void EnforceStrictMixedContentChecking(const String& name,
                                          const String& value);
   void EnableInsecureRequestsUpgrade(const String& name, const String& value);
-  void TreatAsPublicAddress(const String& name, const String& value);
-  void RequireTrustedTypes(const String& name, const String& value);
+  void AddTrustedTypes(const String& name, const String& value);
+  void RequireTrustedTypesFor(const String& name, const String& value);
 
   template <class CSPDirectiveType>
   void SetCSPDirective(const String& name,
@@ -202,7 +229,8 @@ class CORE_EXPORT CSPDirectiveList
                        ResourceRequest::RedirectStatus,
                        ContentSecurityPolicy::ViolationType violation_type =
                            ContentSecurityPolicy::kURLViolation,
-                       const String& sample = String()) const;
+                       const String& sample = String(),
+                       const String& sample_prefix = String()) const;
   void ReportViolationWithFrame(const String& directive_text,
                                 const ContentSecurityPolicy::DirectiveType,
                                 const String& console_message,
@@ -220,7 +248,6 @@ class CORE_EXPORT CSPDirectiveList
                            const ContentSecurityPolicy::DirectiveType,
                            const String& message,
                            const KURL& blocked_url,
-                           ScriptState*,
                            const ContentSecurityPolicy::ExceptionStatus,
                            const String& content) const;
 
@@ -247,12 +274,10 @@ class CORE_EXPORT CSPDirectiveList
 
   bool CheckEvalAndReportViolation(SourceListDirective*,
                                    const String& console_message,
-                                   ScriptState*,
                                    ContentSecurityPolicy::ExceptionStatus,
                                    const String& script_content) const;
   bool CheckWasmEvalAndReportViolation(SourceListDirective*,
                                        const String& console_message,
-                                       ScriptState*,
                                        ContentSecurityPolicy::ExceptionStatus,
                                        const String& script_content) const;
   bool CheckInlineAndReportViolation(
@@ -269,6 +294,7 @@ class CORE_EXPORT CSPDirectiveList
   bool CheckSourceAndReportViolation(SourceListDirective*,
                                      const KURL&,
                                      const ContentSecurityPolicy::DirectiveType,
+                                     const KURL& url_before_redirects,
                                      ResourceRequest::RedirectStatus) const;
   bool CheckMediaTypeAndReportViolation(MediaListDirective*,
                                         const String& type,
@@ -300,15 +326,14 @@ class CORE_EXPORT CSPDirectiveList
   Member<ContentSecurityPolicy> policy_;
 
   String header_;
-  ContentSecurityPolicyHeaderType header_type_;
-  ContentSecurityPolicyHeaderSource header_source_;
+  network::mojom::ContentSecurityPolicyType header_type_;
+  network::mojom::ContentSecurityPolicySource header_source_;
 
   bool has_sandbox_policy_;
 
   bool strict_mixed_content_checking_enforced_;
 
   bool upgrade_insecure_requests_;
-  bool treat_as_public_address_;
 
   Member<MediaListDirective> plugin_types_;
   Member<SourceListDirective> base_uri_;
@@ -333,6 +358,7 @@ class CORE_EXPORT CSPDirectiveList
   Member<SourceListDirective> worker_src_;
   Member<SourceListDirective> navigate_to_;
   Member<StringListDirective> trusted_types_;
+  Member<RequireTrustedTypesForDirective> require_trusted_types_for_;
 
   uint8_t require_sri_for_;
 

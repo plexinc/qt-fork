@@ -8,18 +8,9 @@
 #include "base/macros.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/webui_load_timer.h"
-
-#if defined(OS_CHROMEOS)
-#include "chromeos/services/network_config/public/mojom/cros_network_config.mojom.h"  // nogncheck
-#include "ui/webui/mojo_web_ui_controller.h"
-#else
 #include "content/public/browser/web_ui_controller.h"
-#endif
-
-class Profile;
 
 namespace content {
-class WebUIDataSource;
 class WebUIMessageHandler;
 }  // namespace content
 
@@ -30,13 +21,7 @@ class PrefRegistrySyncable;
 namespace settings {
 
 // The WebUI handler for chrome://settings.
-class SettingsUI
-#if defined(OS_CHROMEOS)
-    : public ui::MojoWebUIController
-#else
-    : public content::WebUIController
-#endif
-{
+class SettingsUI : public content::WebUIController {
  public:
   static void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry);
 
@@ -44,19 +29,17 @@ class SettingsUI
   ~SettingsUI() override;
 
 #if defined(OS_CHROMEOS)
-  // Initializes the WebUI message handlers for OS-specific settings.
-  static void InitOSWebUIHandlers(Profile* profile,
-                                  content::WebUI* web_ui,
-                                  content::WebUIDataSource* html_source);
+  // Initializes the WebUI message handlers for CrOS-specific settings that are
+  // still shown in the browser settings UI.
+  void InitBrowserSettingsWebUIHandlers();
 #endif  // defined(OS_CHROMEOS)
 
  private:
   void AddSettingsPageUIHandler(
       std::unique_ptr<content::WebUIMessageHandler> handler);
-#if defined(OS_CHROMEOS)
-  void BindCrosNetworkConfig(
-      chromeos::network_config::mojom::CrosNetworkConfigRequest request);
-#endif
+
+  // Makes a request to show a HaTS survey.
+  void TryShowHatsSurveyWithTimeout();
 
   WebuiLoadTimer webui_load_timer_;
 

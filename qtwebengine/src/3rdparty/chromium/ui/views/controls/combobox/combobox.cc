@@ -4,16 +4,17 @@
 
 #include "ui/views/controls/combobox/combobox.h"
 
+#include <algorithm>
 #include <memory>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/logging.h"
 #include "build/build_config.h"
 #include "ui/accessibility/ax_action_data.h"
+#include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/ime/input_method.h"
-#include "ui/base/models/combobox_model.h"
-#include "ui/base/models/combobox_model_observer.h"
 #include "ui/base/models/menu_model.h"
 #include "ui/events/event.h"
 #include "ui/gfx/canvas.h"
@@ -24,6 +25,8 @@
 #include "ui/views/animation/flood_fill_ink_drop_ripple.h"
 #include "ui/views/animation/ink_drop_impl.h"
 #include "ui/views/background.h"
+#include "ui/views/controls/button/button.h"
+#include "ui/views/controls/button/button_controller.h"
 #include "ui/views/controls/combobox/combobox_listener.h"
 #include "ui/views/controls/combobox/combobox_util.h"
 #include "ui/views/controls/focus_ring.h"
@@ -46,11 +49,8 @@ namespace {
 constexpr int kNoSelection = -1;
 
 SkColor GetTextColorForEnableState(const Combobox& combobox, bool enabled) {
-  SkColor color =
-      style::GetColor(combobox, style::CONTEXT_TEXTFIELD, style::STYLE_PRIMARY);
-  if (!enabled)
-    color = SkColorSetA(color, gfx::kDisabledControlAlpha);
-  return color;
+  const int style = enabled ? style::STYLE_PRIMARY : style::STYLE_DISABLED;
+  return style::GetColor(combobox, style::CONTEXT_TEXTFIELD, style);
 }
 
 // The transparent button which holds a button state but is not rendered.
@@ -58,7 +58,8 @@ class TransparentButton : public Button {
  public:
   explicit TransparentButton(ButtonListener* listener) : Button(listener) {
     SetFocusBehavior(FocusBehavior::NEVER);
-    set_notify_action(PlatformStyle::kMenuNotifyActivationAction);
+    button_controller()->set_notify_action(
+        ButtonController::NotifyAction::kOnPress);
 
     SetInkDropMode(InkDropMode::ON);
     set_has_ink_drop_action_on_click(true);
@@ -175,7 +176,7 @@ class Combobox::ComboboxMenuModel : public ui::MenuModel {
 
   int GetGroupIdAt(int index) const override { return -1; }
 
-  bool GetIconAt(int index, gfx::Image* icon) override { return false; }
+  bool GetIconAt(int index, gfx::Image* icon) const override { return false; }
 
   ui::ButtonMenuItemModel* GetButtonMenuItemAt(int index) const override {
     return nullptr;
@@ -220,7 +221,7 @@ Combobox::Combobox(ui::ComboboxModel* model, int text_context, int text_style)
       menu_model_(new ComboboxMenuModel(this, model)),
       arrow_button_(new TransparentButton(this)),
       size_to_largest_label_(true) {
-  model_->AddObserver(this);
+  observer_.Add(model_);
   OnComboboxModelChanged(model_);
 #if defined(OS_MACOSX)
   SetFocusBehavior(FocusBehavior::ACCESSIBLE_ONLY);
@@ -246,7 +247,6 @@ Combobox::~Combobox() {
     // Combobox should have been blurred before destroy.
     DCHECK(selector_.get() != GetInputMethod()->GetTextInputClient());
   }
-  model_->RemoveObserver(this);
 }
 
 const gfx::FontList& Combobox::GetFontList() const {
@@ -303,12 +303,8 @@ void Combobox::SetInvalid(bool invalid) {
   OnPropertyChanged(&selected_index_, kPropertyEffectsPaint);
 }
 
-void Combobox::Layout() {
-  View::Layout();
-  arrow_button_->SetBounds(0, 0, width(), height());
-}
-
 void Combobox::OnThemeChanged() {
+  View::OnThemeChanged();
   SetBackground(
       CreateBackgroundFromPainter(Painter::CreateSolidRoundRectPainter(
           GetNativeTheme()->GetSystemColor(
@@ -332,8 +328,8 @@ void Combobox::SetSelectedRow(int row) {
 }
 
 base::string16 Combobox::GetTextForRow(int row) {
-  return model()->IsItemSeparatorAt(row) ? base::string16() :
-                                           model()->GetItemAt(row);
+  return model()->IsItemSeparatorAt(row) ? base::string16()
+                                         : model()->GetItemAt(row);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -355,10 +351,14 @@ gfx::Size Combobox::CalculatePreferredSize() const {
   return gfx::Size(total_width, content_size_.height() + insets.height());
 }
 
+void Combobox::OnBoundsChanged(const gfx::Rect& previous_bounds) {
+  arrow_button_->SetBounds(0, 0, width(), height());
+}
+
 bool Combobox::SkipDefaultKeyEventProcessing(const ui::KeyEvent& e) {
   // Escape should close the drop down list when it is active, not host UI.
-  if (e.key_code() != ui::VKEY_ESCAPE ||
-      e.IsShiftDown() || e.IsControlDown() || e.IsAltDown()) {
+  if (e.key_code() != ui::VKEY_ESCAPE || e.IsShiftDown() || e.IsControlDown() ||
+      e.IsAltDown() || e.IsAltGrDown()) {
     return false;
   }
   return !!menu_runner_;
@@ -502,7 +502,7 @@ void Combobox::ButtonPressed(Button* sender, const ui::Event& event) {
   // TODO(hajimehoshi): Fix the problem that the arrow button blinks when
   // cliking this while the dropdown menu is opened.
   const base::TimeDelta delta = base::TimeTicks::Now() - closed_time_;
-  if (delta.InMilliseconds() <= kMinimumMsBetweenButtonClicks)
+  if (delta <= kMinimumTimeBetweenButtonClicks)
     return;
 
   ui::MenuSourceType source_type = ui::MENU_SOURCE_MOUSE;

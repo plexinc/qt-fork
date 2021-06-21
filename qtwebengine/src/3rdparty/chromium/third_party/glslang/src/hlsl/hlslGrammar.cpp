@@ -2516,6 +2516,8 @@ bool HlslGrammar::acceptMemberFunctionDefinition(TIntermNode*& nodeList, const T
 //
 bool HlslGrammar::acceptFunctionParameters(TFunction& function)
 {
+    parseContext.beginParameterParsing(function);
+
     // LEFT_PAREN
     if (! acceptTokenClass(EHTokLeftParen))
         return false;
@@ -3218,6 +3220,11 @@ bool HlslGrammar::acceptConstructor(TIntermTyped*& node)
             // It's possible this is a type keyword used as an identifier.  Put the token back
             // for later use.
             recedeToken();
+            return false;
+        }
+
+        if (arguments == nullptr) {
+            expected("one or more arguments");
             return false;
         }
 

@@ -11,13 +11,11 @@ vr_module_desc = {
   name = "vr"
   java_deps = [ "//chrome/android/features/vr:java" ]
   android_manifest = "//chrome/android/features/vr/java/AndroidManifest.xml"
-  proguard_async = async_vr
-  if (use_native_modules && modularize_vr_native) {
-    native_deps = [ "//chrome/browser/vr:vr_ui" ]
-    native_entrypoints = "//chrome/browser/vr/module_exports.lst"
-  } else {
-    # TODO(tiborg): Remove dummy lib and those attributes.
-    loadable_module_dep = "//chrome/browser/android/vr:vr_ui_dummy_lib"
-    loadable_module = "libvr_ui_dummy_lib.so"
-  }
+  native_deps = [ "//chrome/browser/vr:vr_ui" ]
+  native_entrypoints = "//chrome/browser/vr/module_exports.lst"
+
+  # For VR, Module.getImpl() gets called before native library loads (required
+  # by native library load). Therefore disable auto-load on Module.getImpl();
+  # the VR DFM manages its own loading on start-up and on install.
+  load_native_on_get_impl = false
 }

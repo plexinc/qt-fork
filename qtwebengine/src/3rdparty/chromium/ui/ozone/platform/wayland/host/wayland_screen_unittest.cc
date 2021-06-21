@@ -89,13 +89,12 @@ class WaylandScreenTest : public WaylandTest {
       PlatformWindowType window_type,
       gfx::AcceleratedWidget parent_widget,
       MockPlatformWindowDelegate* delegate) {
-    auto window = std::make_unique<WaylandWindow>(delegate, connection_.get());
     PlatformWindowInitProperties properties;
     properties.bounds = bounds;
     properties.type = window_type;
     properties.parent_widget = parent_widget;
-    EXPECT_TRUE(window->Initialize(std::move(properties)));
-    return window;
+    return WaylandWindow::Create(delegate, connection_.get(),
+                                 std::move(properties));
   }
 
   void UpdateOutputGeometry(wl_resource* output_resource,
@@ -250,7 +249,7 @@ TEST_P(WaylandScreenTest, GetAcceleratedWidgetAtScreenPoint) {
   EXPECT_EQ(widget_at_screen_point, gfx::kNullAcceleratedWidget);
 
   // Set a focus to the main window. Now, that focused window must be returned.
-  window_->set_pointer_focus(true);
+  window_->SetPointerFocus(true);
   widget_at_screen_point =
       platform_screen_->GetAcceleratedWidgetAtScreenPoint(gfx::Point(10, 10));
   EXPECT_EQ(widget_at_screen_point, window_->GetWidget());
@@ -273,8 +272,8 @@ TEST_P(WaylandScreenTest, GetAcceleratedWidgetAtScreenPoint) {
 
   // Imagine the mouse enters a menu window, which is located on top of the main
   // window, and gathers focus.
-  window_->set_pointer_focus(false);
-  menu_window->set_pointer_focus(true);
+  window_->SetPointerFocus(false);
+  menu_window->SetPointerFocus(true);
   widget_at_screen_point =
       platform_screen_->GetAcceleratedWidgetAtScreenPoint(gfx::Point(
           menu_window->GetBounds().x() + 1, menu_window->GetBounds().y() + 1));
@@ -282,15 +281,15 @@ TEST_P(WaylandScreenTest, GetAcceleratedWidgetAtScreenPoint) {
 
   // Whenever a mouse pointer leaves the menu window, the accelerated widget
   // of that focused window must be returned.
-  window_->set_pointer_focus(true);
-  menu_window->set_pointer_focus(false);
+  window_->SetPointerFocus(true);
+  menu_window->SetPointerFocus(false);
   widget_at_screen_point =
       platform_screen_->GetAcceleratedWidgetAtScreenPoint(gfx::Point(0, 0));
   EXPECT_EQ(widget_at_screen_point, window_->GetWidget());
 
   // Reset the focus to avoid crash on dtor as long as there is no real pointer
   // object.
-  window_->set_pointer_focus(false);
+  window_->SetPointerFocus(false);
 }
 
 TEST_P(WaylandScreenTest, GetDisplayMatching) {
@@ -624,9 +623,9 @@ TEST_P(WaylandScreenTest, SetBufferScale) {
   display::Display::ResetForceDeviceScaleFactorForTesting();
 }
 
-INSTANTIATE_TEST_SUITE_P(XdgVersionV5Test,
+INSTANTIATE_TEST_SUITE_P(XdgVersionStableTest,
                          WaylandScreenTest,
-                         ::testing::Values(kXdgShellV5));
+                         ::testing::Values(kXdgShellStable));
 INSTANTIATE_TEST_SUITE_P(XdgVersionV6Test,
                          WaylandScreenTest,
                          ::testing::Values(kXdgShellV6));

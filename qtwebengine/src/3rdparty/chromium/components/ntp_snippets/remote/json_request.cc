@@ -190,10 +190,11 @@ void JsonRequest::OnSimpleLoaderComplete(
              /*error_details=*/base::StringPrintf(" %d", response_code));
   } else {
     last_response_string_ = std::move(*response_body);
-    parse_json_callback_.Run(
-        last_response_string_,
-        base::Bind(&JsonRequest::OnJsonParsed, weak_ptr_factory_.GetWeakPtr()),
-        base::Bind(&JsonRequest::OnJsonError, weak_ptr_factory_.GetWeakPtr()));
+    parse_json_callback_.Run(last_response_string_,
+                             base::BindOnce(&JsonRequest::OnJsonParsed,
+                                            weak_ptr_factory_.GetWeakPtr()),
+                             base::BindOnce(&JsonRequest::OnJsonError,
+                                            weak_ptr_factory_.GetWeakPtr()));
   }
 }
 
@@ -229,9 +230,7 @@ std::unique_ptr<JsonRequest> JsonRequest::Builder::Build() const {
 }
 
 JsonRequest::Builder& JsonRequest::Builder::SetAuthentication(
-    const std::string& account_id,
     const std::string& auth_header) {
-  obfuscated_gaia_id_ = account_id;
   auth_header_ = auth_header;
   return *this;
 }
@@ -290,7 +289,7 @@ std::unique_ptr<network::ResourceRequest>
 JsonRequest::Builder::BuildResourceRequest() const {
   auto resource_request = std::make_unique<network::ResourceRequest>();
   resource_request->url = url_;
-  resource_request->allow_credentials = false;
+  resource_request->credentials_mode = network::mojom::CredentialsMode::kOmit;
   resource_request->method = "POST";
   resource_request->headers.SetHeader("Content-Type",
                                       "application/json; charset=UTF-8");
@@ -353,8 +352,7 @@ std::string JsonRequest::Builder::BuildBody() const {
     exclusive_category_parameters.SetInteger("numSuggestions",
                                              params_.count_to_fetch);
     base::ListValue category_parameters;
-    category_parameters.GetList().push_back(
-        std::move(exclusive_category_parameters));
+    category_parameters.Append(std::move(exclusive_category_parameters));
     request->SetKey("categoryParameters", std::move(category_parameters));
   }
 

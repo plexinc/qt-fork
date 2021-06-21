@@ -25,6 +25,12 @@ class View;
 // Describes how elements should be aligned within a layout.
 enum class LayoutAlignment { kStart, kCenter, kEnd, kStretch };
 
+// Specifies whether flex space is allocated in the same order as the children
+// in the host view, or in reverse order. Reverse order is useful when you want
+// child views to drop out from left to right instead of right to left if there
+// isn't enough space to display them.
+enum class FlexAllocationOrder { kNormal, kReverse };
+
 // Callback used to specify the size of a child view based on its size bounds.
 // Create your own custom rules, or use the Minimum|MaximumFlexSizeRule
 // constants below for common behaviors.
@@ -57,7 +63,7 @@ enum class MinimumFlexSizeRule {
 
 // Describes a simple rule for how a child view should grow in a layout when
 // there is extra size avaialble for that view to occupy.
-enum MaximumFlexSizeRule {
+enum class MaximumFlexSizeRule {
   kPreferred,  // Don't resize above preferred size.
   kUnbounded   // Allow resize to arbitrary size.
 };
@@ -90,19 +96,42 @@ class VIEWS_EXPORT FlexSpecification {
   // view's preferred size).
   FlexSpecification();
 
+  // Creates a flex specification with a custom flex rule. Note that any copies
+  // or mutations of this specification will also inherit the rule.
+  explicit FlexSpecification(FlexRule rule);
+
+  // Creates a flex specification using the specififed minimum size and size
+  // bounds rules. If |adjust_height_for_width| is specified, extra calculations
+  // will be done to ensure that the view can become taller if it is made
+  // narrower (typically only useful for multiline text controls).
+  //
+  // NOTE: Minimum and maximum size rules apply to both main and cross axes of
+  // the view in the layout. If you only need the view to flex based on its main
+  // axis (width for horizontal layouts, height for vertical) consider using the
+  // FlexSpecification(LayoutOrientation, ...) constructor below.
+  explicit FlexSpecification(
+      MinimumFlexSizeRule minimum_size_rule,
+      MaximumFlexSizeRule maximum_size_rule = MaximumFlexSizeRule::kPreferred,
+      bool adjust_height_for_width = false);
+
+  // Creates a flex specification for a layout with |orientation| using the
+  // given minimum and maximum flex size rules along the main axis. You may also
+  // specify an optional cross-axis minimum size rule, but the default is to use
+  // the child view's preferred size. (There is no max cross size rule because
+  // unless a layout's cross-axis alignment is set to kStretch views will never
+  // receive more than their preferred size in the cross-axis dimension.)
+  FlexSpecification(LayoutOrientation orientation,
+                    MinimumFlexSizeRule minimum_main_axis_rule,
+                    MaximumFlexSizeRule maximum_main_axis_rule =
+                        MaximumFlexSizeRule::kPreferred,
+                    bool adjust_height_for_width = false,
+                    MinimumFlexSizeRule minimum_cross_axis_rule =
+                        MinimumFlexSizeRule::kPreferred);
+
   FlexSpecification(const FlexSpecification& other);
   FlexSpecification& operator=(const FlexSpecification& other);
 
   ~FlexSpecification();
-
-  // Creates a flex specification with a custom flex rule. Note that any copies
-  // or mutations of this specification will also inherit the rule.
-  static FlexSpecification ForCustomRule(FlexRule rule);
-
-  // Creates a flex specification using the specififed minimum size and size
-  // bounds rules.
-  static FlexSpecification ForSizeRule(MinimumFlexSizeRule minimum_size_rule,
-                                       MaximumFlexSizeRule maximum_size_rule);
 
   // Makes a copy of this specification with a different order.
   FlexSpecification WithOrder(int order) const;
@@ -112,20 +141,27 @@ class VIEWS_EXPORT FlexSpecification {
   // needs.
   FlexSpecification WithWeight(int weight) const;
 
+  // Makes a copy of this specification with a different alignment. The default
+  // is kStretch, which means the child view will always fill the bounds
+  // allocated for it; specifying kLeading, kTrailing, or kCenter will cause the
+  // view to grow to a maximum of its preferred size and then "float" to either
+  // the center, leading, or trailing edge of the allocated space.
+  FlexSpecification WithAlignment(LayoutAlignment alignment) const;
+
   const FlexRule& rule() const { return rule_; }
   int weight() const { return weight_; }
   int order() const { return order_; }
+  LayoutAlignment alignment() const { return alignment_; }
 
  private:
-  FlexSpecification(FlexRule rule, int order, int weight);
-
   FlexRule rule_;
   int order_ = 1;
   int weight_ = 0;
+  LayoutAlignment alignment_ = LayoutAlignment::kStretch;
 };
 
 // Represents insets in a single dimension.
-class Inset1D {
+class VIEWS_EXPORT Inset1D {
  public:
   constexpr Inset1D() = default;
   constexpr explicit Inset1D(int all) : leading_(all), trailing_(all) {}
@@ -156,7 +192,7 @@ class Inset1D {
 };
 
 // Represents a line segment in one dimension with a starting point and length.
-class Span {
+class VIEWS_EXPORT Span {
  public:
   constexpr Span() = default;
   constexpr Span(int start, int length) : start_(start), length_(length) {}
@@ -202,6 +238,12 @@ class Span {
   int start_ = 0;
   int length_ = 0;
 };
+
+// These are declared here for use in gtest-based unit tests but is defined in
+// the views_test_support target. Depend on that to use this in your unit test.
+// This should not be used in production code - call ToString() instead.
+void PrintTo(MinimumFlexSizeRule minimum_flex_size_rule, ::std::ostream* os);
+void PrintTo(MaximumFlexSizeRule maximum_flex_size_rule, ::std::ostream* os);
 
 }  // namespace views
 

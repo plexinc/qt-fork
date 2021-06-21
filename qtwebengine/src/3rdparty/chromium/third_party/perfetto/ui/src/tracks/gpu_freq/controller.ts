@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import {fromNs} from '../../common/time';
+import {fromNs, toNs} from '../../common/time';
 import {LIMIT} from '../../common/track_data';
-
 import {
   TrackController,
   trackControllerRegistry
@@ -22,34 +21,25 @@ import {
 
 import {
   Config,
-  GPU_FREQ_TRACK_KIND,
   Data,
+  GPU_FREQ_TRACK_KIND,
 } from './common';
 
 class GpuFreqTrackController extends TrackController<Config, Data> {
   static readonly kind = GPU_FREQ_TRACK_KIND;
-  private busy = false;
   private setup = false;
   private maximumValueSeen = 0;
 
-  onBoundsChange(start: number, end: number, resolution: number): void {
-    this.update(start, end, resolution);
-  }
+  async onBoundsChange(start: number, end: number, resolution: number):
+      Promise<Data> {
+    const startNs = toNs(start);
+    const endNs = toNs(end);
 
-  private async update(start: number, end: number, resolution: number):
-      Promise<void> {
-    // TODO: we should really call TraceProcessor.Interrupt() at this point.
-    if (this.busy) return;
-
-    const startNs = Math.round(start * 1e9);
-    const endNs = Math.round(end * 1e9);
-
-    this.busy = true;
     if (!this.setup) {
       const result = await this.query(`
-      select max(value) from
-        counters where name = 'gpufreq'
-        and ref = ${this.config.gpu}`);
+        select max(value)
+        from counter
+        where track_id = ${this.config.trackId}`);
       this.maximumValueSeen = +result.columns[0].doubleValues![0];
 
       await this.query(
@@ -59,44 +49,35 @@ class GpuFreqTrackController extends TrackController<Config, Data> {
           as select
             ts,
             lead(ts) over (order by ts) - ts as dur,
-            ref as gpu,
-            name as freq_name,
             value as freq_value
-          from counters
-          where name = 'gpufreq'
-            and ref = ${this.config.gpu}
-            and ref_type = 'gpu';
+          from counter
+          where track_id = ${this.config.trackId};
       `);
 
       await this.query(`create virtual table ${this.tableName('span_activity')}
-      using span_join(${this.tableName('freq')} PARTITIONED gpu,
-                      ${this.tableName('window')});`);
+        using span_join(${this.tableName('freq')}, ${
+          this.tableName('window')});`);
 
-      await this.query(`create view ${this.tableName('activity')}
-      as select
-        ts,
-        dur,
-        quantum_ts,
-        freq_value as freq
+      await this.query(`create view ${this.tableName('activity')} as
+        select
+          ts,
+          dur,
+          quantum_ts,
+          freq_value as freq
         from ${this.tableName('span_activity')};
       `);
 
       this.setup = true;
     }
 
-    const isQuantized = this.shouldSummarize(resolution);
-    // |resolution| is in s/px we want # ns for 10px window:
-    const bucketSizeNs = Math.round(resolution * 10 * 1e9);
-    let windowStartNs = startNs;
-    if (isQuantized) {
-      windowStartNs = Math.floor(windowStartNs / bucketSizeNs) * bucketSizeNs;
-    }
-    const windowDurNs = Math.max(1, endNs - windowStartNs);
-
     this.query(`update ${this.tableName('window')} set
       window_start = ${startNs},
-      window_dur = ${windowDurNs},
-      quantum = ${isQuantized ? bucketSizeNs : 0}`);
+      window_dur = ${Math.max(1, endNs - startNs)},
+      quantum = 0`);
+
+    const result = await this.engine.queryOneRow(`select count(*)
+      from ${this.tableName('activity')}`);
+    const isQuantized = result[0] > LIMIT;
 
     // Cast as double to avoid problem where values are sometimes
     // doubles, sometimes longs.
@@ -104,6 +85,16 @@ class GpuFreqTrackController extends TrackController<Config, Data> {
       from ${this.tableName('activity')} limit ${LIMIT}`;
 
     if (isQuantized) {
+      // |resolution| is in s/px we want # ns for 10px window:
+      const bucketSizeNs = Math.round(resolution * 10 * 1e9);
+      const windowStartNs = Math.floor(startNs / bucketSizeNs) * bucketSizeNs;
+      const windowDurNs = Math.max(1, endNs - windowStartNs);
+
+      this.query(`update ${this.tableName('window')} set
+      window_start = ${startNs},
+      window_dur = ${windowDurNs},
+      quantum = ${isQuantized ? bucketSizeNs : 0}`);
+
       query = `select
         min(ts) as ts,
         sum(dur) as dur,
@@ -142,22 +133,13 @@ class GpuFreqTrackController extends TrackController<Config, Data> {
       data.freqKHz[row] = +cols[2].doubleValues![row];
     }
 
-    this.publish(data);
-    this.busy = false;
+    return data;
   }
 
   private maximumValue() {
     return Math.max(this.config.maximumValue || 0, this.maximumValueSeen);
   }
 
-  private async query(query: string) {
-    const result = await this.engine.query(query);
-    if (result.error) {
-      console.error(`Query error "${query}": ${result.error}`);
-      throw new Error(`Query error "${query}": ${result.error}`);
-    }
-    return result;
-  }
 }
 
 

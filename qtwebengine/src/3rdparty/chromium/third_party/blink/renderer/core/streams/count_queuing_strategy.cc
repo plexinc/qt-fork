@@ -6,8 +6,8 @@
 
 #include "third_party/blink/renderer/bindings/core/v8/script_function.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_queuing_strategy_init.h"
 #include "third_party/blink/renderer/core/streams/queuing_strategy_common.h"
-#include "third_party/blink/renderer/core/streams/queuing_strategy_init.h"
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
 #include "third_party/blink/renderer/platform/heap/visitor.h"
 
@@ -52,7 +52,7 @@ CountQueuingStrategy::~CountQueuingStrategy() = default;
 
 ScriptValue CountQueuingStrategy::highWaterMark(
     ScriptState* script_state) const {
-  return ScriptValue(script_state,
+  return ScriptValue(script_state->GetIsolate(),
                      high_water_mark_.NewLocal(script_state->GetIsolate()));
 }
 
@@ -60,7 +60,7 @@ ScriptValue CountQueuingStrategy::size(ScriptState* script_state) const {
   // We don't cache the result because normally this method will only be called
   // once anyway.
   return ScriptValue(
-      script_state,
+      script_state->GetIsolate(),
       CountQueuingStrategySizeFunction::CreateFunction(script_state));
 }
 

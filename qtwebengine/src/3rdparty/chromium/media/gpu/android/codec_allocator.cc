@@ -13,6 +13,7 @@
 #include "base/logging.h"
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
+#include "base/task/thread_pool.h"
 #include "base/task_runner_util.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "base/time/default_tick_clock.h"
@@ -45,7 +46,7 @@ void ReleaseMediaCodecInternal(std::unique_ptr<MediaCodecBridge> codec) {
 }
 
 scoped_refptr<base::SequencedTaskRunner> CreateCodecTaskRunner() {
-  return base::CreateSequencedTaskRunnerWithTraits(
+  return base::ThreadPool::CreateSequencedTaskRunner(
       {base::TaskPriority::USER_VISIBLE, base::MayBlock(),
        base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN});
 }

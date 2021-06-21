@@ -12,9 +12,13 @@
 #include "osp/impl/quic/quic_connection_factory.h"
 #include "osp/impl/quic/quic_service_common.h"
 #include "osp/public/protocol_connection_server.h"
+#include "platform/api/task_runner.h"
+#include "platform/api/time.h"
 #include "platform/base/ip_address.h"
+#include "util/alarm.h"
 
 namespace openscreen {
+namespace osp {
 
 // This class is the default implementation of ProtocolConnectionServer for the
 // library.  It manages connections to other endpoints as well as the lifetime
@@ -32,7 +36,9 @@ class QuicServer final : public ProtocolConnectionServer,
   QuicServer(const ServerConfig& config,
              MessageDemuxer* demuxer,
              std::unique_ptr<QuicConnectionFactory> connection_factory,
-             ProtocolConnectionServer::Observer* observer);
+             ProtocolConnectionServer::Observer* observer,
+             ClockNowFunctionPtr now_function,
+             TaskRunner* task_runner);
   ~QuicServer() override;
 
   // ProtocolConnectionServer overrides.
@@ -40,7 +46,6 @@ class QuicServer final : public ProtocolConnectionServer,
   bool Stop() override;
   bool Suspend() override;
   bool Resume() override;
-  void RunTasks() override;
   std::unique_ptr<ProtocolConnection> CreateProtocolConnection(
       uint64_t endpoint_id) override;
 
@@ -68,6 +73,10 @@ class QuicServer final : public ProtocolConnectionServer,
   void OnIncomingConnection(
       std::unique_ptr<QuicConnection> connection) override;
 
+  // Deletes dead QUIC connections then returns the time interval before this
+  // method should be run again.
+  void Cleanup();
+
   const std::vector<IPEndpoint> connection_endpoints_;
   std::unique_ptr<QuicConnectionFactory> connection_factory_;
 
@@ -75,25 +84,28 @@ class QuicServer final : public ProtocolConnectionServer,
 
   // Maps an IPEndpoint to a generated endpoint ID.  This is used to insulate
   // callers from post-handshake changes to a connections actual peer endpoint.
-  std::map<IPEndpoint, uint64_t, IPEndpointComparator> endpoint_map_;
+  std::map<IPEndpoint, uint64_t> endpoint_map_;
 
   // Value that will be used for the next new endpoint in a Connect call.
   uint64_t next_endpoint_id_ = 0;
 
   // Maps endpoint addresses to data about connections that haven't successfully
   // completed the QUIC handshake.
-  std::map<IPEndpoint, ServiceConnectionData, IPEndpointComparator>
-      pending_connections_;
+  std::map<IPEndpoint, ServiceConnectionData> pending_connections_;
 
   // Maps endpoint IDs to data about connections that have successfully
   // completed the QUIC handshake.
   std::map<uint64_t, ServiceConnectionData> connections_;
 
-  // Connections that need to be destroyed, but have to wait for the next event
-  // loop due to the underlying QUIC implementation's way of referencing them.
-  std::vector<decltype(connections_)::iterator> delete_connections_;
+  // Connections (endpoint IDs) that need to be destroyed, but have to wait for
+  // the next event loop due to the underlying QUIC implementation's way of
+  // referencing them.
+  std::vector<uint64_t> delete_connections_;
+
+  Alarm cleanup_alarm_;
 };
 
+}  // namespace osp
 }  // namespace openscreen
 
 #endif  // OSP_IMPL_QUIC_QUIC_SERVER_H_

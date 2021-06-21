@@ -100,6 +100,15 @@ bool AnimationBuilder::FontInfo::matches(const char family[], const char style[]
         && 0 == strcmp(fStyle.c_str(), style);
 }
 
+#ifdef SK_NO_FONTS
+void AnimationBuilder::parseFonts(const skjson::ObjectValue* jfonts,
+                                  const skjson::ArrayValue* jchars) {}
+
+sk_sp<sksg::RenderNode> AnimationBuilder::attachTextLayer(const skjson::ObjectValue& jlayer,
+                                                          LayerInfo*) const {
+    return nullptr;
+}
+#else
 void AnimationBuilder::parseFonts(const skjson::ObjectValue* jfonts,
                                   const skjson::ArrayValue* jchars) {
     // Optional array of font entries, referenced (by name) from text layer document nodes. E.g.
@@ -243,69 +252,19 @@ void AnimationBuilder::parseFonts(const skjson::ObjectValue* jfonts,
     }
 }
 
+sk_sp<sksg::RenderNode> AnimationBuilder::attachTextLayer(const skjson::ObjectValue& jlayer,
+                                                          LayerInfo*) const {
+    return this->attachDiscardableAdapter<TextAdapter>(jlayer,
+                                                       this,
+                                                       fLazyFontMgr.getMaybeNull(),
+                                                       fLogger);
+}
+#endif
+
 const AnimationBuilder::FontInfo* AnimationBuilder::findFont(const SkString& font_name) const {
     return fFonts.find(font_name);
 }
 
-sk_sp<sksg::RenderNode> AnimationBuilder::attachTextLayer(const skjson::ObjectValue& layer,
-                                                          LayerInfo*,
-                                                          AnimatorScope* ascope) const {
-    // General text node format:
-    // "t": {
-    //    "a": [], // animators (see TextAnimator.cpp)
-    //    "d": {
-    //        "k": [
-    //            {
-    //                "s": {
-    //                    "f": "Roboto-Regular",
-    //                    "fc": [
-    //                        0.42,
-    //                        0.15,
-    //                        0.15
-    //                    ],
-    //                    "j": 1,
-    //                    "lh": 60,
-    //                    "ls": 0,
-    //                    "s": 50,
-    //                    "t": "text align right",
-    //                    "tr": 0
-    //                },
-    //                "t": 0
-    //            }
-    //        ]
-    //    },
-    //    "m": {}, // "more options" (TODO)
-    //    "p": {}  // "path options" (TODO)
-    // },
-    const skjson::ObjectValue* jt = layer["t"];
-    if (!jt) {
-        this->log(Logger::Level::kError, &layer, "Missing text layer \"t\" property.");
-        return nullptr;
-    }
-
-    const skjson::ArrayValue* animated_props = (*jt)["a"];
-    const auto has_animators = (animated_props && animated_props->size() > 0);
-
-    const skjson::ObjectValue* jd  = (*jt)["d"];
-    if (!jd) {
-        return nullptr;
-    }
-
-    auto text_root = sksg::Group::Make();
-    auto adapter   = sk_make_sp<TextAdapter>(text_root, has_animators);
-
-    this->bindProperty<TextValue>(*jd, ascope, [adapter] (const TextValue& txt) {
-        adapter->setText(txt);
-    });
-
-    if (has_animators) {
-        if (auto alist = TextAnimatorList::Make(*animated_props, this, adapter)) {
-            ascope->push_back(std::move(alist));
-        }
-    }
-
-    return std::move(text_root);
-}
 
 } // namespace internal
 } // namespace skottie

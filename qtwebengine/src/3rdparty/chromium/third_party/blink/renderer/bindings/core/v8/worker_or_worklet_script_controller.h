@@ -50,7 +50,7 @@ class ScriptSourceCode;
 class WorkerOrWorkletGlobalScope;
 
 class CORE_EXPORT WorkerOrWorkletScriptController final
-    : public GarbageCollectedFinalized<WorkerOrWorkletScriptController> {
+    : public GarbageCollected<WorkerOrWorkletScriptController> {
  public:
   WorkerOrWorkletScriptController(WorkerOrWorkletGlobalScope*, v8::Isolate*);
   virtual ~WorkerOrWorkletScriptController();
@@ -97,7 +97,7 @@ class CORE_EXPORT WorkerOrWorkletScriptController final
     return rejected_promises_.get();
   }
 
-  void Trace(blink::Visitor*);
+  void Trace(Visitor*);
 
   bool IsContextInitialized() const {
     return script_state_ && !!script_state_->PerContextData();

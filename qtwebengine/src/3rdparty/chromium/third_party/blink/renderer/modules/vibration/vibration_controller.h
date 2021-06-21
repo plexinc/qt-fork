@@ -22,11 +22,12 @@
 
 #include "base/macros.h"
 #include "services/device/public/mojom/vibration_manager.mojom-blink.h"
-#include "third_party/blink/renderer/core/execution_context/context_lifecycle_observer.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
 #include "third_party/blink/renderer/core/page/page_visibility_observer.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
+#include "third_party/blink/renderer/platform/mojo/heap_mojo_remote.h"
 #include "third_party/blink/renderer/platform/timer.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
@@ -36,8 +37,8 @@ class LocalFrame;
 class UnsignedLongOrUnsignedLongSequence;
 
 class MODULES_EXPORT VibrationController final
-    : public GarbageCollectedFinalized<VibrationController>,
-      public ContextLifecycleObserver,
+    : public GarbageCollected<VibrationController>,
+      public ExecutionContextLifecycleObserver,
       public PageVisibilityObserver {
   USING_GARBAGE_COLLECTED_MIXIN(VibrationController);
 
@@ -64,18 +65,18 @@ class MODULES_EXPORT VibrationController final
 
   VibrationPattern Pattern() const { return pattern_; }
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
 
  private:
-  // Inherited from ContextLifecycleObserver.
-  void ContextDestroyed(ExecutionContext*) override;
+  // Inherited from ExecutionContextLifecycleObserver.
+  void ContextDestroyed() override;
 
   // Inherited from PageVisibilityObserver.
   void PageVisibilityChanged() override;
 
-  // Ptr to VibrationManager mojo interface. This is reset in |contextDestroyed|
-  // and must not be called or recreated after it is reset.
-  device::mojom::blink::VibrationManagerPtr vibration_manager_;
+  // Remote to VibrationManager mojo interface. This is reset in
+  // |contextDestroyed| and must not be called or recreated after it is reset.
+  HeapMojoRemote<device::mojom::blink::VibrationManager> vibration_manager_;
 
   // Timer for calling |doVibrate| after a delay. It is safe to call
   // |startOneshot| when the timer is already running: it may affect the time

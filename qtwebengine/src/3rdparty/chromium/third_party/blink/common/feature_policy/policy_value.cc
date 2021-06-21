@@ -2,13 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "third_party/blink/public/common/feature_policy/feature_policy.h"
+#include "third_party/blink/public/common/feature_policy/policy_value.h"
+
+#include "third_party/blink/public/mojom/feature_policy/policy_value.mojom.h"
 
 namespace blink {
 
 PolicyValue::PolicyValue() : type_(mojom::PolicyValueType::kNull) {}
-
-PolicyValue::~PolicyValue() = default;
 
 PolicyValue::PolicyValue(mojom::PolicyValueType type) : type_(type) {
   DCHECK_EQ(type, mojom::PolicyValueType::kNull);
@@ -16,6 +16,9 @@ PolicyValue::PolicyValue(mojom::PolicyValueType type) : type_(type) {
 
 PolicyValue::PolicyValue(bool bool_value)
     : type_(mojom::PolicyValueType::kBool), bool_value_(bool_value) {}
+
+PolicyValue::PolicyValue(double double_value)
+    : type_(mojom::PolicyValueType::kDecDouble), double_value_(double_value) {}
 
 PolicyValue::PolicyValue(double double_value, mojom::PolicyValueType type)
     : type_(type), double_value_(double_value) {}
@@ -47,6 +50,11 @@ double PolicyValue::DoubleValue() const {
 void PolicyValue::SetBoolValue(bool bool_value) {
   DCHECK_EQ(mojom::PolicyValueType::kBool, type_);
   bool_value_ = bool_value;
+}
+
+void PolicyValue::SetDoubleValue(double double_value) {
+  DCHECK_EQ(mojom::PolicyValueType::kDecDouble, type_);
+  double_value_ = double_value;
 }
 
 void PolicyValue::SetDoubleValue(double double_value,
@@ -109,7 +117,7 @@ bool operator<(const PolicyValue& lhs, const PolicyValue& rhs) {
   DCHECK_EQ(lhs.Type(), rhs.Type());
   switch (lhs.Type()) {
     case mojom::PolicyValueType::kBool:
-      return rhs.BoolValue();
+      return !lhs.BoolValue() && rhs.BoolValue();
     case mojom::PolicyValueType::kDecDouble:
       return lhs.DoubleValue() < rhs.DoubleValue();
     case mojom::PolicyValueType::kNull:

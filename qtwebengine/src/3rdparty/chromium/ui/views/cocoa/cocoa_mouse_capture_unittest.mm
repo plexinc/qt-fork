@@ -15,17 +15,17 @@
 // Simple test view that counts calls to -[NSView mouseDown:].
 @interface CocoaMouseCaptureTestView : NSView {
  @private
-  int mouseDownCount_;
+  int _mouseDownCount;
 }
 @property(readonly, nonatomic) int mouseDownCount;
 @end
 
 @implementation CocoaMouseCaptureTestView
 
-@synthesize mouseDownCount = mouseDownCount_;
+@synthesize mouseDownCount = _mouseDownCount;
 
 - (void)mouseDown:(NSEvent*)theEvent {
-  ++mouseDownCount_;
+  ++_mouseDownCount;
 }
 
 @end
@@ -39,7 +39,7 @@ class TestCaptureDelegate : public CocoaMouseCaptureDelegate {
   explicit TestCaptureDelegate(NSWindow* window)
       : event_count_(0), capture_lost_count_(0), window_(window) {}
 
-  void Acquire() { mouse_capture_.reset(new CocoaMouseCapture(this)); }
+  void Acquire() { mouse_capture_ = std::make_unique<CocoaMouseCapture>(this); }
   bool IsActive() { return mouse_capture_ && mouse_capture_->IsActive(); }
   void SimulateDestroy() { mouse_capture_.reset(); }
 

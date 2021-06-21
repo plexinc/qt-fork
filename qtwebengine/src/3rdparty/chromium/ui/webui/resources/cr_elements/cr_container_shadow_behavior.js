@@ -31,14 +31,18 @@
  * '#cr-container-shadow-[top/bottom].has-shadow', or define their own styles.
  */
 
+// clang-format off
+// #import {assert} from 'chrome://resources/js/assert.m.js'
+// clang-format on
+
 /** @enum {string} */
-const CrContainerShadowSide = {
+/* #export */ const CrContainerShadowSide = {
   TOP: 'top',
   BOTTOM: 'bottom',
 };
 
 /** @polymerBehavior */
-const CrContainerShadowBehavior = {
+/* #export */ const CrContainerShadowBehavior = {
   /** @private {?IntersectionObserver} */
   intersectionObserver_: null,
 
@@ -52,13 +56,13 @@ const CrContainerShadowBehavior = {
   sides_: null,
 
   /** @override */
-  ready: function() {
+  ready() {
     this.dropShadows_ = new Map();
     this.intersectionProbes_ = new Map();
   },
 
   /** @override */
-  attached: function() {
+  attached() {
     const hasBottomShadow = this.$.container.hasAttribute('show-bottom-shadow');
     this.sides_ = hasBottomShadow ?
         [CrContainerShadowSide.TOP, CrContainerShadowSide.BOTTOM] :
@@ -89,7 +93,7 @@ const CrContainerShadowBehavior = {
   },
 
   /** @override */
-  detached: function() {
+  detached() {
     this.enableShadowBehavior(false);
   },
 
@@ -97,7 +101,7 @@ const CrContainerShadowBehavior = {
    * @return {!IntersectionObserver}
    * @private
    */
-  getIntersectionObserver_: function() {
+  getIntersectionObserver_() {
     const callback = entries => {
       // In some rare cases, there could be more than one entry per observed
       // element, in which case the last entry's result stands.
@@ -106,7 +110,7 @@ const CrContainerShadowBehavior = {
         this.sides_.forEach(side => {
           if (target === this.intersectionProbes_.get(side)) {
             this.dropShadows_.get(side).classList.toggle(
-                'has-shadow', entry.intersectionRatio == 0);
+                'has-shadow', entry.intersectionRatio === 0);
           }
         });
       }
@@ -124,7 +128,7 @@ const CrContainerShadowBehavior = {
    *     function does nothing if the behavior is already in the requested
    *     state.
    */
-  enableShadowBehavior: function(enable) {
+  enableShadowBehavior(enable) {
     // Behavior is already enabled/disabled. Return early.
     if (enable === !!this.intersectionObserver_) {
       return;
@@ -148,5 +152,17 @@ const CrContainerShadowBehavior = {
         });
       }
     });
+  },
+
+  /**
+   * Shows the shadows. The shadow behavior must be disabled before calling this
+   * method, otherwise the intersection observer might show the shadows again.
+   */
+  showDropShadows() {
+    assert(!this.intersectionObserver_);
+    assert(this.sides_);
+    for (const side of this.sides_) {
+      this.dropShadows_.get(side).classList.toggle('has-shadow', true);
+    }
   },
 };

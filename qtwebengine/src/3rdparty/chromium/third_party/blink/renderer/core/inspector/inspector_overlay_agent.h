@@ -33,7 +33,7 @@
 #include <memory>
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
-#include "third_party/blink/public/platform/web_input_event.h"
+#include "third_party/blink/public/common/input/web_input_event.h"
 #include "third_party/blink/public/platform/web_input_event_result.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/dom_node_ids.h"
@@ -72,11 +72,11 @@ class InspectorOverlayAgent;
 
 using OverlayFrontend = protocol::Overlay::Metainfo::FrontendClass;
 
-class CORE_EXPORT InspectTool : public GarbageCollectedFinalized<InspectTool> {
+class CORE_EXPORT InspectTool : public GarbageCollected<InspectTool> {
  public:
   virtual ~InspectTool() = default;
   void Init(InspectorOverlayAgent* overlay, OverlayFrontend* frontend);
-  virtual String GetDataResourceName();
+  virtual int GetDataResourceId();
   virtual bool HandleInputEvent(LocalFrameView* frame_view,
                                 const WebInputEvent& input_event,
                                 bool* swallow_next_mouse_up);
@@ -92,7 +92,7 @@ class CORE_EXPORT InspectTool : public GarbageCollectedFinalized<InspectTool> {
   virtual bool ForwardEventsToOverlay();
   virtual void Draw(float scale) {}
   virtual void Dispatch(const String& message) {}
-  virtual void Trace(blink::Visitor* visitor);
+  virtual void Trace(Visitor* visitor);
   virtual void Dispose() {}
   virtual bool HideOnHideHighlight();
 
@@ -115,7 +115,7 @@ class CORE_EXPORT InspectorOverlayAgent final
                         v8_inspector::V8InspectorSession*,
                         InspectorDOMAgent*);
   ~InspectorOverlayAgent() override;
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
 
   // protocol::Dispatcher::OverlayCommandHandler implementation.
   protocol::Response enable() override;
@@ -216,7 +216,7 @@ class CORE_EXPORT InspectorOverlayAgent final
   Member<WebLocalFrameImpl> frame_impl_;
   Member<InspectedFrames> inspected_frames_;
   Member<Page> overlay_page_;
-  String frame_resource_name_;
+  int frame_resource_name_;
   Member<InspectorOverlayChromeClient> overlay_chrome_client_;
   Member<InspectorOverlayHost> overlay_host_;
   bool resize_timer_active_;

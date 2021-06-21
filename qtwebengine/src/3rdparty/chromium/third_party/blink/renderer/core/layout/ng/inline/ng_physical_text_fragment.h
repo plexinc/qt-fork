@@ -2,11 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef NGPhysicalTextFragment_h
-#define NGPhysicalTextFragment_h
+#ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_INLINE_NG_PHYSICAL_TEXT_FRAGMENT_H_
+#define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_INLINE_NG_PHYSICAL_TEXT_FRAGMENT_H_
 
 #include "third_party/blink/renderer/core/core_export.h"
-#include "third_party/blink/renderer/core/layout/ng/inline/ng_text_end_effect.h"
+#include "third_party/blink/renderer/core/layout/ng/inline/ng_text_offset.h"
+#include "third_party/blink/renderer/core/layout/ng/ng_ink_overflow.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_physical_fragment.h"
 #include "third_party/blink/renderer/platform/fonts/ng_text_fragment_paint_info.h"
 #include "third_party/blink/renderer/platform/fonts/shaping/shape_result.h"
@@ -17,30 +18,11 @@
 
 namespace blink {
 
-struct PhysicalRect;
 class NGTextFragmentBuilder;
 class NGPhysicalTextFragment;
+struct PhysicalRect;
 
 enum class AdjustMidCluster;
-
-// In CSS Writing Modes Levle 4, line orientation for layout and line
-// orientation for paint are not always the same.
-//
-// Specifically, 'sideways-lr' typesets as if lines are horizontal flow, but
-// rotates counterclockwise.
-enum class NGLineOrientation {
-  // Lines are horizontal.
-  kHorizontal,
-  // Lines are vertical, rotated clockwise. Inside of the line, it may be
-  // typeset using vertical characteristics, horizontal characteristics, or
-  // mixed. Lines flow left to right, or right to left.
-  kClockWiseVertical,
-  // Lines are vertical, rotated counterclockwise. Inside of the line is typeset
-  // as if horizontal flow. Lines flow left to right.
-  kCounterClockWiseVertical
-
-  // When adding new values, ensure NGPhysicalTextFragment has enough bits.
-};
 
 class CORE_EXPORT NGPhysicalTextFragment final : public NGPhysicalFragment {
  public:
@@ -63,10 +45,18 @@ class CORE_EXPORT NGPhysicalTextFragment final : public NGPhysicalFragment {
 
   NGPhysicalTextFragment(NGTextFragmentBuilder*);
 
+  using PassKey = util::PassKey<NGPhysicalTextFragment>;
+  // For use by TrimText only
+  NGPhysicalTextFragment(PassKey,
+                         const NGPhysicalTextFragment& source,
+                         unsigned start_offset,
+                         unsigned end_offset,
+                         scoped_refptr<const ShapeResultView> shape_result);
+
   NGTextType TextType() const { return static_cast<NGTextType>(sub_type_); }
   // Returns true if the text is generated (from, e.g., list marker,
   // pseudo-element, ...) instead of from a DOM text node.
-  bool IsGeneratedText() const { return is_generated_text_; }
+  bool IsGeneratedText() const { return is_generated_text_or_math_fraction_; }
   // True if this is a forced line break.
   bool IsLineBreak() const { return TextType() == kForcedLineBreak; }
   // True if this is not for painting; i.e., a forced line break, a tabulation,
@@ -79,22 +69,25 @@ class CORE_EXPORT NGPhysicalTextFragment final : public NGPhysicalFragment {
     return StyleVariant() == NGStyleVariant::kEllipsis;
   }
 
-  unsigned Length() const { return end_offset_ - start_offset_; }
-  StringView Text() const { return StringView(text_, start_offset_, Length()); }
+  bool IsSymbolMarker() const { return TextType() == kSymbolMarker; }
+
   const String& TextContent() const { return text_; }
 
   // ShapeResult may be nullptr if |IsFlowControl()|.
   const ShapeResultView* TextShapeResult() const { return shape_result_.get(); }
 
   // Start/end offset to the text of the block container.
-  unsigned StartOffset() const { return start_offset_; }
-  unsigned EndOffset() const { return end_offset_; }
-
-  NGLineOrientation LineOrientation() const {
-    return static_cast<NGLineOrientation>(line_orientation_);
+  const NGTextOffset& TextOffset() const { return text_offset_; }
+  unsigned StartOffset() const { return text_offset_.start; }
+  unsigned EndOffset() const { return text_offset_.end; }
+  unsigned TextLength() const { return text_offset_.Length(); }
+  StringView Text() const {
+    return StringView(text_, text_offset_.start, TextLength());
   }
+
+  WritingMode GetWritingMode() const { return Style().GetWritingMode(); }
   bool IsHorizontal() const {
-    return LineOrientation() == NGLineOrientation::kHorizontal;
+    return IsHorizontalWritingMode(GetWritingMode());
   }
 
   // Compute the inline position from text offset, in logical coordinate
@@ -129,7 +122,9 @@ class CORE_EXPORT NGPhysicalTextFragment final : public NGPhysicalFragment {
   unsigned TextOffsetForPoint(const PhysicalOffset&) const;
 
   UBiDiLevel BidiLevel() const;
-  TextDirection ResolvedDirection() const;
+  TextDirection ResolvedDirection() const {
+    return static_cast<TextDirection>(base_or_resolved_direction_);
+  }
 
   // Compute line-relative coordinates for given offsets, this is not
   // flow-relative:
@@ -139,34 +134,24 @@ class CORE_EXPORT NGPhysicalTextFragment final : public NGPhysicalFragment {
       unsigned end_offset) const;
 
  private:
-  // For use by TrimText only
-  NGPhysicalTextFragment(const NGPhysicalTextFragment& source,
-                         unsigned start_offset,
-                         unsigned end_offset,
-                         scoped_refptr<const ShapeResultView> shape_result);
-
   LayoutUnit InlinePositionForOffset(unsigned offset,
                                      LayoutUnit (*round)(float),
                                      AdjustMidCluster) const;
 
-  PhysicalRect ConvertToLocal(const LayoutRect&) const;
-
   void ComputeSelfInkOverflow() const;
-  void ClearSelfInkOverflow() const;
 
   // The text of NGInlineNode; i.e., of a parent block. The text for this
   // fragment is a substring(start_offset_, end_offset_) of this string.
   const String text_;
 
   // Start and end offset of the parent block text.
-  const unsigned start_offset_;
-  const unsigned end_offset_;
+  const NGTextOffset text_offset_;
   const scoped_refptr<const ShapeResultView> shape_result_;
 
   // Fragments are immutable but allow certain expensive data, specifically ink
   // overflow, to be cached as long as it is guaranteed to always recompute to
   // the same value.
-  mutable PhysicalRect self_ink_overflow_;
+  mutable std::unique_ptr<NGInkOverflow> ink_overflow_;
 
   friend class NGTextFragmentBuilder;
 };
@@ -180,4 +165,4 @@ struct DowncastTraits<NGPhysicalTextFragment> {
 
 }  // namespace blink
 
-#endif  // NGPhysicalTextFragment_h
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_INLINE_NG_PHYSICAL_TEXT_FRAGMENT_H_

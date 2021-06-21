@@ -42,7 +42,7 @@ static void makebm(SkBitmap* bm, int w, int h) {
     bm->eraseColor(SK_ColorTRANSPARENT);
 
     SkCanvas    canvas(*bm);
-    SkScalar    s = SkIntToScalar(SkMin32(w, h));
+    SkScalar    s = SkIntToScalar(std::min(w, h));
     static const SkPoint     kPts0[] = { { 0, 0 }, { s, s } };
     static const SkPoint     kPts1[] = { { s/2, 0 }, { s/2, s } };
     static const SkScalar    kPos[] = { 0, SK_Scalar1/2, SK_Scalar1 };
@@ -121,8 +121,8 @@ protected:
                 int x = (w + offset) * i;
                 int y = (h * offset) * j;
                 if (kRect_DrawType == fDrawType) {
-                    fRects[count].set(SkIntToScalar(x), SkIntToScalar(y),
-                                      SkIntToScalar(x + w), SkIntToScalar(y + h));
+                    fRects[count].setXYWH(SkIntToScalar(x), SkIntToScalar(y),
+                                          SkIntToScalar(w), SkIntToScalar(h));
                 } else {
                     fPaths[count].moveTo(SkIntToScalar(x), SkIntToScalar(y));
                     fPaths[count].rLineTo(SkIntToScalar(w), 0);

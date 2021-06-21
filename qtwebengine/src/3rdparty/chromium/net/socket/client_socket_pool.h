@@ -25,7 +25,6 @@
 #include "net/socket/socket_tag.h"
 
 namespace base {
-class DictionaryValue;
 class Value;
 namespace trace_event {
 class ProcessMemoryDump;
@@ -110,12 +109,11 @@ class NET_EXPORT ClientSocketPool : public LowerLayeredPool {
   class NET_EXPORT GroupId {
    public:
     GroupId();
-    // TODO(mmenke): Remove default |network_isolation_key| value (only used by
-    // tests).
     GroupId(const HostPortPair& destination,
             SocketType socket_type,
             PrivacyMode privacy_mode,
-            NetworkIsolationKey network_isolation_key = NetworkIsolationKey());
+            NetworkIsolationKey network_isolation_key,
+            bool disable_secure_dns);
     GroupId(const GroupId& group_id);
 
     ~GroupId();
@@ -133,21 +131,25 @@ class NET_EXPORT ClientSocketPool : public LowerLayeredPool {
       return network_isolation_key_;
     }
 
+    bool disable_secure_dns() const { return disable_secure_dns_; }
+
     // Returns the group ID as a string, for logging.
     std::string ToString() const;
 
     bool operator==(const GroupId& other) const {
       return std::tie(destination_, socket_type_, privacy_mode_,
-                      network_isolation_key_) ==
+                      network_isolation_key_, disable_secure_dns_) ==
              std::tie(other.destination_, other.socket_type_,
-                      other.privacy_mode_, other.network_isolation_key_);
+                      other.privacy_mode_, other.network_isolation_key_,
+                      other.disable_secure_dns_);
     }
 
     bool operator<(const GroupId& other) const {
       return std::tie(destination_, socket_type_, privacy_mode_,
-                      network_isolation_key_) <
+                      network_isolation_key_, disable_secure_dns_) <
              std::tie(other.destination_, other.socket_type_,
-                      other.privacy_mode_, other.network_isolation_key_);
+                      other.privacy_mode_, other.network_isolation_key_,
+                      other.disable_secure_dns_);
     }
 
    private:
@@ -161,6 +163,9 @@ class NET_EXPORT ClientSocketPool : public LowerLayeredPool {
 
     // Used to separate requests made in different contexts.
     NetworkIsolationKey network_isolation_key_;
+
+    // If host resolutions for this request may not use secure DNS.
+    bool disable_secure_dns_;
   };
 
   // Parameters that, in combination with GroupId, proxy, websocket information,
@@ -302,18 +307,22 @@ class NET_EXPORT ClientSocketPool : public LowerLayeredPool {
                              std::unique_ptr<StreamSocket> socket,
                              int64_t generation) = 0;
 
-  // This flushes all state from the ClientSocketPool.  This means that all
-  // idle and connecting sockets are discarded with the given |error|.
+  // This flushes all state from the ClientSocketPool.  Pending socket requests
+  // are failed with |error|, while |reason| is logged to the NetLog.
+  //
   // Active sockets being held by ClientSocketPool clients will be discarded
-  // when released back to the pool.
-  // Does not flush any pools wrapped by |this|.
-  virtual void FlushWithError(int error) = 0;
+  // when released back to the pool, though they will be closed with an error
+  // about being of the wrong generation, rather than |net_log_reason_utf8|.
+  virtual void FlushWithError(int error, const char* net_log_reason_utf8) = 0;
 
   // Called to close any idle connections held by the connection manager.
-  virtual void CloseIdleSockets() = 0;
+  // |reason| is logged to NetLog for debugging purposes.
+  virtual void CloseIdleSockets(const char* net_log_reason_utf8) = 0;
 
   // Called to close any idle connections held by the connection manager.
-  virtual void CloseIdleSocketsInGroup(const GroupId& group_id) = 0;
+  // |reason| is logged to NetLog for debugging purposes.
+  virtual void CloseIdleSocketsInGroup(const GroupId& group_id,
+                                       const char* net_log_reason_utf8) = 0;
 
   // The total number of idle sockets in the pool.
   virtual int IdleSocketCount() const = 0;
@@ -326,12 +335,11 @@ class NET_EXPORT ClientSocketPool : public LowerLayeredPool {
                                  const ClientSocketHandle* handle) const = 0;
 
   // Retrieves information on the current state of the pool as a
-  // DictionaryValue.
+  // Value.
   // If |include_nested_pools| is true, the states of any nested
   // ClientSocketPools will be included.
-  virtual std::unique_ptr<base::DictionaryValue> GetInfoAsValue(
-      const std::string& name,
-      const std::string& type) const = 0;
+  virtual base::Value GetInfoAsValue(const std::string& name,
+                                     const std::string& type) const = 0;
 
   // Dumps memory allocation stats. |parent_dump_absolute_name| is the name
   // used by the parent MemoryAllocatorDump in the memory dump hierarchy.

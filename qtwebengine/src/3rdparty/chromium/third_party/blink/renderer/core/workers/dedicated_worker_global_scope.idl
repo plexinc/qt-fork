@@ -37,9 +37,14 @@
     [Replaceable] readonly attribute DOMString name;
 
     [CallWith=ScriptState, RaisesException] void postMessage(any message, sequence<object> transfer);
-    [CallWith=ScriptState, RaisesException] void postMessage(any message, optional PostMessageOptions options);
+    [CallWith=ScriptState, RaisesException] void postMessage(any message, optional PostMessageOptions options = {});
 
     void close();
+
+    // AnimationFrameProvider mixin
+    // https://html.spec.whatwg.org/C/#animation-frames
+    [RaisesException] long requestAnimationFrame(FrameRequestCallback callback);
+    void cancelAnimationFrame(long handle);
 
     attribute EventHandler onmessage;
     attribute EventHandler onmessageerror;

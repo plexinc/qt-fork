@@ -15,149 +15,109 @@
 #ifndef sw_Sampler_hpp
 #define sw_Sampler_hpp
 
-#include "Device/Color.hpp"
 #include "Device/Config.hpp"
 #include "System/Types.hpp"
 #include "Vulkan/VkFormat.h"
 
-namespace vk
-{
-	class Image;
+namespace vk {
+class Image;
 }
 
-namespace sw
+namespace sw {
+
+struct Mipmap
 {
-	struct Mipmap
-	{
-		const void *buffer;
+	const void *buffer;
 
-		short4 uHalf;
-		short4 vHalf;
-		short4 wHalf;
-		int4 width;
-		int4 height;
-		int4 depth;
-		short4 onePitchP;
-		int4 pitchP;
-		int4 sliceP;
-	};
+	short4 uHalf;
+	short4 vHalf;
+	short4 wHalf;
+	int4 width;
+	int4 height;
+	int4 depth;
+	short4 onePitchP;
+	int4 pitchP;
+	int4 sliceP;
+	int4 samplePitchP;
+	int4 sampleMax;
+};
 
-	struct Texture
-	{
-		Mipmap mipmap[MIPMAP_LEVELS];
+struct Texture
+{
+	Mipmap mipmap[MIPMAP_LEVELS];
 
-		float4 widthWidthHeightHeight;
-		float4 width;
-		float4 height;
-		float4 depth;
-	};
+	float4 widthWidthHeightHeight;
+	float4 width;
+	float4 height;
+	float4 depth;
+};
 
-	enum SamplerType
-	{
-		SAMPLER_PIXEL,
-		SAMPLER_VERTEX
-	};
+enum FilterType ENUM_UNDERLYING_TYPE_UNSIGNED_INT
+{
+	FILTER_POINT,
+	FILTER_GATHER,
+	FILTER_MIN_POINT_MAG_LINEAR,
+	FILTER_MIN_LINEAR_MAG_POINT,
+	FILTER_LINEAR,
+	FILTER_ANISOTROPIC,
 
-	enum TextureType ENUM_UNDERLYING_TYPE_UNSIGNED_INT
-	{
-		TEXTURE_NULL,       // TODO(b/129523279): Eliminate
-		TEXTURE_1D,
-		TEXTURE_2D,
-		TEXTURE_3D,
-		TEXTURE_CUBE,
-		TEXTURE_1D_ARRAY,   // Treated as 2D texture with second coordinate 0. TODO(b/134669567)
-		TEXTURE_2D_ARRAY,
-		TEXTURE_CUBE_ARRAY,
+	FILTER_LAST = FILTER_ANISOTROPIC
+};
 
-		TEXTURE_LAST = TEXTURE_CUBE_ARRAY
-	};
+enum MipmapType ENUM_UNDERLYING_TYPE_UNSIGNED_INT
+{
+	MIPMAP_NONE,
+	MIPMAP_POINT,
+	MIPMAP_LINEAR,
 
-	enum FilterType ENUM_UNDERLYING_TYPE_UNSIGNED_INT
-	{
-		FILTER_POINT,
-		FILTER_GATHER,
-		FILTER_MIN_POINT_MAG_LINEAR,
-		FILTER_MIN_LINEAR_MAG_POINT,
-		FILTER_LINEAR,
-		FILTER_ANISOTROPIC,
+	MIPMAP_LAST = MIPMAP_LINEAR
+};
 
-		FILTER_LAST = FILTER_ANISOTROPIC
-	};
+enum AddressingMode ENUM_UNDERLYING_TYPE_UNSIGNED_INT
+{
+	ADDRESSING_UNUSED,
+	ADDRESSING_WRAP,
+	ADDRESSING_CLAMP,
+	ADDRESSING_MIRROR,
+	ADDRESSING_MIRRORONCE,
+	ADDRESSING_BORDER,    // Single color
+	ADDRESSING_SEAMLESS,  // Border of pixels
+	ADDRESSING_CUBEFACE,  // Cube face layer
+	ADDRESSING_LAYER,     // Array layer
+	ADDRESSING_TEXELFETCH,
 
-	enum MipmapType ENUM_UNDERLYING_TYPE_UNSIGNED_INT
-	{
-		MIPMAP_NONE,
-		MIPMAP_POINT,
-		MIPMAP_LINEAR,
+	ADDRESSING_LAST = ADDRESSING_TEXELFETCH
+};
 
-		MIPMAP_LAST = MIPMAP_LINEAR
-	};
+struct Sampler
+{
+	VkImageViewType textureType;
+	vk::Format textureFormat;
+	FilterType textureFilter;
+	AddressingMode addressingModeU;
+	AddressingMode addressingModeV;
+	AddressingMode addressingModeW;
+	AddressingMode addressingModeY;
+	MipmapType mipmapFilter;
+	VkComponentMapping swizzle;
+	int gatherComponent;
+	bool highPrecisionFiltering;
+	bool compareEnable;
+	VkCompareOp compareOp;
+	VkBorderColor border;
+	bool unnormalizedCoordinates;
+	bool largeTexture;
 
-	enum AddressingMode ENUM_UNDERLYING_TYPE_UNSIGNED_INT
-	{
-		ADDRESSING_UNUSED,
-		ADDRESSING_WRAP,
-		ADDRESSING_CLAMP,
-		ADDRESSING_MIRROR,
-		ADDRESSING_MIRRORONCE,
-		ADDRESSING_BORDER,     // Single color
-		ADDRESSING_SEAMLESS,   // Border of pixels
-		ADDRESSING_CUBEFACE,   // Cube face layer
-		ADDRESSING_LAYER,      // Array layer
-		ADDRESSING_TEXELFETCH,
+	VkSamplerYcbcrModelConversion ycbcrModel;
+	bool studioSwing;    // Narrow range
+	bool swappedChroma;  // Cb/Cr components in reverse order
 
-		ADDRESSING_LAST = ADDRESSING_TEXELFETCH
-	};
+	float mipLodBias = 0.0f;
+	float maxAnisotropy = 0.0f;
+	float minLod = 0.0f;
+	float maxLod = 0.0f;
+};
 
-	enum CompareFunc ENUM_UNDERLYING_TYPE_UNSIGNED_INT
-	{
-		COMPARE_BYPASS,
-		COMPARE_LESSEQUAL,
-		COMPARE_GREATEREQUAL,
-		COMPARE_LESS,
-		COMPARE_GREATER,
-		COMPARE_EQUAL,
-		COMPARE_NOTEQUAL,
-		COMPARE_ALWAYS,
-		COMPARE_NEVER,
+}  // namespace sw
 
-		COMPARE_LAST = COMPARE_NEVER
-	};
-
-	enum SwizzleType ENUM_UNDERLYING_TYPE_UNSIGNED_INT
-	{
-		SWIZZLE_RED,
-		SWIZZLE_GREEN,
-		SWIZZLE_BLUE,
-		SWIZZLE_ALPHA,
-		SWIZZLE_ZERO,
-		SWIZZLE_ONE,
-
-		SWIZZLE_LAST = SWIZZLE_ONE
-	};
-
-	struct Sampler
-	{
-		TextureType textureType;
-		vk::Format textureFormat;
-		FilterType textureFilter;
-		AddressingMode addressingModeU;
-		AddressingMode addressingModeV;
-		AddressingMode addressingModeW;
-		MipmapType mipmapFilter;
-		VkComponentMapping swizzle;
-		int gatherComponent;
-		bool highPrecisionFiltering;
-		bool compareEnable;
-		VkCompareOp compareOp;
-		VkBorderColor border;
-		bool unnormalizedCoordinates;
-		bool largeTexture;
-
-		VkSamplerYcbcrModelConversion ycbcrModel;
-		bool studioSwing;    // Narrow range
-		bool swappedChroma;  // Cb/Cr components in reverse order
-	};
-}
-
-#endif   // sw_Sampler_hpp
+#endif  // sw_Sampler_hpp

@@ -32,8 +32,8 @@ class CodeAddressMap : public CodeEventLogger {
     address_to_name_map_.Move(from.address(), to.address());
   }
 
-  void CodeDisableOptEvent(AbstractCode code,
-                           SharedFunctionInfo shared) override {}
+  void CodeDisableOptEvent(Handle<AbstractCode> code,
+                           Handle<SharedFunctionInfo> shared) override {}
 
   const char* Lookup(Address address) {
     return address_to_name_map_.Lookup(address);
@@ -114,9 +114,10 @@ class CodeAddressMap : public CodeEventLogger {
     DISALLOW_COPY_AND_ASSIGN(NameMap);
   };
 
-  void LogRecordedBuffer(AbstractCode code, SharedFunctionInfo,
-                         const char* name, int length) override {
-    address_to_name_map_.Insert(code.address(), name, length);
+  void LogRecordedBuffer(Handle<AbstractCode> code,
+                         MaybeHandle<SharedFunctionInfo>, const char* name,
+                         int length) override {
+    address_to_name_map_.Insert(code->address(), name, length);
   }
 
   void LogRecordedBuffer(const wasm::WasmCode* code, const char* name,
@@ -328,7 +329,7 @@ class Serializer::ObjectSerializer : public ObjectVisitor {
   void SerializeContent(Map map, int size);
   void OutputRawData(Address up_to);
   void OutputCode(int size);
-  int32_t SerializeBackingStore(void* backing_store, int32_t byte_length);
+  uint32_t SerializeBackingStore(void* backing_store, int32_t byte_length);
   void SerializeJSTypedArray();
   void SerializeJSArrayBuffer();
   void SerializeExternalString();

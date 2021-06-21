@@ -8,10 +8,13 @@
 #include <oleacc.h>
 #include <stddef.h>
 #include <stdint.h>
+
+#include <map>
+#include <memory>
+#include <string>
 #include <vector>
 
 #include "base/compiler_specific.h"
-#include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/win/atl.h"
 #include "content/browser/accessibility/browser_accessibility.h"
@@ -21,6 +24,7 @@
 #include "third_party/isimpledom/ISimpleDOMDocument.h"
 #include "third_party/isimpledom/ISimpleDOMNode.h"
 #include "third_party/isimpledom/ISimpleDOMText.h"
+#include "ui/accessibility/ax_enums.mojom-forward.h"
 #include "ui/accessibility/platform/ax_platform_node_delegate.h"
 #include "ui/accessibility/platform/ax_platform_node_win.h"
 
@@ -36,12 +40,6 @@ const GUID GUID_IAccessibleContentDocument = {
     0x3571,
     0x4d8f,
     {0x95, 0x21, 0x07, 0xed, 0x28, 0xfb, 0x07, 0x2e}};
-
-namespace ui {
-
-enum TextBoundaryDirection;
-
-}  // namespace ui
 
 namespace content {
 class BrowserAccessibilityWin;
@@ -62,9 +60,7 @@ class __declspec(uuid("562072fe-3390-43b1-9e2c-dd4118f5ac79"))
     BrowserAccessibilityComWin : public ui::AXPlatformNodeWin,
                                  public IAccessibleApplication,
                                  public IAccessibleHyperlink,
-                                 public IAccessibleHypertext,
                                  public IAccessibleImage,
-                                 public IAccessibleValue,
                                  public ISimpleDOMDocument,
                                  public ISimpleDOMNode,
                                  public ISimpleDOMText {
@@ -73,9 +69,7 @@ class __declspec(uuid("562072fe-3390-43b1-9e2c-dd4118f5ac79"))
   COM_INTERFACE_ENTRY(IAccessibleAction)
   COM_INTERFACE_ENTRY(IAccessibleApplication)
   COM_INTERFACE_ENTRY(IAccessibleHyperlink)
-  COM_INTERFACE_ENTRY(IAccessibleHypertext)
   COM_INTERFACE_ENTRY(IAccessibleImage)
-  COM_INTERFACE_ENTRY(IAccessibleValue)
   COM_INTERFACE_ENTRY(ISimpleDOMDocument)
   COM_INTERFACE_ENTRY(ISimpleDOMNode)
   COM_INTERFACE_ENTRY(ISimpleDOMText)
@@ -95,7 +89,7 @@ class __declspec(uuid("562072fe-3390-43b1-9e2c-dd4118f5ac79"))
   // details on what these do.
   CONTENT_EXPORT void UpdateStep1ComputeWinAttributes();
   CONTENT_EXPORT void UpdateStep2ComputeHypertext();
-  CONTENT_EXPORT void UpdateStep3FireEvents(bool is_subtree_creation);
+  CONTENT_EXPORT void UpdateStep3FireEvents();
 
   //
   // IAccessible2 methods.
@@ -134,10 +128,6 @@ class __declspec(uuid("562072fe-3390-43b1-9e2c-dd4118f5ac79"))
   // IAccessibleText methods.
   //
 
-  CONTENT_EXPORT IFACEMETHODIMP get_nCharacters(LONG* n_characters) override;
-
-  CONTENT_EXPORT IFACEMETHODIMP get_caretOffset(LONG* offset) override;
-
   CONTENT_EXPORT IFACEMETHODIMP
   get_characterExtents(LONG offset,
                        enum IA2CoordinateType coord_type,
@@ -156,36 +146,9 @@ class __declspec(uuid("562072fe-3390-43b1-9e2c-dd4118f5ac79"))
                                          LONG end_offset,
                                          BSTR* text) override;
 
-  CONTENT_EXPORT IFACEMETHODIMP
-  get_textAtOffset(LONG offset,
-                   enum IA2TextBoundaryType boundary_type,
-                   LONG* start_offset,
-                   LONG* end_offset,
-                   BSTR* text) override;
-
-  CONTENT_EXPORT IFACEMETHODIMP
-  get_textBeforeOffset(LONG offset,
-                       enum IA2TextBoundaryType boundary_type,
-                       LONG* start_offset,
-                       LONG* end_offset,
-                       BSTR* text) override;
-
-  CONTENT_EXPORT IFACEMETHODIMP
-  get_textAfterOffset(LONG offset,
-                      enum IA2TextBoundaryType boundary_type,
-                      LONG* start_offset,
-                      LONG* end_offset,
-                      BSTR* text) override;
-
   CONTENT_EXPORT IFACEMETHODIMP get_newText(IA2TextSegment* new_text) override;
 
   CONTENT_EXPORT IFACEMETHODIMP get_oldText(IA2TextSegment* old_text) override;
-
-  CONTENT_EXPORT IFACEMETHODIMP
-  get_offsetAtPoint(LONG x,
-                    LONG y,
-                    enum IA2CoordinateType coord_type,
-                    LONG* offset) override;
 
   CONTENT_EXPORT IFACEMETHODIMP
   scrollSubstringTo(LONG start_index,
@@ -198,11 +161,6 @@ class __declspec(uuid("562072fe-3390-43b1-9e2c-dd4118f5ac79"))
                          enum IA2CoordinateType coordinate_type,
                          LONG x,
                          LONG y) override;
-
-  CONTENT_EXPORT IFACEMETHODIMP addSelection(LONG start_offset,
-                                             LONG end_offset) override;
-
-  CONTENT_EXPORT IFACEMETHODIMP removeSelection(LONG selection_index) override;
 
   CONTENT_EXPORT IFACEMETHODIMP setCaretOffset(LONG offset) override;
 
@@ -251,18 +209,6 @@ class __declspec(uuid("562072fe-3390-43b1-9e2c-dd4118f5ac79"))
                                          BSTR* name) override;
   CONTENT_EXPORT IFACEMETHODIMP
   get_localizedName(LONG action_index, BSTR* localized_name) override;
-
-  //
-  // IAccessibleValue methods.
-  //
-
-  CONTENT_EXPORT IFACEMETHODIMP get_currentValue(VARIANT* value) override;
-
-  CONTENT_EXPORT IFACEMETHODIMP get_minimumValue(VARIANT* value) override;
-
-  CONTENT_EXPORT IFACEMETHODIMP get_maximumValue(VARIANT* value) override;
-
-  CONTENT_EXPORT IFACEMETHODIMP setCurrentValue(VARIANT new_value) override;
 
   //
   // ISimpleDOMDocument methods.
@@ -391,9 +337,7 @@ class __declspec(uuid("562072fe-3390-43b1-9e2c-dd4118f5ac79"))
   CONTENT_EXPORT void ComputeStylesIfNeeded();
 
   // Public accessors (these do not have COM accessible accessors)
-  const base::string16& role_name() const { return win_attributes_->role_name; }
-  const std::map<int, std::vector<base::string16>>& offset_to_text_attributes()
-      const {
+  const ui::TextAttributeMap& offset_to_text_attributes() const {
     return win_attributes_->offset_to_text_attributes;
   }
 
@@ -412,6 +356,9 @@ class __declspec(uuid("562072fe-3390-43b1-9e2c-dd4118f5ac79"))
 
   BrowserAccessibilityManager* Manager() const;
 
+  // Private helper methods.
+  bool ShouldFireHypertextEvents() const;
+
   //
   // AXPlatformNode overrides
   //
@@ -419,17 +366,12 @@ class __declspec(uuid("562072fe-3390-43b1-9e2c-dd4118f5ac79"))
   void Init(ui::AXPlatformNodeDelegate* delegate) override;
 
   // Returns the IA2 text attributes for this object.
-  std::vector<base::string16> ComputeTextAttributes() const;
+  ui::TextAttributeList ComputeTextAttributes() const;
 
   // Add one to the reference count and return the same object. Always
   // use this method when returning a BrowserAccessibilityComWin object as
   // an output parameter to a COM interface, never use it otherwise.
   BrowserAccessibilityComWin* NewReference();
-
-  // Returns a list of IA2 attributes indicating the offsets in the text of a
-  // leaf object, such as a text field or static text, where spelling errors are
-  // present.
-  std::map<int, std::vector<base::string16>> GetSpellingAttributes();
 
   // Many MSAA methods take a var_id parameter indicating that the operation
   // should be performed on a particular child ID, rather than this object.
@@ -444,40 +386,17 @@ class __declspec(uuid("562072fe-3390-43b1-9e2c-dd4118f5ac79"))
   HRESULT GetStringAttributeAsBstr(ax::mojom::StringAttribute attribute,
                                    BSTR* value_bstr);
 
-  // Merges the given spelling attributes, i.e. document marker information,
-  // into the given text attributes starting at the given character offset. This
-  // is required for two reasons: 1. Document markers that are present on text
-  // leaves need to be propagated to their parent object for compatibility with
-  // Firefox. 2. Spelling markers need to overwrite any aria-invalid="false" in
-  // the text attributes.
-  static void MergeSpellingIntoTextAttributes(
-      const std::map<int, std::vector<base::string16>>& spelling_attributes,
-      int start_offset,
-      std::map<int, std::vector<base::string16>>* text_attributes);
-
-  // Escapes characters in string attributes as required by the IA2 Spec.
-  // It's okay for input to be the same as output.
-  CONTENT_EXPORT static void SanitizeStringAttributeForIA2(
-      const base::string16& input,
-      base::string16* output);
-  FRIEND_TEST_ALL_PREFIXES(BrowserAccessibilityTest,
-                           TestSanitizeStringAttributeForIA2);
-  FRIEND_TEST_ALL_PREFIXES(BrowserAccessibilityWinTest,
-                           TestSanitizeStringAttributeForIA2);
+  // Retrieves the name, allocates a new BSTR if non-empty and returns S_OK. If
+  // name is empty, returns S_FALSE.
+  HRESULT GetNameAsBstr(BSTR* value_bstr);
 
   // Sets the selection given a start and end offset in IA2 Hypertext.
   void SetIA2HypertextSelection(LONG start_offset, LONG end_offset);
 
-  // Search forwards or backwards from the given offset until the given IA2
-  // text boundary is found, and return the offset of that boundary.
-  LONG FindIA2Boundary(IA2TextBoundaryType ia2_boundary,
-                       LONG start_offset,
-                       ui::TextBoundaryDirection direction);
-
   // Searches forward from the given offset until the start of the next style
   // is found, or searches backward from the given offset until the start of the
   // current style is found.
-  LONG FindStartOfStyle(LONG start_offset, ui::TextBoundaryDirection direction);
+  LONG FindStartOfStyle(LONG start_offset, ax::mojom::MoveDirection direction);
 
   // ID refers to the node ID in the current tree, not the globally unique ID.
   // TODO(nektar): Could we use globally unique IDs everywhere?
@@ -500,7 +419,6 @@ class __declspec(uuid("562072fe-3390-43b1-9e2c-dd4118f5ac79"))
     // IAccessible role and state.
     int32_t ia_role;
     int32_t ia_state;
-    base::string16 role_name;
 
     // IAccessible name, description, help, value.
     base::string16 name;
@@ -515,7 +433,7 @@ class __declspec(uuid("562072fe-3390-43b1-9e2c-dd4118f5ac79"))
     std::vector<base::string16> ia2_attributes;
 
     // Maps each style span to its start offset in hypertext.
-    std::map<int, std::vector<base::string16>> offset_to_text_attributes;
+    ui::TextAttributeMap offset_to_text_attributes;
   };
 
   BrowserAccessibilityWin* owner_;

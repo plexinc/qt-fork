@@ -73,20 +73,23 @@ class VIZ_COMMON_EXPORT DrawQuad {
 
   bool IsDebugQuad() const { return material == Material::kDebugBorder; }
 
-  bool ShouldDrawWithBlending(bool external_opacity = false) const {
-    return needs_blending ||
-           (shared_quad_state->opacity < 1.0f && !external_opacity) ||
+  bool ShouldDrawWithBlending(bool=false) const {
+    return needs_blending || shared_quad_state->opacity < 1.0f ||
            shared_quad_state->blend_mode != SkBlendMode::kSrcOver ||
            !shared_quad_state->rounded_corner_bounds.IsEmpty();
   }
 
   // Is the left edge of this tile aligned with the originating layer's
   // left edge?
-  bool IsLeftEdge() const { return !rect.x(); }
+  bool IsLeftEdge() const {
+    return rect.x() == shared_quad_state->quad_layer_rect.x();
+  }
 
   // Is the top edge of this tile aligned with the originating layer's
   // top edge?
-  bool IsTopEdge() const { return !rect.y(); }
+  bool IsTopEdge() const {
+    return rect.y() == shared_quad_state->quad_layer_rect.y();
+  }
 
   // Is the right edge of this tile aligned with the originating layer's
   // right edge?

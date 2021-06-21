@@ -21,10 +21,9 @@
 #include <stdint.h>
 #include <unistd.h>
 
-#include <gtest/gtest.h>
-
 #include "perfetto/ext/base/file_utils.h"
 #include "perfetto/ext/base/pipe.h"
+#include "test/gtest_and_gmock.h"
 
 namespace perfetto {
 namespace base {
@@ -89,7 +88,7 @@ TEST(UtilsTest, EintrWrapper) {
 
   char buf[6] = {};
   EXPECT_EQ(4, PERFETTO_EINTR(read(*pipe.rd, buf, sizeof(buf))));
-  EXPECT_EQ(0, PERFETTO_EINTR(close(*pipe.rd)));
+  EXPECT_TRUE(close(*pipe.rd) == 0 || errno == EINTR);
   pipe.wr.reset();
 
   // A 2nd close should fail with the proper errno.

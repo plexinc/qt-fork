@@ -14,6 +14,7 @@
 #include "components/signin/public/base/signin_client.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/signin/public/identity_manager/identity_test_utils.h"
+#include "components/signin/public/identity_manager/scope_set.h"
 
 class FakeProfileOAuth2TokenService;
 class IdentityTestEnvironmentProfileAdaptor;
@@ -39,7 +40,7 @@ class TestIdentityManagerObserver;
 // not available; call MakePrimaryAccountAvailable() as needed.
 // NOTE: IdentityTestEnvironment requires that tests have a properly set up
 // task environment. If your test doesn't already have one, use a
-// base::test::ScopedTaskEnvironment instance variable to fulfill this
+// base::test::TaskEnvironment instance variable to fulfill this
 // requirement.
 class IdentityTestEnvironment : public IdentityManager::DiagnosticsObserver {
  public:
@@ -90,6 +91,10 @@ class IdentityTestEnvironment : public IdentityManager::DiagnosticsObserver {
   // CoreAccountInfo of the newly-set account.
   CoreAccountInfo SetPrimaryAccount(const std::string& email);
 
+  // As above, but adds an "unconsented" primary account. See ./README.md for
+  // the distinction between primary and unconsented primary accounts.
+  CoreAccountInfo SetUnconsentedPrimaryAccount(const std::string& email);
+
   // Sets a refresh token for the primary account (which must already be set).
   // Before updating the refresh token, blocks until refresh tokens are loaded.
   // After updating the token, blocks until the update is processed by
@@ -104,6 +109,8 @@ class IdentityTestEnvironment : public IdentityManager::DiagnosticsObserver {
 
   // Removes any refresh token for the primary account, if present. Blocks until
   // the refresh token is removed.
+  // NOTE: Call EnableRemovalOfExtendedAccountInfo() before this if the test
+  // expects IdentityManager::Observer::OnExtendedAccountInfoRemoved() to fire.
   void RemoveRefreshTokenForPrimaryAccount();
 
   // Makes the primary account available for the given email address, generating
@@ -113,6 +120,19 @@ class IdentityTestEnvironment : public IdentityManager::DiagnosticsObserver {
   // all platforms, this method blocks until the primary account is available.
   // Returns the AccountInfo of the newly-available account.
   AccountInfo MakePrimaryAccountAvailable(const std::string& email);
+
+  // Like MakeAccountAvailable(), but adds an "unconsented" primary account. See
+  // ./README.md for the distinction between primary account and unconsented
+  // primary account.
+  AccountInfo MakeUnconsentedPrimaryAccountAvailable(const std::string& email);
+
+  // Combination of MakeAccountAvailable() and SetCookieAccounts() for a single
+  // account. It makes an account available for the given email address, and
+  // GAIA ID, setting the cookies and the refresh token that correspond uniquely
+  // to that email address. Blocks until the account is available. Returns the
+  // AccountInfo of the newly-available account.
+  AccountInfo MakeAccountAvailableWithCookies(const std::string& email,
+                                              const std::string& gaia_id);
 
   // Clears the primary account if present, with |policy| used to determine
   // whether to keep or remove all accounts. On non-ChromeOS, results in the
@@ -144,6 +164,8 @@ class IdentityTestEnvironment : public IdentityManager::DiagnosticsObserver {
   // Removes any refresh token that is present for the given account. Blocks
   // until the refresh token is removed.
   // NOTE: See disclaimer at top of file re: direct usage.
+  // NOTE: Call EnableRemovalOfExtendedAccountInfo() before this if the test
+  // expects IdentityManager::Observer::OnExtendedAccountInfoRemoved() to fire.
   void RemoveRefreshTokenForAccount(const CoreAccountId& account_id);
 
   // Updates the persistent auth error set on |account_id| which must be a known
@@ -203,7 +225,7 @@ class IdentityTestEnvironment : public IdentityManager::DiagnosticsObserver {
       const std::string& token,
       const base::Time& expiration,
       const std::string& id_token,
-      const identity::ScopeSet& scopes);
+      const ScopeSet& scopes);
 
   // Issues |error| in response to any access token request that either has (a)
   // already occurred and has not been matched by a previous call to this or
@@ -287,7 +309,7 @@ class IdentityTestEnvironment : public IdentityManager::DiagnosticsObserver {
       kPending,
       kAvailable,
     } state;
-    base::Optional<std::string> account_id;
+    base::Optional<CoreAccountId> account_id;
     base::OnceClosure on_available;
   };
 
@@ -313,7 +335,7 @@ class IdentityTestEnvironment : public IdentityManager::DiagnosticsObserver {
   // IdentityManager::DiagnosticsObserver:
   void OnAccessTokenRequested(const CoreAccountId& account_id,
                               const std::string& consumer_id,
-                              const identity::ScopeSet& scopes) override;
+                              const ScopeSet& scopes) override;
 
   // Handles the notification that an access token request was received for
   // |account_id|. Invokes |on_access_token_request_callback_| if the latter

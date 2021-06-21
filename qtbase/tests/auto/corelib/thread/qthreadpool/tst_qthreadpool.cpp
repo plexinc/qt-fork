@@ -64,6 +64,7 @@ public:
 
 private slots:
     void runFunction();
+    void runFunction2();
     void createThreadRunFunction();
     void runMultiple();
     void waitcomplete();
@@ -92,6 +93,7 @@ private slots:
     void priorityStart();
     void waitForDone();
     void clear();
+    void clearWithAutoDelete();
 #if QT_DEPRECATED_SINCE(5, 9)
     void cancel();
 #endif
@@ -160,9 +162,19 @@ void tst_QThreadPool::runFunction()
     {
         QThreadPool manager;
         testFunctionCount = 0;
-        manager.start(createTask(noSleepTestFunction));
+        manager.start(noSleepTestFunction);
     }
     QCOMPARE(testFunctionCount, 1);
+}
+
+void tst_QThreadPool::runFunction2()
+{
+    int localCount = 0;
+    {
+        QThreadPool manager;
+        manager.start([&]() { ++localCount; });
+    }
+    QCOMPARE(localCount, 1);
 }
 
 void tst_QThreadPool::createThreadRunFunction()
@@ -170,7 +182,7 @@ void tst_QThreadPool::createThreadRunFunction()
     {
         QThreadPool manager;
         testFunctionCount = 0;
-        manager.start(createTask(noSleepTestFunction));
+        manager.start(noSleepTestFunction);
     }
 
     QCOMPARE(testFunctionCount, 1);
@@ -184,7 +196,7 @@ void tst_QThreadPool::runMultiple()
         QThreadPool manager;
         testFunctionCount = 0;
         for (int i = 0; i < runs; ++i) {
-            manager.start(createTask(sleepTestFunctionMutex));
+            manager.start(sleepTestFunctionMutex);
         }
     }
     QCOMPARE(testFunctionCount, runs);
@@ -193,7 +205,7 @@ void tst_QThreadPool::runMultiple()
         QThreadPool manager;
         testFunctionCount = 0;
         for (int i = 0; i < runs; ++i) {
-            manager.start(createTask(noSleepTestFunctionMutex));
+            manager.start(noSleepTestFunctionMutex);
         }
     }
     QCOMPARE(testFunctionCount, runs);
@@ -201,7 +213,7 @@ void tst_QThreadPool::runMultiple()
     {
         QThreadPool manager;
         for (int i = 0; i < 500; ++i)
-            manager.start(createTask(emptyFunct));
+            manager.start(emptyFunct);
     }
 }
 
@@ -211,7 +223,7 @@ void tst_QThreadPool::waitcomplete()
     const int runs = 500;
     for (int i = 0; i < 500; ++i) {
         QThreadPool pool;
-        pool.start(createTask(noSleepTestFunction));
+        pool.start(noSleepTestFunction);
     }
     QCOMPARE(testFunctionCount, runs);
 }
@@ -963,6 +975,31 @@ void tst_QThreadPool::clear()
     sem.release(threadPool.maxThreadCount());
     threadPool.waitForDone();
     QCOMPARE(count.loadRelaxed(), threadPool.maxThreadCount());
+}
+
+void tst_QThreadPool::clearWithAutoDelete()
+{
+    class MyRunnable : public QRunnable
+    {
+    public:
+        MyRunnable() {}
+        void run() override { QThread::usleep(30); }
+    };
+
+    QThreadPool threadPool;
+    threadPool.setMaxThreadCount(4);
+    const int loopCount = 20;
+    const int batchSize = 500;
+    // Should not crash see QTBUG-87092
+    for (int i = 0; i < loopCount; i++) {
+        threadPool.clear();
+        for (int j = 0; j < batchSize; j++) {
+            auto *runnable = new MyRunnable();
+            runnable->setAutoDelete(true);
+            threadPool.start(runnable);
+        }
+    }
+    QVERIFY(threadPool.waitForDone());
 }
 
 #if QT_DEPRECATED_SINCE(5, 9)

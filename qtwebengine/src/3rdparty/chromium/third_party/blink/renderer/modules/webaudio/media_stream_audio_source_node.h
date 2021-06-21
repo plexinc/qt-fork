@@ -96,7 +96,7 @@ class MediaStreamAudioSourceNode final
                              MediaStreamTrack*,
                              std::unique_ptr<AudioSourceProvider>);
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
 
   MediaStream* getMediaStream() const;
 
@@ -104,6 +104,10 @@ class MediaStreamAudioSourceNode final
   void SetFormat(uint32_t number_of_channels, float sample_rate) override;
 
   bool HasPendingActivity() const final;
+
+  // InspectorHelperMixin
+  void ReportDidCreate() final;
+  void ReportWillBeDestroyed() final;
 
  private:
   MediaStreamAudioSourceHandler& GetMediaStreamAudioSourceHandler() const;

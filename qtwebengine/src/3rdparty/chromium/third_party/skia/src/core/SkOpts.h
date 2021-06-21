@@ -13,6 +13,7 @@
 #include "src/core/SkXfermodePriv.h"
 
 struct SkBitmapProcState;
+namespace skvm { struct InterpreterInstruction; }
 
 namespace SkOpts {
     // Call to replace pointers to portable functions with pointers to CPU-specific functions.
@@ -45,7 +46,7 @@ namespace SkOpts {
                            grayA_to_rgbA;   // i.e. expand to color channels and premultiply
 
     extern void (*memset16)(uint16_t[], uint16_t, int);
-    extern void SK_API (*memset32)(uint32_t[], uint32_t, int);
+    extern void SK_SPI(*memset32)(uint32_t[], uint32_t, int);
     extern void (*memset64)(uint64_t[], uint64_t, int);
 
     extern void (*rect_memset16)(uint16_t[], uint16_t, int, size_t, int);
@@ -61,9 +62,10 @@ namespace SkOpts {
     }
 
     // SkBitmapProcState optimized Shader, Sample, or Matrix procs.
-    // This is the only one that can use anything past SSE2/NEON.
     extern void (*S32_alpha_D32_filter_DX)(const SkBitmapProcState&,
                                            const uint32_t* xy, int count, SkPMColor*);
+    extern void (*S32_alpha_D32_filter_DXDY)(const SkBitmapProcState&,
+                                             const uint32_t* xy, int count, SkPMColor*);
 
 #define M(st) +1
     // We can't necessarily express the type of SkJumper stage functions here,
@@ -76,6 +78,9 @@ namespace SkOpts {
     extern void (*start_pipeline_lowp )(size_t,size_t,size_t,size_t, void**);
 #undef M
 
+    extern void (*interpret_skvm)(const skvm::InterpreterInstruction insts[], int ninsts,
+                                  int nregs, int loop, const int strides[], int nargs,
+                                  int n, void* args[]);
 }
 
 #endif//SkOpts_DEFINED

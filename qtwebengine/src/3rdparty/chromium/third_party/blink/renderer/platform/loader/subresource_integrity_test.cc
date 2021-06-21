@@ -21,7 +21,6 @@
 #include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
-#include "third_party/blink/renderer/platform/wtf/dtoa/utils.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
@@ -221,18 +220,17 @@ class SubresourceIntegrityTest : public testing::Test {
       const KURL& url,
       network::mojom::RequestMode request_mode,
       network::mojom::FetchResponseType response_type) {
-    Resource* resource = RawResource::CreateForTest(
-        url, SecurityOrigin::CreateUniqueOpaque(), ResourceType::kRaw);
-
     ResourceRequest request;
     request.SetUrl(url);
     request.SetMode(request_mode);
+    request.SetRequestorOrigin(SecurityOrigin::CreateUniqueOpaque());
+    Resource* resource =
+        RawResource::CreateForTest(request, ResourceType::kRaw);
 
     ResourceResponse response(url);
     response.SetHttpStatusCode(200);
     response.SetType(response_type);
 
-    resource->SetResourceRequest(request);
     resource->SetResponse(response);
     return resource;
   }

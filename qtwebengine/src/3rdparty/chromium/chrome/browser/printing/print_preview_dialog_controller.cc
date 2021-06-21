@@ -14,6 +14,7 @@
 #include "base/macros.h"
 #include "base/path_service.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/branding_buildflags.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/extensions/chrome_extension_web_contents_observer.h"
@@ -25,7 +26,6 @@
 #include "chrome/browser/ui/webui/chrome_web_contents_handler.h"
 #include "chrome/browser/ui/webui/constrained_web_dialog_ui.h"
 #include "chrome/browser/ui/webui/print_preview/print_preview_ui.h"
-#include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/generated_resources.h"
@@ -39,11 +39,16 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_delegate.h"
 #include "content/public/browser/web_contents_observer.h"
+#include "content/public/browser/web_ui.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/web_dialogs/web_dialog_delegate.h"
 
-#if defined(OS_WIN) && defined(GOOGLE_CHROME_BUILD)
+#if defined(OS_WIN) && BUILDFLAG(GOOGLE_CHROME_BRANDING)
 #include "chrome/browser/win/conflicts/module_database.h"
+#endif
+
+#if defined(OS_CHROMEOS)
+#include "chrome/browser/chromeos/arc/print_spooler/print_session_impl.h"
 #endif
 
 using content::NavigationController;
@@ -59,6 +64,17 @@ PrintPreviewUI* GetPrintPreviewUIForDialog(WebContents* dialog) {
   return web_ui ? static_cast<PrintPreviewUI*>(web_ui->GetController())
                 : nullptr;
 }
+
+#if defined(OS_CHROMEOS)
+void CloseArcPrintSession(WebContents* initiator) {
+  WebContents* outermost_web_contents =
+      guest_view::GuestViewBase::GetTopLevelWebContents(initiator);
+  auto* arc_print_session =
+      arc::PrintSessionImpl::FromWebContents(outermost_web_contents);
+  if (arc_print_session)
+    arc_print_session->OnPrintPreviewClosed();
+}
+#endif
 
 // A ui::WebDialogDelegate that specifies the print preview dialog appearance.
 class PrintPreviewDialogDelegate : public ui::WebDialogDelegate,
@@ -140,16 +156,11 @@ void PrintPreviewDialogDelegate::GetDialogSize(gfx::Size* size) const {
   size->Enlarge(-2 * kBorder, -kBorder);
 
   static const gfx::Size kMaxDialogSize(1000, 660);
-  bool should_limit_dialog_size =
-      base::FeatureList::IsEnabled(::features::kNewPrintPreviewLayout);
-#if defined(OS_MACOSX)
-  // Limit the maximum size on MacOS X.
-  // http://crbug.com/105815
-  should_limit_dialog_size = true;
-#endif
-  if (should_limit_dialog_size) {
-    size->SetToMin(kMaxDialogSize);
-  }
+  int max_width = std::max(size->width() * 7 / 10, kMaxDialogSize.width());
+  int max_height =
+      std::max(max_width * kMaxDialogSize.height() / kMaxDialogSize.width(),
+               kMaxDialogSize.height());
+  size->SetToMin(gfx::Size(max_width, max_height));
 }
 
 std::string PrintPreviewDialogDelegate::GetDialogArgs() const {
@@ -241,8 +252,8 @@ PrintPreviewDialogController* PrintPreviewDialogController::GetInstance() {
 
 // static
 void PrintPreviewDialogController::PrintPreview(WebContents* initiator) {
-#if defined(OS_WIN) && defined(GOOGLE_CHROME_BUILD)
-  ModuleDatabase::GetInstance()->DisableThirdPartyBlocking();
+#if defined(OS_WIN) && BUILDFLAG(GOOGLE_CHROME_BRANDING)
+  ModuleDatabase::DisableThirdPartyBlocking();
 #endif
 
   if (initiator->ShowingInterstitialPage() || initiator->IsCrashed())
@@ -494,6 +505,10 @@ void PrintPreviewDialogController::RemoveInitiator(
 
   PrintViewManager::FromWebContents(initiator)->PrintPreviewDone();
 
+#if defined(OS_CHROMEOS)
+  CloseArcPrintSession(initiator);
+#endif
+
   // Initiator is closed. Close the print preview dialog too.
   auto* print_preview_ui = GetPrintPreviewUIForDialog(preview_dialog);
   if (print_preview_ui)
@@ -507,6 +522,10 @@ void PrintPreviewDialogController::RemovePreviewDialog(
   if (initiator) {
     RemoveObserver(initiator);
     PrintViewManager::FromWebContents(initiator)->PrintPreviewDone();
+
+#if defined(OS_CHROMEOS)
+    CloseArcPrintSession(initiator);
+#endif
   }
 
   preview_dialog_map_.erase(preview_dialog);

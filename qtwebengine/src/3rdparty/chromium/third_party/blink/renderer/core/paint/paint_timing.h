@@ -8,14 +8,13 @@
 #include <memory>
 
 #include "base/macros.h"
-#include "third_party/blink/public/web/web_widget_client.h"
+#include "third_party/blink/public/web/web_swap_result.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/paint/first_meaningful_paint_detector.h"
 #include "third_party/blink/renderer/core/paint/paint_event.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/supplementable.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
-#include "third_party/blink/renderer/platform/wtf/time.h"
 
 namespace base {
 class TickClock;
@@ -27,14 +26,12 @@ class LocalFrame;
 
 // PaintTiming is responsible for tracking paint-related timings for a given
 // document.
-class CORE_EXPORT PaintTiming final
-    : public GarbageCollectedFinalized<PaintTiming>,
-      public Supplement<Document> {
+class CORE_EXPORT PaintTiming final : public GarbageCollected<PaintTiming>,
+                                      public Supplement<Document> {
   USING_GARBAGE_COLLECTED_MIXIN(PaintTiming);
   friend class FirstMeaningfulPaintDetector;
   using ReportTimeCallback =
-      WTF::CrossThreadOnceFunction<void(WebWidgetClient::SwapResult,
-                                        base::TimeTicks)>;
+      WTF::CrossThreadOnceFunction<void(WebSwapResult, base::TimeTicks)>;
 
  public:
   static const char kSupplementName[];
@@ -101,16 +98,14 @@ class CORE_EXPORT PaintTiming final
   }
 
   void RegisterNotifySwapTime(PaintEvent, ReportTimeCallback);
-  void ReportSwapTime(PaintEvent,
-                      WebWidgetClient::SwapResult,
-                      base::TimeTicks timestamp);
+  void ReportSwapTime(PaintEvent, WebSwapResult, base::TimeTicks timestamp);
 
-  void ReportSwapResultHistogram(WebWidgetClient::SwapResult);
+  void ReportSwapResultHistogram(WebSwapResult);
 
   // The caller owns the |clock| which must outlive the PaintTiming.
   void SetTickClockForTesting(const base::TickClock* clock);
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
 
  private:
   LocalFrame* GetFrame() const;

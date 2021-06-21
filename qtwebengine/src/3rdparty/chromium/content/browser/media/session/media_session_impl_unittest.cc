@@ -7,24 +7,24 @@
 #include <memory>
 
 #include "base/command_line.h"
+#include "base/memory/ptr_util.h"
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
 #include "content/browser/media/session/media_session_player_observer.h"
 #include "content/browser/media/session/mock_media_session_player_observer.h"
 #include "content/browser/media/session/mock_media_session_service_impl.h"
-#include "content/public/browser/system_connector.h"
+#include "content/public/browser/browser_context.h"
+#include "content/public/browser/media_session_service.h"
+#include "content/public/test/test_browser_context.h"
 #include "content/public/test/test_renderer_host.h"
-#include "content/public/test/test_service_manager_context.h"
+#include "content/test/test_web_contents.h"
 #include "media/base/media_content_type.h"
-#include "mojo/public/cpp/bindings/binding.h"
 #include "mojo/public/cpp/bindings/interface_request.h"
 #include "services/media_session/public/cpp/features.h"
 #include "services/media_session/public/cpp/test/audio_focus_test_util.h"
 #include "services/media_session/public/cpp/test/mock_media_session.h"
 #include "services/media_session/public/mojom/audio_focus.mojom.h"
-#include "services/media_session/public/mojom/constants.mojom.h"
 #include "services/media_session/public/mojom/media_session.mojom.h"
-#include "services/service_manager/public/cpp/connector.h"
 
 using ::testing::_;
 
@@ -58,6 +58,8 @@ class MockAudioFocusDelegate : public AudioFocusDelegate {
   void MediaSessionInfoChanged(MediaSessionInfoPtr session_info) override {
     session_info_ = std::move(session_info);
   }
+
+  MOCK_CONST_METHOD0(request_id, const base::UnguessableToken&());
 
   MediaSessionInfo::SessionState GetState() const {
     DCHECK(!session_info_.is_null());
@@ -96,15 +98,14 @@ class MediaSessionImplTest : public RenderViewHostTestHarness {
     mock_media_session_service_.reset(
         new testing::NiceMock<MockMediaSessionServiceImpl>(main_rfh()));
 
-    // Connect to the Media Session service and bind |audio_focus_ptr_| to it.
-    service_manager_context_ = std::make_unique<TestServiceManagerContext>();
-    GetSystemConnector()->BindInterface(media_session::mojom::kServiceName,
-                                        mojo::MakeRequest(&audio_focus_ptr_));
+    // Connect to the Media Session service and bind |audio_focus_remote_| to
+    // it.
+    GetMediaSessionService().BindAudioFocusManager(
+        audio_focus_remote_.BindNewPipeAndPassReceiver());
   }
 
   void TearDown() override {
     mock_media_session_service_.reset();
-    service_manager_context_.reset();
 
     RenderViewHostTestHarness::TearDown();
   }
@@ -142,8 +143,8 @@ class MediaSessionImplTest : public RenderViewHostTestHarness {
     std::unique_ptr<TestAudioFocusObserver> observer =
         std::make_unique<TestAudioFocusObserver>();
 
-    audio_focus_ptr_->AddObserver(observer->BindNewPipeAndPassRemote());
-    audio_focus_ptr_.FlushForTesting();
+    audio_focus_remote_->AddObserver(observer->BindNewPipeAndPassRemote());
+    audio_focus_remote_.FlushForTesting();
 
     return observer;
   }
@@ -181,9 +182,7 @@ class MediaSessionImplTest : public RenderViewHostTestHarness {
 
   std::unique_ptr<MockMediaSessionServiceImpl> mock_media_session_service_;
 
-  media_session::mojom::AudioFocusManagerPtr audio_focus_ptr_;
-
-  std::unique_ptr<TestServiceManagerContext> service_manager_context_;
+  mojo::Remote<media_session::mojom::AudioFocusManager> audio_focus_remote_;
 
   DISALLOW_COPY_AND_ASSIGN(MediaSessionImplTest);
 };
@@ -642,5 +641,59 @@ TEST_F(MediaSessionImplTest, RequestAudioFocus_OnFocus_Suspended) {
 #endif  // defined(OS_MACOSX)
 
 #endif  // !defined(OS_ANDROID)
+
+TEST_F(MediaSessionImplTest, SourceId_SameBrowserContext) {
+  auto other_contents = TestWebContents::Create(browser_context(), nullptr);
+  MediaSessionImpl* other_session = MediaSessionImpl::Get(other_contents.get());
+
+  EXPECT_EQ(GetMediaSession()->GetSourceId(), other_session->GetSourceId());
+}
+
+TEST_F(MediaSessionImplTest, SourceId_DifferentBrowserContext) {
+  auto other_context = CreateBrowserContext();
+  auto other_contents = TestWebContents::Create(other_context.get(), nullptr);
+  MediaSessionImpl* other_session = MediaSessionImpl::Get(other_contents.get());
+
+  EXPECT_NE(GetMediaSession()->GetSourceId(), other_session->GetSourceId());
+}
+
+TEST_F(MediaSessionImplTest, SessionInfoSensitive) {
+  EXPECT_FALSE(browser_context()->IsOffTheRecord());
+  EXPECT_FALSE(media_session::test::GetMediaSessionInfoSync(GetMediaSession())
+                   ->is_sensitive);
+}
+
+TEST_F(MediaSessionImplTest, SessionInfoSensitive_OffTheRecord) {
+  auto other_context = std::make_unique<TestBrowserContext>();
+  other_context->set_is_off_the_record(true);
+  auto other_contents = TestWebContents::Create(other_context.get(), nullptr);
+  MediaSessionImpl* other_session = MediaSessionImpl::Get(other_contents.get());
+
+  EXPECT_TRUE(other_context->IsOffTheRecord());
+  EXPECT_TRUE(media_session::test::GetMediaSessionInfoSync(other_session)
+                  ->is_sensitive);
+}
+
+TEST_F(MediaSessionImplTest, SessionInfoPictureInPicture) {
+  WebContentsImpl* web_contents_impl =
+      static_cast<WebContentsImpl*>(web_contents());
+
+  EXPECT_EQ(
+      media_session::test::GetMediaSessionInfoSync(GetMediaSession())
+          ->picture_in_picture_state,
+      media_session::mojom::MediaPictureInPictureState::kNotInPictureInPicture);
+
+  web_contents_impl->SetHasPictureInPictureVideo(true);
+  EXPECT_EQ(
+      media_session::test::GetMediaSessionInfoSync(GetMediaSession())
+          ->picture_in_picture_state,
+      media_session::mojom::MediaPictureInPictureState::kInPictureInPicture);
+
+  web_contents_impl->SetHasPictureInPictureVideo(false);
+  EXPECT_EQ(
+      media_session::test::GetMediaSessionInfoSync(GetMediaSession())
+          ->picture_in_picture_state,
+      media_session::mojom::MediaPictureInPictureState::kNotInPictureInPicture);
+}
 
 }  // namespace content

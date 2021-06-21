@@ -17,14 +17,23 @@
 #include "components/viz/test/compositor_frame_helpers.h"
 #include "components/viz/test/test_context_provider.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "testing/perf/perf_test.h"
+#include "testing/perf/perf_result_reporter.h"
 
 namespace viz {
 namespace {
 
 constexpr bool kIsRoot = true;
 constexpr bool kIsChildRoot = false;
-constexpr bool kNeedsSyncPoints = true;
+
+constexpr char kMetricPrefixSurfaceAggregator[] = "SurfaceAggregator.";
+constexpr char kMetricSpeedRunsPerS[] = "speed";
+
+perf_test::PerfResultReporter SetUpSurfaceAggregatorReporter(
+    const std::string& story) {
+  perf_test::PerfResultReporter reporter(kMetricPrefixSurfaceAggregator, story);
+  reporter.RegisterImportantMetric(kMetricSpeedRunsPerS, "runs/s");
+  return reporter;
+}
 
 class SurfaceAggregatorPerfTest : public testing::Test {
  public:
@@ -42,14 +51,13 @@ class SurfaceAggregatorPerfTest : public testing::Test {
                float opacity,
                bool optimize_damage,
                bool full_damage,
-               const std::string& name) {
+               const std::string& story) {
     std::vector<std::unique_ptr<CompositorFrameSinkSupport>> child_supports(
         num_surfaces);
     std::vector<base::UnguessableToken> child_tokens(num_surfaces);
     for (int i = 0; i < num_surfaces; i++) {
       child_supports[i] = std::make_unique<CompositorFrameSinkSupport>(
-          nullptr, &manager_, FrameSinkId(1, i + 1), kIsChildRoot,
-          kNeedsSyncPoints);
+          nullptr, &manager_, FrameSinkId(1, i + 1), kIsChildRoot);
       child_tokens[i] = base::UnguessableToken::Create();
     }
     aggregator_ = std::make_unique<SurfaceAggregator>(
@@ -99,8 +107,7 @@ class SurfaceAggregatorPerfTest : public testing::Test {
             SurfaceRange(base::nullopt,
                          SurfaceId(FrameSinkId(1, i),
                                    LocalSurfaceId(i, child_tokens[i - 1]))),
-            SK_ColorWHITE, /*stretch_content_to_fill_bounds=*/false,
-            /*ignores_input_event=*/false);
+            SK_ColorWHITE, /*stretch_content_to_fill_bounds=*/false);
       }
 
       frame_builder.AddRenderPass(std::move(pass));
@@ -109,8 +116,7 @@ class SurfaceAggregatorPerfTest : public testing::Test {
     }
 
     auto root_support = std::make_unique<CompositorFrameSinkSupport>(
-        nullptr, &manager_, FrameSinkId(1, num_surfaces + 1), kIsRoot,
-        kNeedsSyncPoints);
+        nullptr, &manager_, FrameSinkId(1, num_surfaces + 1), kIsRoot);
     auto root_token = base::UnguessableToken::Create();
     base::TimeTicks next_fake_display_time =
         base::TimeTicks() + base::TimeDelta::FromSeconds(1);
@@ -128,8 +134,7 @@ class SurfaceAggregatorPerfTest : public testing::Test {
               SurfaceId(FrameSinkId(1, num_surfaces),
                         LocalSurfaceId(num_surfaces,
                                        child_tokens[num_surfaces - 1]))),
-          SK_ColorWHITE, /*stretch_content_to_fill_bounds=*/false,
-          /*ignores_input_event=*/false);
+          SK_ColorWHITE, /*stretch_content_to_fill_bounds=*/false);
 
       pass->output_rect = gfx::Rect(0, 0, 100, 100);
 
@@ -152,8 +157,8 @@ class SurfaceAggregatorPerfTest : public testing::Test {
       timer_.NextLap();
     } while (!timer_.HasTimeLimitExpired());
 
-    perf_test::PrintResult("aggregator_speed", "", name, timer_.LapsPerSecond(),
-                           "runs/s", true);
+    auto reporter = SetUpSurfaceAggregatorReporter(story);
+    reporter.AddResult(kMetricSpeedRunsPerS, timer_.LapsPerSecond());
   }
 
  protected:
@@ -170,19 +175,19 @@ TEST_F(SurfaceAggregatorPerfTest, ManySurfacesOpaque) {
 }
 
 TEST_F(SurfaceAggregatorPerfTest, ManySurfacesOpaque_100) {
-  RunTest(100, 1, 1.f, true, false, "(100 Surfaces, 1 quad each)");
+  RunTest(100, 1, 1.f, true, false, "100_surfaces_1_quad_each");
 }
 
 TEST_F(SurfaceAggregatorPerfTest, ManySurfacesOpaque_300) {
-  RunTest(300, 1, 1.f, true, false, "(300 Surfaces, 1 quad each)");
+  RunTest(300, 1, 1.f, true, false, "300_surfaces_1_quad_each");
 }
 
 TEST_F(SurfaceAggregatorPerfTest, ManySurfacesManyQuadsOpaque_100) {
-  RunTest(100, 100, 1.f, true, false, "(100 Surfaces, 100 quads each)");
+  RunTest(100, 100, 1.f, true, false, "100_surfaces_100_quads_each");
 }
 
 TEST_F(SurfaceAggregatorPerfTest, ManySurfacesManyQuadsOpaque_300) {
-  RunTest(300, 100, 1.f, true, false, "(300 Surfaces, 100 quads each)");
+  RunTest(300, 100, 1.f, true, false, "300_surfaces_100_quads_each");
 }
 
 TEST_F(SurfaceAggregatorPerfTest, ManySurfacesTransparent) {

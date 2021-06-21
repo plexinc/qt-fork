@@ -210,6 +210,31 @@ std::ostream& operator<<(std::ostream& ostream,
   return PrintEphemeralRange(ostream, range);
 }
 
+EphemeralRangeInFlatTree ToEphemeralRangeInFlatTree(
+    const EphemeralRange& range) {
+  // We need to update the distribution before getting the position in the flat
+  // tree, since that operation requires us to navigate the flat tree.
+  if (range.StartPosition().AnchorNode()) {
+    range.StartPosition()
+        .AnchorNode()
+        ->UpdateDistributionForFlatTreeTraversal();
+  }
+  if (range.EndPosition().AnchorNode()) {
+    range.EndPosition().AnchorNode()->UpdateDistributionForFlatTreeTraversal();
+  }
+  PositionInFlatTree start = ToPositionInFlatTree(range.StartPosition());
+  PositionInFlatTree end = ToPositionInFlatTree(range.EndPosition());
+  if (start.IsNull() || end.IsNull() ||
+      start.GetDocument() != end.GetDocument())
+    return EphemeralRangeInFlatTree();
+  if (!start.IsValidFor(*start.GetDocument()) ||
+      !end.IsValidFor(*end.GetDocument()))
+    return EphemeralRangeInFlatTree();
+  if (start <= end)
+    return EphemeralRangeInFlatTree(start, end);
+  return EphemeralRangeInFlatTree(end, start);
+}
+
 template class CORE_TEMPLATE_EXPORT EphemeralRangeTemplate<EditingStrategy>;
 template class CORE_TEMPLATE_EXPORT
     EphemeralRangeTemplate<EditingInFlatTreeStrategy>;

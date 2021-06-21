@@ -86,17 +86,6 @@ protected:
         fPaints.push_back(p);
         }
 
-#ifdef SK_SUPPORT_LEGACY_DRAWLOOPER
-        {
-        // AA with blur
-        SkPaint p;
-        p.setAntiAlias(true);
-        p.setLooper(SkBlurDrawLooper::Make(SK_ColorBLUE,
-                                     SkBlurMask::ConvertRadiusToSigma(SkIntToScalar(10)),
-                                     SkIntToScalar(5), SkIntToScalar(10)));
-        fPaints.push_back(p);
-        }
-#else
         fLooper = SkBlurDrawLooper::Make(SK_ColorBLUE, SkBlurMask::ConvertRadiusToSigma(10),5,10);
         {
             SkPaint p;
@@ -104,7 +93,6 @@ protected:
             p.setAntiAlias(true);
             fPaints.push_back(p);
         }
-#endif
         {
         // AA with stroke style
         SkPaint p;
@@ -167,7 +155,7 @@ protected:
     void onDraw(SkCanvas* canvas) override {
         // Draw a giant AA circle as the background.
         SkISize size = this->getISize();
-        SkScalar giantRadius = SkTMin(SkIntToScalar(size.fWidth),
+        SkScalar giantRadius = std::min(SkIntToScalar(size.fWidth),
                                       SkIntToScalar(size.fHeight)) / 2.f;
         SkPoint giantCenter = SkPoint::Make(SkIntToScalar(size.fWidth/2),
                                             SkIntToScalar(size.fHeight/2));

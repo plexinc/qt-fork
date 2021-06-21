@@ -24,8 +24,10 @@
 
 #include "third_party/blink/renderer/core/script/script_loader.h"
 
+#include "base/feature_list.h"
 #include "third_party/blink/public/common/feature_policy/feature_policy.h"
 #include "third_party/blink/public/common/features.h"
+#include "third_party/blink/public/mojom/feature_policy/feature_policy_feature.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/sanitize_script_errors.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
 #include "third_party/blink/renderer/core/dom/document.h"
@@ -34,6 +36,7 @@
 #include "third_party/blink/renderer/core/dom/text.h"
 #include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
+#include "third_party/blink/renderer/core/html/html_document.h"
 #include "third_party/blink/renderer/core/html/imports/html_import.h"
 #include "third_party/blink/renderer/core/html/parser/html_parser_idioms.h"
 #include "third_party/blink/renderer/core/html_names.h"
@@ -47,11 +50,14 @@
 #include "third_party/blink/renderer/core/script/js_module_script.h"
 #include "third_party/blink/renderer/core/script/modulator.h"
 #include "third_party/blink/renderer/core/script/module_pending_script.h"
+#include "third_party/blink/renderer/core/script/pending_import_map.h"
 #include "third_party/blink/renderer/core/script/script.h"
 #include "third_party/blink/renderer/core/script/script_element_base.h"
 #include "third_party/blink/renderer/core/script/script_runner.h"
 #include "third_party/blink/renderer/core/svg_names.h"
+#include "third_party/blink/renderer/core/trustedtypes/trusted_types_util.h"
 #include "third_party/blink/renderer/platform/bindings/parkable_string.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/instrumentation/histogram.h"
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/loader/fetch/fetch_client_settings_object_snapshot.h"
@@ -173,57 +179,6 @@ enum class ShouldFireErrorEvent {
   kShouldFire,
 };
 
-ShouldFireErrorEvent ParseAndRegisterImportMap(ScriptElementBase& element,
-                                               const TextPosition& position) {
-  Document& element_document = element.GetDocument();
-  Document* context_document = element_document.ContextDocument();
-  DCHECK(context_document);
-  Modulator* modulator =
-      Modulator::From(ToScriptStateForMainWorld(context_document->GetFrame()));
-  DCHECK(modulator);
-
-  // If import maps are not enabled, we do nothing and return here, and also
-  // do not fire error events.
-  if (!modulator->BuiltInModuleInfraEnabled())
-    return ShouldFireErrorEvent::kDoNotFire;
-
-  if (!modulator->IsAcquiringImportMaps()) {
-    element_document.AddConsoleMessage(ConsoleMessage::Create(
-        mojom::ConsoleMessageSource::kJavaScript,
-        mojom::ConsoleMessageLevel::kError,
-        "An import map is added after module script load was triggered."));
-    return ShouldFireErrorEvent::kShouldFire;
-  }
-
-  // TODO(crbug.com/922212): Implemenet external import maps.
-  if (element.HasSourceAttribute()) {
-    element_document.AddConsoleMessage(
-        ConsoleMessage::Create(mojom::ConsoleMessageSource::kJavaScript,
-                               mojom::ConsoleMessageLevel::kError,
-                               "External import maps are not yet supported."));
-    return ShouldFireErrorEvent::kShouldFire;
-  }
-
-  UseCounter::Count(*context_document, WebFeature::kImportMap);
-
-  KURL base_url = element_document.BaseURL();
-  const String import_map_text = element.TextFromChildren();
-  ImportMap* import_map = ImportMap::Create(*modulator, import_map_text,
-                                            base_url, element_document);
-
-  if (!import_map)
-    return ShouldFireErrorEvent::kShouldFire;
-
-  // https://github.com/WICG/import-maps/issues/105
-  if (!element.AllowInlineScriptForCSP(element.GetNonceForElement(),
-                                       position.line_, import_map_text)) {
-    return ShouldFireErrorEvent::kShouldFire;
-  }
-
-  modulator->RegisterImportMap(import_map);
-  return ShouldFireErrorEvent::kDoNotFire;
-}
-
 }  // namespace
 
 // <specdef href="https://html.spec.whatwg.org/C/#prepare-a-script">
@@ -298,8 +253,8 @@ network::mojom::CredentialsMode ScriptLoader::ModuleScriptCredentialsMode(
 bool ShouldBlockSyncScriptForFeaturePolicy(const ScriptElementBase* element,
                                            mojom::ScriptType script_type,
                                            bool parser_inserted) {
-  if (element->GetDocument().GetFeaturePolicy()->IsFeatureEnabled(
-          mojom::FeaturePolicyFeature::kSyncScript)) {
+  if (element->GetDocument().IsFeatureEnabled(
+          mojom::blink::FeaturePolicyFeature::kSyncScript)) {
     return false;
   }
 
@@ -338,7 +293,15 @@ bool ScriptLoader::PrepareScript(const TextPosition& script_start_position,
     non_blocking_ = true;
 
   // <spec step="4">Let source text be the element's child text content.</spec>
-  const String source_text = element_->TextFromChildren();
+  //
+  // Trusted Types additionally requires:
+  // https://w3c.github.io/webappsec-trusted-types/dist/spec/#slot-value-verification
+  // - Step 4: Execute the Prepare the script URL and text algorithm upon the
+  //     script element. If that algorithm threw an error, then return. The
+  //     script is not executed.
+  // - Step 5: Let source text be the element’s [[ScriptText]] internal slot
+  //     value.
+  const String source_text = GetScriptText();
 
   // <spec step="5">If the element has no src attribute, and source text is the
   // empty string, then return. The script is not executed.</spec>
@@ -397,6 +360,18 @@ bool ScriptLoader::PrepareScript(const TextPosition& script_start_position,
   if (!context_document->CanExecuteScripts(kAboutToExecuteScript))
     return false;
 
+  // Accept import maps only if ImportMapsEnabled().
+  if (is_import_map) {
+    Modulator* modulator = Modulator::From(
+        ToScriptStateForMainWorld(context_document->GetFrame()));
+    if (!modulator->ImportMapsEnabled()) {
+      // Import maps should have been rejected in spec Step 7 above.
+      // TODO(hiroshige): Returning here (i.e. after spec Step 11) is not spec
+      // conformant. Fix this.
+      return false;
+    }
+  }
+
   // <spec step="12">If the script element has a nomodule content attribute and
   // the script's type is "classic", then return. The script is not
   // executed.</spec>
@@ -416,26 +391,25 @@ bool ScriptLoader::PrepareScript(const TextPosition& script_start_position,
   TextPosition position =
       is_in_document_write ? TextPosition() : script_start_position;
 
-  // 13.
-  if (!IsScriptForEventSupported())
-    return false;
-
-  // Process the import map.
-  if (is_import_map) {
-    if (ParseAndRegisterImportMap(*element_, position) ==
-        ShouldFireErrorEvent::kShouldFire) {
-      element_document.GetTaskRunner(TaskType::kDOMManipulation)
-          ->PostTask(FROM_HERE,
-                     WTF::Bind(&ScriptElementBase::DispatchErrorEvent,
-                               WrapPersistent(element_.Get())));
-    }
+  // <spec step="13">If the script element does not have a src content
+  // attribute, and the Should element's inline behavior be blocked by Content
+  // Security Policy? algorithm returns "Blocked" when executed upon the script
+  // element, "script", and source text, then return. The script is not
+  // executed. [CSP]</spec>
+  if (!element_->HasSourceAttribute() &&
+      !element_->AllowInlineScriptForCSP(element_->GetNonceForElement(),
+                                         position.line_, source_text)) {
     return false;
   }
+
+  // 14.
+  if (!IsScriptForEventSupported())
+    return false;
 
   // This FeaturePolicy is still in the process of being added to the spec.
   if (ShouldBlockSyncScriptForFeaturePolicy(element_.Get(), GetScriptType(),
                                             parser_inserted_)) {
-    element_document.AddConsoleMessage(ConsoleMessage::Create(
+    element_document.AddConsoleMessage(MakeGarbageCollected<ConsoleMessage>(
         mojom::ConsoleMessageSource::kJavaScript,
         mojom::ConsoleMessageLevel::kError,
         "Synchronous script execution is disabled by Feature Policy"));
@@ -465,11 +439,13 @@ bool ScriptLoader::PrepareScript(const TextPosition& script_start_position,
   IntegrityMetadataSet integrity_metadata;
   if (!integrity_attr.IsEmpty()) {
     SubresourceIntegrity::IntegrityFeatures integrity_features =
-        SubresourceIntegrityHelper::GetFeatures(&element_document);
+        SubresourceIntegrityHelper::GetFeatures(
+            element_document.ToExecutionContext());
     SubresourceIntegrity::ReportInfo report_info;
     SubresourceIntegrity::ParseIntegrityAttribute(
         integrity_attr, integrity_features, integrity_metadata, &report_info);
-    SubresourceIntegrityHelper::DoReport(element_document, report_info);
+    SubresourceIntegrityHelper::DoReport(*element_document.ToExecutionContext(),
+                                         report_info);
   }
 
   // <spec step="20">Let referrer policy be the current state of the element's
@@ -519,6 +495,26 @@ bool ScriptLoader::PrepareScript(const TextPosition& script_start_position,
   // TODO(hiroshige): Use a consistent Document everywhere.
   auto* fetch_client_settings_object_fetcher = context_document->Fetcher();
 
+  // https://wicg.github.io/import-maps/#integration-prepare-a-script
+  // If the script’s type is "importmap" and the element’s node document’s
+  // acquiring import maps is false, then queue a task to fire an event named
+  // error at the element, and return. [spec text]
+  if (is_import_map) {
+    Modulator* modulator = Modulator::From(
+        ToScriptStateForMainWorld(context_document->GetFrame()));
+    if (!modulator->IsAcquiringImportMaps()) {
+      element_document.AddConsoleMessage(MakeGarbageCollected<ConsoleMessage>(
+          mojom::ConsoleMessageSource::kJavaScript,
+          mojom::ConsoleMessageLevel::kError,
+          "An import map is added after module script load was triggered."));
+      element_document.GetTaskRunner(TaskType::kDOMManipulation)
+          ->PostTask(FROM_HERE,
+                     WTF::Bind(&ScriptElementBase::DispatchErrorEvent,
+                               WrapPersistent(element_.Get())));
+      return false;
+    }
+  }
+
   // <spec step="24">If the element has a src content attribute, then:</spec>
   if (element_->HasSourceAttribute()) {
     // <spec step="24.1">Let src be the value of the element's src
@@ -555,6 +551,19 @@ bool ScriptLoader::PrepareScript(const TextPosition& script_start_position,
     }
 
     // <spec step="24.6">Switch on the script's type:</spec>
+    if (is_import_map) {
+      // TODO(crbug.com/922212): Implement external import maps.
+      element_document.AddConsoleMessage(MakeGarbageCollected<ConsoleMessage>(
+          mojom::ConsoleMessageSource::kJavaScript,
+          mojom::ConsoleMessageLevel::kError,
+          "External import maps are not yet supported."));
+      element_document.GetTaskRunner(TaskType::kDOMManipulation)
+          ->PostTask(FROM_HERE,
+                     WTF::Bind(&ScriptElementBase::DispatchErrorEvent,
+                               WrapPersistent(element_.Get())));
+      return false;
+    }
+
     if (GetScriptType() == mojom::ScriptType::kClassic) {
       // - "classic":
 
@@ -576,8 +585,7 @@ bool ScriptLoader::PrepareScript(const TextPosition& script_start_position,
       // Fetch a classic script given url, settings object, options, classic
       // script CORS setting, and encoding.</spec>
       Document* document_for_origin = &element_document;
-      if (base::FeatureList::IsEnabled(
-              features::kHtmlImportsRequestInitiatorLock)) {
+      if (element_document.ImportsController()) {
         document_for_origin = context_document;
       }
       FetchClassicScript(url, *document_for_origin, options, cross_origin,
@@ -615,7 +623,7 @@ bool ScriptLoader::PrepareScript(const TextPosition& script_start_position,
     // <spec step="24.1">Let src be the value of the element's src
     // attribute.</spec>
     //
-    // This step is done later as ScriptElementBase::TextFromChildren():
+    // This step is done later as ScriptElementBase::ChildTextContent():
     // - in ScriptLoader::PrepareScript() (Step 26, 6th Clause),
     // - in HTMLParserScriptRunner::ProcessScriptElementInternal()
     //   (Duplicated code of Step 26, 6th Clause),
@@ -629,6 +637,25 @@ bool ScriptLoader::PrepareScript(const TextPosition& script_start_position,
     KURL base_url = element_document.BaseURL();
 
     // <spec step="25.2">Switch on the script's type:</spec>
+
+    if (is_import_map) {
+      UseCounter::Count(*context_document, WebFeature::kImportMap);
+
+      // https://wicg.github.io/import-maps/#integration-prepare-a-script
+      // 1. Let import map parse result be the result of create an import map
+      // parse result, given source text, base URL and settings object. [spec
+      // text]
+      PendingImportMap* pending_import_map =
+          PendingImportMap::CreateInline(*element_, source_text, base_url);
+
+      // Because we currently support inline import maps only, the pending
+      // import map is ready immediately and thus we call `register an import
+      // map` synchronously here.
+      pending_import_map->RegisterImportMap();
+
+      return false;
+    }
+
     switch (GetScriptType()) {
         // <spec step="25.2.A">"classic"</spec>
       case mojom::ScriptType::kClassic: {
@@ -647,7 +674,8 @@ bool ScriptLoader::PrepareScript(const TextPosition& script_start_position,
         }
 
         prepared_pending_script_ = ClassicPendingScript::CreateInline(
-            element_, position, script_location_type, options);
+            element_, position, base_url, source_text, script_location_type,
+            options);
 
         // <spec step="25.2.A.2">Set the script's script to script.</spec>
         //
@@ -673,10 +701,10 @@ bool ScriptLoader::PrepareScript(const TextPosition& script_start_position,
         // <spec label="fetch-an-inline-module-script-graph" step="1">Let script
         // be the result of creating a JavaScript module script using source
         // text, settings object, base URL, and options.</spec>
-        ModuleScript* module_script = JSModuleScript::Create(
-            ParkableString(element_->TextFromChildren().Impl()), nullptr,
-            ScriptSourceLocationType::kInline, modulator, source_url, base_url,
-            options, position);
+        ModuleScript* module_script =
+            JSModuleScript::Create(ParkableString(source_text.Impl()), nullptr,
+                                   ScriptSourceLocationType::kInline, modulator,
+                                   source_url, base_url, options, position);
 
         // <spec label="fetch-an-inline-module-script-graph" step="2">If script
         // is null, asynchronously complete this algorithm with null, and abort
@@ -693,7 +721,8 @@ bool ScriptLoader::PrepareScript(const TextPosition& script_start_position,
             MakeGarbageCollected<ModulePendingScriptTreeClient>();
         modulator->FetchDescendantsForInlineScript(
             module_script, fetch_client_settings_object_fetcher,
-            mojom::RequestContextType::SCRIPT, module_tree_client);
+            mojom::RequestContextType::SCRIPT,
+            network::mojom::RequestDestination::kScript, module_tree_client);
         prepared_pending_script_ = MakeGarbageCollected<ModulePendingScript>(
             element_, module_tree_client, is_external_script_);
         break;
@@ -739,7 +768,7 @@ bool ScriptLoader::PrepareScript(const TextPosition& script_start_position,
   if (GetScriptType() == mojom::ScriptType::kClassic &&
       element_->HasSourceAttribute() &&
       context_document->GetFrame()->ShouldForceDeferScript() &&
-      context_document->IsHTMLDocument() && parser_inserted_ &&
+      IsA<HTMLDocument>(context_document) && parser_inserted_ &&
       !element_->AsyncAttributeValue()) {
     // In terms of ScriptLoader flags, force deferred scripts behave like
     // parser-blocking scripts, except that |force_deferred_| is set.
@@ -831,7 +860,7 @@ bool ScriptLoader::PrepareScript(const TextPosition& script_start_position,
 
   // Check for inline script that should be force deferred.
   if (context_document->GetFrame()->ShouldForceDeferScript() &&
-      context_document->IsHTMLDocument() && parser_inserted_) {
+      IsA<HTMLDocument>(context_document) && parser_inserted_) {
     force_deferred_ = true;
     will_be_parser_executed_ = true;
     return true;
@@ -910,7 +939,8 @@ void ScriptLoader::FetchModuleScriptTree(
   auto* module_tree_client =
       MakeGarbageCollected<ModulePendingScriptTreeClient>();
   modulator->FetchTree(url, fetch_client_settings_object_fetcher,
-                       mojom::RequestContextType::SCRIPT, options,
+                       mojom::RequestContextType::SCRIPT,
+                       network::mojom::RequestDestination::kScript, options,
                        ModuleScriptCustomFetchType::kNone, module_tree_client);
   prepared_pending_script_ = MakeGarbageCollected<ModulePendingScript>(
       element_, module_tree_client, is_external_script_);
@@ -945,7 +975,9 @@ void ScriptLoader::PendingScriptFinished(PendingScript* pending_script) {
   // memory cache not be in the HTTPCache. So we keep |resource_keep_alive_| to
   // keep the resource in the memory cache.
   if (resource_keep_alive_ &&
-      !resource_keep_alive_->GetResponse().IsSignedExchangeInnerResponse()) {
+      !resource_keep_alive_->GetResponse().IsSignedExchangeInnerResponse() &&
+      !base::FeatureList::IsEnabled(
+          blink::features::kKeepScriptResourceAlive)) {
     resource_keep_alive_ = nullptr;
   }
 
@@ -997,6 +1029,23 @@ PendingScript*
 ScriptLoader::GetPendingScriptIfControlledByScriptRunnerForCrossDocMove() {
   DCHECK(!pending_script_ || pending_script_->IsControlledByScriptRunner());
   return pending_script_;
+}
+
+String ScriptLoader::GetScriptText() const {
+  // Step 3 of
+  // https://w3c.github.io/webappsec-trusted-types/dist/spec/#abstract-opdef-prepare-the-script-url-and-text
+  // called from § 4.1.3.3, step 4 of
+  // https://w3c.github.io/webappsec-trusted-types/dist/spec/#slot-value-verification
+  // This will return the [[ScriptText]] internal slot value after that step,
+  // or a null string if the the Trusted Type algorithm threw an error.
+  String child_text_content = element_->ChildTextContent();
+  DCHECK(!child_text_content.IsNull());
+  String script_text_internal_slot = element_->ScriptTextInternalSlot();
+  if (child_text_content == script_text_internal_slot)
+    return child_text_content;
+  return GetStringForScriptExecution(child_text_content,
+                                     element_->GetScriptElementType(),
+                                     element_->GetDocument().ContextDocument());
 }
 
 }  // namespace blink

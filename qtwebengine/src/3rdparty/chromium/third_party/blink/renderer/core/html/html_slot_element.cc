@@ -30,6 +30,7 @@
 
 #include "third_party/blink/renderer/core/html/html_slot_element.h"
 
+#include "third_party/blink/renderer/bindings/core/v8/v8_assigned_nodes_options.h"
 #include "third_party/blink/renderer/core/css/style_change_reason.h"
 #include "third_party/blink/renderer/core/css/style_engine.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
@@ -41,7 +42,7 @@
 #include "third_party/blink/renderer/core/dom/slot_assignment.h"
 #include "third_party/blink/renderer/core/dom/text.h"
 #include "third_party/blink/renderer/core/dom/whitespace_attacher.h"
-#include "third_party/blink/renderer/core/html/assigned_nodes_options.h"
+#include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/html_names.h"
 #include "third_party/blink/renderer/core/probe/core_probes.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
@@ -50,8 +51,6 @@
 
 namespace blink {
 
-using namespace html_names;
-
 namespace {
 constexpr size_t kLCSTableSizeLimit = 16;
 }
@@ -59,21 +58,22 @@ constexpr size_t kLCSTableSizeLimit = 16;
 HTMLSlotElement* HTMLSlotElement::CreateUserAgentDefaultSlot(
     Document& document) {
   HTMLSlotElement* slot = MakeGarbageCollected<HTMLSlotElement>(document);
-  slot->setAttribute(kNameAttr, UserAgentDefaultSlotName());
+  slot->setAttribute(html_names::kNameAttr, UserAgentDefaultSlotName());
   return slot;
 }
 
 HTMLSlotElement* HTMLSlotElement::CreateUserAgentCustomAssignSlot(
     Document& document) {
   HTMLSlotElement* slot = MakeGarbageCollected<HTMLSlotElement>(document);
-  slot->setAttribute(kNameAttr, UserAgentCustomAssignSlotName());
+  slot->setAttribute(html_names::kNameAttr, UserAgentCustomAssignSlotName());
   return slot;
 }
 
 HTMLSlotElement::HTMLSlotElement(Document& document)
-    : HTMLElement(kSlotTag, document) {
+    : HTMLElement(html_names::kSlotTag, document) {
   UseCounter::Count(document, WebFeature::kHTMLSlotElement);
-  SetHasCustomStyleCallbacks();
+  if (!RuntimeEnabledFeatures::FlatTreeStyleRecalcEnabled())
+    SetHasCustomStyleCallbacks();
 }
 
 // static
@@ -171,13 +171,33 @@ const HeapVector<Member<Element>> HTMLSlotElement::AssignedElementsForBinding(
   return elements;
 }
 
-void HTMLSlotElement::assign(HeapVector<Member<Node>> nodes) {
-  if (SupportsAssignment())
-    ContainingShadowRoot()->GetSlotAssignment().SetNeedsAssignmentRecalc();
+void HTMLSlotElement::assign(HeapVector<Member<Node>> nodes,
+                             ExceptionState& exception_state) {
+  if (!SupportsAssignment() || !ContainingShadowRoot()->IsManualSlotting()) {
+    exception_state.ThrowDOMException(
+        DOMExceptionCode::kNotAllowedError,
+        "This shadow root does not support manual slot assignment.");
+    return;
+  }
+
   assigned_nodes_candidates_.clear();
+  auto* host = OwnerShadowHost();
+  bool has_invalid_node = false;
   for (auto& node : nodes) {
+    if (node->parentNode() != host) {
+      exception_state.ThrowDOMException(
+          DOMExceptionCode::kNotAllowedError,
+          "Node:  '" + node->nodeName() +
+              "' is invalid for manual slot assignment.");
+      assigned_nodes_candidates_.clear();
+      has_invalid_node = true;
+      break;
+    }
     assigned_nodes_candidates_.insert(node);
   }
+
+  if (!has_invalid_node)
+    ContainingShadowRoot()->GetSlotAssignment().SetNeedsAssignmentRecalc();
 }
 
 void HTMLSlotElement::AppendAssignedNode(Node& host_child) {
@@ -197,6 +217,11 @@ void HTMLSlotElement::ClearAssignedNodesAndFlatTreeChildren() {
 void HTMLSlotElement::UpdateFlatTreeNodeDataForAssignedNodes() {
   Node* previous = nullptr;
   for (auto& current : assigned_nodes_) {
+    bool flat_tree_parent_changed = false;
+    if (!current->NeedsStyleRecalc() && !current->GetComputedStyle()) {
+      if (auto* node_data = current->GetFlatTreeNodeData())
+        flat_tree_parent_changed = !node_data->AssignedSlot();
+    }
     FlatTreeNodeData& flat_tree_node_data = current->EnsureFlatTreeNodeData();
     flat_tree_node_data.SetAssignedSlot(this);
     flat_tree_node_data.SetPreviousInAssignedNodes(previous);
@@ -205,6 +230,8 @@ void HTMLSlotElement::UpdateFlatTreeNodeDataForAssignedNodes() {
       previous->GetFlatTreeNodeData()->SetNextInAssignedNodes(current);
     }
     previous = current;
+    if (flat_tree_parent_changed)
+      current->FlatTreeParentChanged();
   }
   if (previous) {
     DCHECK(previous->GetFlatTreeNodeData());
@@ -220,8 +247,10 @@ void HTMLSlotElement::RecalcFlatTreeChildren() {
 
   if (assigned_nodes_.IsEmpty()) {
     // Use children as fallback
-    for (auto& child : NodeTraversal::ChildrenOf(*this))
-      flat_tree_children_.push_back(child);
+    for (auto& child : NodeTraversal::ChildrenOf(*this)) {
+      if (child.IsSlotable())
+        flat_tree_children_.push_back(child);
+    }
   } else {
     flat_tree_children_ = assigned_nodes_;
     for (auto& node : old_flat_tree_children) {
@@ -244,7 +273,7 @@ void HTMLSlotElement::DispatchSlotChangeEvent() {
 }
 
 AtomicString HTMLSlotElement::GetName() const {
-  return NormalizeSlotName(FastGetAttribute(kNameAttr));
+  return NormalizeSlotName(FastGetAttribute(html_names::kNameAttr));
 }
 
 void HTMLSlotElement::AttachLayoutTree(AttachContext& context) {
@@ -271,8 +300,10 @@ void HTMLSlotElement::AttachLayoutTree(AttachContext& context) {
 void HTMLSlotElement::DetachLayoutTree(bool performing_reattach) {
   if (SupportsAssignment()) {
     const HeapVector<Member<Node>>& flat_tree_children = assigned_nodes_;
-    for (auto& node : flat_tree_children)
-      node->DetachLayoutTree(performing_reattach);
+    for (auto& node : flat_tree_children) {
+      if (node->GetDocument() == GetDocument())
+        node->DetachLayoutTree(performing_reattach);
+    }
   }
   HTMLElement::DetachLayoutTree(performing_reattach);
 }
@@ -291,7 +322,7 @@ void HTMLSlotElement::RebuildDistributedChildrenLayoutTrees(
 
 void HTMLSlotElement::AttributeChanged(
     const AttributeModificationParams& params) {
-  if (params.name == kNameAttr) {
+  if (params.name == html_names::kNameAttr) {
     if (ShadowRoot* root = ContainingShadowRoot()) {
       if (root->IsV1() && params.old_value != params.new_value) {
         root->GetSlotAssignment().DidRenameSlot(
@@ -381,9 +412,26 @@ void HTMLSlotElement::RemovedFrom(ContainerNode& insertion_point) {
 }
 
 void HTMLSlotElement::DidRecalcStyle(const StyleRecalcChange change) {
+  DCHECK(!RuntimeEnabledFeatures::FlatTreeStyleRecalcEnabled());
   if (!change.RecalcChildren())
     return;
   for (auto& node : assigned_nodes_) {
+    if (!change.TraverseChild(*node))
+      continue;
+    if (auto* element = DynamicTo<Element>(node.Get()))
+      element->RecalcStyle(change);
+    else if (auto* text_node = DynamicTo<Text>(node.Get()))
+      text_node->RecalcTextStyle(change);
+  }
+}
+
+void HTMLSlotElement::RecalcStyleForSlotChildren(
+    const StyleRecalcChange change) {
+  if (!RuntimeEnabledFeatures::FlatTreeStyleRecalcEnabled()) {
+    RecalcDescendantStyles(change);
+    return;
+  }
+  for (auto& node : flat_tree_children_) {
     if (!change.TraverseChild(*node))
       continue;
     if (auto* element = DynamicTo<Element>(node.Get()))
@@ -434,11 +482,37 @@ void HTMLSlotElement::NotifySlottedNodesOfFlatTreeChange(
     return;
   probe::DidPerformSlotDistribution(this);
 
+  // It is very important to minimize the number of reattaching nodes in
+  // |new_assigned_nodes| here. The following *works*, in terms of the
+  // correctness of the rendering,
+  //
+  // for (auto& node: new_slotted) {
+  //   node->FlatTreeParentChanged();
+  // }
+  //
+  // However, reattaching all ndoes is not good in terms of performance.
+  // Reattach is very expensive operation.
+  //
+  // A possible approach is: Find the Longest Commons Subsequence (LCS) between
+  // |old_slotted| and |new_slotted|, and reattach nodes in |new_slotted| which
+  // LCS does not include.
+  //
+  // Note that a relative order between nodes which are not reattached should be
+  // preserved in old and new. For example,
+  //
+  // - old: [1, 4, 2, 3]
+  // - new: [3, 1, 2]
+  //
+  // This case, we must reattach 3 here, as the best possible solution.  If we
+  // don't reattach 3, 3's LayoutObject will have an invalid next sibling
+  // pointer.  We don't have any chance to update their sibling pointers (3's
+  // next and 1's previous).  Sibling pointers between 1 and 2 are correctly
+  // updated when we reattach 4, which is done in another code path.
   if (old_slotted.size() + 1 > kLCSTableSizeLimit ||
       new_slotted.size() + 1 > kLCSTableSizeLimit) {
     // Since DP takes O(N^2), we don't use DP if the size is larger than the
     // pre-defined limit.
-    NotifySlottedNodesOfFlatTreeChangeNaive(new_slotted);
+    NotifySlottedNodesOfFlatTreeChangeNaive(old_slotted, new_slotted);
   } else {
     NotifySlottedNodesOfFlatTreeChangeByDynamicProgramming(old_slotted,
                                                            new_slotted);
@@ -459,10 +533,113 @@ void HTMLSlotElement::DidSlotChangeAfterRenaming() {
 }
 
 void HTMLSlotElement::NotifySlottedNodesOfFlatTreeChangeNaive(
-    const HeapVector<Member<Node>>& new_slotted) {
-  // TODO(hayato): Use some heuristic to avoid reattaching all nodes
-  for (auto& node : new_slotted)
-    node->FlatTreeParentChanged();
+    const HeapVector<Member<Node>>& old_assigned_nodes,
+    const HeapVector<Member<Node>>& new_assigned_nodes) {
+  // Use O(N) naive greedy algorithm to find a *suboptimal* longest common
+  // subsequence (LCS), and reattach nodes which are not in suboptimal LCS.  We
+  // run a greedy algorithm twice in both directions (scan forward and scan
+  // backward), and use the better result.  Though this greedy algorithm is not
+  // perfect, it works well in some common cases, such as:
+
+  // Inserting a node:
+  // old assigned nodes: [a, b ...., z]
+  // new assigned nodes: [a, b ...., z, A]
+  // => The algorithm reattaches only node |A|.
+
+  // Removing a node:
+  // - old assigned nodes: [a, b, ..., m, n, o, ..., z]
+  // - new assigned nodes: [a, b, ..., m, o, ... , z]
+  // => The algorithm does not reattach any node.
+
+  // Moving a node:
+  // - old assigned nodes: [a, b, ..., z]
+  // - new assigned nodes: [b, ..., z, a]
+  // => The algorithm reattaches only node |a|.
+
+  // Swapping the first node and the last node
+  // - old assigned nodes: [a, b, ..., y, z]
+  // - new assigned nodes: [z, b, ..., y, a]
+  // => Ideally, we should reattach only |a| and |z|, however, the algorithm
+  // does not work well here, reattaching [a, b, ...., y] (or [b, ... y, z]).
+  // We could reconsider to support this case if a compelling case arises.
+
+  // TODO(hayato): Consider to write an unit test for the algorithm.  We
+  // probably want to make the algorithm templatized so we can test it
+  // easily.  Like, Vec<T> greedy_suboptimal_lcs(Vec<T> old, Vec<T> new)
+
+  HeapHashMap<Member<Node>, wtf_size_t> old_index_map;
+  for (wtf_size_t i = 0; i < old_assigned_nodes.size(); ++i) {
+    old_index_map.insert(old_assigned_nodes[i], i);
+  }
+
+  // Scan forward
+  HeapVector<Member<Node>> forward_result;
+
+  wtf_size_t i = 0;
+  wtf_size_t j = 0;
+
+  while (i < old_assigned_nodes.size() && j < new_assigned_nodes.size()) {
+    auto& new_node = new_assigned_nodes[j];
+    if (old_assigned_nodes[i] == new_node) {
+      ++i;
+      ++j;
+      continue;
+    }
+    if (old_index_map.Contains(new_node)) {
+      wtf_size_t old_index = old_index_map.at(new_node);
+      if (old_index > i) {
+        i = old_index_map.at(new_node) + 1;
+        ++j;
+        continue;
+      }
+    }
+    forward_result.push_back(new_node);
+    ++j;
+  }
+
+  for (; j < new_assigned_nodes.size(); ++j) {
+    forward_result.push_back(new_assigned_nodes[j]);
+  }
+
+  // Scan backward
+  HeapVector<Member<Node>> backward_result;
+
+  i = old_assigned_nodes.size();
+  j = new_assigned_nodes.size();
+
+  while (i > 0 && j > 0) {
+    auto& new_node = new_assigned_nodes[j - 1];
+    if (old_assigned_nodes[i - 1] == new_node) {
+      --i;
+      --j;
+      continue;
+    }
+    if (old_index_map.Contains(new_node)) {
+      wtf_size_t old_index = old_index_map.at(new_node);
+      if (old_index < i - 1) {
+        i = old_index;
+        --j;
+        continue;
+      }
+    }
+    backward_result.push_back(new_node);
+    --j;
+  }
+
+  for (; j > 0; --j) {
+    backward_result.push_back(new_assigned_nodes[j - 1]);
+  }
+
+  // Reattach nodes
+  if (forward_result.size() <= backward_result.size()) {
+    for (auto& node : forward_result) {
+      node->FlatTreeParentChanged();
+    }
+  } else {
+    for (auto& node : backward_result) {
+      node->FlatTreeParentChanged();
+    }
+  }
 }
 
 void HTMLSlotElement::
@@ -529,10 +706,6 @@ bool HTMLSlotElement::HasAssignedNodesSlow() const {
   if (assignment.FindSlotByName(GetName()) != this)
     return false;
   return assignment.FindHostChildBySlotName(GetName());
-}
-
-int HTMLSlotElement::tabIndex() const {
-  return Element::tabIndex();
 }
 
 void HTMLSlotElement::Trace(Visitor* visitor) {

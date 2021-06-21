@@ -34,7 +34,6 @@ class VIZ_COMMON_EXPORT RenderPassDrawQuad : public DrawQuad {
               ResourceId mask_resource_id,
               const gfx::RectF& mask_uv_rect,
               const gfx::Size& mask_texture_size,
-              bool mask_applies_to_backdrop,
               const gfx::Vector2dF& filters_scale,
               const gfx::PointF& filters_origin,
               const gfx::RectF& tex_coord_rect,
@@ -49,12 +48,12 @@ class VIZ_COMMON_EXPORT RenderPassDrawQuad : public DrawQuad {
               ResourceId mask_resource_id,
               const gfx::RectF& mask_uv_rect,
               const gfx::Size& mask_texture_size,
-              bool mask_applies_to_backdrop,
               const gfx::Vector2dF& filters_scale,
               const gfx::PointF& filters_origin,
               const gfx::RectF& tex_coord_rect,
               bool force_anti_aliasing_off,
-              float backdrop_filter_quality);
+              float backdrop_filter_quality,
+              bool can_use_backdrop_filter_cache);
 
   RenderPassId render_pass_id;
   gfx::RectF mask_uv_rect;
@@ -75,7 +74,11 @@ class VIZ_COMMON_EXPORT RenderPassDrawQuad : public DrawQuad {
   float backdrop_filter_quality;
 
   bool force_anti_aliasing_off;
-  bool mask_applies_to_backdrop;
+
+  // If the quad has backdrop filters, this flag indicates if the cached
+  // backdrop filtered result can be used instead of having to recompute the
+  // filter operation.
+  mutable bool can_use_backdrop_filter_cache;
 
   ResourceId mask_resource_id() const {
     return resources.ids[kMaskResourceIdIndex];

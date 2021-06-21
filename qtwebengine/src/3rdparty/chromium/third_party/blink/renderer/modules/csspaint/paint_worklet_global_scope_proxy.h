@@ -20,7 +20,7 @@ class WorkletModuleResponsesMap;
 
 // A proxy for PaintWorklet to talk to PaintWorkletGlobalScope.
 class MODULES_EXPORT PaintWorkletGlobalScopeProxy
-    : public GarbageCollectedFinalized<PaintWorkletGlobalScopeProxy>,
+    : public GarbageCollected<PaintWorkletGlobalScopeProxy>,
       public WorkletGlobalScopeProxy {
   USING_GARBAGE_COLLECTED_MIXIN(PaintWorkletGlobalScopeProxy);
 
@@ -47,7 +47,7 @@ class MODULES_EXPORT PaintWorkletGlobalScopeProxy
 
   PaintWorkletGlobalScope* global_scope() const { return global_scope_.Get(); }
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
 
  private:
   std::unique_ptr<MainThreadWorkletReportingProxy> reporting_proxy_;

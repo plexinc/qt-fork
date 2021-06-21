@@ -29,7 +29,7 @@
 
 namespace update_client {
 
-ComponentUnpacker::Result::Result() {}
+ComponentUnpacker::Result::Result() = default;
 
 ComponentUnpacker::ComponentUnpacker(const std::vector<uint8_t>& pk_hash,
                                      const base::FilePath& path,
@@ -47,7 +47,7 @@ ComponentUnpacker::ComponentUnpacker(const std::vector<uint8_t>& pk_hash,
       error_(UnpackerError::kNone),
       extended_error_(0) {}
 
-ComponentUnpacker::~ComponentUnpacker() {}
+ComponentUnpacker::~ComponentUnpacker() = default;
 
 void ComponentUnpacker::Unpack(Callback callback) {
   callback_ = std::move(callback);
@@ -57,11 +57,13 @@ void ComponentUnpacker::Unpack(Callback callback) {
 
 bool ComponentUnpacker::Verify() {
   VLOG(1) << "Verifying component: " << path_.value();
-  if (pk_hash_.empty() || path_.empty()) {
+  if (path_.empty()) {
     error_ = UnpackerError::kInvalidParams;
     return false;
   }
-  const std::vector<std::vector<uint8_t>> required_keys = {pk_hash_};
+  std::vector<std::vector<uint8_t>> required_keys;
+  if (!pk_hash_.empty())
+    required_keys.push_back(pk_hash_);
   const crx_file::VerifierResult result =
       crx_file::Verify(path_, crx_format_, required_keys,
                        std::vector<uint8_t>(), &public_key_, nullptr);
@@ -136,9 +138,9 @@ void ComponentUnpacker::EndPatching(UnpackerError error, int extended_error) {
 
 void ComponentUnpacker::EndUnpacking() {
   if (!unpack_diff_path_.empty())
-    base::DeleteFile(unpack_diff_path_, true);
+    base::DeleteFileRecursively(unpack_diff_path_);
   if (error_ != UnpackerError::kNone && !unpack_path_.empty())
-    base::DeleteFile(unpack_path_, true);
+    base::DeleteFileRecursively(unpack_path_);
 
   Result result;
   result.error = error_;

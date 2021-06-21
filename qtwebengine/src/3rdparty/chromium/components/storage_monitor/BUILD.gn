@@ -76,6 +76,8 @@ static_library("storage_monitor") {
         "storage_monitor_linux.cc",
         "storage_monitor_linux.h",
       ]
+    } else {
+      sources += [ "storage_monitor_dummy.cc" ]
     }
   }
 
@@ -85,6 +87,10 @@ static_library("storage_monitor") {
       "udev_util_linux.h",
     ]
     deps += [ "//device/udev_linux" ]
+  }
+
+  if (is_fuchsia) {
+    sources += [ "storage_monitor_fuchsia.cc" ]
   }
 }
 
@@ -112,15 +118,11 @@ static_library("test_support") {
   ]
 
   if (is_chromeos && use_dbus) {
-    deps = [
-      "//services/device/public/mojom",
-    ]
+    deps = [ "//services/device/public/mojom" ]
   }
 
   if (is_win) {
-    deps = [
-      "//testing/gtest",
-    ]
+    deps = [ "//testing/gtest" ]
   }
 }
 

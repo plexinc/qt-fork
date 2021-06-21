@@ -122,7 +122,7 @@ class CORE_EXPORT ScrollAnimator : public ScrollAnimatorBase {
   void TickAnimation(double monotonic_time) override;
   void CancelAnimation() override;
   void AdjustAnimationAndSetScrollOffset(const ScrollOffset&,
-                                         ScrollType) override;
+                                         mojom::blink::ScrollType) override;
   void TakeOverCompositorAnimation() override;
   void ResetAnimationState() override;
   void UpdateCompositorAnimations() override;
@@ -131,7 +131,7 @@ class CORE_EXPORT ScrollAnimator : public ScrollAnimatorBase {
   void LayerForCompositedScrollingDidChange(
       CompositorAnimationTimeline*) override;
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
 
  protected:
   // Returns whether or not the animation was sent to the compositor.
@@ -144,10 +144,6 @@ class CORE_EXPORT ScrollAnimator : public ScrollAnimatorBase {
   bool RegisterAndScheduleAnimation();
 
   void CreateAnimationCurve();
-  void PostAnimationCleanupAndReset();
-
-  void AddMainThreadScrollingReason();
-  void RemoveMainThreadScrollingReason();
 
   // Returns true if will animate to the given target offset. Returns false
   // only when there is no animation running and we are not starting one

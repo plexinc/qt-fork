@@ -9,13 +9,14 @@
 
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "third_party/blink/public/mojom/installedapp/installed_app_provider.mojom-blink.h"
-#include "third_party/blink/public/mojom/installedapp/related_application.mojom-blink.h"
-#include "third_party/blink/public/mojom/manifest/manifest.mojom-blink.h"
+#include "third_party/blink/public/mojom/installedapp/related_application.mojom-blink-forward.h"
+#include "third_party/blink/public/mojom/manifest/manifest.mojom-blink-forward.h"
 #include "third_party/blink/renderer/bindings/core/v8/callback_promise_adapter.h"
-#include "third_party/blink/renderer/core/execution_context/context_lifecycle_observer.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_related_application.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
-#include "third_party/blink/renderer/modules/installedapp/related_application.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/heap/heap_allocator.h"
 #include "third_party/blink/renderer/platform/heap/member.h"
@@ -28,9 +29,9 @@ using AppInstalledCallbacks =
     CallbackPromiseAdapter<HeapVector<Member<RelatedApplication>>, void>;
 
 class MODULES_EXPORT InstalledAppController final
-    : public GarbageCollectedFinalized<InstalledAppController>,
+    : public GarbageCollected<InstalledAppController>,
       public Supplement<LocalFrame>,
-      public ContextLifecycleObserver {
+      public ExecutionContextLifecycleObserver {
   USING_GARBAGE_COLLECTED_MIXIN(InstalledAppController);
 
  public:
@@ -59,15 +60,15 @@ class MODULES_EXPORT InstalledAppController final
       const KURL& url,
       mojom::blink::ManifestPtr manifest);
 
-  // Inherited from ContextLifecycleObserver.
-  void ContextDestroyed(ExecutionContext*) override;
+  // Inherited from ExecutionContextLifecycleObserver.
+  void ContextDestroyed() override;
 
   // Callback from the InstalledAppProvider mojo service.
   void OnFilterInstalledApps(std::unique_ptr<AppInstalledCallbacks>,
                              Vector<mojom::blink::RelatedApplicationPtr>);
 
   // Handle to the InstalledApp mojo service.
-  mojom::blink::InstalledAppProviderPtr provider_;
+  mojo::Remote<mojom::blink::InstalledAppProvider> provider_;
 
   DISALLOW_COPY_AND_ASSIGN(InstalledAppController);
 };

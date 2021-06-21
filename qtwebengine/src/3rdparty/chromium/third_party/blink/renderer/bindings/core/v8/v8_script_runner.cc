@@ -25,7 +25,9 @@
 
 #include "third_party/blink/renderer/bindings/core/v8/v8_script_runner.h"
 
+#include "base/feature_list.h"
 #include "build/build_config.h"
+#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/renderer/bindings/core/v8/binding_security.h"
 #include "third_party/blink/renderer/bindings/core/v8/referrer_script_info.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_source_code.h"
@@ -44,10 +46,10 @@
 #include "third_party/blink/renderer/platform/instrumentation/histogram.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
 #include "third_party/blink/renderer/platform/loader/fetch/cached_metadata.h"
+#include "third_party/blink/renderer/platform/loader/fetch/cached_metadata_handler.h"
 #include "third_party/blink/renderer/platform/scheduler/public/event_loop.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
 #include "third_party/blink/renderer/platform/wtf/text/text_encoding.h"
-#include "third_party/blink/renderer/platform/wtf/time.h"
 
 namespace blink {
 
@@ -56,6 +58,11 @@ namespace {
 // Used to throw an exception before we exceed the C++ stack and crash.
 // This limit was arrived at arbitrarily. crbug.com/449744
 const int kMaxRecursionDepth = 44;
+
+bool InDiscardExperiment() {
+  return base::FeatureList::IsEnabled(
+      blink::features::kDiscardCodeCacheAfterFirstUse);
+}
 
 // In order to make sure all pending messages to be processed in
 // v8::Function::Call, we don't call throwStackOverflowException
@@ -148,7 +155,12 @@ v8::MaybeLocal<v8::Script> CompileScriptInternal(
 
       if (cached_data->rejected) {
         cache_handler->ClearCachedMetadata(
-            CachedMetadataHandler::kSendToPlatform);
+            CachedMetadataHandler::kClearPersistentStorage);
+      } else if (InDiscardExperiment()) {
+        // Experimentally free code cache from memory after first use. See
+        // http://crbug.com/1045052.
+        cache_handler->ClearCachedMetadata(
+            CachedMetadataHandler::kDiscardLocally);
       }
       if (cache_result) {
         cache_result->consume_result = base::make_optional(
@@ -281,7 +293,12 @@ v8::MaybeLocal<v8::Module> V8ScriptRunner::CompileModule(
           isolate, &source, compile_options, no_cache_reason);
       if (cached_data->rejected) {
         cache_handler->ClearCachedMetadata(
-            CachedMetadataHandler::kSendToPlatform);
+            CachedMetadataHandler::kClearPersistentStorage);
+      } else if (InDiscardExperiment()) {
+        // Experimentally free code cache from memory after first use. See
+        // http://crbug.com/1045052.
+        cache_handler->ClearCachedMetadata(
+            CachedMetadataHandler::kDiscardLocally);
       }
       cache_result.consume_result = base::make_optional(
           inspector_compile_script_event::V8CacheResult::ConsumeResult(
@@ -303,8 +320,8 @@ v8::MaybeLocal<v8::Value> V8ScriptRunner::RunCompiledScript(
     v8::Local<v8::Script> script,
     ExecutionContext* context) {
   DCHECK(!script.IsEmpty());
-  ScopedFrameBlamer frame_blamer(
-      IsA<Document>(context) ? To<Document>(context)->GetFrame() : nullptr);
+  Document* document = Document::DynamicFrom(context);
+  ScopedFrameBlamer frame_blamer(document ? document->GetFrame() : nullptr);
 
   v8::Local<v8::Value> script_name =
       script->GetUnboundScript()->GetScriptName();
@@ -317,7 +334,7 @@ v8::MaybeLocal<v8::Value> V8ScriptRunner::RunCompiledScript(
   if (GetMicrotasksScopeDepth(isolate, microtask_queue) > kMaxRecursionDepth)
     return ThrowStackOverflowExceptionIfNeeded(isolate, microtask_queue);
 
-  CHECK(!context->IsIteratingOverObservers());
+  CHECK(!context->ContextLifecycleObserverList().IsIteratingOverObservers());
 
   // Run the script and keep track of the current recursion depth.
   v8::MaybeLocal<v8::Value> result;
@@ -396,7 +413,7 @@ v8::MaybeLocal<v8::Value> V8ScriptRunner::CallAsConstructor(
   if (depth >= kMaxRecursionDepth)
     return ThrowStackOverflowExceptionIfNeeded(isolate, microtask_queue);
 
-  CHECK(!context->IsIteratingOverObservers());
+  CHECK(!context->ContextLifecycleObserverList().IsIteratingOverObservers());
 
   if (ScriptForbiddenScope::IsScriptForbidden()) {
     ThrowScriptForbiddenException(isolate);
@@ -437,8 +454,8 @@ v8::MaybeLocal<v8::Value> V8ScriptRunner::CallFunction(
     int argc,
     v8::Local<v8::Value> args[],
     v8::Isolate* isolate) {
-  LocalFrame* frame =
-      IsA<Document>(context) ? To<Document>(context)->GetFrame() : nullptr;
+  Document* document = Document::DynamicFrom(context);
+  LocalFrame* frame = document ? document->GetFrame() : nullptr;
   ScopedFrameBlamer frame_blamer(frame);
   TRACE_EVENT0("v8", "v8.callFunction");
   RuntimeCallStatsScopedTracer rcs_scoped_tracer(isolate);
@@ -449,7 +466,7 @@ v8::MaybeLocal<v8::Value> V8ScriptRunner::CallFunction(
   if (depth >= kMaxRecursionDepth)
     return ThrowStackOverflowExceptionIfNeeded(isolate, microtask_queue);
 
-  CHECK(!context->IsIteratingOverObservers());
+  CHECK(!context->ContextLifecycleObserverList().IsIteratingOverObservers());
 
   if (ScriptForbiddenScope::IsScriptForbidden()) {
     ThrowScriptForbiddenException(isolate);
@@ -478,26 +495,6 @@ v8::MaybeLocal<v8::Value> V8ScriptRunner::CallFunction(
   return result;
 }
 
-v8::MaybeLocal<v8::Value> V8ScriptRunner::CallInternalFunction(
-    v8::Isolate* isolate,
-    v8::MicrotaskQueue* microtask_queue,
-    v8::Local<v8::Function> function,
-    v8::Local<v8::Value> receiver,
-    int argc,
-    v8::Local<v8::Value> args[]) {
-  TRACE_EVENT0("v8", "v8.callFunction");
-  RuntimeCallStatsScopedTracer rcs_scoped_tracer(isolate);
-  RUNTIME_CALL_TIMER_SCOPE(isolate, RuntimeCallStats::CounterId::kV8);
-
-  v8::Isolate::SafeForTerminationScope safe_for_termination(isolate);
-  v8::MicrotasksScope microtasks_scope(
-      isolate, microtask_queue, v8::MicrotasksScope::kDoNotRunMicrotasks);
-  v8::MaybeLocal<v8::Value> result =
-      function->Call(isolate->GetCurrentContext(), receiver, argc, args);
-  CHECK(!isolate->IsDead());
-  return result;
-}
-
 v8::MaybeLocal<v8::Value> V8ScriptRunner::EvaluateModule(
     v8::Isolate* isolate,
     ExecutionContext* execution_context,
@@ -523,24 +520,6 @@ void V8ScriptRunner::ReportException(v8::Isolate* isolate,
     V8Initializer::MessageHandlerInMainThread(message, exception);
   else
     V8Initializer::MessageHandlerInWorker(message, exception);
-}
-
-v8::MaybeLocal<v8::Value> V8ScriptRunner::CallExtraHelper(
-    ScriptState* script_state,
-    const char* name,
-    uint32_t num_args,
-    v8::Local<v8::Value>* args) {
-  v8::Isolate* isolate = script_state->GetIsolate();
-  v8::Local<v8::Value> function_value;
-  v8::Local<v8::Context> context = script_state->GetContext();
-  if (!context->GetExtrasBindingObject()
-           ->Get(context, V8AtomicString(isolate, name))
-           .ToLocal(&function_value))
-    return v8::MaybeLocal<v8::Value>();
-  v8::Local<v8::Function> function = function_value.As<v8::Function>();
-  return V8ScriptRunner::CallInternalFunction(
-      isolate, ToMicrotaskQueue(script_state), function, v8::Undefined(isolate),
-      num_args, args);
 }
 
 }  // namespace blink

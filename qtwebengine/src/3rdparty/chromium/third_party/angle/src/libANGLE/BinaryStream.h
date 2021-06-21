@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2012 The ANGLE Project Authors. All rights reserved.
+// Copyright 2012 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -186,8 +186,10 @@ class BinaryOutputStream : angle::NonCopyable
     template <class IntT>
     void writeInt(IntT param)
     {
-        ASSERT(angle::IsValueInRangeForNumericType<int>(param));
-        int intValue = static_cast<int>(param);
+        using PromotedIntT =
+            typename std::conditional<std::is_signed<IntT>::value, int, unsigned>::type;
+        ASSERT(angle::IsValueInRangeForNumericType<PromotedIntT>(param));
+        PromotedIntT intValue = static_cast<PromotedIntT>(param);
         write(&intValue, 1);
     }
 
@@ -206,7 +208,7 @@ class BinaryOutputStream : angle::NonCopyable
     }
 
     template <class IntT>
-    void writeIntVector(std::vector<IntT> param)
+    void writeIntVector(const std::vector<IntT> &param)
     {
         writeInt(param.size());
         for (IntT element : param)

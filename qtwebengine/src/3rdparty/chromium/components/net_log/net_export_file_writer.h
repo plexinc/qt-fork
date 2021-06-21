@@ -19,6 +19,7 @@
 #include "base/observer_list.h"
 #include "base/threading/thread_checker.h"
 #include "base/values.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "net/log/net_log_capture_mode.h"
 #include "services/network/public/mojom/net_log.mojom.h"
 #include "services/network/public/mojom/network_service.mojom.h"
@@ -77,8 +78,8 @@ class NetExportFileWriter {
     bool log_exists;
   };
 
-  using FilePathCallback = base::Callback<void(const base::FilePath&)>;
-  using DirectoryGetter = base::Callback<bool(base::FilePath*)>;
+  using FilePathCallback = base::OnceCallback<void(const base::FilePath&)>;
+  using DirectoryGetter = base::RepeatingCallback<bool(base::FilePath*)>;
 
   // Constructs a NetExportFileWriter. Only one instance is created in browser
   // process.
@@ -132,11 +133,10 @@ class NetExportFileWriter {
   // (1) The NetExportFileWriter is not initialized.
   // (2) The log file does not exist.
   // (3) The NetExportFileWriter is currently logging.
-  // (4) The log file's permissions could not be set to all.
   //
   // |path_callback| will be executed at the end of GetFilePathToCompletedLog()
   // asynchronously.
-  void GetFilePathToCompletedLog(const FilePathCallback& path_callback) const;
+  void GetFilePathToCompletedLog(FilePathCallback path_callback) const;
 
   // Converts to/from the string representation of a capture mode used by
   // net_export.js.
@@ -214,7 +214,7 @@ class NetExportFileWriter {
   base::FilePath log_path_;  // base::FilePath to the NetLog file.
 
   // Used to ask the network service to do the actual exporting.
-  network::mojom::NetLogExporterPtr net_log_exporter_;
+  mojo::Remote<network::mojom::NetLogExporter> net_log_exporter_;
 
   // List of StateObservers to notify on state changes.
   base::ObserverList<StateObserver, true>::Unchecked state_observer_list_;

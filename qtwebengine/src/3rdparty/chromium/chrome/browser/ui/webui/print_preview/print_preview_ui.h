@@ -59,7 +59,11 @@ class PrintPreviewUI : public ConstrainedWebDialogUI {
 
   const base::string16& initiator_title() const { return initiator_title_; }
 
+  bool source_is_arc() const { return source_is_arc_; }
+
   bool source_is_modifiable() const { return source_is_modifiable_; }
+
+  bool source_is_pdf() const { return source_is_pdf_; }
 
   bool source_has_selection() const { return source_has_selection_; }
 
@@ -145,10 +149,8 @@ class PrintPreviewUI : public ConstrainedWebDialogUI {
                         int preview_request_id);
 
   // Notifies the Web UI renderer that preview data is available.
-  // |expected_pages_count| specifies the total number of pages.
   // |preview_request_id| indicates which request resulted in this response.
-  void OnPreviewDataIsAvailable(int expected_pages_count,
-                                scoped_refptr<base::RefCountedMemory> data,
+  void OnPreviewDataIsAvailable(scoped_refptr<base::RefCountedMemory> data,
                                 int preview_request_id);
 
   // Notifies the Web UI that the print preview failed to render for the request
@@ -254,8 +256,14 @@ class PrintPreviewUI : public ConstrainedWebDialogUI {
   // Weak pointer to the WebUI handler.
   PrintPreviewHandler* const handler_;
 
+  // Indicates whether the source document is from ARC.
+  bool source_is_arc_ = false;
+
   // Indicates whether the source document can be modified.
   bool source_is_modifiable_ = true;
+
+  // Indicates whether the source document is a PDF.
+  bool source_is_pdf_ = false;
 
   // Indicates whether the source document has selection.
   bool source_has_selection_ = false;

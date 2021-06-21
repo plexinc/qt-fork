@@ -676,8 +676,7 @@ bool CPDF_DataAvail::CheckPageNode(const CPDF_DataAvail::PageNode& pageNode,
 }
 
 bool CPDF_DataAvail::LoadDocPage(uint32_t dwPage) {
-  FX_SAFE_INT32 safePage = pdfium::base::checked_cast<int32_t>(dwPage);
-  int32_t iPage = safePage.ValueOrDie();
+  int iPage = pdfium::base::checked_cast<int>(dwPage);
   if (m_pDocument->GetPageCount() <= iPage ||
       m_pDocument->IsPageLoaded(iPage)) {
     m_docStatus = PDF_DATAAVAIL_DONE;
@@ -748,21 +747,22 @@ CPDF_DataAvail::DocAvailStatus CPDF_DataAvail::CheckLinearizedData() {
   }
 
   if (!m_bMainXRefLoadTried) {
-    const FX_SAFE_FILESIZE main_xref_offset =
+    const FX_SAFE_FILESIZE prev =
         m_pDocument->GetParser()->GetTrailer()->GetIntegerFor("Prev");
-    if (!main_xref_offset.IsValid())
+    const FX_FILESIZE main_xref_offset = prev.ValueOrDefault(-1);
+    if (main_xref_offset < 0)
       return DataError;
 
-    if (main_xref_offset.ValueOrDie() == 0)
+    if (main_xref_offset == 0)
       return DataAvailable;
 
     FX_SAFE_SIZE_T data_size = m_dwFileLen;
-    data_size -= main_xref_offset.ValueOrDie();
+    data_size -= main_xref_offset;
     if (!data_size.IsValid())
       return DataError;
 
     if (!GetValidator()->CheckDataRangeAndRequestIfUnavailable(
-            main_xref_offset.ValueOrDie(), data_size.ValueOrDie()))
+            main_xref_offset, data_size.ValueOrDie()))
       return DataNotAvailable;
 
     CPDF_Parser::Error eRet =
@@ -787,11 +787,8 @@ CPDF_DataAvail::DocAvailStatus CPDF_DataAvail::IsPageAvail(
   if (!m_pDocument)
     return DataError;
 
-  const FX_SAFE_INT32 safePage = pdfium::base::checked_cast<int32_t>(dwPage);
-  if (!safePage.IsValid())
-    return DataError;
-
-  if (safePage.ValueOrDie() >= m_pDocument->GetPageCount()) {
+  const int iPage = pdfium::base::checked_cast<int>(dwPage);
+  if (iPage >= m_pDocument->GetPageCount()) {
     // This is XFA page.
     return DataAvailable;
   }
@@ -806,7 +803,7 @@ CPDF_DataAvail::DocAvailStatus CPDF_DataAvail::IsPageAvail(
   const HintsScope hints_scope(GetValidator(), pHints);
   if (m_pLinearized) {
     if (dwPage == m_pLinearized->GetFirstPageNo()) {
-      auto* pPageDict = m_pDocument->GetPageDictionary(safePage.ValueOrDie());
+      auto* pPageDict = m_pDocument->GetPageDictionary(iPage);
       if (!pPageDict)
         return DataError;
 
@@ -857,7 +854,7 @@ CPDF_DataAvail::DocAvailStatus CPDF_DataAvail::IsPageAvail(
   if (CheckAcroForm() == DocFormStatus::FormNotAvailable)
     return DataNotAvailable;
 
-  auto* pPageDict = m_pDocument->GetPageDictionary(safePage.ValueOrDie());
+  auto* pPageDict = m_pDocument->GetPageDictionary(iPage);
   if (!pPageDict)
     return DataError;
 
@@ -992,8 +989,8 @@ CPDF_DataAvail::DocFormStatus CPDF_DataAvail::CheckAcroForm() {
 }
 
 bool CPDF_DataAvail::ValidatePage(uint32_t dwPage) const {
-  FX_SAFE_INT32 safePage = pdfium::base::checked_cast<int32_t>(dwPage);
-  auto* pPageDict = m_pDocument->GetPageDictionary(safePage.ValueOrDie());
+  int iPage = pdfium::base::checked_cast<int>(dwPage);
+  auto* pPageDict = m_pDocument->GetPageDictionary(iPage);
   if (!pPageDict)
     return false;
   CPDF_PageObjectAvail obj_avail(GetValidator(), m_pDocument.Get(), pPageDict);

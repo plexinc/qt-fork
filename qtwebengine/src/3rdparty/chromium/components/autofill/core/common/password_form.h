@@ -125,8 +125,7 @@ struct PasswordForm {
 
   // The renderer id of the username input element. It is set during the new
   // form parsing and not persisted.
-  uint32_t username_element_renderer_id =
-      FormFieldData::kNotSetFormControlRendererId;
+  uint32_t username_element_renderer_id = FormData::kNotSetRendererId;
 
   // True if the server-side classification believes that the field may be
   // pre-filled with a placeholder in the value attribute. It is set during
@@ -166,8 +165,7 @@ struct PasswordForm {
 
   // The renderer id of the password input element. It is set during the new
   // form parsing and not persisted.
-  uint32_t password_element_renderer_id =
-      FormFieldData::kNotSetFormControlRendererId;
+  uint32_t password_element_renderer_id = FormData::kNotSetRendererId;
 
   // The current password. Must be non-empty for PasswordForm instances that are
   // meant to be persisted to the password store.
@@ -181,8 +179,7 @@ struct PasswordForm {
 
   // The renderer id of the new password input element. It is set during the new
   // form parsing and not persisted.
-  uint32_t new_password_element_renderer_id =
-      FormFieldData::kNotSetFormControlRendererId;
+  uint32_t new_password_element_renderer_id = FormData::kNotSetRendererId;
 
   // The confirmation password element. Optional, only set on form parsing, and
   // not persisted.
@@ -191,7 +188,7 @@ struct PasswordForm {
   // The renderer id of the confirmation password input element. It is set
   // during the new form parsing and not persisted.
   uint32_t confirmation_password_element_renderer_id =
-      FormFieldData::kNotSetFormControlRendererId;
+      FormData::kNotSetRendererId;
 
   // The new password. Optional, and not persisted.
   base::string16 new_password_value;
@@ -200,14 +197,13 @@ struct PasswordForm {
   // attribute. This is only used in parsed HTML forms.
   bool new_password_marked_by_site = false;
 
-  // True if this PasswordForm represents the last username/password login the
-  // user selected to log in to the site. If there is only one saved entry for
-  // the site, this will always be true, but when there are multiple entries
-  // the PasswordManager ensures that only one of them has a preferred bit set
-  // to true. Default to false.
+  // When the login was last used by the user to login to the site. Defaults to
+  // |date_created|, except for passwords that were migrated from the now
+  // deprecated |preferred| flag. Their default is set when migrating the login
+  // database to have the "date_last_used" column.
   //
   // When parsing an HTML form, this is not used.
-  bool preferred = false;
+  base::Time date_last_used;
 
   // When the login was saved (by chrome).
   //
@@ -295,6 +291,17 @@ struct PasswordForm {
   // as signal for password generation eligibility.
   bool is_new_password_reliable = false;
 
+  // Serialized to prefs, so don't change numeric values!
+  enum class Store {
+    // Default value.
+    kNotSet = 0,
+    // Credential came from the profile (i.e. local) storage.
+    kProfileStore = 1,
+    // Credential came from the Gaia-account-scoped storage.
+    kAccountStore = 2
+  };
+  Store in_store = Store::kNotSet;
+
   // Return true if we consider this form to be a change password form.
   // We use only client heuristics, so it could include signup forms.
   bool IsPossibleChangePasswordForm() const;
@@ -305,10 +312,27 @@ struct PasswordForm {
   bool IsPossibleChangePasswordFormWithoutUsername() const;
 
   // Returns true if current password element is set.
+  bool HasUsernameElement() const;
+
+  // Returns true if current password element is set.
   bool HasPasswordElement() const;
+
+  // Returns true if current password element is set.
+  bool HasNewPasswordElement() const;
 
   // True iff |federation_origin| isn't empty.
   bool IsFederatedCredential() const;
+
+  // True if username element is set and password and new password elements are
+  // not set.
+  bool IsSingleUsername() const;
+
+  // Returns whether this form is stored in the account-scoped store, i.e.
+  // whether |in_store == Store::kAccountStore|.
+  bool IsUsingAccountStore() const;
+
+  // Returns true when |password_value| or |new_password_value| are non-empty.
+  bool HasNonEmptyPasswordValue() const;
 
   // Equality operators for testing.
   bool operator==(const PasswordForm& form) const;
@@ -328,18 +352,9 @@ struct PasswordForm {
 bool ArePasswordFormUniqueKeysEqual(const PasswordForm& left,
                                     const PasswordForm& right);
 
-// A comparator for the unique key.
-struct LessThanUniqueKey {
-  bool operator()(const std::unique_ptr<PasswordForm>& left,
-                  const std::unique_ptr<PasswordForm>& right) const;
-};
-
 // Converts a vector of ValueElementPair to string.
 base::string16 ValueElementVectorToString(
     const ValueElementVector& value_element_pairs);
-
-// Returns true if |scheme| corresponds to http auth scheme.
-bool IsHttpAuthScheme(PasswordForm::Scheme scheme);
 
 // For testing.
 std::ostream& operator<<(std::ostream& os, const PasswordForm& form);

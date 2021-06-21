@@ -196,7 +196,7 @@ TEST(ColorUtils, AlphaBlend) {
 TEST(ColorUtils, SkColorToRgbaString) {
   SkColor color = SkColorSetARGB(153, 100, 150, 200);
   std::string color_string = SkColorToRgbaString(color);
-  EXPECT_EQ(color_string, "rgba(100,150,200,.6)");
+  EXPECT_EQ(color_string, "rgba(100,150,200,0.6)");
 }
 
 TEST(ColorUtils, SkColorToRgbString) {
@@ -237,6 +237,20 @@ TEST(ColorUtils, GetColorWithMaxContrast) {
 
   SetDarkestColorForTesting(old_darkest_color);
   EXPECT_EQ(old_darkest_color, GetColorWithMaxContrast(SK_ColorWHITE));
+}
+
+TEST(ColorUtils, GetEndpointColorWithMinContrast) {
+  const SkColor old_darkest_color = SetDarkestColorForTesting(SK_ColorBLACK);
+  EXPECT_EQ(SK_ColorBLACK, GetEndpointColorWithMinContrast(SK_ColorBLACK));
+  EXPECT_EQ(SK_ColorBLACK,
+            GetEndpointColorWithMinContrast(SkColorSetRGB(0x75, 0x75, 0x75)));
+  EXPECT_EQ(SK_ColorWHITE, GetEndpointColorWithMinContrast(SK_ColorWHITE));
+  EXPECT_EQ(SK_ColorWHITE,
+            GetEndpointColorWithMinContrast(SkColorSetRGB(0x76, 0x76, 0x76)));
+
+  SetDarkestColorForTesting(old_darkest_color);
+  EXPECT_EQ(old_darkest_color,
+            GetEndpointColorWithMinContrast(old_darkest_color));
 }
 
 TEST(ColorUtils, BlendForMinContrast_ForegroundAlreadyMeetsMinimum) {

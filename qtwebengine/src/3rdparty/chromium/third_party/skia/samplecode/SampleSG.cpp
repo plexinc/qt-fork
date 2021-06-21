@@ -52,7 +52,7 @@ public:
     SampleSG() {
         fGroup = sksg::Group::Make();
 
-        fScene = sksg::Scene::Make(fGroup, sksg::AnimatorList());
+        fScene = sksg::Scene::Make(fGroup);
 
         auto r = sksg::Rect::Make({20, 20, 400, 300});
         auto p = sksg::Color::Make(SK_ColorRED);
@@ -72,7 +72,7 @@ protected:
         fScene->render(canvas);
     }
 
-    Click* onFindClickHandler(SkScalar x, SkScalar y, ModifierKey modi) override {
+    Click* onFindClickHandler(SkScalar x, SkScalar y, skui::ModifierKey modi) override {
         if (auto node = fScene->nodeAt({x, y})) {
             Click* click = new Click();
             click->fMeta.setPtr("node", (void*)node);

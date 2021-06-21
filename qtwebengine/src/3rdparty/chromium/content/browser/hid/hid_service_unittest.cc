@@ -11,6 +11,9 @@
 #include "content/public/common/content_switches.h"
 #include "content/test/test_render_view_host.h"
 #include "content/test/test_web_contents.h"
+#include "mojo/public/cpp/bindings/pending_receiver.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
+#include "mojo/public/cpp/bindings/receiver.h"
 #include "services/device/public/cpp/hid/fake_hid_manager.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -22,13 +25,16 @@ namespace {
 
 const char kTestUrl[] = "https://www.google.com";
 const char kTestGuid[] = "test-guid";
+const char kCrossOriginTestUrl[] = "https://www.chromium.org";
 
 class FakeHidConnectionClient : public device::mojom::HidConnectionClient {
  public:
-  FakeHidConnectionClient() : binding_(this) {}
+  FakeHidConnectionClient() = default;
+  ~FakeHidConnectionClient() override = default;
 
-  void Bind(device::mojom::HidConnectionClientRequest request) {
-    binding_.Bind(std::move(request));
+  void Bind(
+      mojo::PendingReceiver<device::mojom::HidConnectionClient> receiver) {
+    receiver_.Bind(std::move(receiver));
   }
 
   // mojom::HidConnectionClient:
@@ -36,7 +42,7 @@ class FakeHidConnectionClient : public device::mojom::HidConnectionClient {
                      const std::vector<uint8_t>& buffer) override {}
 
  private:
-  mojo::Binding<device::mojom::HidConnectionClient> binding_;
+  mojo::Receiver<device::mojom::HidConnectionClient> receiver_{this};
 
   DISALLOW_COPY_AND_ASSIGN(FakeHidConnectionClient);
 };
@@ -81,10 +87,9 @@ class HidServiceTest : public RenderViewHostImplTestHarness {
 TEST_F(HidServiceTest, GetDevicesWithPermission) {
   NavigateAndCommit(GURL(kTestUrl));
 
-  blink::mojom::HidServicePtr service;
-  contents()->GetMainFrame()->BinderRegistryForTesting().BindInterface(
-      blink::mojom::HidService::Name_,
-      mojo::MakeRequest(&service).PassMessagePipe());
+  mojo::Remote<blink::mojom::HidService> service;
+  contents()->GetMainFrame()->GetHidService(
+      service.BindNewPipeAndPassReceiver());
 
   auto device_info = device::mojom::HidDeviceInfo::New();
   device_info->guid = kTestGuid;
@@ -107,10 +112,9 @@ TEST_F(HidServiceTest, GetDevicesWithPermission) {
 TEST_F(HidServiceTest, GetDevicesWithoutPermission) {
   NavigateAndCommit(GURL(kTestUrl));
 
-  blink::mojom::HidServicePtr service;
-  contents()->GetMainFrame()->BinderRegistryForTesting().BindInterface(
-      blink::mojom::HidService::Name_,
-      mojo::MakeRequest(&service).PassMessagePipe());
+  mojo::Remote<blink::mojom::HidService> service;
+  contents()->GetMainFrame()->GetHidService(
+      service.BindNewPipeAndPassReceiver());
 
   auto device_info = device::mojom::HidDeviceInfo::New();
   device_info->guid = kTestGuid;
@@ -133,61 +137,112 @@ TEST_F(HidServiceTest, GetDevicesWithoutPermission) {
 TEST_F(HidServiceTest, RequestDevice) {
   NavigateAndCommit(GURL(kTestUrl));
 
-  blink::mojom::HidServicePtr service;
-  contents()->GetMainFrame()->BinderRegistryForTesting().BindInterface(
-      blink::mojom::HidService::Name_,
-      mojo::MakeRequest(&service).PassMessagePipe());
+  mojo::Remote<blink::mojom::HidService> service;
+  contents()->GetMainFrame()->GetHidService(
+      service.BindNewPipeAndPassReceiver());
 
   auto device_info = device::mojom::HidDeviceInfo::New();
   device_info->guid = kTestGuid;
-  hid_manager()->AddDevice(device_info.Clone());
+  std::vector<device::mojom::HidDeviceInfoPtr> device_infos;
+  device_infos.push_back(device_info.Clone());
+  hid_manager()->AddDevice(std::move(device_info));
 
   EXPECT_CALL(hid_delegate(), CanRequestDevicePermission)
       .WillOnce(testing::Return(true));
   EXPECT_CALL(hid_delegate(), RunChooserInternal)
-      .WillOnce(testing::Return(testing::ByMove(std::move(device_info))));
+      .WillOnce(testing::Return(testing::ByMove(std::move(device_infos))));
 
   base::RunLoop run_loop;
-  device::mojom::HidDeviceInfoPtr chosen_device;
+  std::vector<device::mojom::HidDeviceInfoPtr> chosen_devices;
   service->RequestDevice(
       std::vector<blink::mojom::HidDeviceFilterPtr>(),
       base::BindLambdaForTesting(
-          [&run_loop, &chosen_device](device::mojom::HidDeviceInfoPtr d) {
-            chosen_device = std::move(d);
+          [&run_loop,
+           &chosen_devices](std::vector<device::mojom::HidDeviceInfoPtr> d) {
+            chosen_devices = std::move(d);
             run_loop.Quit();
           }));
   run_loop.Run();
-  EXPECT_TRUE(chosen_device);
+  EXPECT_EQ(1u, chosen_devices.size());
 }
 
 TEST_F(HidServiceTest, OpenAndCloseHidConnection) {
   NavigateAndCommit(GURL(kTestUrl));
 
-  blink::mojom::HidServicePtr service;
-  contents()->GetMainFrame()->BinderRegistryForTesting().BindInterface(
-      blink::mojom::HidService::Name_,
-      mojo::MakeRequest(&service).PassMessagePipe());
+  mojo::Remote<blink::mojom::HidService> service;
+  contents()->GetMainFrame()->GetHidService(
+      service.BindNewPipeAndPassReceiver());
 
   auto device_info = device::mojom::HidDeviceInfo::New();
   device_info->guid = kTestGuid;
   hid_manager()->AddDevice(std::move(device_info));
 
-  device::mojom::HidConnectionClientPtr hid_connection_client;
-  connection_client()->Bind(mojo::MakeRequest(&hid_connection_client));
+  mojo::PendingRemote<device::mojom::HidConnectionClient> hid_connection_client;
+  connection_client()->Bind(
+      hid_connection_client.InitWithNewPipeAndPassReceiver());
+
+  EXPECT_FALSE(contents()->IsConnectedToHidDevice());
 
   base::RunLoop run_loop;
-  device::mojom::HidConnectionPtr connection;
+  mojo::Remote<device::mojom::HidConnection> connection;
   service->Connect(
       kTestGuid, std::move(hid_connection_client),
       base::BindLambdaForTesting(
-          [&run_loop, &connection](device::mojom::HidConnectionPtr c) {
-            connection = std::move(c);
+          [&run_loop,
+           &connection](mojo::PendingRemote<device::mojom::HidConnection> c) {
+            connection.Bind(std::move(c));
             run_loop.Quit();
           }));
   run_loop.Run();
   EXPECT_TRUE(connection);
 
+  EXPECT_TRUE(contents()->IsConnectedToHidDevice());
+
+  // Destroying |connection| will also disconnect the watcher.
   connection.reset();
+
+  // Allow the watcher's disconnect handler to run. This will update the
+  // WebContents active frame count.
+  base::RunLoop().RunUntilIdle();
+
+  EXPECT_FALSE(contents()->IsConnectedToHidDevice());
+}
+
+TEST_F(HidServiceTest, OpenAndNavigateCrossOrigin) {
+  NavigateAndCommit(GURL(kTestUrl));
+
+  mojo::Remote<blink::mojom::HidService> service;
+  contents()->GetMainFrame()->GetHidService(
+      service.BindNewPipeAndPassReceiver());
+
+  auto device_info = device::mojom::HidDeviceInfo::New();
+  device_info->guid = kTestGuid;
+  hid_manager()->AddDevice(std::move(device_info));
+
+  mojo::PendingRemote<device::mojom::HidConnectionClient> hid_connection_client;
+  connection_client()->Bind(
+      hid_connection_client.InitWithNewPipeAndPassReceiver());
+
+  EXPECT_FALSE(contents()->IsConnectedToHidDevice());
+
+  base::RunLoop run_loop;
+  mojo::Remote<device::mojom::HidConnection> connection;
+  service->Connect(
+      kTestGuid, std::move(hid_connection_client),
+      base::BindLambdaForTesting(
+          [&run_loop,
+           &connection](mojo::PendingRemote<device::mojom::HidConnection> c) {
+            connection.Bind(std::move(c));
+            run_loop.Quit();
+          }));
+  run_loop.Run();
+  EXPECT_TRUE(connection);
+
+  EXPECT_TRUE(contents()->IsConnectedToHidDevice());
+
+  NavigateAndCommit(GURL(kCrossOriginTestUrl));
+  base::RunLoop().RunUntilIdle();
+  EXPECT_FALSE(contents()->IsConnectedToHidDevice());
 }
 
 }  // namespace content

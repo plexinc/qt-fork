@@ -5,11 +5,13 @@
 #include "device/gamepad/gamepad_data_fetcher.h"
 
 #include "base/bind.h"
+#include "base/no_destructor.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 
 namespace device {
+
 namespace {
 
 void RunCallbackOnCallbackThread(
@@ -17,17 +19,35 @@ void RunCallbackOnCallbackThread(
     mojom::GamepadHapticsResult result) {
   std::move(callback).Run(result);
 }
+
+GamepadDataFetcher::HidManagerBinder& GetHidManagerBinder() {
+  static base::NoDestructor<GamepadDataFetcher::HidManagerBinder> binder;
+  return *binder;
+}
+
 }  // namespace
 
-GamepadDataFetcher::GamepadDataFetcher() : provider_(nullptr) {}
+GamepadDataFetcher::GamepadDataFetcher() = default;
 
 GamepadDataFetcher::~GamepadDataFetcher() = default;
+
+// static
+void GamepadDataFetcher::SetHidManagerBinder(HidManagerBinder binder) {
+  GetHidManagerBinder() = std::move(binder);
+}
 
 void GamepadDataFetcher::InitializeProvider(GamepadPadStateProvider* provider) {
   DCHECK(provider);
 
   provider_ = provider;
   OnAddedToProvider();
+}
+
+void GamepadDataFetcher::BindHidManager(
+    mojo::PendingReceiver<mojom::HidManager> receiver) {
+  const auto& binder = GetHidManagerBinder();
+  if (binder)
+    binder.Run(std::move(receiver));
 }
 
 void GamepadDataFetcher::PlayEffect(
@@ -46,6 +66,10 @@ void GamepadDataFetcher::ResetVibration(
     scoped_refptr<base::SequencedTaskRunner> callback_runner) {
   RunVibrationCallback(std::move(callback), std::move(callback_runner),
                        mojom::GamepadHapticsResult::GamepadHapticsResultError);
+}
+
+bool GamepadDataFetcher::DisconnectUnrecognizedGamepad(int source_id) {
+  return false;
 }
 
 // static

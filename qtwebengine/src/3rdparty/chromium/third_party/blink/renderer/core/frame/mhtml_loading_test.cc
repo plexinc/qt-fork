@@ -28,6 +28,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "base/bind_helpers.h"
 #include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/platform/web_string.h"
@@ -118,9 +119,10 @@ TEST_F(MHTMLLoadingTest, EnforceSandboxFlags) {
 
   // Full sandboxing with the exception to new top-level windows should be
   // turned on.
-  EXPECT_EQ(WebSandboxFlags::kAll &
-                ~(WebSandboxFlags::kPopups |
-                  WebSandboxFlags::kPropagatesToAuxiliaryBrowsingContexts),
+  EXPECT_EQ(mojom::blink::WebSandboxFlags::kAll &
+                ~(mojom::blink::WebSandboxFlags::kPopups |
+                  mojom::blink::WebSandboxFlags::
+                      kPropagatesToAuxiliaryBrowsingContexts),
             document->GetSandboxFlags());
 
   // MHTML document should be loaded into unique origin.
@@ -138,9 +140,10 @@ TEST_F(MHTMLLoadingTest, EnforceSandboxFlags) {
   Document* child_document = child_frame->GetDocument();
   ASSERT_TRUE(child_document);
 
-  EXPECT_EQ(WebSandboxFlags::kAll &
-                ~(WebSandboxFlags::kPopups |
-                  WebSandboxFlags::kPropagatesToAuxiliaryBrowsingContexts),
+  EXPECT_EQ(mojom::blink::WebSandboxFlags::kAll &
+                ~(mojom::blink::WebSandboxFlags::kPopups |
+                  mojom::blink::WebSandboxFlags::
+                      kPropagatesToAuxiliaryBrowsingContexts),
             child_document->GetSandboxFlags());
 
   // MHTML document should be loaded into unique origin.
@@ -164,9 +167,10 @@ TEST_F(MHTMLLoadingTest, EnforceSandboxFlagsInXSLT) {
 
   // Full sandboxing with the exception to new top-level windows should be
   // turned on.
-  EXPECT_EQ(WebSandboxFlags::kAll &
-                ~(WebSandboxFlags::kPopups |
-                  WebSandboxFlags::kPropagatesToAuxiliaryBrowsingContexts),
+  EXPECT_EQ(mojom::blink::WebSandboxFlags::kAll &
+                ~(mojom::blink::WebSandboxFlags::kPopups |
+                  mojom::blink::WebSandboxFlags::
+                      kPropagatesToAuxiliaryBrowsingContexts),
             document->GetSandboxFlags());
 
   // MHTML document should be loaded into unique origin.
@@ -211,7 +215,7 @@ TEST_F(MHTMLLoadingTest, FormControlElements) {
   Document* document = frame->GetDocument();
   ASSERT_TRUE(document);
 
-  ClassCollection* formControlElements = document->getElementsByClassName("fc");
+  HTMLCollection* formControlElements = document->getElementsByClassName("fc");
   ASSERT_TRUE(formControlElements);
   for (Element* element : *formControlElements)
     EXPECT_TRUE(element->IsDisabledFormControl());

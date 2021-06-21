@@ -62,16 +62,8 @@ WideString CXFA_Barcode::GetBarcodeType() {
   return WideString(JSObject()->GetCData(XFA_Attribute::Type));
 }
 
-Optional<BC_CHAR_ENCODING> CXFA_Barcode::GetCharEncoding() {
-  Optional<WideString> wsCharEncoding =
-      JSObject()->TryCData(XFA_Attribute::CharEncoding, true);
-  if (!wsCharEncoding)
-    return {};
-  if (wsCharEncoding->CompareNoCase(L"UTF-16"))
-    return {CHAR_ENCODING_UNICODE};
-  if (wsCharEncoding->CompareNoCase(L"UTF-8"))
-    return {CHAR_ENCODING_UTF8};
-  return {};
+Optional<WideString> CXFA_Barcode::GetCharEncoding() {
+  return JSObject()->TryCData(XFA_Attribute::CharEncoding, true);
 }
 
 Optional<bool> CXFA_Barcode::GetChecksum() {
@@ -151,27 +143,8 @@ Optional<bool> CXFA_Barcode::GetPrintChecksum() {
   return JSObject()->TryBoolean(XFA_Attribute::PrintCheckDigit, true);
 }
 
-Optional<BC_TEXT_LOC> CXFA_Barcode::GetTextLocation() {
-  Optional<XFA_AttributeValue> textLocation =
-      JSObject()->TryEnum(XFA_Attribute::TextLocation, true);
-  if (!textLocation)
-    return {};
-
-  switch (*textLocation) {
-    case XFA_AttributeValue::None:
-      return {BC_TEXT_LOC_NONE};
-    case XFA_AttributeValue::Above:
-      return {BC_TEXT_LOC_ABOVE};
-    case XFA_AttributeValue::Below:
-      return {BC_TEXT_LOC_BELOW};
-    case XFA_AttributeValue::AboveEmbedded:
-      return {BC_TEXT_LOC_ABOVEEMBED};
-    case XFA_AttributeValue::BelowEmbedded:
-      return {BC_TEXT_LOC_BELOWEMBED};
-    default:
-      break;
-  }
-  return {};
+Optional<XFA_AttributeValue> CXFA_Barcode::GetTextLocation() {
+  return JSObject()->TryEnum(XFA_Attribute::TextLocation, true);
 }
 
 Optional<bool> CXFA_Barcode::GetTruncate() {
@@ -189,12 +162,12 @@ Optional<int8_t> CXFA_Barcode::GetWideNarrowRatio() {
     return {static_cast<int8_t>(FXSYS_wtoi(wsWideNarrowRatio->c_str()))};
 
   int32_t fB = FXSYS_wtoi(
-      wsWideNarrowRatio->Right(wsWideNarrowRatio->GetLength() - (*ptPos + 1))
+      wsWideNarrowRatio->Last(wsWideNarrowRatio->GetLength() - (*ptPos + 1))
           .c_str());
   if (!fB)
     return {0};
 
-  int32_t fA = FXSYS_wtoi(wsWideNarrowRatio->Left(*ptPos).c_str());
+  int32_t fA = FXSYS_wtoi(wsWideNarrowRatio->First(*ptPos).c_str());
   float result = static_cast<float>(fA) / static_cast<float>(fB);
   return {static_cast<int8_t>(result)};
 }

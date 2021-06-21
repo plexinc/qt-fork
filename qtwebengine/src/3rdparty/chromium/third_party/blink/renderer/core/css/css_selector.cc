@@ -188,6 +188,10 @@ PseudoId CSSSelector::GetPseudoId(PseudoType type) {
       return kPseudoIdBefore;
     case kPseudoAfter:
       return kPseudoIdAfter;
+    case kPseudoMarker:
+      return RuntimeEnabledFeatures::CSSMarkerPseudoElementEnabled()
+                 ? kPseudoIdMarker
+                 : kPseudoIdNone;
     case kPseudoBackdrop:
       return kPseudoIdBackdrop;
     case kPseudoScrollbar:
@@ -278,6 +282,7 @@ PseudoId CSSSelector::GetPseudoId(PseudoType type) {
     case kPseudoHost:
     case kPseudoHostContext:
     case kPseudoPart:
+    case kPseudoState:
     case kPseudoShadow:
     case kPseudoFullScreen:
     case kPseudoFullScreenAncestor:
@@ -287,10 +292,12 @@ PseudoId CSSSelector::GetPseudoId(PseudoType type) {
     case kPseudoSpatialNavigationInterest:
     case kPseudoIsHtml:
     case kPseudoListBox:
+    case kPseudoMultiSelectFocus:
     case kPseudoHostHasAppearance:
     case kPseudoSlotted:
     case kPseudoVideoPersistent:
     case kPseudoVideoPersistentAncestor:
+    case kPseudoXrOverlay:
       return kPseudoIdNone;
   }
 
@@ -314,6 +321,7 @@ const static NameToPseudoStruct kPseudoTypeWithoutArgumentsMap[] = {
     {"-internal-list-box", CSSSelector::kPseudoListBox},
     {"-internal-media-controls-overlay-cast-button",
      CSSSelector::kPseudoWebKitCustomElement},
+    {"-internal-multi-select-focus", CSSSelector::kPseudoMultiSelectFocus},
     {"-internal-shadow-host-has-appearance",
      CSSSelector::kPseudoHostHasAppearance},
     {"-internal-spatial-navigation-focus",
@@ -374,6 +382,7 @@ const static NameToPseudoStruct kPseudoTypeWithoutArgumentsMap[] = {
     {"last-of-type", CSSSelector::kPseudoLastOfType},
     {"left", CSSSelector::kPseudoLeftPage},
     {"link", CSSSelector::kPseudoLink},
+    {"marker", CSSSelector::kPseudoMarker},
     {"no-button", CSSSelector::kPseudoNoButton},
     {"only-child", CSSSelector::kPseudoOnlyChild},
     {"only-of-type", CSSSelector::kPseudoOnlyOfType},
@@ -399,6 +408,7 @@ const static NameToPseudoStruct kPseudoTypeWithoutArgumentsMap[] = {
     {"vertical", CSSSelector::kPseudoVertical},
     {"visited", CSSSelector::kPseudoVisited},
     {"window-inactive", CSSSelector::kPseudoWindowInactive},
+    {"xr-overlay", CSSSelector::kPseudoXrOverlay},
 };
 
 const static NameToPseudoStruct kPseudoTypeWithArgumentsMap[] = {
@@ -415,6 +425,7 @@ const static NameToPseudoStruct kPseudoTypeWithArgumentsMap[] = {
     {"nth-of-type", CSSSelector::kPseudoNthOfType},
     {"part", CSSSelector::kPseudoPart},
     {"slotted", CSSSelector::kPseudoSlotted},
+    {"state", CSSSelector::kPseudoState},
     {"where", CSSSelector::kPseudoWhere},
 };
 
@@ -455,6 +466,11 @@ static CSSSelector::PseudoType NameToPseudoType(const AtomicString& name,
   if (match->type == CSSSelector::kPseudoPictureInPicture &&
       !RuntimeEnabledFeatures::CSSPictureInPictureEnabled())
     return CSSSelector::kPseudoUnknown;
+
+  if (match->type == CSSSelector::kPseudoState &&
+      !RuntimeEnabledFeatures::CustomStatePseudoClassEnabled()) {
+    return CSSSelector::kPseudoUnknown;
+  }
 
   return static_cast<CSSSelector::PseudoType>(match->type);
 }
@@ -547,6 +563,7 @@ void CSSSelector::UpdatePseudoType(const AtomicString& value,
     // For pseudo elements
     case kPseudoBackdrop:
     case kPseudoCue:
+    case kPseudoMarker:
     case kPseudoPart:
     case kPseudoPlaceholder:
     case kPseudoResizer:
@@ -574,6 +591,7 @@ void CSSSelector::UpdatePseudoType(const AtomicString& value,
     case kPseudoHostHasAppearance:
     case kPseudoIsHtml:
     case kPseudoListBox:
+    case kPseudoMultiSelectFocus:
     case kPseudoSpatialNavigationFocus:
     case kPseudoSpatialNavigationInterest:
     case kPseudoVideoPersistent:
@@ -645,6 +663,7 @@ void CSSSelector::UpdatePseudoType(const AtomicString& value,
     case kPseudoScope:
     case kPseudoSingleButton:
     case kPseudoStart:
+    case kPseudoState:
     case kPseudoTarget:
     case kPseudoUnknown:
     case kPseudoValid:
@@ -652,6 +671,7 @@ void CSSSelector::UpdatePseudoType(const AtomicString& value,
     case kPseudoVisited:
     case kPseudoWebkitAnyLink:
     case kPseudoWindowInactive:
+    case kPseudoXrOverlay:
       if (match_ != kPseudoClass)
         pseudo_type_ = kPseudoUnknown;
       break;
@@ -764,8 +784,9 @@ const CSSSelector* CSSSelector::SerializeCompound(
           break;
         }
         case kPseudoLang:
+        case kPseudoState:
           builder.Append('(');
-          builder.Append(simple_selector->Argument());
+          SerializeIdentifier(simple_selector->Argument(), builder);
           builder.Append(')');
           break;
         case kPseudoNot:
@@ -782,13 +803,19 @@ const CSSSelector* CSSSelector::SerializeCompound(
       }
     } else if (simple_selector->match_ == kPseudoElement) {
       builder.Append("::");
-      builder.Append(simple_selector->SerializingValue());
+      SerializeIdentifier(simple_selector->SerializingValue(), builder);
       switch (simple_selector->GetPseudoType()) {
-        case kPseudoPart:
-          builder.Append('(');
-          builder.Append(simple_selector->Argument());
+        case kPseudoPart: {
+          char separator = '(';
+          for (AtomicString part : *simple_selector->PartNames()) {
+            builder.Append(separator);
+            if (separator == '(')
+              separator = ' ';
+            SerializeIdentifier(part, builder);
+          }
           builder.Append(')');
           break;
+        }
         default:
           break;
       }
@@ -1057,6 +1084,7 @@ bool CSSSelector::MatchesPseudoElement() const {
 bool CSSSelector::IsTreeAbidingPseudoElement() const {
   return Match() == CSSSelector::kPseudoElement &&
          (GetPseudoType() == kPseudoBefore || GetPseudoType() == kPseudoAfter ||
+          GetPseudoType() == kPseudoMarker ||
           GetPseudoType() == kPseudoPlaceholder);
 }
 
@@ -1186,6 +1214,12 @@ bool CSSSelector::RareData::MatchNth(unsigned unsigned_count) {
   if (count > NthBValue())
     return false;
   return (NthBValue() - count) % (-NthAValue()) == 0;
+}
+
+void CSSSelector::SetPartNames(
+    std::unique_ptr<Vector<AtomicString>> part_names) {
+  CreateRareData();
+  data_.rare_data_->part_names_ = std::move(part_names);
 }
 
 }  // namespace blink

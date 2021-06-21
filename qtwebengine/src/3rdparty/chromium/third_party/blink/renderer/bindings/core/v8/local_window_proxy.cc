@@ -30,7 +30,7 @@
 
 #include "third_party/blink/renderer/bindings/core/v8/local_window_proxy.h"
 
-#include "third_party/blink/renderer/bindings/core/v8/initialize_v8_extras_binding.h"
+#include "base/debug/dump_without_crashing.h"
 #include "third_party/blink/renderer/bindings/core/v8/isolated_world_csp.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_controller.h"
 #include "third_party/blink/renderer/bindings/core/v8/to_v8_for_core.h"
@@ -41,6 +41,7 @@
 #include "third_party/blink/renderer/bindings/core/v8/v8_initializer.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_page_popup_controller_binding.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_window.h"
+#include "third_party/blink/renderer/core/execution_context/agent.h"
 #include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
@@ -59,9 +60,10 @@
 #include "third_party/blink/renderer/platform/bindings/v8_private_property.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
+#include "third_party/blink/renderer/platform/weborigin/reporting_disposition.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
-#include "third_party/blink/renderer/platform/weborigin/security_violation_reporting_policy.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
+#include "third_party/blink/renderer/platform/wtf/text/string_operators.h"
 #include "v8/include/v8.h"
 
 namespace blink {
@@ -72,7 +74,7 @@ constexpr char kGlobalProxyLabel[] = "WindowProxy::global_proxy_";
 
 }  // namespace
 
-void LocalWindowProxy::Trace(blink::Visitor* visitor) {
+void LocalWindowProxy::Trace(Visitor* visitor) {
   visitor->Trace(script_state_);
   WindowProxy::Trace(visitor);
 }
@@ -148,12 +150,6 @@ void LocalWindowProxy::Initialize() {
   CHECK(!GetFrame()->IsProvisional());
 
   ScriptForbiddenScope::AllowUserAgentScript allow_script;
-  // Inspector may request V8 interruption to process DevTools protocol
-  // commands, processing can force JavaScript execution. Since JavaScript
-  // evaluation is forbiden during creating of snapshot, we should ignore any
-  // inspector interruption to avoid JavaScript execution.
-  InspectorTaskRunner::IgnoreInterruptsScope inspector_ignore_interrupts(
-      GetFrame()->GetInspectorTaskRunner());
   v8::HandleScope handle_scope(GetIsolate());
 
   CreateContext();
@@ -180,9 +176,7 @@ void LocalWindowProxy::Initialize() {
   if (evaluate_csp_for_eval) {
     ContentSecurityPolicy* csp =
         GetFrame()->GetDocument()->GetContentSecurityPolicyForWorld();
-    context->AllowCodeGenerationFromStrings(csp->AllowEval(
-        nullptr, SecurityViolationReportingPolicy::kSuppressReporting,
-        ContentSecurityPolicy::kWillNotThrowException, g_empty_string));
+    context->AllowCodeGenerationFromStrings(!csp->ShouldCheckEval());
     context->SetErrorMessageForCodeGenerationFromStrings(
         V8String(GetIsolate(), csp->EvalDisabledErrorMessage()));
   }
@@ -208,9 +202,6 @@ void LocalWindowProxy::Initialize() {
 
   InstallConditionalFeatures();
 
-  // This needs to go after everything else since it accesses the window object.
-  InitializeV8ExtrasBinding(script_state_);
-
   if (World().IsMainWorld()) {
     GetFrame()->Loader().DispatchDidClearWindowObjectInMainWorld();
   }
@@ -224,7 +215,8 @@ void LocalWindowProxy::CreateContext() {
   CHECK(IsMainThread());
 
   v8::ExtensionConfiguration extension_configuration =
-      ScriptController::ExtensionsFor(GetFrame()->GetDocument());
+      ScriptController::ExtensionsFor(
+          GetFrame()->GetDocument()->ToExecutionContext());
 
   v8::Local<v8::Context> context;
   {
@@ -320,9 +312,8 @@ void LocalWindowProxy::SetupWindowPrototypeChain() {
   // The global object, aka window wrapper object.
   v8::Local<v8::Object> window_wrapper =
       global_proxy->GetPrototype().As<v8::Object>();
-  v8::Local<v8::Object> associated_wrapper =
-      AssociateWithWrapper(window, wrapper_type_info, window_wrapper);
-  DCHECK(associated_wrapper == window_wrapper);
+  V8DOMWrapper::SetNativeInfo(GetIsolate(), window_wrapper, wrapper_type_info,
+                              window);
 
   // The prototype object of Window interface.
   v8::Local<v8::Object> window_prototype =
@@ -485,7 +476,7 @@ static v8::Local<v8::Value> GetNamedProperty(
   if (items->HasExactlyOneItem()) {
     HTMLElement* element = items->Item(0);
     DCHECK(element);
-    if (auto* iframe = ToHTMLIFrameElementOrNull(*element)) {
+    if (auto* iframe = DynamicTo<HTMLIFrameElement>(*element)) {
       if (Frame* frame = iframe->ContentFrame())
         return ToV8(frame->DomWindow(), creation_context, isolate);
     }

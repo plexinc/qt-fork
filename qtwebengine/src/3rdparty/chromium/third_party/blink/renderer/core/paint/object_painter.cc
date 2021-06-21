@@ -62,9 +62,9 @@ void ObjectPainter::PaintInlineChildrenOutlines(const PaintInfo& paint_info) {
   }
 }
 
-void ObjectPainter::AddPDFURLRectIfNeeded(const PaintInfo& paint_info,
-                                          const PhysicalOffset& paint_offset) {
-  DCHECK(paint_info.IsPrinting());
+void ObjectPainter::AddURLRectIfNeeded(const PaintInfo& paint_info,
+                                       const PhysicalOffset& paint_offset) {
+  DCHECK(paint_info.ShouldAddUrlMetadata());
   if (layout_object_.IsElementContinuation() || !layout_object_.GetNode() ||
       !layout_object_.GetNode()->IsLink() ||
       layout_object_.StyleRef().Visibility() != EVisibility::kVisible)
@@ -99,10 +99,10 @@ void ObjectPainter::AddPDFURLRectIfNeeded(const PaintInfo& paint_info,
 }
 
 void ObjectPainter::PaintAllPhasesAtomically(const PaintInfo& paint_info) {
-  // Pass kSelection and kTextClip to the descendants so that
+  // Pass kSelectionDragImage and kTextClip to the descendants so that
   // they will paint for selection and text clip respectively. We don't need
   // complete painting for these phases.
-  if (paint_info.phase == PaintPhase::kSelection ||
+  if (paint_info.phase == PaintPhase::kSelectionDragImage ||
       paint_info.phase == PaintPhase::kTextClip) {
     layout_object_.Paint(paint_info);
     return;
@@ -113,6 +113,8 @@ void ObjectPainter::PaintAllPhasesAtomically(const PaintInfo& paint_info) {
 
   PaintInfo info(paint_info);
   info.phase = PaintPhase::kBlockBackground;
+  layout_object_.Paint(info);
+  info.phase = PaintPhase::kForcedColorsModeBackplate;
   layout_object_.Paint(info);
   info.phase = PaintPhase::kFloat;
   layout_object_.Paint(info);

@@ -5,6 +5,7 @@
 #include "ui/views/controls/resize_area.h"
 
 #include "base/logging.h"
+#include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/cursor/cursor.h"
 #include "ui/views/controls/resize_area_delegate.h"
@@ -13,9 +14,7 @@
 namespace views {
 
 ResizeArea::ResizeArea(ResizeAreaDelegate* delegate)
-    : delegate_(delegate),
-      initial_position_(0) {
-}
+    : delegate_(delegate), initial_position_(0) {}
 
 ResizeArea::~ResizeArea() = default;
 

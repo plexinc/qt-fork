@@ -9,12 +9,13 @@
 
 #include "base/bind.h"
 #include "base/memory/read_only_shared_memory_region.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "components/viz/client/client_resource_provider.h"
 #include "components/viz/client/shared_bitmap_reporter.h"
 #include "components/viz/test/fake_output_surface.h"
 #include "components/viz/test/test_gles2_interface.h"
 #include "gpu/GLES2/gl2extchromium.h"
+#include "gpu/command_buffer/common/mailbox.h"
 #include "media/base/video_frame.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -80,8 +81,7 @@ class VideoResourceUpdaterTest : public testing::Test {
   // testing::Test implementation.
   void SetUp() override {
     testing::Test::SetUp();
-    resource_provider_ = std::make_unique<viz::ClientResourceProvider>(
-        /*delegated_sync_points_required=*/true);
+    resource_provider_ = std::make_unique<viz::ClientResourceProvider>();
   }
 
   std::unique_ptr<VideoResourceUpdater> CreateUpdaterForHardware(
@@ -178,8 +178,7 @@ class VideoResourceUpdaterTest : public testing::Test {
     const int kDimension = 10;
     gfx::Size size(kDimension, kDimension);
 
-    gpu::Mailbox mailbox;
-    mailbox.name[0] = 51;
+    auto mailbox = gpu::Mailbox::GenerateForSharedImage();
 
     gpu::MailboxHolder mailbox_holders[media::VideoFrame::kMaxPlanes] = {
         gpu::MailboxHolder(mailbox, kMailboxSyncToken, target)};
@@ -245,7 +244,7 @@ class VideoResourceUpdaterTest : public testing::Test {
 
   // VideoResourceUpdater registers as a MemoryDumpProvider, which requires
   // a TaskRunner.
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::SingleThreadTaskEnvironment task_environment_;
   UploadCounterGLES2Interface* gl_;
   scoped_refptr<viz::TestContextProvider> context_provider_;
   FakeSharedBitmapReporter shared_bitmap_reporter_;

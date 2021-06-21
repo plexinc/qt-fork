@@ -187,6 +187,65 @@ static_assert(offsetof(DeleteQueriesEXTImmediate, header) == 0,
 static_assert(offsetof(DeleteQueriesEXTImmediate, n) == 4,
               "offset of DeleteQueriesEXTImmediate n should be 4");
 
+struct QueryCounterEXT {
+  typedef QueryCounterEXT ValueType;
+  static const CommandId kCmdId = kQueryCounterEXT;
+  static const cmd::ArgFlags kArgFlags = cmd::kFixed;
+  static const uint8_t cmd_flags = CMD_FLAG_SET_TRACE_LEVEL(3);
+
+  static uint32_t ComputeSize() {
+    return static_cast<uint32_t>(sizeof(ValueType));  // NOLINT
+  }
+
+  void SetHeader() { header.SetCmd<ValueType>(); }
+
+  void Init(GLuint _id,
+            GLenum _target,
+            uint32_t _sync_data_shm_id,
+            uint32_t _sync_data_shm_offset,
+            GLuint _submit_count) {
+    SetHeader();
+    id = _id;
+    target = _target;
+    sync_data_shm_id = _sync_data_shm_id;
+    sync_data_shm_offset = _sync_data_shm_offset;
+    submit_count = _submit_count;
+  }
+
+  void* Set(void* cmd,
+            GLuint _id,
+            GLenum _target,
+            uint32_t _sync_data_shm_id,
+            uint32_t _sync_data_shm_offset,
+            GLuint _submit_count) {
+    static_cast<ValueType*>(cmd)->Init(_id, _target, _sync_data_shm_id,
+                                       _sync_data_shm_offset, _submit_count);
+    return NextCmdAddress<ValueType>(cmd);
+  }
+
+  gpu::CommandHeader header;
+  uint32_t id;
+  uint32_t target;
+  uint32_t sync_data_shm_id;
+  uint32_t sync_data_shm_offset;
+  uint32_t submit_count;
+};
+
+static_assert(sizeof(QueryCounterEXT) == 24,
+              "size of QueryCounterEXT should be 24");
+static_assert(offsetof(QueryCounterEXT, header) == 0,
+              "offset of QueryCounterEXT header should be 0");
+static_assert(offsetof(QueryCounterEXT, id) == 4,
+              "offset of QueryCounterEXT id should be 4");
+static_assert(offsetof(QueryCounterEXT, target) == 8,
+              "offset of QueryCounterEXT target should be 8");
+static_assert(offsetof(QueryCounterEXT, sync_data_shm_id) == 12,
+              "offset of QueryCounterEXT sync_data_shm_id should be 12");
+static_assert(offsetof(QueryCounterEXT, sync_data_shm_offset) == 16,
+              "offset of QueryCounterEXT sync_data_shm_offset should be 16");
+static_assert(offsetof(QueryCounterEXT, submit_count) == 20,
+              "offset of QueryCounterEXT submit_count should be 20");
+
 struct BeginQueryEXT {
   typedef BeginQueryEXT ValueType;
   static const CommandId kCmdId = kBeginQueryEXT;
@@ -757,6 +816,8 @@ struct CopySubTextureINTERNALImmediate {
             GLint _y,
             GLsizei _width,
             GLsizei _height,
+            GLboolean _unpack_flip_y,
+            GLboolean _unpack_premultiply_alpha,
             const GLbyte* _mailboxes) {
     SetHeader();
     xoffset = _xoffset;
@@ -765,6 +826,8 @@ struct CopySubTextureINTERNALImmediate {
     y = _y;
     width = _width;
     height = _height;
+    unpack_flip_y = _unpack_flip_y;
+    unpack_premultiply_alpha = _unpack_premultiply_alpha;
     memcpy(ImmediateDataAddress(this), _mailboxes, ComputeDataSize());
   }
 
@@ -775,9 +838,12 @@ struct CopySubTextureINTERNALImmediate {
             GLint _y,
             GLsizei _width,
             GLsizei _height,
+            GLboolean _unpack_flip_y,
+            GLboolean _unpack_premultiply_alpha,
             const GLbyte* _mailboxes) {
     static_cast<ValueType*>(cmd)->Init(_xoffset, _yoffset, _x, _y, _width,
-                                       _height, _mailboxes);
+                                       _height, _unpack_flip_y,
+                                       _unpack_premultiply_alpha, _mailboxes);
     const uint32_t size = ComputeSize();
     return NextImmediateCmdAddressTotalSize<ValueType>(cmd, size);
   }
@@ -789,10 +855,12 @@ struct CopySubTextureINTERNALImmediate {
   int32_t y;
   int32_t width;
   int32_t height;
+  uint32_t unpack_flip_y;
+  uint32_t unpack_premultiply_alpha;
 };
 
-static_assert(sizeof(CopySubTextureINTERNALImmediate) == 28,
-              "size of CopySubTextureINTERNALImmediate should be 28");
+static_assert(sizeof(CopySubTextureINTERNALImmediate) == 36,
+              "size of CopySubTextureINTERNALImmediate should be 36");
 static_assert(offsetof(CopySubTextureINTERNALImmediate, header) == 0,
               "offset of CopySubTextureINTERNALImmediate header should be 0");
 static_assert(offsetof(CopySubTextureINTERNALImmediate, xoffset) == 4,
@@ -807,6 +875,13 @@ static_assert(offsetof(CopySubTextureINTERNALImmediate, width) == 20,
               "offset of CopySubTextureINTERNALImmediate width should be 20");
 static_assert(offsetof(CopySubTextureINTERNALImmediate, height) == 24,
               "offset of CopySubTextureINTERNALImmediate height should be 24");
+static_assert(
+    offsetof(CopySubTextureINTERNALImmediate, unpack_flip_y) == 28,
+    "offset of CopySubTextureINTERNALImmediate unpack_flip_y should be 28");
+static_assert(offsetof(CopySubTextureINTERNALImmediate,
+                       unpack_premultiply_alpha) == 32,
+              "offset of CopySubTextureINTERNALImmediate "
+              "unpack_premultiply_alpha should be 32");
 
 struct TraceBeginCHROMIUM {
   typedef TraceBeginCHROMIUM ValueType;

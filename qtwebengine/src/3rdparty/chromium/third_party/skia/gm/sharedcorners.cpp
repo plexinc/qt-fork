@@ -112,7 +112,7 @@ protected:
     void drawTriangleBoxes(SkCanvas* canvas, const std::vector<SkPoint>& points,
                            const std::vector<std::array<int, 3>>& triangles) {
         SkPath path;
-        path.setFillType(SkPath::kEvenOdd_FillType);
+        path.setFillType(SkPathFillType::kEvenOdd);
         path.setIsVolatile(true);
         for (const std::array<int, 3>& triangle : triangles) {
             path.moveTo(points[triangle[0]]);
@@ -120,7 +120,7 @@ protected:
             path.lineTo(points[triangle[2]]);
             path.close();
         }
-        SkScalar scale = kBoxSize / SkTMax(path.getBounds().height(), path.getBounds().width());
+        SkScalar scale = kBoxSize / std::max(path.getBounds().height(), path.getBounds().width());
         path.transform(SkMatrix::MakeScale(scale, scale));
 
         this->drawRow(canvas, path);

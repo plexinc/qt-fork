@@ -68,7 +68,8 @@ ScriptPromise ShapeDetector::detect(
   // there is a local WebCam associated, there might be sophisticated ways to
   // detect faces on it. Until then, treat as a normal <video> element.
 
-  const FloatSize size(canvas_image_source->ElementSize(FloatSize()));
+  const FloatSize size(
+      canvas_image_source->ElementSize(FloatSize(), kRespectImageOrientation));
 
   SourceImageStatus source_image_status = kInvalidSourceImageStatus;
   scoped_refptr<Image> image = canvas_image_source->GetSourceImageForCanvas(
@@ -112,7 +113,7 @@ ScriptPromise ShapeDetector::DetectShapesOnImageData(
     return promise;
   }
 
-  if (image_data->BufferBase()->IsNeutered()) {
+  if (image_data->BufferBase()->IsDetached()) {
     resolver->Reject(MakeGarbageCollected<DOMException>(
         DOMExceptionCode::kInvalidStateError,
         "The image data has been detached."));

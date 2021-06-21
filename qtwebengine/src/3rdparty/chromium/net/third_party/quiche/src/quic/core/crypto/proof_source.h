@@ -14,7 +14,7 @@
 #include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_reference_counted.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_socket_address.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_string_piece.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 
@@ -37,13 +37,13 @@ class QUIC_EXPORT_PRIVATE ProofSource {
 
   // Details is an abstract class which acts as a container for any
   // implementation-specific details that a ProofSource wants to return.
-  class Details {
+  class QUIC_EXPORT_PRIVATE Details {
    public:
     virtual ~Details() {}
   };
 
   // Callback base class for receiving the results of an async call to GetProof.
-  class Callback {
+  class QUIC_EXPORT_PRIVATE Callback {
    public:
     Callback() {}
     virtual ~Callback() {}
@@ -74,7 +74,7 @@ class QUIC_EXPORT_PRIVATE ProofSource {
   };
 
   // Base class for signalling the completion of a call to ComputeTlsSignature.
-  class SignatureCallback {
+  class QUIC_EXPORT_PRIVATE SignatureCallback {
    public:
     SignatureCallback() {}
     virtual ~SignatureCallback() = default;
@@ -85,7 +85,13 @@ class QUIC_EXPORT_PRIVATE ProofSource {
     //
     // |signature| contains the signature of the data provided to
     // ComputeTlsSignature. Its value is undefined if |ok| is false.
-    virtual void Run(bool ok, std::string signature) = 0;
+    //
+    // |details| holds a pointer to an object representing the statistics, if
+    // any, gathered during the operation of ComputeTlsSignature.  If no stats
+    // are available, this will be nullptr.
+    virtual void Run(bool ok,
+                     std::string signature,
+                     std::unique_ptr<Details> details) = 0;
 
    private:
     SignatureCallback(const SignatureCallback&) = delete;
@@ -116,7 +122,7 @@ class QUIC_EXPORT_PRIVATE ProofSource {
                         const std::string& hostname,
                         const std::string& server_config,
                         QuicTransportVersion transport_version,
-                        QuicStringPiece chlo_hash,
+                        quiche::QuicheStringPiece chlo_hash,
                         std::unique_ptr<Callback> callback) = 0;
 
   // Returns the certificate chain for |hostname| in leaf-first order.
@@ -136,7 +142,7 @@ class QUIC_EXPORT_PRIVATE ProofSource {
       const QuicSocketAddress& server_address,
       const std::string& hostname,
       uint16_t signature_algorithm,
-      QuicStringPiece in,
+      quiche::QuicheStringPiece in,
       std::unique_ptr<SignatureCallback> callback) = 0;
 };
 

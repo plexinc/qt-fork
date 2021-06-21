@@ -163,6 +163,7 @@ bool GpuMemoryBufferImplSharedMemory::IsUsageSupported(gfx::BufferUsage usage) {
     case gfx::BufferUsage::SCANOUT_CAMERA_READ_WRITE:
     case gfx::BufferUsage::CAMERA_AND_CPU_READ_WRITE:
     case gfx::BufferUsage::SCANOUT_VDA_WRITE:
+    case gfx::BufferUsage::SCANOUT_VEA_READ_CAMERA_AND_CPU_READ_WRITE:
       return false;
   }
   NOTREACHED();
@@ -190,8 +191,8 @@ bool GpuMemoryBufferImplSharedMemory::IsSizeValidForFormat(
     case gfx::BufferFormat::RGBX_8888:
     case gfx::BufferFormat::BGRA_8888:
     case gfx::BufferFormat::BGRX_8888:
-    case gfx::BufferFormat::BGRX_1010102:
-    case gfx::BufferFormat::RGBX_1010102:
+    case gfx::BufferFormat::BGRA_1010102:
+    case gfx::BufferFormat::RGBA_1010102:
     case gfx::BufferFormat::RGBA_F16:
       return true;
     case gfx::BufferFormat::YVU_420:
@@ -205,8 +206,6 @@ bool GpuMemoryBufferImplSharedMemory::IsSizeValidForFormat(
       }
       return true;
     }
-    case gfx::BufferFormat::UYVY_422:
-      return size.width() % 2 == 0;
   }
 
   NOTREACHED();

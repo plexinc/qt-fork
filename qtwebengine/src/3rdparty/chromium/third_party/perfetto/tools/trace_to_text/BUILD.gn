@@ -13,17 +13,49 @@
 # limitations under the License.
 
 import("../../gn/perfetto.gni")
-import("../../gn/proto_library.gni")
+import("../../gn/perfetto_host_executable.gni")
 import("../../gn/wasm.gni")
 
-source_set("utils") {
-  public_deps = [
+perfetto_host_executable("trace_to_text") {
+  testonly = true
+  deps = [
+    ":full",
     "../../gn:default_deps",
-    "../../include/perfetto/base",
-    "../../include/perfetto/ext/traced:sys_stats_counters",
-    "../../protos/perfetto/trace:lite",
-    "../../protos/perfetto/trace/ftrace:lite",
   ]
+}
+
+# This is just to check that we can build a version of trace_to_text against
+# libprotobuf-lite. This configuration is only used by WASM. Unfortunately,
+# however, the WASM linker is very permissive and failures show up only when
+# loading the executable in the browser.
+perfetto_host_executable("trace_to_text_lite") {
+  testonly = true
+  deps = [
+    ":lite",
+    "../../gn:default_deps",
+  ]
+}
+
+source_set("utils") {
+  deps = [
+    "../../gn:default_deps",
+    "../../include/perfetto/profiling:deobfuscator",
+    "../../include/perfetto/protozero",
+    "../../include/perfetto/trace_processor",
+    "../../protos/perfetto/trace:zero",
+    "../../protos/perfetto/trace/interned_data:zero",
+    "../../protos/perfetto/trace/profiling:zero",
+    "../../src/profiling:deobfuscator",
+    "../../src/profiling/symbolizer",
+    "../../src/profiling/symbolizer:symbolize_database",
+  ]
+  public_deps = [
+    "../../include/perfetto/ext/base",
+    "../../include/perfetto/profiling:deobfuscator",
+  ]
+  if (enable_perfetto_zlib) {
+    public_deps += [ "../../gn:zlib" ]
+  }
   sources = [
     "utils.cc",
     "utils.h",
@@ -31,26 +63,26 @@ source_set("utils") {
 }
 
 source_set("pprofbuilder") {
+  public_deps = [ "../../include/perfetto/profiling:pprof_builder" ]
   deps = [
     ":utils",
     "../../gn:default_deps",
     "../../include/perfetto/base",
-    "../../protos/perfetto/trace:lite",
-    "../../protos/perfetto/trace/profiling:lite",
-    "../../protos/third_party/pprof:lite",
+    "../../include/perfetto/protozero",
+    "../../include/perfetto/trace_processor",
+    "../../protos/perfetto/trace:zero",
+    "../../protos/perfetto/trace/profiling:zero",
+    "../../protos/third_party/pprof:zero",
+    "../../src/profiling/symbolizer",
+    "../../src/profiling/symbolizer:symbolize_database",
   ]
-  sources = [
-    "pprof_builder.cc",
-    "pprof_builder.h",
-  ]
+  sources = [ "pprof_builder.cc" ]
 }
 
-if (perfetto_build_standalone) {
-  static_library("libpprofbuilder") {
-    deps = [
-      ":pprofbuilder",
-    ]
-  }
+# Exposed in bazel builds.
+static_library("libpprofbuilder") {
+  complete_static_lib = true
+  deps = [ ":pprofbuilder" ]
 }
 
 # The core source files that are used both by the "full" version (the host
@@ -59,36 +91,32 @@ source_set("common") {
   deps = [
     ":pprofbuilder",
     ":utils",
-  ]
-  public_deps = [
     "../../gn:default_deps",
     "../../include/perfetto/base",
     "../../include/perfetto/ext/traced:sys_stats_counters",
+    "../../include/perfetto/profiling:deobfuscator",
     "../../include/perfetto/protozero",
-    "../../protos/perfetto/trace:lite",
     "../../protos/perfetto/trace:zero",
-    "../../protos/perfetto/trace/ftrace:lite",
-    "../../protos/perfetto/trace/interned_data:lite",
-    "../../protos/perfetto/trace/profiling:lite",
-    "../../src/base",
+    "../../src/profiling/symbolizer",
+    "../../src/profiling/symbolizer:symbolize_database",
     "../../src/trace_processor:lib",
   ]
   sources = [
+    "deobfuscate_profile.cc",
+    "deobfuscate_profile.h",
     "main.cc",
+    "symbolize_profile.cc",
+    "symbolize_profile.h",
+    "trace_to_json.cc",
+    "trace_to_json.h",
     "trace_to_profile.cc",
     "trace_to_profile.h",
     "trace_to_systrace.cc",
     "trace_to_systrace.h",
     "trace_to_text.h",
   ]
-  if (is_linux || is_android) {
-    sources += [
-      "symbolize_profile.cc",
-      "symbolize_profile.h",
-    ]
-  }
-  if (perfetto_build_standalone) {
-    deps += [ "../../gn/standalone:gen_git_revision" ]
+  if (enable_perfetto_version_gen) {
+    deps += [ "//gn/standalone:gen_git_revision" ]
   }
 }
 
@@ -97,13 +125,12 @@ source_set("lite") {
   deps = [
     ":common",
     "../../gn:default_deps",
+    "../../include/perfetto/base",
   ]
-  sources = [
-    "lite_fallbacks.cc",
-  ]
+  sources = [ "lite_fallbacks.cc" ]
 }
 
-# Full traget for the host. Depends on libprotobuf-full.
+# Full target for the host. Depends on libprotobuf-full.
 source_set("full") {
   testonly = true
   deps = [
@@ -111,31 +138,16 @@ source_set("full") {
     ":utils",
     "../../gn:default_deps",
     "../../gn:protobuf_full",
+    "../../protos/perfetto/trace:zero",
   ]
+  if (enable_perfetto_zlib) {
+    deps += [ "../../gn:zlib" ]
+  }
   sources = [
     "proto_full_utils.cc",
     "proto_full_utils.h",
     "trace_to_text.cc",
   ]
-}
-
-if (current_toolchain == host_toolchain) {
-  executable("trace_to_text_host") {
-    testonly = true
-    deps = [
-      ":full",
-      "../../gn:default_deps",
-    ]
-  }
-
-  # WASM is too permissive, build a normal version of the binary to test for
-  # missing symbols.
-  executable("trace_to_text_lite_host") {
-    deps = [
-      ":lite",
-      "../../gn:default_deps",
-    ]
-  }
 }
 
 wasm_lib("trace_to_text_wasm") {
@@ -144,22 +156,4 @@ wasm_lib("trace_to_text_wasm") {
     ":lite",
     "../../gn:default_deps",
   ]
-}
-
-# The one for the android tree is defined in the top-level BUILD.gn.
-if (!perfetto_build_with_android) {
-  copy("trace_to_text") {
-    testonly = true
-    host_out_dir_ =
-        get_label_info(":trace_to_text_host($host_toolchain)", "root_out_dir")
-    deps = [
-      ":trace_to_text_host($host_toolchain)",
-    ]
-    sources = [
-      "${host_out_dir_}/trace_to_text_host",
-    ]
-    outputs = [
-      "${root_out_dir}/trace_to_text",
-    ]
-  }
 }

@@ -11,7 +11,7 @@
 #include "base/strings/string_util.h"
 #include "net/http/http_network_session.h"
 #include "net/http/http_network_transaction.h"
-#include "net/http/http_server_properties_impl.h"
+#include "net/http/http_server_properties.h"
 #include "net/http/http_stream_factory_job.h"
 #include "net/spdy/spdy_session.h"
 #include "net/spdy/spdy_session_pool.h"
@@ -55,7 +55,7 @@ HttpNetworkSession* HttpNetworkLayer::GetSession() {
 
 void HttpNetworkLayer::OnSuspend() {
   suspended_ = true;
-  session_->CloseIdleConnections();
+  session_->CloseIdleConnections("Entering suspend mode");
 }
 
 void HttpNetworkLayer::OnResume() {

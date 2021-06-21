@@ -7,7 +7,7 @@
 #include <memory>
 #include <queue>
 #include "base/single_thread_task_runner.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/platform/platform.h"
@@ -84,11 +84,10 @@ class TimerTest : public testing::Test {
       platform_;
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
 
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::TaskEnvironment task_environment_;
 };
 
-class OnHeapTimerOwner final
-    : public GarbageCollectedFinalized<OnHeapTimerOwner> {
+class OnHeapTimerOwner final : public GarbageCollected<OnHeapTimerOwner> {
  public:
   class Record final : public RefCounted<Record> {
    public:
@@ -120,7 +119,7 @@ class OnHeapTimerOwner final
     timer_.StartOneShot(interval, caller);
   }
 
-  void Trace(blink::Visitor* visitor) {}
+  void Trace(Visitor* visitor) {}
 
  private:
   void Fired(TimerBase*) {
@@ -656,8 +655,8 @@ TEST_F(TimerTest, MarkOnHeapTimerAsUnreachable) {
   owner = nullptr;
   // Explicit regular GC call to allow lazy sweeping.
   ThreadState::Current()->CollectGarbage(
-      BlinkGC::kNoHeapPointersOnStack, BlinkGC::kAtomicMarking,
-      BlinkGC::kConcurrentAndLazySweeping,
+      BlinkGC::CollectionType::kMajor, BlinkGC::kNoHeapPointersOnStack,
+      BlinkGC::kAtomicMarking, BlinkGC::kConcurrentAndLazySweeping,
       BlinkGC::GCReason::kForcedGCForTesting);
   // Since the heap is laziy swept, owner is not yet destructed.
   EXPECT_FALSE(record->OwnerIsDestructed());
@@ -668,18 +667,19 @@ TEST_F(TimerTest, MarkOnHeapTimerAsUnreachable) {
     platform_->RunUntilIdle();
     EXPECT_FALSE(record->TimerHasFired());
     EXPECT_FALSE(record->OwnerIsDestructed());
+    ThreadState::Current()->CompleteSweep();
   }
 }
 
 namespace {
 
-class TaskObserver : public base::MessageLoop::TaskObserver {
+class TaskObserver : public base::TaskObserver {
  public:
   TaskObserver(scoped_refptr<base::SingleThreadTaskRunner> task_runner,
                Vector<scoped_refptr<base::SingleThreadTaskRunner>>* run_order)
       : task_runner_(std::move(task_runner)), run_order_(run_order) {}
 
-  void WillProcessTask(const base::PendingTask&) override {}
+  void WillProcessTask(const base::PendingTask&, bool) override {}
 
   void DidProcessTask(const base::PendingTask&) override {
     run_order_->push_back(task_runner_);

@@ -71,6 +71,7 @@ static uint64_t RotateRight(uint64_t value, unsigned int rotate,
                             unsigned int width) {
   DCHECK_LE(width, 64);
   rotate &= 63;
+  if (rotate == 0) return value;
   return ((value & ((1ULL << rotate) - 1ULL)) << (width - rotate)) |
          (value >> rotate);
 }
@@ -191,16 +192,16 @@ int64_t Instruction::ImmPCOffset() {
   } else if (BranchType() != UnknownBranchType) {
     // All PC-relative branches.
     // Relative branch offsets are instruction-size-aligned.
-    offset = ImmBranch() << kInstrSizeLog2;
+    offset = ImmBranch() * kInstrSize;
   } else if (IsUnresolvedInternalReference()) {
     // Internal references are always word-aligned.
-    offset = ImmUnresolvedInternalReference() << kInstrSizeLog2;
+    offset = ImmUnresolvedInternalReference() * kInstrSize;
   } else {
     // Load literal (offset from PC).
     DCHECK(IsLdrLiteral());
     // The offset is always shifted by 2 bits, even for loads to 64-bits
     // registers.
-    offset = ImmLLiteral() << kInstrSizeLog2;
+    offset = ImmLLiteral() * kInstrSize;
   }
   return offset;
 }
@@ -211,7 +212,8 @@ Instruction* Instruction::ImmPCOffsetTarget() {
 
 bool Instruction::IsValidImmPCOffset(ImmBranchType branch_type,
                                      ptrdiff_t offset) {
-  return is_intn(offset, ImmBranchRangeBitwidth(branch_type));
+  DCHECK_EQ(offset % kInstrSize, 0);
+  return is_intn(offset / kInstrSize, ImmBranchRangeBitwidth(branch_type));
 }
 
 bool Instruction::IsTargetInImmPCOffsetRange(Instruction* target) {
@@ -251,8 +253,7 @@ void Instruction::SetPCRelImmTarget(const AssemblerOptions& options,
 
 void Instruction::SetBranchImmTarget(Instruction* target) {
   DCHECK(IsAligned(DistanceTo(target), kInstrSize));
-  DCHECK(
-      IsValidImmPCOffset(BranchType(), DistanceTo(target) >> kInstrSizeLog2));
+  DCHECK(IsValidImmPCOffset(BranchType(), DistanceTo(target)));
   int offset = static_cast<int>(DistanceTo(target) >> kInstrSizeLog2);
   Instr branch_imm = 0;
   uint32_t imm_mask = 0;
@@ -307,28 +308,6 @@ void Instruction::SetImmLLiteral(Instruction* source) {
   Instr mask = ImmLLiteral_mask;
 
   SetInstructionBits(Mask(~mask) | imm);
-}
-
-// TODO(jbramley): We can't put this inline in the class because things like
-// xzr and Register are not defined in that header. Consider adding
-// instructions-arm64-inl.h to work around this.
-bool InstructionSequence::IsInlineData() const {
-  // Inline data is encoded as a single movz instruction which writes to xzr
-  // (x31).
-  return IsMovz() && SixtyFourBits() && (Rd() == kZeroRegCode);
-  // TODO(all): If we extend ::InlineData() to support bigger data, we need
-  // to update this method too.
-}
-
-// TODO(jbramley): We can't put this inline in the class because things like
-// xzr and Register are not defined in that header. Consider adding
-// instructions-arm64-inl.h to work around this.
-uint64_t InstructionSequence::InlineData() const {
-  DCHECK(IsInlineData());
-  uint64_t payload = ImmMoveWide();
-  // TODO(all): If we extend ::InlineData() to support bigger data, we need
-  // to update this method too.
-  return payload;
 }
 
 NEONFormatDecoder::NEONFormatDecoder(const Instruction* instr) {

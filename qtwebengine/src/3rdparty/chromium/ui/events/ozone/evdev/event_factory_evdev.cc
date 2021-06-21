@@ -192,8 +192,7 @@ EventFactoryEvdev::EventFactoryEvdev(CursorDelegateEvdev* cursor,
                                     base::Unretained(this))),
       cursor_(cursor),
       input_controller_(&keyboard_, &button_map_),
-      touch_id_generator_(0),
-      weak_ptr_factory_(this) {
+      touch_id_generator_(0) {
   DCHECK(device_manager_);
 }
 
@@ -224,7 +223,7 @@ void EventFactoryEvdev::DispatchKeyEvent(const KeyEventParams& params) {
   TRACE_EVENT1("evdev", "EventFactoryEvdev::DispatchKeyEvent", "device",
                params.device_id);
   keyboard_.OnKeyChange(params.code, params.down, params.suppress_auto_repeat,
-                        params.timestamp, params.device_id);
+                        params.timestamp, params.device_id, params.flags);
 }
 
 void EventFactoryEvdev::DispatchMouseMoveEvent(

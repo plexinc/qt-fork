@@ -67,6 +67,20 @@ std::string SharedProtoDatabaseClientList::ProtoDbTypeToString(
       return "StrikeService";
     case ProtoDbType::HINT_CACHE_STORE:
       return "PreviewsHintCacheStore";
+    case ProtoDbType::DOWNLOAD_DB:
+      return "DownloadDB";
+    case ProtoDbType::VIDEO_DECODE_STATS_DB:
+      return "VideoDecodeStatsDB";
+    case ProtoDbType::GCM_KEY_STORE:
+      return "GCMKeyStore";
+    case ProtoDbType::SHARED_DB_METADATA:
+      return "Metadata";
+    case ProtoDbType::PRINT_JOB_DATABASE:
+      return "PrintJobDatabase";
+    case ProtoDbType::FEED_STREAM_DATABASE:
+      return "FeedStreamDatabase";
+    case ProtoDbType::TAB_STATE_DATABASE:
+      return "TabStateDatabase";
     case ProtoDbType::LAST:
       NOTREACHED();
       return std::string();

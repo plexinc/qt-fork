@@ -26,25 +26,22 @@ class ProgressShadowElementTest : public testing::Test {
 };
 
 TEST_F(ProgressShadowElementTest, LayoutObjectIsNeeded) {
-  GetDocument().body()->SetInnerHTMLFromString(R"HTML(
+  GetDocument().body()->setInnerHTML(R"HTML(
     <progress id='prog' style='-webkit-appearance:none' />
   )HTML");
 
-  HTMLProgressElement* progress =
-      ToHTMLProgressElement(GetDocument().getElementById("prog"));
+  auto* progress =
+      To<HTMLProgressElement>(GetDocument().getElementById("prog"));
   ASSERT_TRUE(progress);
 
   auto* shadow_element = To<Element>(progress->GetShadowRoot()->firstChild());
   ASSERT_TRUE(shadow_element);
 
-  GetDocument().View()->UpdateAllLifecyclePhases(
-      DocumentLifecycle::LifecycleUpdateReason::kTest);
+  GetDocument().View()->UpdateAllLifecyclePhases(DocumentUpdateReason::kTest);
 
   progress->SetForceReattachLayoutTree();
   GetDocument().Lifecycle().AdvanceTo(DocumentLifecycle::kInStyleRecalc);
-  StyleRecalcChange change;
-  change = change.ForceRecalcDescendants();
-  GetDocument().GetStyleEngine().RecalcStyle(change);
+  GetDocument().GetStyleEngine().RecalcStyle();
   EXPECT_TRUE(shadow_element->GetComputedStyle());
 
   scoped_refptr<ComputedStyle> style = shadow_element->StyleForLayoutObject();

@@ -66,8 +66,6 @@ class CPDF_PageObjectHolder {
 
   CPDF_Document* GetDocument() const { return m_pDocument.Get(); }
 
-  // TODO(thestig): Can this return nullptr? If not, audit callers and simplify
-  // the ones that assume it can.
   CPDF_Dictionary* GetDict() const { return m_pDict.Get(); }
   size_t GetPageObjectCount() const { return m_PageObjectList.size(); }
   CPDF_PageObject* GetPageObjectByIndex(size_t index) const;
@@ -95,7 +93,6 @@ class CPDF_PageObjectHolder {
     return m_MaskBoundingBoxes;
   }
   void AddImageMaskBoundingBox(const CFX_FloatRect& box);
-  void Transform(const CFX_Matrix& matrix);
   bool HasDirtyStreams() const { return !m_DirtyStreams.empty(); }
   std::set<int32_t> TakeDirtyStreams();
 
@@ -105,7 +102,7 @@ class CPDF_PageObjectHolder {
   std::map<FontData, ByteString> m_FontsMap;
 
  protected:
-  void LoadTransInfo();
+  void LoadTransparencyInfo();
 
   CFX_FloatRect m_BBox;
   CPDF_Transparency m_Transparency;

@@ -20,6 +20,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "base/win/scoped_co_mem.h"
 #include "base/win/scoped_propvariant.h"
@@ -496,9 +497,7 @@ PortableDeviceWatcherWin::DeviceDetails::~DeviceDetails() {
 }
 
 PortableDeviceWatcherWin::PortableDeviceWatcherWin()
-    : notifications_(nullptr),
-      storage_notifications_(nullptr),
-      weak_ptr_factory_(this) {}
+    : notifications_(nullptr), storage_notifications_(nullptr) {}
 
 PortableDeviceWatcherWin::~PortableDeviceWatcherWin() {
   UnregisterDeviceNotification(notifications_);
@@ -507,7 +506,7 @@ PortableDeviceWatcherWin::~PortableDeviceWatcherWin() {
 void PortableDeviceWatcherWin::Init(HWND hwnd) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   notifications_ = RegisterPortableDeviceNotification(hwnd);
-  media_task_runner_ = base::CreateCOMSTATaskRunnerWithTraits(
+  media_task_runner_ = base::ThreadPool::CreateCOMSTATaskRunner(
       {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
        base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN});
   EnumerateAttachedDevices();
@@ -570,7 +569,7 @@ void PortableDeviceWatcherWin::SetNotifications(
 
 void PortableDeviceWatcherWin::EjectDevice(
     const std::string& device_id,
-    base::Callback<void(StorageMonitor::EjectStatus)> callback) {
+    base::OnceCallback<void(StorageMonitor::EjectStatus)> callback) {
   // MTP devices on Windows don't have a detach API needed -- signal
   // the object as if the device is gone and tell the caller it is OK
   // to remove.
@@ -578,12 +577,12 @@ void PortableDeviceWatcherWin::EjectDevice(
   base::string16 storage_object_id;
   if (!GetMTPStorageInfoFromDeviceId(device_id,
                                      &device_location, &storage_object_id)) {
-    callback.Run(StorageMonitor::EJECT_NO_SUCH_DEVICE);
+    std::move(callback).Run(StorageMonitor::EJECT_NO_SUCH_DEVICE);
     return;
   }
   HandleDeviceDetachEvent(device_location);
 
-  callback.Run(StorageMonitor::EJECT_OK);
+  std::move(callback).Run(StorageMonitor::EJECT_OK);
 }
 
 void PortableDeviceWatcherWin::EnumerateAttachedDevices() {
@@ -592,9 +591,9 @@ void PortableDeviceWatcherWin::EnumerateAttachedDevices() {
   Devices* devices = new Devices;
   base::PostTaskAndReplyWithResult(
       media_task_runner_.get(), FROM_HERE,
-      base::Bind(&EnumerateAttachedDevicesOnBlockingThread, devices),
-      base::Bind(&PortableDeviceWatcherWin::OnDidEnumerateAttachedDevices,
-                 weak_ptr_factory_.GetWeakPtr(), base::Owned(devices)));
+      base::BindOnce(&EnumerateAttachedDevicesOnBlockingThread, devices),
+      base::BindOnce(&PortableDeviceWatcherWin::OnDidEnumerateAttachedDevices,
+                     weak_ptr_factory_.GetWeakPtr(), base::Owned(devices)));
 }
 
 void PortableDeviceWatcherWin::OnDidEnumerateAttachedDevices(
@@ -616,10 +615,11 @@ void PortableDeviceWatcherWin::HandleDeviceAttachEvent(
   DeviceDetails* device_details = new DeviceDetails;
   base::PostTaskAndReplyWithResult(
       media_task_runner_.get(), FROM_HERE,
-      base::Bind(&HandleDeviceAttachedEventOnBlockingThread, pnp_device_id,
-                 device_details),
-      base::Bind(&PortableDeviceWatcherWin::OnDidHandleDeviceAttachEvent,
-                 weak_ptr_factory_.GetWeakPtr(), base::Owned(device_details)));
+      base::BindOnce(&HandleDeviceAttachedEventOnBlockingThread, pnp_device_id,
+                     device_details),
+      base::BindOnce(&PortableDeviceWatcherWin::OnDidHandleDeviceAttachEvent,
+                     weak_ptr_factory_.GetWeakPtr(),
+                     base::Owned(device_details)));
 }
 
 void PortableDeviceWatcherWin::OnDidHandleDeviceAttachEvent(

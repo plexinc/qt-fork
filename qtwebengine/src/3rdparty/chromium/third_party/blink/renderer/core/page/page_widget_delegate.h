@@ -54,7 +54,8 @@ class CORE_EXPORT PageWidgetEventHandler {
                                const WebVector<const WebInputEvent*>&);
   virtual void HandleMouseLeave(LocalFrame& main_frame, const WebMouseEvent&);
   virtual void HandleMouseDown(LocalFrame& main_frame, const WebMouseEvent&);
-  virtual void HandleMouseUp(LocalFrame& main_frame, const WebMouseEvent&);
+  virtual WebInputEventResult HandleMouseUp(LocalFrame& main_frame,
+                                            const WebMouseEvent&);
   virtual WebInputEventResult HandleMouseWheel(LocalFrame& main_frame,
                                                const WebMouseWheelEvent&);
   virtual WebInputEventResult HandleKeyEvent(const WebKeyboardEvent&) = 0;
@@ -82,8 +83,8 @@ class CORE_EXPORT PageWidgetDelegate {
   // See comment of WebWidget::UpdateLifecycle.
   static void UpdateLifecycle(Page&,
                               LocalFrame& root,
-                              WebWidget::LifecycleUpdate requested_update,
-                              WebWidget::LifecycleUpdateReason reason);
+                              WebLifecycleUpdate requested_update,
+                              DocumentUpdateReason reason);
 
   // See comment of WebWidget::DidBeginFrame.
   static void DidBeginFrame(LocalFrame& root);

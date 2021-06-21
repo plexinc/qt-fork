@@ -11,9 +11,6 @@ namespace media {
 
 Vp8Metadata::Vp8Metadata()
     : non_reference(false), temporal_idx(0), layer_sync(false) {}
-Vp8Metadata::Vp8Metadata(const Vp8Metadata& other) = default;
-Vp8Metadata::Vp8Metadata(Vp8Metadata&& other) = default;
-Vp8Metadata::~Vp8Metadata() = default;
 
 BitstreamBufferMetadata::BitstreamBufferMetadata()
     : payload_size_bytes(0), key_frame(false) {}
@@ -52,8 +49,7 @@ VideoEncodeAccelerator::Config::Config(
       initial_framerate(initial_framerate.value_or(
           VideoEncodeAccelerator::kDefaultFramerate)),
       gop_length(gop_length),
-      h264_output_level(h264_output_level.value_or(
-          VideoEncodeAccelerator::kDefaultH264Level)),
+      h264_output_level(h264_output_level),
       storage_type(storage_type),
       content_type(content_type) {}
 
@@ -79,6 +75,11 @@ std::string VideoEncodeAccelerator::Config::AsHumanReadableString() const {
                               h264_output_level.value());
   }
   return str;
+}
+
+void VideoEncodeAccelerator::Client::NotifyEncoderInfoChange(
+    const VideoEncoderInfo& info) {
+  // Do nothing if a client doesn't use the info.
 }
 
 VideoEncodeAccelerator::~VideoEncodeAccelerator() = default;

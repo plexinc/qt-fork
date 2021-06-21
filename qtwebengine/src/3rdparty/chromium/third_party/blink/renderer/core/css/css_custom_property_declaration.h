@@ -8,6 +8,7 @@
 #include "base/memory/scoped_refptr.h"
 #include "third_party/blink/renderer/core/css/css_value.h"
 #include "third_party/blink/renderer/core/css/css_variable_data.h"
+#include "third_party/blink/renderer/core/css_value_keywords.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
 
@@ -49,7 +50,7 @@ class CORE_EXPORT CSSCustomPropertyDeclaration : public CSSValue {
     return this == &other;
   }
 
-  void TraceAfterDispatch(blink::Visitor*);
+  void TraceAfterDispatch(blink::Visitor*) const;
 
  private:
   const AtomicString name_;

@@ -4,9 +4,9 @@
 
 #include "ui/views/corewm/cursor_height_provider_win.h"
 
-#include <windows.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <windows.h>
 
 #include <algorithm>
 #include <map>
@@ -25,8 +25,8 @@ constexpr uint32_t kTransparentMask = 0xffffffff;
 constexpr int kDefaultHeight = 20;
 // Masks are monochromatic.
 constexpr size_t kNumberOfColors = 2;
-const size_t KHeaderAndPalette =
-      sizeof(BITMAPINFOHEADER) + kNumberOfColors * sizeof(RGBQUAD);
+const size_t kHeaderAndPalette =
+    sizeof(BITMAPINFOHEADER) + kNumberOfColors * sizeof(RGBQUAD);
 
 HeightStorage* cached_heights = nullptr;
 
@@ -40,18 +40,15 @@ PixelData GetBitmapData(HBITMAP handle, const BITMAPINFO& info, HDC hdc) {
 
   // When getting pixel data palette is appended to memory pointed by
   // BITMAPINFO passed so allocate additional memory to store additional data.
-  std::unique_ptr<char[]> header(new char[KHeaderAndPalette]);
+  auto header = std::make_unique<char[]>(kHeaderAndPalette);
   memcpy(header.get(), &(info.bmiHeader), sizeof(info.bmiHeader));
 
-  data.reset(new uint32_t[info.bmiHeader.biSizeImage / sizeof(uint32_t)]);
+  data = std::make_unique<uint32_t[]>(info.bmiHeader.biSizeImage /
+                                      sizeof(uint32_t));
 
-  int result = GetDIBits(hdc,
-                         handle,
-                         0,
-                         info.bmiHeader.biHeight,
-                         data.get(),
-                         reinterpret_cast<BITMAPINFO*>(header.get()),
-                         DIB_RGB_COLORS);
+  int result =
+      GetDIBits(hdc, handle, 0, info.bmiHeader.biHeight, data.get(),
+                reinterpret_cast<BITMAPINFO*>(header.get()), DIB_RGB_COLORS);
 
   if (result == 0)
     data.reset();
@@ -93,7 +90,8 @@ int CalculateCursorHeight(HCURSOR cursor_handle) {
   // Rows are padded to full DWORDs. OR with this mask will set them to 1
   // to simplify matching with |transparent_mask|.
   uint32_t last_byte_mask = 0xFFFFFFFF;
-  const unsigned char bits_to_shift = sizeof(last_byte_mask) * 8 -
+  const unsigned char bits_to_shift =
+      sizeof(last_byte_mask) * 8 -
       (bitmap_info.bmiHeader.biWidth % kBitsPeruint32);
   if (bits_to_shift != kBitsPeruint32)
     last_byte_mask = (last_byte_mask << bits_to_shift);

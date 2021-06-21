@@ -26,7 +26,7 @@ class WorkletGlobalScope;
 // This is constructed on the main thread but it is used in the worklet backing
 // thread.
 class MODULES_EXPORT AnimationWorkletProxyClient
-    : public GarbageCollectedFinalized<AnimationWorkletProxyClient>,
+    : public GarbageCollected<AnimationWorkletProxyClient>,
       public Supplement<WorkerClients>,
       public AnimationWorkletMutator {
   USING_GARBAGE_COLLECTED_MIXIN(AnimationWorkletProxyClient);
@@ -44,7 +44,7 @@ class MODULES_EXPORT AnimationWorkletProxyClient
       scoped_refptr<base::SingleThreadTaskRunner> compositor_mutatee_runner,
       base::WeakPtr<AnimationWorkletMutatorDispatcherImpl> main_thread_mutatee,
       scoped_refptr<base::SingleThreadTaskRunner> main_thread_mutatee_runner);
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
 
   virtual void SynchronizeAnimatorName(const String& animator_name);
   virtual void AddGlobalScope(WorkletGlobalScope*);

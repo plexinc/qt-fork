@@ -129,7 +129,7 @@ public:
     QLocale::Country m_country;
     QFileInfo m_fileInfo;
     RCCFileInfo *m_parent;
-    QHash<QString, RCCFileInfo*> m_children;
+    QMultiHash<QString, RCCFileInfo *> m_children;
     RCCResourceLibrary::CompressionAlgorithm m_compressAlgo;
     int m_compressLevel;
     int m_compressThreshold;
@@ -637,25 +637,30 @@ bool RCCResourceLibrary::interpretResourceFile(QIODevice *inputDevice,
                     QDir dir(file.filePath());
                     if (!alias.endsWith(slash))
                         alias += slash;
+
+                    QStringList filePaths;
                     QDirIterator it(dir, QDirIterator::FollowSymlinks|QDirIterator::Subdirectories);
                     while (it.hasNext()) {
                         it.next();
-                        QFileInfo child(it.fileInfo());
-                        if (child.fileName() != QLatin1String(".") && child.fileName() != QLatin1String("..")) {
-                            const bool arc =
-                                addFile(alias + child.fileName(),
-                                        RCCFileInfo(child.fileName(),
-                                                    child,
-                                                    language,
-                                                    country,
-                                                    child.isDir() ? RCCFileInfo::Directory : RCCFileInfo::NoFlags,
-                                                    compressAlgo,
-                                                    compressLevel,
-                                                    compressThreshold)
-                                        );
-                            if (!arc)
-                                m_failedResources.push_back(child.fileName());
-                        }
+                        if (it.fileName() == QLatin1String(".")
+                            || it.fileName() == QLatin1String(".."))
+                            continue;
+                        filePaths.append(it.filePath());
+                    }
+
+                    // make rcc output deterministic
+                    std::sort(filePaths.begin(), filePaths.end());
+
+                    for (const QString &filePath : filePaths) {
+                        QFileInfo child(filePath);
+                        const bool arc = addFile(
+                                alias + child.fileName(),
+                                RCCFileInfo(child.fileName(), child, language, country,
+                                            child.isDir() ? RCCFileInfo::Directory
+                                                          : RCCFileInfo::NoFlags,
+                                            compressAlgo, compressLevel, compressThreshold));
+                        if (!arc)
+                            m_failedResources.push_back(child.fileName());
                     }
                 } else if (listMode || file.isFile()) {
                     const bool arc =
@@ -737,7 +742,7 @@ bool RCCResourceLibrary::addFile(const QString &alias, const RCCFileInfo &file)
             parent->m_children.insert(node, s);
             parent = s;
         } else {
-            parent = parent->m_children[node];
+            parent = *parent->m_children.constFind(node);
         }
     }
 
@@ -757,7 +762,7 @@ bool RCCResourceLibrary::addFile(const QString &alias, const RCCFileInfo &file)
             break;
         }
     }
-    parent->m_children.insertMulti(filename, s);
+    parent->m_children.insert(filename, s);
     return true;
 }
 

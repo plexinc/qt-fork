@@ -4,12 +4,15 @@
 
 #include "net/third_party/quiche/src/quic/test_tools/quic_test_server.h"
 
+#include <utility>
+
 #include "net/third_party/quiche/src/quic/core/quic_epoll_alarm_factory.h"
 #include "net/third_party/quiche/src/quic/core/quic_epoll_connection_helper.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_ptr_util.h"
 #include "net/third_party/quiche/src/quic/tools/quic_simple_crypto_server_stream_helper.h"
 #include "net/third_party/quiche/src/quic/tools/quic_simple_dispatcher.h"
 #include "net/third_party/quiche/src/quic/tools/quic_simple_server_session.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 
@@ -22,7 +25,7 @@ class CustomStreamSession : public QuicSimpleServerSession {
       const ParsedQuicVersionVector& supported_versions,
       QuicConnection* connection,
       QuicSession::Visitor* visitor,
-      QuicCryptoServerStream::Helper* helper,
+      QuicCryptoServerStreamBase::Helper* helper,
       const QuicCryptoServerConfig* crypto_config,
       QuicCompressedCertsCache* compressed_certs_cache,
       QuicTestServer::StreamFactory* stream_factory,
@@ -52,7 +55,7 @@ class CustomStreamSession : public QuicSimpleServerSession {
     return QuicSimpleServerSession::CreateIncomingStream(id);
   }
 
-  QuicCryptoServerStreamBase* CreateQuicCryptoServerStream(
+  std::unique_ptr<QuicCryptoServerStreamBase> CreateQuicCryptoServerStream(
       const QuicCryptoServerConfig* crypto_config,
       QuicCompressedCertsCache* compressed_certs_cache) override {
     if (crypto_stream_factory_) {
@@ -74,7 +77,7 @@ class QuicTestDispatcher : public QuicSimpleDispatcher {
       const QuicCryptoServerConfig* crypto_config,
       QuicVersionManager* version_manager,
       std::unique_ptr<QuicConnectionHelperInterface> helper,
-      std::unique_ptr<QuicCryptoServerStream::Helper> session_helper,
+      std::unique_ptr<QuicCryptoServerStreamBase::Helper> session_helper,
       std::unique_ptr<QuicAlarmFactory> alarm_factory,
       QuicSimpleServerBackend* quic_simple_server_backend,
       uint8_t expected_server_connection_id_length)
@@ -90,10 +93,10 @@ class QuicTestDispatcher : public QuicSimpleDispatcher {
         stream_factory_(nullptr),
         crypto_stream_factory_(nullptr) {}
 
-  QuicServerSessionBase* CreateQuicSession(
+  std::unique_ptr<QuicSession> CreateQuicSession(
       QuicConnectionId id,
       const QuicSocketAddress& client,
-      QuicStringPiece alpn,
+      quiche::QuicheStringPiece alpn,
       const ParsedQuicVersion& version) override {
     QuicReaderMutexLock lock(&factory_lock_);
     if (session_factory_ == nullptr && stream_factory_ == nullptr &&
@@ -105,9 +108,9 @@ class QuicTestDispatcher : public QuicSimpleDispatcher {
                            /* owns_writer= */ false, Perspective::IS_SERVER,
                            ParsedQuicVersionVector{version});
 
-    QuicServerSessionBase* session = nullptr;
+    std::unique_ptr<QuicServerSessionBase> session;
     if (stream_factory_ != nullptr || crypto_stream_factory_ != nullptr) {
-      session = new CustomStreamSession(
+      session = std::make_unique<CustomStreamSession>(
           config(), GetSupportedVersions(), connection, this, session_helper(),
           crypto_config(), compressed_certs_cache(), stream_factory_,
           crypto_stream_factory_, server_backend());
@@ -116,6 +119,11 @@ class QuicTestDispatcher : public QuicSimpleDispatcher {
           config(), connection, this, session_helper(), crypto_config(),
           compressed_certs_cache(), server_backend());
     }
+    // TODO(b/142715651): Figure out how to use QPACK in tests.
+    // Do not use the QPACK dynamic table in tests to avoid flakiness due to the
+    // uncertain order of receiving the SETTINGS frame and sending headers.
+    session->set_qpack_maximum_dynamic_table_capacity(0);
+    session->set_qpack_maximum_blocked_streams(0);
     session->Initialize();
     return session;
   }
@@ -181,11 +189,11 @@ QuicTestServer::QuicTestServer(
 QuicDispatcher* QuicTestServer::CreateQuicDispatcher() {
   return new QuicTestDispatcher(
       &config(), &crypto_config(), version_manager(),
-      QuicMakeUnique<QuicEpollConnectionHelper>(epoll_server(),
-                                                QuicAllocator::BUFFER_POOL),
-      std::unique_ptr<QuicCryptoServerStream::Helper>(
-          new QuicSimpleCryptoServerStreamHelper(QuicRandom::GetInstance())),
-      QuicMakeUnique<QuicEpollAlarmFactory>(epoll_server()), server_backend(),
+      std::make_unique<QuicEpollConnectionHelper>(epoll_server(),
+                                                  QuicAllocator::BUFFER_POOL),
+      std::unique_ptr<QuicCryptoServerStreamBase::Helper>(
+          new QuicSimpleCryptoServerStreamHelper()),
+      std::make_unique<QuicEpollAlarmFactory>(epoll_server()), server_backend(),
       expected_server_connection_id_length());
 }
 
@@ -209,7 +217,7 @@ ImmediateGoAwaySession::ImmediateGoAwaySession(
     const QuicConfig& config,
     QuicConnection* connection,
     QuicSession::Visitor* visitor,
-    QuicCryptoServerStream::Helper* helper,
+    QuicCryptoServerStreamBase::Helper* helper,
     const QuicCryptoServerConfig* crypto_config,
     QuicCompressedCertsCache* compressed_certs_cache,
     QuicSimpleServerBackend* quic_simple_server_backend)
@@ -223,8 +231,21 @@ ImmediateGoAwaySession::ImmediateGoAwaySession(
                               quic_simple_server_backend) {}
 
 void ImmediateGoAwaySession::OnStreamFrame(const QuicStreamFrame& frame) {
-  SendGoAway(QUIC_PEER_GOING_AWAY, "");
+  if (VersionUsesHttp3(transport_version())) {
+    SendHttp3GoAway();
+  } else {
+    SendGoAway(QUIC_PEER_GOING_AWAY, "");
+  }
   QuicSimpleServerSession::OnStreamFrame(frame);
+}
+
+void ImmediateGoAwaySession::OnCryptoFrame(const QuicCryptoFrame& frame) {
+  // In IETF QUIC, GOAWAY lives up in HTTP/3 layer. Even if it's a immediate
+  // goaway session, goaway shouldn't be sent when crypto frame is received.
+  if (!VersionUsesHttp3(transport_version())) {
+    SendGoAway(QUIC_PEER_GOING_AWAY, "");
+  }
+  QuicSimpleServerSession::OnCryptoFrame(frame);
 }
 
 }  // namespace test

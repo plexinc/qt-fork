@@ -70,6 +70,7 @@ class StyleChangeReasonForTracing;
 class StyleImage;
 class XMLHttpRequest;
 enum class ResourceType : uint8_t;
+enum StyleChangeType : uint32_t;
 
 namespace probe {
 class CallFunction;
@@ -111,6 +112,7 @@ class CORE_EXPORT InspectorTraceEvents
   void DidFailLoading(uint64_t identifier,
                       DocumentLoader*,
                       const ResourceError&);
+  void MarkResourceAsCached(DocumentLoader* loader, uint64_t identifier);
 
   void Will(const probe::ExecuteScript&);
   void Did(const probe::ExecuteScript&);
@@ -125,7 +127,7 @@ class CORE_EXPORT InspectorTraceEvents
 
   void FrameStartedLoading(LocalFrame*);
 
-  void Trace(blink::Visitor*) {}
+  void Trace(Visitor*) {}
 
  private:
   DISALLOW_COPY_AND_ASSIGN(InspectorTraceEvents);
@@ -168,7 +170,9 @@ std::unique_ptr<TracedValue> RuleSetInvalidation(ContainerNode&,
           (element), (invalidationSet), ##__VA_ARGS__));
 
 namespace inspector_style_recalc_invalidation_tracking_event {
-std::unique_ptr<TracedValue> Data(Node*, const StyleChangeReasonForTracing&);
+std::unique_ptr<TracedValue> Data(Node*,
+                                  StyleChangeType,
+                                  const StyleChangeReasonForTracing&);
 }
 
 String DescendantInvalidationSetToIdString(const InvalidationSet&);
@@ -224,6 +228,7 @@ extern const char kAttributeChanged[];
 extern const char kColumnsChanged[];
 extern const char kChildAnonymousBlockChanged[];
 extern const char kAnonymousBlockChange[];
+extern const char kFontsChanged[];
 extern const char kFullscreen[];
 extern const char kChildChanged[];
 extern const char kListValueChange[];
@@ -302,6 +307,10 @@ std::unique_ptr<TracedValue> Data(DocumentLoader*,
                                   bool did_fail,
                                   int64_t encoded_data_length,
                                   int64_t decoded_body_length);
+}
+
+namespace inspector_mark_resource_cached_event {
+std::unique_ptr<TracedValue> Data(DocumentLoader*, uint64_t identifier);
 }
 
 namespace inspector_timer_install_event {

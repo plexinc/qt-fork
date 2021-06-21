@@ -10,7 +10,7 @@
  **************************************************************************************************/
 #include "GrTextureGradientColorizer.h"
 
-#include "include/gpu/GrTexture.h"
+#include "src/gpu/GrTexture.h"
 #include "src/gpu/glsl/GrGLSLFragmentProcessor.h"
 #include "src/gpu/glsl/GrGLSLFragmentShaderBuilder.h"
 #include "src/gpu/glsl/GrGLSLProgramBuilder.h"
@@ -24,10 +24,13 @@ public:
         const GrTextureGradientColorizer& _outer = args.fFp.cast<GrTextureGradientColorizer>();
         (void)_outer;
         fragBuilder->codeAppendf(
-                "half2 coord = half2(%s.x, 0.5);\n%s = texture(%s, float2(coord)).%s;\n",
+                "half2 coord = half2(%s.x, 0.5);\n%s = sample(%s, float2(coord)).%s;\n",
                 args.fInputColor, args.fOutputColor,
                 fragBuilder->getProgramBuilder()->samplerVariable(args.fTexSamplers[0]),
-                fragBuilder->getProgramBuilder()->samplerSwizzle(args.fTexSamplers[0]).c_str());
+                fragBuilder->getProgramBuilder()
+                        ->samplerSwizzle(args.fTexSamplers[0])
+                        .asString()
+                        .c_str());
     }
 
 private:

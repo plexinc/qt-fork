@@ -28,6 +28,7 @@
 
 #include "third_party/blink/renderer/core/animation/scroll_timeline.h"
 #include "third_party/blink/renderer/core/animation/worklet_animation_controller.h"
+#include "third_party/blink/renderer/core/layout/layout_video.h"
 #include "third_party/blink/renderer/core/layout/layout_view.h"
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/page/scrolling/scrolling_coordinator.h"
@@ -44,8 +45,6 @@ constexpr uint64_t kSquashingSparsityTolerance = 6;
 CompositingLayerAssigner::CompositingLayerAssigner(
     PaintLayerCompositor* compositor)
     : compositor_(compositor), layers_changed_(false) {}
-
-CompositingLayerAssigner::~CompositingLayerAssigner() = default;
 
 void CompositingLayerAssigner::Assign(
     PaintLayer* update_root,
@@ -135,10 +134,8 @@ CompositingLayerAssigner::GetReasonsPreventingSquashing(
   const PaintLayer& squashing_layer =
       squashing_state.most_recent_mapping->OwningLayer();
 
-  // Don't squash into or out of any thing underneath a video, including the
-  // user-agent shadow DOM for controls. This is is to work around a
-  // bug involving overflow clip of videos. See crbug.com/900602.
-  if (layer->IsUnderVideo() || squashing_layer.IsUnderVideo())
+  if (IsA<LayoutVideo>(layer->GetLayoutObject()) ||
+      IsA<LayoutVideo>(squashing_layer.GetLayoutObject()))
     return SquashingDisallowedReason::kSquashingVideoIsDisallowed;
 
   // Don't squash iframes, frames or plugins.
@@ -163,26 +160,14 @@ CompositingLayerAssigner::GetReasonsPreventingSquashing(
           squashing_state.next_squashed_layer_index))
     return SquashingDisallowedReason::kClippingContainerMismatch;
 
-  // Composited descendants need to be clipped by a child containment graphics
-  // layer, which would not be available if the layer is squashed (and therefore
-  // has no CLM nor a child containment graphics layer).
-  if (compositor_->ClipsCompositingDescendants(layer))
-    return SquashingDisallowedReason::kSquashedLayerClipsCompositingDescendants;
-
   if (layer->ScrollsWithRespectTo(&squashing_layer))
     return SquashingDisallowedReason::kScrollsWithRespectToSquashingLayer;
-
-  if (layer->ScrollParent() && layer->HasCompositingDescendant())
-    return SquashingDisallowedReason::kScrollChildWithCompositedDescendants;
 
   if (layer->OpacityAncestor() != squashing_layer.OpacityAncestor())
     return SquashingDisallowedReason::kOpacityAncestorMismatch;
 
   if (layer->TransformAncestor() != squashing_layer.TransformAncestor())
     return SquashingDisallowedReason::kTransformAncestorMismatch;
-
-  if (layer->RenderingContextRoot() != squashing_layer.RenderingContextRoot())
-    return SquashingDisallowedReason::kRenderingContextMismatch;
 
   if (layer->HasFilterInducingProperty() ||
       layer->FilterAncestor() != squashing_layer.FilterAncestor())
@@ -215,6 +200,10 @@ CompositingLayerAssigner::GetReasonsPreventingSquashing(
   if (layer->GetLayoutObject().HasMask() ||
       layer->MaskAncestor() != squashing_layer.MaskAncestor())
     return SquashingDisallowedReason::kMaskMismatch;
+
+  if (layer->NearestContainedLayoutLayer() !=
+      squashing_layer.NearestContainedLayoutLayer())
+    return SquashingDisallowedReason::kCrossesLayoutContainmentBoundary;
 
   return SquashingDisallowedReason::kNone;
 }
@@ -299,15 +288,6 @@ void CompositingLayerAssigner::AssignLayersToBackingsInternal(
             layer, composited_layer_update)) {
       layers_needing_paint_invalidation.push_back(layer);
       layers_changed_ = true;
-      if (ScrollingCoordinator* scrolling_coordinator =
-              layer->GetScrollingCoordinator()) {
-        if (layer->GetLayoutObject()
-                .StyleRef()
-                .HasViewportConstrainedPosition()) {
-          scrolling_coordinator->FrameViewFixedObjectsDidChange(
-              layer->GetLayoutObject().View()->GetFrameView());
-        }
-      }
     }
 
     if (composited_layer_update != kNoCompositingStateChange) {

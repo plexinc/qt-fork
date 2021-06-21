@@ -46,6 +46,7 @@ namespace ToolUtils {
 const char* alphatype_name (SkAlphaType);
 const char* colortype_name (SkColorType);
 const char* colortype_depth(SkColorType);  // like colortype_name, but channel order agnostic
+const char* tilemode_name(SkTileMode);
 
 /**
  * Map opaque colors from 8888 to 565.
@@ -142,6 +143,8 @@ void create_frustum_normal_map(SkBitmap* bm, const SkIRect& dst);
 void create_tetra_normal_map(SkBitmap* bm, const SkIRect& dst);
 
 void make_big_path(SkPath& path);
+
+void set_path_pt(int index, const SkPoint&, SkPath* path);
 
 // A helper object to test the topological sorting code (TopoSortBench.cpp & TopoSortTest.cpp)
 class TopoTestNode : public SkRefCnt {

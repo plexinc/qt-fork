@@ -26,7 +26,6 @@
 
 namespace autofill {
 
-struct PasswordForm;
 class PasswordAutofillAgent;
 
 // This class is responsible for controlling communication for password
@@ -91,10 +90,6 @@ class PasswordGenerationAgent : public content::RenderFrameObserver,
   }
 #endif
 
- protected:
-  // Use to force enable during testing.
-  void set_enabled(bool enabled) { enabled_ = enabled; }
-
  private:
   // Contains information about generation status for an element for the
   // lifetime of the possible interaction.
@@ -149,11 +144,10 @@ class PasswordGenerationAgent : public content::RenderFrameObserver,
   void LogBoolean(autofill::SavePasswordProgressLogger::StringID message_id,
                   bool truth_value);
 
-  // Creates a password form to presave a generated password. It copies behavior
-  // of CreatePasswordFormFromWebForm/FromUnownedInputElements, but takes
-  // |password_value| from |generation_element_| and empties |username_value|.
-  // If a form creating is failed, returns an empty unique_ptr.
-  std::unique_ptr<PasswordForm> CreatePasswordFormToPresave();
+  // Creates a FormData to presave a generated password. It copies behavior
+  // of CreateFromDataFromWebForm/FromUnownedInputElements. If a form
+  // creating is failed, returns an empty unique_ptr.
+  std::unique_ptr<FormData> CreateFormDataToPresave();
 
   // Contains the current element where generation is offered at the moment. It
   // can be either automatic or manual password generation.
@@ -164,12 +158,9 @@ class PasswordGenerationAgent : public content::RenderFrameObserver,
   // the last focused password element.
   blink::WebInputElement last_focused_password_element_;
 
-  // Contains correspondence between generaiton enabled element and data for
+  // Contains correspondence between generation enabled element and data for
   // generation.
   std::map<uint32_t, PasswordFormGenerationData> generation_enabled_fields_;
-
-  // If this feature is enabled. Controlled by Finch.
-  bool enabled_;
 
   // True iff the generation element should be marked with special HTML
   // attribute (only for experimental purposes).

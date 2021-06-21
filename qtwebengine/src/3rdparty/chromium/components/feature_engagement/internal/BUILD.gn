@@ -67,9 +67,7 @@ jumbo_static_library("internal") {
     "tracker_impl.h",
   ]
 
-  public_deps = [
-    "//components/feature_engagement/internal/proto",
-  ]
+  public_deps = [ "//components/feature_engagement/internal/proto" ]
 
   deps = [
     "//base",
@@ -133,20 +131,20 @@ if (is_android) {
   android_library("internal_java") {
     visibility = [ "//components/feature_engagement:feature_engagement_java" ]
 
-    java_files = [ "android/java/src/org/chromium/components/feature_engagement/internal/TrackerImpl.java" ]
+    sources = [ "android/java/src/org/chromium/components/feature_engagement/internal/TrackerImpl.java" ]
 
     deps = [
       "//base:base_java",
+      "//base:jni_java",
       "//components/feature_engagement/public:public_java",
-      "//third_party/android_deps:com_android_support_support_annotations_java",
+      "//third_party/android_deps:androidx_annotation_annotation_java",
       "//ui/android:ui_java",
     ]
+    annotation_processor_deps = [ "//base/android/jni_generator:jni_processor" ]
   }
 
   generate_jni("jni_headers") {
     visibility = [ ":*" ]
-    sources = [
-      "android/java/src/org/chromium/components/feature_engagement/internal/TrackerImpl.java",
-    ]
+    sources = [ "android/java/src/org/chromium/components/feature_engagement/internal/TrackerImpl.java" ]
   }
 }

@@ -12,6 +12,8 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "components/autofill_assistant/browser/actions/action.h"
+#include "components/autofill_assistant/browser/client_status.h"
+#include "components/autofill_assistant/browser/element_precondition.h"
 #include "components/autofill_assistant/browser/service.pb.h"
 
 namespace autofill_assistant {
@@ -24,57 +26,23 @@ class WaitForDomAction : public Action {
   ~WaitForDomAction() override;
 
  private:
-  enum class SelectorPredicate {
-    // The selector matches elements
-    kMatch,
-
-    // The selector doesn't match any elements
-    kNoMatch
-  };
-
-  struct Condition {
-    // Whether the selector should match or not.
-    SelectorPredicate predicate = SelectorPredicate::kMatch;
-
-    // The selector to look for.
-    Selector selector;
-
-    // True if the condition matched.
-    bool match = false;
-
-    // A payload to report to the server when this condition match. Empty
-    // payloads are not reported.
-    std::string server_payload;
-  };
-
   // Overrides Action:
   void InternalProcessAction(ProcessActionCallback callback) override;
-
-  // Initializes |require_all_| and |conditions_| from |proto_|.
-  void AddConditionsFromProto();
-
-  // Adds a single condition to |conditions_|.
-  void AddCondition(const WaitForDomProto::ElementCondition& condition);
-
-  // Adds a single condition to |conditions_|.
-  void AddCondition(SelectorPredicate predicate,
-                    const ElementReferenceProto& selector_proto,
-                    const std::string& server_payload);
 
   // Check all elements using the given BatchElementChecker and reports the
   // result to |callback|.
   void CheckElements(BatchElementChecker* checker,
-                     base::OnceCallback<void(bool)> callback);
-  void OnSingleElementCheckDone(size_t condition_index, bool result);
-  void OnAllElementChecksDone(base::OnceCallback<void(bool)> callback);
+                     base::OnceCallback<void(const ClientStatus&)> callback);
+  void OnWaitConditionDone(
+      base::OnceCallback<void(const ClientStatus&)> callback,
+      const ClientStatus& status,
+      const std::vector<std::string>& payloads);
+  void ReportActionResult(ProcessActionCallback callback,
+                          const ClientStatus& status);
 
-  void OnCheckDone(ProcessActionCallback callback,
-                   ProcessedActionStatusProto status);
+  std::unique_ptr<ElementPrecondition> wait_condition_;
 
-  bool require_all_ = false;
-  std::vector<Condition> conditions_;
-
-  base::WeakPtrFactory<WaitForDomAction> weak_ptr_factory_;
+  base::WeakPtrFactory<WaitForDomAction> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(WaitForDomAction);
 };

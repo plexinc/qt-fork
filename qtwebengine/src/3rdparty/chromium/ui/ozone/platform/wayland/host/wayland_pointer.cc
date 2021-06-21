@@ -47,7 +47,7 @@ WaylandPointer::WaylandPointer(wl_pointer* pointer,
 
 WaylandPointer::~WaylandPointer() {
   if (window_with_pointer_focus_) {
-    window_with_pointer_focus_->set_pointer_focus(false);
+    window_with_pointer_focus_->SetPointerFocus(false);
     window_with_pointer_focus_->set_has_implicit_grab(false);
   }
 }
@@ -117,9 +117,11 @@ void WaylandPointer::Button(void* data,
       changed_button = EF_RIGHT_MOUSE_BUTTON;
       break;
     case BTN_BACK:
+    case BTN_SIDE:
       changed_button = EF_BACK_MOUSE_BUTTON;
       break;
     case BTN_FORWARD:
+    case BTN_EXTRA:
       changed_button = EF_FORWARD_MOUSE_BUTTON;
       break;
     default:
@@ -216,7 +218,7 @@ void WaylandPointer::ResetFlags() {
 void WaylandPointer::FocusWindow(wl_surface* surface) {
   if (surface) {
     WaylandWindow* window = WaylandWindow::FromSurface(surface);
-    window->set_pointer_focus(true);
+    window->SetPointerFocus(true);
     window_with_pointer_focus_ = window;
   }
 }
@@ -224,7 +226,7 @@ void WaylandPointer::FocusWindow(wl_surface* surface) {
 void WaylandPointer::UnfocusWindow(wl_surface* surface) {
   if (surface) {
     WaylandWindow* window = WaylandWindow::FromSurface(surface);
-    window->set_pointer_focus(false);
+    window->SetPointerFocus(false);
     window->set_has_implicit_grab(false);
     window_with_pointer_focus_ = nullptr;
   }

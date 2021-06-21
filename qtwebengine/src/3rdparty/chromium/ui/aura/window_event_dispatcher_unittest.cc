@@ -47,6 +47,7 @@
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/transform.h"
 #include "ui/platform_window/platform_window_init_properties.h"
+#include "ui/wm/core/capture_controller.h"
 
 namespace aura {
 namespace {
@@ -212,38 +213,38 @@ TEST_F(WindowEventDispatcherTest, MouseButtonState) {
   std::unique_ptr<ui::MouseEvent> event;
 
   // Press the left button.
-  event.reset(new ui::MouseEvent(
+  event = std::make_unique<ui::MouseEvent>(
       ui::ET_MOUSE_PRESSED, location, location, ui::EventTimeForNow(),
-      ui::EF_LEFT_MOUSE_BUTTON, ui::EF_LEFT_MOUSE_BUTTON));
+      ui::EF_LEFT_MOUSE_BUTTON, ui::EF_LEFT_MOUSE_BUTTON);
   DispatchEventUsingWindowDispatcher(event.get());
   EXPECT_TRUE(Env::GetInstance()->IsMouseButtonDown());
 
   // Additionally press the right.
-  event.reset(new ui::MouseEvent(
+  event = std::make_unique<ui::MouseEvent>(
       ui::ET_MOUSE_PRESSED, location, location, ui::EventTimeForNow(),
       ui::EF_LEFT_MOUSE_BUTTON | ui::EF_RIGHT_MOUSE_BUTTON,
-      ui::EF_RIGHT_MOUSE_BUTTON));
+      ui::EF_RIGHT_MOUSE_BUTTON);
   DispatchEventUsingWindowDispatcher(event.get());
   EXPECT_TRUE(Env::GetInstance()->IsMouseButtonDown());
 
   // Release the left button.
-  event.reset(new ui::MouseEvent(
+  event = std::make_unique<ui::MouseEvent>(
       ui::ET_MOUSE_RELEASED, location, location, ui::EventTimeForNow(),
-      ui::EF_RIGHT_MOUSE_BUTTON, ui::EF_LEFT_MOUSE_BUTTON));
+      ui::EF_RIGHT_MOUSE_BUTTON, ui::EF_LEFT_MOUSE_BUTTON);
   DispatchEventUsingWindowDispatcher(event.get());
   EXPECT_TRUE(Env::GetInstance()->IsMouseButtonDown());
 
   // Release the right button.  We should ignore the Shift-is-down flag.
-  event.reset(new ui::MouseEvent(ui::ET_MOUSE_RELEASED, location, location,
-                                 ui::EventTimeForNow(), ui::EF_SHIFT_DOWN,
-                                 ui::EF_RIGHT_MOUSE_BUTTON));
+  event = std::make_unique<ui::MouseEvent>(
+      ui::ET_MOUSE_RELEASED, location, location, ui::EventTimeForNow(),
+      ui::EF_SHIFT_DOWN, ui::EF_RIGHT_MOUSE_BUTTON);
   DispatchEventUsingWindowDispatcher(event.get());
   EXPECT_FALSE(Env::GetInstance()->IsMouseButtonDown());
 
   // Press the middle button.
-  event.reset(new ui::MouseEvent(
+  event = std::make_unique<ui::MouseEvent>(
       ui::ET_MOUSE_PRESSED, location, location, ui::EventTimeForNow(),
-      ui::EF_MIDDLE_MOUSE_BUTTON, ui::EF_MIDDLE_MOUSE_BUTTON));
+      ui::EF_MIDDLE_MOUSE_BUTTON, ui::EF_MIDDLE_MOUSE_BUTTON);
   DispatchEventUsingWindowDispatcher(event.get());
   EXPECT_TRUE(Env::GetInstance()->IsMouseButtonDown());
 }
@@ -512,7 +513,7 @@ class EventFilterRecorder : public ui::EventHandler {
 
   void WaitUntilReceivedEvent(ui::EventType type) {
     wait_until_event_ = type;
-    run_loop_.reset(new base::RunLoop());
+    run_loop_ = std::make_unique<base::RunLoop>();
     run_loop_->Run();
   }
 
@@ -2454,7 +2455,8 @@ TEST_F(WindowEventDispatcherTestInHighDPI, TouchMovesHeldOnScroll) {
 // event, and runs a single callback in the nested run loop.
 class TriggerNestedLoopOnRightMousePress : public ui::test::TestEventHandler {
  public:
-  explicit TriggerNestedLoopOnRightMousePress(const base::Closure& callback)
+  explicit TriggerNestedLoopOnRightMousePress(
+      const base::RepeatingClosure& callback)
       : callback_(callback) {}
   ~TriggerNestedLoopOnRightMousePress() override {}
 
@@ -2477,7 +2479,7 @@ class TriggerNestedLoopOnRightMousePress : public ui::test::TestEventHandler {
     }
   }
 
-  base::Closure callback_;
+  base::RepeatingClosure callback_;
   gfx::Point mouse_move_location_;
 
   DISALLOW_COPY_AND_ASSIGN(TriggerNestedLoopOnRightMousePress);
@@ -2495,7 +2497,7 @@ TEST_F(WindowEventDispatcherTestInHighDPI,
   ui::MouseEvent mouse_move(ui::ET_MOUSE_MOVED, gfx::Point(80, 80),
                             gfx::Point(80, 80), ui::EventTimeForNow(),
                             ui::EF_NONE, ui::EF_NONE);
-  const base::Closure callback_on_right_click = base::Bind(
+  base::RepeatingClosure callback_on_right_click = base::BindRepeating(
       base::IgnoreResult(&WindowEventDispatcherTestInHighDPI::DispatchEvent),
       base::Unretained(this), base::Unretained(&mouse_move));
   TriggerNestedLoopOnRightMousePress handler(callback_on_right_click);
@@ -2794,40 +2796,49 @@ TEST_F(WindowEventDispatcherTest,
       ui::PlatformWindowInitProperties{gfx::Rect(20, 30, 100, 50)});
   second_host->InitHost();
   second_host->window()->Show();
-  client::SetCaptureClient(second_host->window(),
-                           client::GetCaptureClient(root_window()));
 
-  test::EventCountDelegate delegate;
-  std::unique_ptr<Window> window_first(CreateTestWindowWithDelegate(
-      &delegate, 123, gfx::Rect(20, 10, 10, 20), root_window()));
-  window_first->Show();
+  // AuraTestBase sets up a DefaultCaptureClient for root_window(), but that
+  // can't deal with capture between different root windows.  Instead we need to
+  // use the wm::CaptureController instance that also exists, which can handle
+  // this situation.  Exchange the capture clients and put the old one back at
+  // the end.
+  client::CaptureClient* const old_capture_client =
+      client::GetCaptureClient(root_window());
+  {
+    wm::ScopedCaptureClient scoped_capture_first(root_window());
+    wm::ScopedCaptureClient scoped_capture_second(second_host->window());
 
-  std::unique_ptr<Window> window_second(CreateTestWindowWithDelegate(
-      &delegate, 12, gfx::Rect(10, 10, 20, 30), second_host->window()));
-  window_second->Show();
+    test::EventCountDelegate delegate;
+    std::unique_ptr<Window> window_first(CreateTestWindowWithDelegate(
+        &delegate, 123, gfx::Rect(20, 10, 10, 20), root_window()));
+    window_first->Show();
 
-  window_second->SetCapture();
-  EXPECT_EQ(window_second.get(),
-            client::GetCaptureWindow(root_window()));
+    std::unique_ptr<Window> window_second(CreateTestWindowWithDelegate(
+        &delegate, 12, gfx::Rect(10, 10, 20, 30), second_host->window()));
+    window_second->Show();
 
-  // Send an event to the first host. Make sure it goes to |window_second| in
-  // |second_host| instead (since it has capture).
-  EventFilterRecorder recorder_first;
-  window_first->AddPreTargetHandler(&recorder_first);
-  EventFilterRecorder recorder_second;
-  window_second->AddPreTargetHandler(&recorder_second);
-  const gfx::Point event_location(25, 15);
-  ui::MouseEvent mouse(ui::ET_MOUSE_PRESSED, event_location, event_location,
-                       ui::EventTimeForNow(), ui::EF_LEFT_MOUSE_BUTTON,
-                       ui::EF_LEFT_MOUSE_BUTTON);
-  DispatchEventUsingWindowDispatcher(&mouse);
-  EXPECT_TRUE(recorder_first.events().empty());
-  ASSERT_EQ(1u, recorder_second.events().size());
-  EXPECT_EQ(ui::ET_MOUSE_PRESSED, recorder_second.events()[0]);
-  EXPECT_EQ(event_location.ToString(),
-            recorder_second.mouse_locations()[0].ToString());
-  window_first->RemovePreTargetHandler(&recorder_first);
-  window_second->RemovePreTargetHandler(&recorder_second);
+    window_second->SetCapture();
+
+    // Send an event to the first host. Make sure it goes to |window_second| in
+    // |second_host| instead (since it has capture).
+    EventFilterRecorder recorder_first;
+    window_first->AddPreTargetHandler(&recorder_first);
+    EventFilterRecorder recorder_second;
+    window_second->AddPreTargetHandler(&recorder_second);
+    const gfx::Point event_location(25, 15);
+    ui::MouseEvent mouse(ui::ET_MOUSE_PRESSED, event_location, event_location,
+                         ui::EventTimeForNow(), ui::EF_LEFT_MOUSE_BUTTON,
+                         ui::EF_LEFT_MOUSE_BUTTON);
+    DispatchEventUsingWindowDispatcher(&mouse);
+    EXPECT_TRUE(recorder_first.events().empty());
+    ASSERT_EQ(1u, recorder_second.events().size());
+    EXPECT_EQ(ui::ET_MOUSE_PRESSED, recorder_second.events()[0]);
+    EXPECT_EQ(event_location.ToString(),
+              recorder_second.mouse_locations()[0].ToString());
+    window_first->RemovePreTargetHandler(&recorder_first);
+    window_second->RemovePreTargetHandler(&recorder_second);
+  }
+  client::SetCaptureClient(root_window(), old_capture_client);
 }
 
 class AsyncWindowDelegate : public test::TestWindowDelegate {

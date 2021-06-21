@@ -182,7 +182,7 @@ QPlaceSearchReply *QPlaceManagerEngineOsm::search(const QPlaceSearchRequest &req
     requestUrl.setQuery(queryItems);
 
     QNetworkRequest rq(requestUrl);
-    rq.setAttribute(QNetworkRequest::FollowRedirectsAttribute, true);
+    rq.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
     QNetworkReply *networkReply = m_networkManager->get(rq);
 
     QPlaceSearchReplyOsm *reply = new QPlaceSearchReplyOsm(request, networkReply, this);
@@ -354,6 +354,6 @@ void QPlaceManagerEngineOsm::fetchNextCategoryLocale()
 
     m_categoriesReply = m_networkManager->get(QNetworkRequest(requestUrl));
     connect(m_categoriesReply, SIGNAL(finished()), this, SLOT(categoryReplyFinished()));
-    connect(m_categoriesReply, SIGNAL(error(QNetworkReply::NetworkError)),
+    connect(m_categoriesReply, SIGNAL(errorOccurred(QNetworkReply::NetworkError)),
             this, SLOT(categoryReplyError()));
 }

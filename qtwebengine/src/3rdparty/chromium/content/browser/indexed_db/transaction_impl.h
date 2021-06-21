@@ -11,9 +11,11 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/sequence_checker.h"
-#include "content/public/browser/browser_thread.h"
+#include "base/strings/string16.h"
+#include "content/browser/indexed_db/indexed_db_external_object.h"
 #include "third_party/blink/public/mojom/indexeddb/indexeddb.mojom.h"
 #include "third_party/blink/public/mojom/quota/quota_types.mojom.h"
+#include "url/origin.h"
 
 namespace base {
 class SequencedTaskRunner;
@@ -44,7 +46,7 @@ class TransactionImpl : public blink::mojom::IDBTransaction {
            const blink::IndexedDBKey& key,
            blink::mojom::IDBPutMode mode,
            const std::vector<blink::IndexedDBIndexKeys>& index_keys,
-           blink::mojom::IDBCallbacksAssociatedPtrInfo callbacks) override;
+           blink::mojom::IDBTransaction::PutCallback callback) override;
   void Commit(int64_t num_errors_handled) override;
 
   void OnGotUsageAndQuotaForCommit(blink::mojom::QuotaStatusCode status,
@@ -52,9 +54,11 @@ class TransactionImpl : public blink::mojom::IDBTransaction {
                                    int64_t quota);
 
  private:
-  class IOHelper;
-
-  std::unique_ptr<IOHelper, BrowserThread::DeleteOnIOThread> io_helper_;
+  // Turns an IDBValue into a set of IndexedDBExternalObjects in
+  // |external_objects|.
+  void CreateExternalObjects(
+      blink::mojom::IDBValuePtr& value,
+      std::vector<IndexedDBExternalObject>* external_objects);
 
   base::WeakPtr<IndexedDBDispatcherHost> dispatcher_host_;
   scoped_refptr<IndexedDBContextImpl> indexed_db_context_;

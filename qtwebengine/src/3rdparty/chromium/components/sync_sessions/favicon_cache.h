@@ -23,6 +23,7 @@
 #include "base/scoped_observer.h"
 #include "base/task/cancelable_task_tracker.h"
 #include "components/favicon_base/favicon_types.h"
+#include "components/history/core/browser/history_service.h"
 #include "components/history/core/browser/history_service_observer.h"
 #include "components/history/core/browser/history_types.h"
 #include "components/sessions/core/session_id.h"
@@ -40,10 +41,6 @@ namespace favicon {
 class FaviconService;
 }
 
-namespace history {
-class HistoryService;
-}
-
 namespace sync_sessions {
 
 enum IconSize {
@@ -56,8 +53,12 @@ enum IconSize {
 
 struct SyncedFaviconInfo;
 
-// Encapsulates the logic for loading and storing synced favicons.
+// FAVICON SYNC IS DEPRECATED: This class now only serves to the translation
+// from page url to icon url using sessions sync information.
+// TODO(https://crbug.com/978775): Stop implementing syncer::SyncableService
+// and rename the class accordingly.
 // TODO(zea): make this a KeyedService.
+// Encapsulates the logic for loading and storing synced favicons.
 class FaviconCache : public syncer::SyncableService,
                      public history::HistoryServiceObserver {
  public:
@@ -74,7 +75,7 @@ class FaviconCache : public syncer::SyncableService,
       std::unique_ptr<syncer::SyncChangeProcessor> sync_processor,
       std::unique_ptr<syncer::SyncErrorFactory> error_handler) override;
   void StopSyncing(syncer::ModelType type) override;
-  syncer::SyncDataList GetAllSyncData(syncer::ModelType type) const override;
+  syncer::SyncDataList GetAllSyncDataForTesting(syncer::ModelType type) const;
   syncer::SyncError ProcessSyncChanges(
       const base::Location& from_here,
       const syncer::SyncChangeList& change_list) override;
@@ -236,7 +237,7 @@ class FaviconCache : public syncer::SyncableService,
   std::vector<base::OnceClosure> wait_until_ready_to_sync_cb_;
 
   ScopedObserver<history::HistoryService, history::HistoryServiceObserver>
-      history_service_observer_;
+      history_service_observer_{this};
 
   // Weak pointer factory for favicon loads.
   base::WeakPtrFactory<FaviconCache> weak_ptr_factory_{this};

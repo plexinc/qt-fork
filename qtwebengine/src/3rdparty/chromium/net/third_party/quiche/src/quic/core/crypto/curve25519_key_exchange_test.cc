@@ -6,10 +6,11 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 
 #include "net/third_party/quiche/src/quic/core/crypto/quic_random.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_ptr_util.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 namespace test {
@@ -54,8 +55,8 @@ TEST_F(Curve25519KeyExchangeTest, SharedKey) {
     std::unique_ptr<Curve25519KeyExchange> bob(
         Curve25519KeyExchange::New(bob_key));
 
-    const QuicStringPiece alice_public(alice->public_value());
-    const QuicStringPiece bob_public(bob->public_value());
+    const quiche::QuicheStringPiece alice_public(alice->public_value());
+    const quiche::QuicheStringPiece bob_public(bob->public_value());
 
     std::string alice_shared, bob_shared;
     ASSERT_TRUE(alice->CalculateSharedKeySync(bob_public, &alice_shared));
@@ -78,19 +79,20 @@ TEST_F(Curve25519KeyExchangeTest, SharedKeyAsync) {
     std::unique_ptr<Curve25519KeyExchange> bob(
         Curve25519KeyExchange::New(bob_key));
 
-    const QuicStringPiece alice_public(alice->public_value());
-    const QuicStringPiece bob_public(bob->public_value());
+    const quiche::QuicheStringPiece alice_public(alice->public_value());
+    const quiche::QuicheStringPiece bob_public(bob->public_value());
 
     std::string alice_shared, bob_shared;
     TestCallbackResult alice_result;
     ASSERT_FALSE(alice_result.ok());
-    alice->CalculateSharedKeyAsync(bob_public, &alice_shared,
-                                   QuicMakeUnique<TestCallback>(&alice_result));
+    alice->CalculateSharedKeyAsync(
+        bob_public, &alice_shared,
+        std::make_unique<TestCallback>(&alice_result));
     ASSERT_TRUE(alice_result.ok());
     TestCallbackResult bob_result;
     ASSERT_FALSE(bob_result.ok());
     bob->CalculateSharedKeyAsync(alice_public, &bob_shared,
-                                 QuicMakeUnique<TestCallback>(&bob_result));
+                                 std::make_unique<TestCallback>(&bob_result));
     ASSERT_TRUE(bob_result.ok());
     ASSERT_EQ(alice_shared, bob_shared);
     ASSERT_NE(0u, alice_shared.length());

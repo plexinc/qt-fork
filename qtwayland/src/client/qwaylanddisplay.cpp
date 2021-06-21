@@ -69,6 +69,7 @@
 #include "qwaylandextendedsurface_p.h"
 #include "qwaylandsubsurface_p.h"
 #include "qwaylandtouch_p.h"
+#include "qwaylandtabletv2_p.h"
 #include "qwaylandqtkey_p.h"
 
 #include <QtWaylandClient/private/qwayland-text-input-unstable-v2.h>
@@ -188,6 +189,18 @@ QWaylandDisplay::~QWaylandDisplay(void)
         wl_display_disconnect(mDisplay);
 }
 
+void QWaylandDisplay::ensureScreen()
+{
+    if (!mScreens.empty() || mPlaceholderScreen)
+        return; // There are real screens or we already have a fake one
+
+    qCInfo(lcQpaWayland) << "Creating a fake screen in order for Qt not to crash";
+
+    mPlaceholderScreen = new QPlatformPlaceholderScreen();
+    QWindowSystemInterface::handleScreenAdded(mPlaceholderScreen);
+    Q_ASSERT(!QGuiApplication::screens().empty());
+}
+
 void QWaylandDisplay::checkError() const
 {
     int ecode = wl_display_get_error(mDisplay);
@@ -208,6 +221,17 @@ void QWaylandDisplay::flushRequests()
     if (wl_display_dispatch_pending(mDisplay) < 0)
         checkError();
 
+    {
+        QReadLocker locker(&m_frameQueueLock);
+        for (const FrameQueue &q : mExternalQueues) {
+            QMutexLocker locker(q.mutex);
+            while (wl_display_prepare_read_queue(mDisplay, q.queue) != 0)
+                wl_display_dispatch_queue_pending(mDisplay, q.queue);
+            wl_display_read_events(mDisplay);
+            wl_display_dispatch_queue_pending(mDisplay, q.queue);
+        }
+    }
+
     wl_display_flush(mDisplay);
 }
 
@@ -215,6 +239,27 @@ void QWaylandDisplay::blockingReadEvents()
 {
     if (wl_display_dispatch(mDisplay) < 0)
         checkError();
+}
+
+void QWaylandDisplay::destroyFrameQueue(const QWaylandDisplay::FrameQueue &q)
+{
+    QWriteLocker locker(&m_frameQueueLock);
+    auto it = std::find_if(mExternalQueues.begin(),
+                           mExternalQueues.end(),
+                           [&q] (const QWaylandDisplay::FrameQueue &other){ return other.queue == q.queue; });
+    Q_ASSERT(it != mExternalQueues.end());
+    mExternalQueues.erase(it);
+    if (q.queue != nullptr)
+        wl_event_queue_destroy(q.queue);
+    delete q.mutex;
+}
+
+QWaylandDisplay::FrameQueue QWaylandDisplay::createFrameQueue()
+{
+    QWriteLocker locker(&m_frameQueueLock);
+    FrameQueue q{createEventQueue()};
+    mExternalQueues.append(q);
+    return q;
 }
 
 wl_event_queue *QWaylandDisplay::createEventQueue()
@@ -253,8 +298,7 @@ void QWaylandDisplay::dispatchQueueWhile(wl_event_queue *queue, std::function<bo
 
 QWaylandScreen *QWaylandDisplay::screenForOutput(struct wl_output *output) const
 {
-    for (int i = 0; i < mScreens.size(); ++i) {
-        QWaylandScreen *screen = static_cast<QWaylandScreen *>(mScreens.at(i));
+    for (auto screen : qAsConst(mScreens)) {
         if (screen->output() == output)
             return screen;
     }
@@ -267,6 +311,11 @@ void QWaylandDisplay::handleScreenInitialized(QWaylandScreen *screen)
         return;
     mScreens.append(screen);
     QWindowSystemInterface::handleScreenAdded(screen);
+    if (mPlaceholderScreen) {
+        QWindowSystemInterface::handleScreenRemoved(mPlaceholderScreen);
+        // handleScreenRemoved deletes the platform screen
+        mPlaceholderScreen = nullptr;
+    }
 }
 
 void QWaylandDisplay::waitForScreens()
@@ -314,6 +363,8 @@ void QWaylandDisplay::registry_global(uint32_t id, const QString &interface, uin
         mTouchExtension.reset(new QWaylandTouchExtension(this, id));
     } else if (interface == QStringLiteral("zqt_key_v1")) {
         mQtKeyExtension.reset(new QWaylandQtKeyExtension(this, id));
+    } else if (interface == QStringLiteral("zwp_tablet_manager_v2")) {
+        mTabletManager.reset(new QWaylandTabletManagerV2(this, id, qMin(1, int(version))));
 #if QT_CONFIG(wayland_client_primary_selection)
     } else if (interface == QStringLiteral("zwp_primary_selection_device_manager_v1")) {
         mPrimarySelectionManager.reset(new QWaylandPrimarySelectionDeviceManagerV1(this, id, 1));
@@ -332,7 +383,7 @@ void QWaylandDisplay::registry_global(uint32_t id, const QString &interface, uin
             forceRoundTrip();
         }
     } else if (interface == QLatin1String("zxdg_output_manager_v1")) {
-        mXdgOutputManager.reset(new QtWayland::zxdg_output_manager_v1(registry, id, qMin(2, int(version))));
+        mXdgOutputManager.reset(new QWaylandXdgOutputManagerV1(this, id, version));
         for (auto *screen : qAsConst(mWaitingScreens))
             screen->initXdgOutput(xdgOutputManager());
         forceRoundTrip();
@@ -362,6 +413,8 @@ void QWaylandDisplay::registry_global_remove(uint32_t id)
                 for (QWaylandScreen *screen : qAsConst(mScreens)) {
                     if (screen->outputId() == id) {
                         mScreens.removeOne(screen);
+                        // If this is the last screen, we have to add a fake screen, or Qt will break.
+                        ensureScreen();
                         QWindowSystemInterface::handleScreenRemoved(screen);
                         break;
                     }

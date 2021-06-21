@@ -12,7 +12,7 @@
 #include "third_party/blink/renderer/bindings/modules/v8/v8_paint_callback.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_paint_rendering_context_2d_settings.h"
 #include "third_party/blink/renderer/core/css/css_property_names.h"
-#include "third_party/blink/renderer/core/css/css_syntax_descriptor.h"
+#include "third_party/blink/renderer/core/css/css_syntax_definition.h"
 #include "third_party/blink/renderer/core/css/css_syntax_string_parser.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
@@ -37,7 +37,7 @@ namespace {
 
 bool ParseInputArguments(v8::Local<v8::Context> context,
                          v8::Local<v8::Object> constructor,
-                         Vector<CSSSyntaxDescriptor>* input_argument_types,
+                         Vector<CSSSyntaxDefinition>* input_argument_types,
                          ExceptionState* exception_state) {
   v8::Isolate* isolate = context->GetIsolate();
   v8::TryCatch block(isolate);
@@ -59,13 +59,13 @@ bool ParseInputArguments(v8::Local<v8::Context> context,
         return false;
 
       for (const auto& type : argument_types) {
-        base::Optional<CSSSyntaxDescriptor> syntax_descriptor =
+        base::Optional<CSSSyntaxDefinition> syntax_definition =
             CSSSyntaxStringParser(type).Parse();
-        if (!syntax_descriptor) {
+        if (!syntax_definition) {
           exception_state->ThrowTypeError("Invalid argument types.");
           return false;
         }
-        input_argument_types->push_back(std::move(*syntax_descriptor));
+        input_argument_types->push_back(std::move(*syntax_definition));
       }
     }
   }
@@ -146,7 +146,8 @@ void PaintWorkletGlobalScope::Dispose() {
   WorkletGlobalScope::Dispose();
 }
 
-void PaintWorkletGlobalScope::registerPaint(const String& name,
+void PaintWorkletGlobalScope::registerPaint(const ScriptState* script_state,
+                                            const String& name,
                                             V8NoArgumentConstructor* paint_ctor,
                                             ExceptionState& exception_state) {
   // https://drafts.css-houdini.org/css-paint-api/#dom-paintworkletglobalscope-registerpaint
@@ -178,15 +179,18 @@ void PaintWorkletGlobalScope::registerPaint(const String& name,
   Vector<CSSPropertyID> native_invalidation_properties;
   Vector<AtomicString> custom_invalidation_properties;
 
+  const ExecutionContext* execution_context =
+      ExecutionContext::From(script_state);
+
   if (!V8ObjectParser::ParseCSSPropertyList(
-          context, v8_paint_ctor, "inputProperties",
+          context, execution_context, v8_paint_ctor, "inputProperties",
           &native_invalidation_properties, &custom_invalidation_properties,
           &exception_state))
     return;
 
   // Get input argument types. Parse the argument type values only when
   // cssPaintAPIArguments is enabled.
-  Vector<CSSSyntaxDescriptor> input_argument_types;
+  Vector<CSSSyntaxDefinition> input_argument_types;
   if (!ParseInputArguments(context, v8_paint_ctor, &input_argument_types,
                            &exception_state))
     return;
@@ -233,12 +237,12 @@ CSSPaintDefinition* PaintWorkletGlobalScope::FindDefinition(
 }
 
 double PaintWorkletGlobalScope::devicePixelRatio() const {
-  // TODO(smcgruer): Implement |devicePixelRatio| for worklet-thread bound
-  // PaintWorkletGlobalScope.
-  return WTF::IsMainThread() ? GetFrame()->DevicePixelRatio() : 1.0;
+  return WTF::IsMainThread()
+             ? GetFrame()->DevicePixelRatio()
+             : PaintWorkletProxyClient::From(Clients())->DevicePixelRatio();
 }
 
-void PaintWorkletGlobalScope::Trace(blink::Visitor* visitor) {
+void PaintWorkletGlobalScope::Trace(Visitor* visitor) {
   visitor->Trace(paint_definitions_);
   WorkletGlobalScope::Trace(visitor);
 }

@@ -4,6 +4,7 @@
 
 import("//build/config/features.gni")
 import("//testing/libfuzzer/fuzzer_test.gni")
+import("//third_party/protobuf/proto_library.gni")
 
 component("fido") {
   sources = [
@@ -56,6 +57,13 @@ component("fido") {
     "cable/fido_cable_discovery.h",
     "cable/fido_cable_handshake_handler.cc",
     "cable/fido_cable_handshake_handler.h",
+    "cable/noise.cc",
+    "cable/noise.h",
+    "cable/v2_handshake.cc",
+    "cable/v2_handshake.h",
+    "cbor_extract.cc",
+    "client_data.cc",
+    "client_data.h",
     "credential_management.cc",
     "credential_management.h",
     "credential_management_handler.cc",
@@ -90,7 +98,6 @@ component("fido") {
     "fido_discovery_factory.h",
     "fido_parsing_utils.cc",
     "fido_parsing_utils.h",
-    "fido_request_handler.h",
     "fido_request_handler_base.cc",
     "fido_request_handler_base.h",
     "fido_task.cc",
@@ -156,8 +163,6 @@ component("fido") {
     "//crypto",
     "//device/base",
     "//device/fido/strings",
-    "//services/service_manager/public/cpp",
-    "//services/service_manager/public/mojom",
     "//third_party/boringssl",
     "//third_party/microsoft_webauthn",
     "//ui/base",
@@ -205,7 +210,6 @@ component("fido") {
       "mac/make_credential_operation.h",
       "mac/make_credential_operation.mm",
       "mac/operation.h",
-      "mac/operation_base.h",
       "mac/touch_id_context.h",
       "mac/touch_id_context.mm",
       "mac/util.h",
@@ -225,11 +229,37 @@ component("fido") {
       "win/authenticator.h",
       "win/discovery.cc",
       "win/discovery.h",
+      "win/fake_webauthn_api.cc",
+      "win/fake_webauthn_api.h",
+      "win/logging.cc",
+      "win/logging.h",
       "win/type_conversions.cc",
       "win/type_conversions.h",
       "win/webauthn_api.cc",
       "win/webauthn_api.h",
     ]
+  }
+
+  if (is_chromeos) {
+    sources += [
+      "cros/authenticator.cc",
+      "cros/authenticator.h",
+      "cros/discovery.cc",
+      "cros/discovery.h",
+    ]
+
+    deps += [
+      ":u2f_proto",
+      "//dbus",
+    ]
+  }
+}
+
+if (is_chromeos) {
+  proto_library("u2f_proto") {
+    sources = [ "//third_party/cros_system_api/dbus/u2f/u2f_interface.proto" ]
+
+    proto_out_dir = "chromeos/dbus/u2f"
   }
 }
 
@@ -255,9 +285,7 @@ source_set("mocks") {
 }
 
 fuzzer_test("fido_hid_message_fuzzer") {
-  sources = [
-    "hid/fido_hid_message_fuzzer.cc",
-  ]
+  sources = [ "hid/fido_hid_message_fuzzer.cc" ]
   deps = [
     ":fido",
     "//base",
@@ -266,19 +294,13 @@ fuzzer_test("fido_hid_message_fuzzer") {
 }
 
 fuzzer_test("fido_ble_frames_fuzzer") {
-  sources = [
-    "ble/fido_ble_frames_fuzzer.cc",
-  ]
-  deps = [
-    ":fido",
-  ]
+  sources = [ "ble/fido_ble_frames_fuzzer.cc" ]
+  deps = [ ":fido" ]
   libfuzzer_options = [ "max_len=65535" ]
 }
 
 fuzzer_test("ctap_response_fuzzer") {
-  sources = [
-    "ctap_response_fuzzer.cc",
-  ]
+  sources = [ "ctap_response_fuzzer.cc" ]
   deps = [
     ":fido",
     "//base",
@@ -291,9 +313,20 @@ fuzzer_test("ctap_response_fuzzer") {
 }
 
 fuzzer_test("fido_cable_handshake_handler_fuzzer") {
-  sources = [
-    "cable/fido_cable_handshake_handler_fuzzer.cc",
+  sources = [ "cable/fido_cable_handshake_handler_fuzzer.cc" ]
+  deps = [
+    ":fido",
+    "//base",
+    "//base/test:test_support",
+    "//device/bluetooth:mocks",
+    "//testing/gmock",
+    "//testing/gtest",
   ]
+  libfuzzer_options = [ "max_len=2048" ]
+}
+
+fuzzer_test("fido_cable_handshake_handler_v2_fuzzer") {
+  sources = [ "cable/fido_cable_handshake_handler_v2_fuzzer.cc" ]
   deps = [
     ":fido",
     "//base",
@@ -322,8 +355,6 @@ source_set("test_support") {
     "//device/fido",
     "//mojo/public/cpp/bindings",
     "//services/device/public/mojom",
-    "//services/service_manager/public/cpp",
-    "//services/service_manager/public/mojom",
     "//testing/gmock",
     "//testing/gtest",
   ]
@@ -344,13 +375,6 @@ source_set("test_support") {
       "mac/fake_touch_id_context.mm",
       "mac/scoped_touch_id_test_environment.h",
       "mac/scoped_touch_id_test_environment.mm",
-    ]
-  }
-
-  if (is_win) {
-    sources += [
-      "win/fake_webauthn_api.cc",
-      "win/fake_webauthn_api.h",
     ]
   }
 }

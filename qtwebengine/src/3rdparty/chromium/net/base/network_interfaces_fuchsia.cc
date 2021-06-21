@@ -7,13 +7,14 @@
 #include <fuchsia/hardware/ethernet/cpp/fidl.h>
 #include <fuchsia/net/cpp/fidl.h>
 #include <fuchsia/netstack/cpp/fidl.h>
+#include <lib/sys/cpp/component_context.h>
 
 #include <string>
 #include <utility>
 
 #include "base/format_macros.h"
+#include "base/fuchsia/default_context.h"
 #include "base/fuchsia/fuchsia_logging.h"
-#include "base/fuchsia/service_directory_client.h"
 #include "base/strings/stringprintf.h"
 #include "net/base/ip_endpoint.h"
 #include "net/base/network_interfaces.h"
@@ -87,7 +88,10 @@ std::vector<NetworkInterface> NetInterfaceToNetworkInterfaces(
     return output;
   }
 
-  output.push_back(NetworkInterfaceFromAddress(iface_in, 0));
+  // It is possible for the interface not to have an IPv4 address.
+  NetworkInterface ipv4_interface = NetworkInterfaceFromAddress(iface_in, 0);
+  if (!ipv4_interface.address.IsZero())
+    output.push_back(std::move(ipv4_interface));
 
   // Append interface entries for all additional IPv6 addresses.
   for (size_t i = 0; i < iface_in.ipv6addrs.size(); ++i) {
@@ -102,9 +106,9 @@ std::vector<NetworkInterface> NetInterfaceToNetworkInterfaces(
 bool GetNetworkList(NetworkInterfaceList* networks, int policy) {
   DCHECK(networks);
 
-  fuchsia::netstack::NetstackSyncPtr netstack =
-      base::fuchsia::ServiceDirectoryClient::ForCurrentProcess()
-          ->ConnectToServiceSync<fuchsia::netstack::Netstack>();
+  fuchsia::netstack::NetstackSyncPtr netstack;
+  base::fuchsia::ComponentContextForCurrentProcess()->svc()->Connect(
+      netstack.NewRequest());
 
   // TODO(kmarshall): Use NetworkChangeNotifier's cached interface list.
   std::vector<fuchsia::netstack::NetInterface> interfaces;

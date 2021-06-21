@@ -6,11 +6,12 @@
 
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
+#include "base/system/sys_info.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "content/browser/tracing/background_tracing_config_impl.h"
 #include "content/browser/tracing/background_tracing_rule.h"
-#include "content/public/test/test_browser_thread_bundle.h"
+#include "content/public/test/browser_task_environment.h"
 #include "net/base/network_change_notifier.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -34,7 +35,7 @@ class BackgroundTracingConfigTest : public testing::Test {
   BackgroundTracingConfigTest() = default;
 
  protected:
-  TestBrowserThreadBundle test_browser_thread_bundle_;
+  BrowserTaskEnvironment task_environment_;
 };
 
 std::unique_ptr<BackgroundTracingConfigImpl> ReadFromJSONString(
@@ -690,7 +691,11 @@ TEST_F(BackgroundTracingConfigTest, BufferLimitConfig) {
 
   notifier.set_type(net::NetworkChangeNotifier::CONNECTION_2G);
 #if defined(OS_ANDROID)
-  EXPECT_EQ(300u, config->GetTraceConfig().GetTraceBufferSizeInKb());
+  int64_t ram_mb = base::SysInfo::AmountOfPhysicalMemoryMB();
+  size_t expected_trace_buffer_size =
+      (ram_mb > 0 && ram_mb <= 1024) ? 800u : 300u;
+  EXPECT_EQ(expected_trace_buffer_size,
+            config->GetTraceConfig().GetTraceBufferSizeInKb());
   EXPECT_EQ(600u, config->GetTraceUploadLimitKb());
 #endif
 

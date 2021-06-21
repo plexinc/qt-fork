@@ -66,6 +66,13 @@ DownloadDangerType IntToDownloadDangerType(int danger_type) {
     case DownloadDangerType::WHITELISTED_BY_POLICY:
     case DownloadDangerType::ASYNC_SCANNING:
     case DownloadDangerType::BLOCKED_PASSWORD_PROTECTED:
+    case DownloadDangerType::BLOCKED_TOO_LARGE:
+    case DownloadDangerType::SENSITIVE_CONTENT_WARNING:
+    case DownloadDangerType::SENSITIVE_CONTENT_BLOCK:
+    case DownloadDangerType::DEEP_SCANNED_SAFE:
+    case DownloadDangerType::DEEP_SCANNED_OPENED_DANGEROUS:
+    case DownloadDangerType::PROMPT_FOR_SCANNING:
+    case DownloadDangerType::BLOCKED_UNSUPPORTED_FILETYPE:
       return static_cast<DownloadDangerType>(danger_type);
 
     case DownloadDangerType::INVALID:
@@ -110,6 +117,22 @@ std::ostream& operator<<(std::ostream& stream, DownloadDangerType danger_type) {
     case DownloadDangerType::BLOCKED_PASSWORD_PROTECTED:
       return stream
              << "history::DownloadDangerType::BLOCKED_PASSWORD_PROTECTED";
+    case DownloadDangerType::BLOCKED_TOO_LARGE:
+      return stream << "history::DownloadDangerType::BLOCKED_TOO_LARGE";
+    case DownloadDangerType::SENSITIVE_CONTENT_WARNING:
+      return stream << "history::DownloadDangerType::SENSITIVE_CONTENT_WARNING";
+    case DownloadDangerType::SENSITIVE_CONTENT_BLOCK:
+      return stream << "history::DownloadDangerType::SENSITIVE_CONTENT_BLOCK";
+    case DownloadDangerType::DEEP_SCANNED_SAFE:
+      return stream << "history::DownloadDangerType::DEEP_SCANNED_SAFE";
+    case DownloadDangerType::DEEP_SCANNED_OPENED_DANGEROUS:
+      return stream
+             << "history::DownloadDangerType::DEEP_SCANNED_OPENED_DANGEROUS";
+    case DownloadDangerType::PROMPT_FOR_SCANNING:
+      return stream << "history::DownloadDangerType::PROMPT_FOR_SCANNING";
+    case DownloadDangerType::BLOCKED_UNSUPPORTED_FILETYPE:
+      return stream
+             << "history::DownloadDangerType::BLOCKED_UNSUPPORTED_FILETYPE";
   }
   NOTREACHED();
   return stream;

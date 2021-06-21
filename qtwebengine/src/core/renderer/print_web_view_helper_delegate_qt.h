@@ -57,15 +57,12 @@ class PrintWebViewHelperDelegateQt : public printing::PrintRenderFrameHelper::De
 public:
     ~PrintWebViewHelperDelegateQt() override;
 
-    bool CancelPrerender(content::RenderFrame* render_frame) override;
-
-    blink::WebElement GetPdfElement(blink::WebLocalFrame* frame) override;
+    blink::WebElement GetPdfElement(blink::WebLocalFrame *frame) override;
 
     bool IsPrintPreviewEnabled() override;
 
-    bool OverridePrint(blink::WebLocalFrame* frame) override;
-};  // class PrintWebViewHelperDelegateQt
+    bool OverridePrint(blink::WebLocalFrame *frame) override;
+}; // class PrintWebViewHelperDelegateQt
 }
 
 #endif // PRINT_WEB_VIEW_HELPER_DELEGATE_QT_H
-

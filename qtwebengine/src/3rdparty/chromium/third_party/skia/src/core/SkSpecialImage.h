@@ -8,12 +8,15 @@
 #ifndef SkSpecialImage_DEFINED
 #define SkSpecialImage_DEFINED
 
+#include "include/core/SkImageInfo.h"
 #include "include/core/SkRefCnt.h"
 #include "include/core/SkSurfaceProps.h"
 #include "src/core/SkNextID.h"
 
-#include "include/core/SkImageFilter.h"
-#include "include/core/SkImageInfo.h"
+#if SK_SUPPORT_GPU
+#include "include/private/GrTypesPriv.h"
+#include "src/gpu/GrSurfaceProxyView.h"
+#endif
 
 class GrRecordingContext;
 class GrTextureProxy;
@@ -55,6 +58,7 @@ public:
 
     uint32_t uniqueID() const { return fUniqueID; }
     virtual SkAlphaType alphaType() const = 0;
+    virtual SkColorType colorType() const = 0;
     virtual size_t getSize() const = 0;
 
     /**
@@ -62,7 +66,7 @@ public:
      *  If no transformation is required, the returned image may be the same as this special image.
      *  If this special image is from a different GrRecordingContext, this will fail.
      */
-    sk_sp<SkSpecialImage> makeTextureImage(GrRecordingContext*);
+    sk_sp<SkSpecialImage> makeTextureImage(GrRecordingContext*) const;
 
     /**
      *  Draw this SpecialImage into the canvas, automatically taking into account the image's subset
@@ -83,7 +87,8 @@ public:
     static sk_sp<SkSpecialImage> MakeDeferredFromGpu(GrRecordingContext*,
                                                      const SkIRect& subset,
                                                      uint32_t uniqueID,
-                                                     sk_sp<GrTextureProxy>,
+                                                     GrSurfaceProxyView,
+                                                     GrColorType,
                                                      sk_sp<SkColorSpace>,
                                                      const SkSurfaceProps* = nullptr,
                                                      SkAlphaType at = kPremul_SkAlphaType);
@@ -92,7 +97,8 @@ public:
     /**
      *  Create a new special surface with a backend that is compatible with this special image.
      */
-    sk_sp<SkSpecialSurface> makeSurface(const SkImageFilter::OutputProperties& outProps,
+    sk_sp<SkSpecialSurface> makeSurface(SkColorType colorType,
+                                        const SkColorSpace* colorSpace,
                                         const SkISize& size,
                                         SkAlphaType at = kPremul_SkAlphaType,
                                         const SkSurfaceProps* props = nullptr) const;
@@ -100,8 +106,11 @@ public:
     /**
      * Create a new surface with a backend that is compatible with this special image.
      * TODO: switch this to makeSurface once we resolved the naming issue
+     * TODO (michaelludwig) - This is only used by SkTileImageFilter, which appears should be
+     * updated to work correctly with subsets and then makeTightSurface() can go away entirely.
      */
-    sk_sp<SkSurface> makeTightSurface(const SkImageFilter::OutputProperties& outProps,
+    sk_sp<SkSurface> makeTightSurface(SkColorType colorType,
+                                      const SkColorSpace* colorSpace,
                                       const SkISize& size,
                                       SkAlphaType at = kPremul_SkAlphaType) const;
 
@@ -135,11 +144,11 @@ public:
 #if SK_SUPPORT_GPU
     /**
      * Regardless of how the underlying backing data is stored, returns the contents as a
-     * GrTextureProxy. The returned proxy represents the entire backing image, so texture
+     * GrSurfaceProxyView. The returned view's proxy represents the entire backing image, so texture
      * coordinates must be mapped from the content rect (e.g. relative to 'subset()') to the proxy's
      * space (offset by subset().topLeft()).
      */
-    sk_sp<GrTextureProxy> asTextureProxyRef(GrRecordingContext*) const;
+    GrSurfaceProxyView view(GrRecordingContext*) const;
 #endif
 
     /**

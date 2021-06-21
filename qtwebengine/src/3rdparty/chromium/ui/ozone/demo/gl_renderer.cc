@@ -26,8 +26,7 @@ GlRenderer::GlRenderer(gfx::AcceleratedWidget widget,
                        const gfx::Size& size)
     : RendererBase(widget, size),
       window_surface_(std::move(window_surface)),
-      gl_surface_(gl_surface),
-      weak_ptr_factory_(this) {}
+      gl_surface_(gl_surface) {}
 
 GlRenderer::~GlRenderer() {}
 
@@ -39,7 +38,7 @@ bool GlRenderer::Initialize() {
     return false;
   }
 
-  gl_surface_->Resize(size_, 1.f, gl::GLSurface::ColorSpace::UNSPECIFIED, true);
+  gl_surface_->Resize(size_, 1.f, gfx::ColorSpace(), true);
 
   if (!context_->MakeCurrent(gl_surface_.get())) {
     LOG(ERROR) << "Failed to make GL context current";

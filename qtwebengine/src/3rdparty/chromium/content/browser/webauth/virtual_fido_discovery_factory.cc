@@ -7,22 +7,27 @@
 #include <utility>
 #include <vector>
 
+#include "base/command_line.h"
 #include "base/stl_util.h"
 #include "content/browser/webauth/virtual_authenticator.h"
 #include "content/browser/webauth/virtual_discovery.h"
+#include "content/public/common/content_switches.h"
 #include "device/fido/fido_discovery_base.h"
 #include "device/fido/virtual_ctap2_device.h"
 #include "device/fido/virtual_u2f_device.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
 
 namespace content {
 
 namespace {
 
-blink::test::mojom::VirtualAuthenticatorPtr GetMojoPtrToVirtualAuthenticator(
-    VirtualAuthenticator* authenticator) {
-  blink::test::mojom::VirtualAuthenticatorPtr mojo_authenticator_ptr;
-  authenticator->AddBinding(mojo::MakeRequest(&mojo_authenticator_ptr));
-  return mojo_authenticator_ptr;
+mojo::PendingRemote<blink::test::mojom::VirtualAuthenticator>
+GetMojoToVirtualAuthenticator(VirtualAuthenticator* authenticator) {
+  mojo::PendingRemote<blink::test::mojom::VirtualAuthenticator>
+      mojo_authenticator;
+  authenticator->AddReceiver(
+      mojo_authenticator.InitWithNewPipeAndPassReceiver());
+  return mojo_authenticator;
 }
 
 }  // namespace
@@ -64,6 +69,14 @@ VirtualAuthenticator* VirtualFidoDiscoveryFactory::GetAuthenticator(
   return authenticator->second.get();
 }
 
+std::vector<VirtualAuthenticator*>
+VirtualFidoDiscoveryFactory::GetAuthenticators() {
+  std::vector<VirtualAuthenticator*> authenticators;
+  for (auto& authenticator : authenticators_)
+    authenticators.push_back(authenticator.second.get());
+  return authenticators;
+}
+
 bool VirtualFidoDiscoveryFactory::RemoveAuthenticator(const std::string& id) {
   const bool removed = authenticators_.erase(id);
   if (removed) {
@@ -87,20 +100,8 @@ void VirtualFidoDiscoveryFactory::OnDiscoveryDestroyed(
 }
 
 std::unique_ptr<::device::FidoDiscoveryBase>
-VirtualFidoDiscoveryFactory::Create(device::FidoTransportProtocol transport,
-                                    ::service_manager::Connector* connector) {
+VirtualFidoDiscoveryFactory::Create(device::FidoTransportProtocol transport) {
   auto discovery = std::make_unique<VirtualFidoDiscovery>(transport);
-
-  if (receivers_.empty() && authenticators_.empty()) {
-    // If no bindings are active then create a virtual device. This is a
-    // stop-gap measure for web-platform tests which assume that they can make
-    // webauthn calls until the WebAuthn Testing API is released.
-    CreateAuthenticator(
-        ::device::ProtocolVersion::kCtap2,
-        ::device::FidoTransportProtocol::kUsbHumanInterfaceDevice,
-        ::device::AuthenticatorAttachment::kCrossPlatform,
-        false /* has_resident_key */, false /* has_user_verification */);
-  }
 
   for (auto& authenticator : authenticators_) {
     if (discovery->transport() != authenticator.second->transport())
@@ -112,31 +113,24 @@ VirtualFidoDiscoveryFactory::Create(device::FidoTransportProtocol transport,
   return discovery;
 }
 
-std::unique_ptr<::device::FidoDiscoveryBase>
-VirtualFidoDiscoveryFactory::CreateCable(
-    std::vector<device::CableDiscoveryData> cable_data) {
-  return Create(device::FidoTransportProtocol::kCloudAssistedBluetoothLowEnergy,
-                nullptr);
-}
-
 void VirtualFidoDiscoveryFactory::CreateAuthenticator(
     blink::test::mojom::VirtualAuthenticatorOptionsPtr options,
     CreateAuthenticatorCallback callback) {
   auto* authenticator = CreateAuthenticator(
       options->protocol, options->transport, options->attachment,
       options->has_resident_key, options->has_user_verification);
+  authenticator->SetUserPresence(options->is_user_present);
 
-  std::move(callback).Run(GetMojoPtrToVirtualAuthenticator(authenticator));
+  std::move(callback).Run(GetMojoToVirtualAuthenticator(authenticator));
 }
 
 void VirtualFidoDiscoveryFactory::GetAuthenticators(
     GetAuthenticatorsCallback callback) {
-  std::vector<blink::test::mojom::VirtualAuthenticatorPtrInfo>
+  std::vector<mojo::PendingRemote<blink::test::mojom::VirtualAuthenticator>>
       mojo_authenticators;
   for (auto& authenticator : authenticators_) {
     mojo_authenticators.push_back(
-        GetMojoPtrToVirtualAuthenticator(authenticator.second.get())
-            .PassInterface());
+        GetMojoToVirtualAuthenticator(authenticator.second.get()));
   }
 
   std::move(callback).Run(std::move(mojo_authenticators));

@@ -2,16 +2,37 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import 'chrome://resources/cr_elements/cr_button/cr_button.m.js';
+import 'chrome://resources/cr_elements/shared_vars_css.m.js';
+// <if expr="is_win">
+import 'chrome://resources/cr_elements/icons.m.js';
+import 'chrome://resources/polymer/v3_0/iron-icon/iron-icon.js';
+// </if>
+import '../shared/animations_css.js';
+import '../shared/step_indicator.js';
+import '../strings.m.js';
+
+import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
+import {WebUIListenerBehavior} from 'chrome://resources/js/web_ui_listener_behavior.m.js';
+import {html, Polymer} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {navigateTo, navigateToNextStep, NavigationBehavior, Routes} from '../navigation_behavior.js';
+import {DefaultBrowserInfo, stepIndicatorModel} from '../shared/nux_types.js';
+
+import {NuxSetAsDefaultProxy, NuxSetAsDefaultProxyImpl} from './nux_set_as_default_proxy.js';
+
 Polymer({
   is: 'nux-set-as-default',
 
+  _template: html`{__html_template__}`,
+
   behaviors: [
     WebUIListenerBehavior,
-    welcome.NavigationBehavior,
+    NavigationBehavior,
   ],
 
   properties: {
-    /** @type {welcome.stepIndicatorModel} */
+    /** @type {stepIndicatorModel} */
     indicatorModel: Object,
 
     // <if expr="is_win">
@@ -22,27 +43,30 @@ Polymer({
     // </if>
   },
 
-  /** @private {welcome.NuxSetAsDefaultProxy} */
+  /** @private {NuxSetAsDefaultProxy} */
   browserProxy_: null,
 
   /** @private {boolean} */
   finalized_: false,
 
+  /** @private {!Function} */
+  navigateToNextStep_: navigateToNextStep,
+
   /** @override */
-  ready: function() {
-    this.browserProxy_ = welcome.NuxSetAsDefaultProxyImpl.getInstance();
+  ready() {
+    this.browserProxy_ = NuxSetAsDefaultProxyImpl.getInstance();
 
     this.addWebUIListener(
         'browser-default-state-changed',
         this.onDefaultBrowserChange_.bind(this));
   },
 
-  onRouteEnter: function() {
+  onRouteEnter() {
     this.finalized_ = false;
     this.browserProxy_.recordPageShown();
   },
 
-  onRouteExit: function() {
+  onRouteExit() {
     if (this.finalized_) {
       return;
     }
@@ -50,7 +74,7 @@ Polymer({
     this.browserProxy_.recordNavigatedAwayThroughBrowserHistory();
   },
 
-  onRouteUnload: function() {
+  onRouteUnload() {
     if (this.finalized_) {
       return;
     }
@@ -59,7 +83,7 @@ Polymer({
   },
 
   /** @private */
-  onDeclineClick_: function() {
+  onDeclineClick_() {
     if (this.finalized_) {
       return;
     }
@@ -69,7 +93,7 @@ Polymer({
   },
 
   /** @private */
-  onSetDefaultClick_: function() {
+  onSetDefaultClick_() {
     if (this.finalized_) {
       return;
     }
@@ -80,10 +104,10 @@ Polymer({
 
   /**
    * Automatically navigate to the next onboarding step once default changed.
-   * @param {!welcome.DefaultBrowserInfo} status
+   * @param {!DefaultBrowserInfo} status
    * @private
    */
-  onDefaultBrowserChange_: function(status) {
+  onDefaultBrowserChange_(status) {
     if (status.isDefault) {
       this.browserProxy_.recordSuccessfullySetDefault();
       // Triggers toast in the containing welcome-app.
@@ -103,9 +127,8 @@ Polymer({
   },
 
   /** @private */
-  finished_: function() {
+  finished_() {
     this.finalized_ = true;
-
-    welcome.navigateToNextStep();
+    this.navigateToNextStep_();
   },
 });

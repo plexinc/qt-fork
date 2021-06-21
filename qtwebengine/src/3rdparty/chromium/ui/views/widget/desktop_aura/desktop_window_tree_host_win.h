@@ -19,8 +19,8 @@ namespace aura {
 namespace client {
 class DragDropClient;
 class FocusClient;
-}
-}
+}  // namespace client
+}  // namespace aura
 
 namespace ui {
 enum class DomCode;
@@ -145,6 +145,8 @@ class VIEWS_EXPORT DesktopWindowTreeHostWin
   void OnCursorVisibilityChangedNative(bool show) override;
   void MoveCursorToScreenLocationInPixels(
       const gfx::Point& location_in_pixels) override;
+  std::unique_ptr<aura::ScopedEnableUnadjustedMouseEvents>
+  RequestUnadjustedMovement() override;
 
   // Overridden from aura::client::AnimationHost
   void SetHostTransitionOffsets(
@@ -179,7 +181,7 @@ class VIEWS_EXPORT DesktopWindowTreeHostWin
   void ResetWindowControls() override;
   gfx::NativeViewAccessible GetNativeViewAccessible() override;
   void HandleActivationChanged(bool active) override;
-  bool HandleAppCommand(short command) override;
+  bool HandleAppCommand(int command) override;
   void HandleCancelMode() override;
   void HandleCaptureLost() override;
   void HandleClose() override;
@@ -232,8 +234,6 @@ class VIEWS_EXPORT DesktopWindowTreeHostWin
 
  private:
   friend class ::views::test::DesktopWindowTreeHostWinTestApi;
-
-  void SetWindowTransparency();
 
   // Returns true if a modal window is active in the current root window chain.
   bool IsModalWindowActive() const;

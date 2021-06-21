@@ -32,16 +32,38 @@ bool PasswordManagerClient::OnCredentialManagerUsed() {
   return true;
 }
 
+void PasswordManagerClient::ShowTouchToFill(PasswordManagerDriver* driver) {}
+
+BiometricAuthenticator* PasswordManagerClient::GetBiometricAuthenticator() {
+  return nullptr;
+}
+
 void PasswordManagerClient::GeneratePassword() {}
 
+void PasswordManagerClient::UpdateCredentialCache(
+    const GURL& origin,
+    const std::vector<const autofill::PasswordForm*>& best_matches,
+    bool is_blacklisted) {}
+
 void PasswordManagerClient::PasswordWasAutofilled(
-    const std::map<base::string16, const autofill::PasswordForm*>& best_matches,
+    const std::vector<const autofill::PasswordForm*>& best_matches,
     const GURL& origin,
     const std::vector<const autofill::PasswordForm*>* federated_matches) {}
 
 void PasswordManagerClient::AutofillHttpAuth(
     const autofill::PasswordForm& preferred_match,
     const PasswordFormManagerForUI* form_manager) {}
+
+void PasswordManagerClient::NotifyUserCredentialsWereLeaked(
+    password_manager::CredentialLeakType leak_type,
+    const GURL& origin,
+    const base::string16& username) {}
+
+void PasswordManagerClient::TriggerReauthForAccount(
+    const CoreAccountId& account_id,
+    base::OnceCallback<void(ReauthSucceeded)> reauth_callback) {
+  std::move(reauth_callback).Run(ReauthSucceeded(false));
+}
 
 SyncState PasswordManagerClient::GetPasswordSyncState() const {
   return NOT_SYNCING;
@@ -51,9 +73,15 @@ bool PasswordManagerClient::WasLastNavigationHTTPError() const {
   return false;
 }
 
+bool PasswordManagerClient::WasCredentialLeakDialogShown() const {
+  return false;
+}
+
 net::CertStatus PasswordManagerClient::GetMainFrameCertStatus() const {
   return 0;
 }
+
+void PasswordManagerClient::PromptUserToEnableAutosignin() {}
 
 bool PasswordManagerClient::IsIncognito() const {
   return false;
@@ -66,6 +94,17 @@ const PasswordManager* PasswordManagerClient::GetPasswordManager() const {
 PasswordManager* PasswordManagerClient::GetPasswordManager() {
   return const_cast<PasswordManager*>(
       static_cast<const PasswordManagerClient*>(this)->GetPasswordManager());
+}
+
+const PasswordFeatureManager* PasswordManagerClient::GetPasswordFeatureManager()
+    const {
+  return nullptr;
+}
+
+PasswordFeatureManager* PasswordManagerClient::GetPasswordFeatureManager() {
+  return const_cast<PasswordFeatureManager*>(
+      static_cast<const PasswordManagerClient*>(this)
+          ->GetPasswordFeatureManager());
 }
 
 HttpAuthManager* PasswordManagerClient::GetHttpAuthManager() {

@@ -56,6 +56,8 @@
 
 QT_BEGIN_NAMESPACE
 
+Q_LOGGING_CATEGORY(lcItemManagement, "qt.quick.controls.control.itemmanagement")
+
 /*!
     \qmltype Control
     \inherits Item
@@ -156,9 +158,6 @@ QQuickControlPrivate::QQuickControlPrivate()
 
 QQuickControlPrivate::~QQuickControlPrivate()
 {
-#if QT_CONFIG(accessibility)
-    QAccessible::removeActivationObserver(this);
-#endif
 }
 
 void QQuickControlPrivate::init()
@@ -428,7 +427,7 @@ void QQuickControlPrivate::setContentItem_helper(QQuickItem *item, bool notify)
 
     contentItem = item;
     q->contentItemChange(item, oldContentItem);
-    delete oldContentItem;
+    QQuickControlPrivate::hideOldItem(oldContentItem);
 
     if (item) {
         connect(contentItem.data(), &QQuickItem::baselineOffsetChanged, this, &QQuickControlPrivate::updateBaselineOffset);
@@ -846,6 +845,24 @@ void QQuickControlPrivate::executeBackground(bool complete)
         quickCompleteDeferred(q, backgroundName(), background);
 }
 
+void QQuickControlPrivate::hideOldItem(QQuickItem *item)
+{
+    if (!item)
+        return;
+
+    qCDebug(lcItemManagement) << "hiding old item" << item;
+
+    item->setVisible(false);
+    item->setParentItem(nullptr);
+
+#if QT_CONFIG(accessibility)
+    // Remove the item from the accessibility tree.
+    QQuickAccessibleAttached *accessible = accessibleAttached(item);
+    if (accessible)
+        accessible->setIgnored(true);
+#endif
+}
+
 void QQuickControlPrivate::updateBaselineOffset()
 {
     Q_Q(QQuickControl);
@@ -948,6 +965,9 @@ QQuickControl::~QQuickControl()
     Q_D(QQuickControl);
     d->removeImplicitSizeListener(d->background, QQuickControlPrivate::ImplicitSizeChanges | QQuickItemPrivate::Geometry);
     d->removeImplicitSizeListener(d->contentItem);
+#if QT_CONFIG(accessibility)
+    QAccessible::removeActivationObserver(d);
+#endif
 }
 
 void QQuickControl::itemChange(QQuickItem::ItemChange change, const QQuickItem::ItemChangeData &value)
@@ -1598,7 +1618,7 @@ void QQuickControl::setBackground(QQuickItem *background)
     }
 
     d->removeImplicitSizeListener(d->background, QQuickControlPrivate::ImplicitSizeChanges | QQuickItemPrivate::Geometry);
-    delete d->background;
+    QQuickControlPrivate::hideOldItem(d->background);
     d->background = background;
 
     if (background) {

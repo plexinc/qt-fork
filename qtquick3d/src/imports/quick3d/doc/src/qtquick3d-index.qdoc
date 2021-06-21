@@ -30,11 +30,11 @@
 \title Qt Quick 3D
 \brief Provides API that lets you define 3D items using QML.
 
-Qt Quick 3D provides a high-level API for creating 3D content or UIs based on
-Qt Quick. Rather than using an external engine which creates syncing issues,
+Qt Quick 3D provides a high-level API for creating 3D content and 3D user interfaces
+based on \l{Qt Quick}. Rather than using an external engine which creates syncing issues,
 and additional layers of abstraction, we provide extensions to the existing
-Qt Quick scenegraph for spatial content, and a renderer for that extended
-scenegraph. When using the Spatial scenegraph it is also be possible to mix
+\l{Qt Quick Scene Graph} for spatial content, and a renderer for that extended
+scene graph. When using the spatial scene graph it is also be possible to mix
 Qt Quick 2D content with 3D content.
 
 \image dragon.jpg
@@ -53,12 +53,13 @@ provided by the following module imports:
 
 \code \QtMinorVersion
 import QtQuick3D.Materials 1.\1
+import QtQuick3D.Effects 1.\1
 import QtQuick3D.Helpers 1.\1
 \endcode
 
 \section1 Building From Source
 
-When building from source, ensure that the \l {Qt Declarative} module
+When building from source, ensure that the \e qtdeclarative module
 is also built, as it is not possible to use Qt Quick 3D without it.
 
 In addition, examples use the modules \l {Qt Quick Controls} and
@@ -85,14 +86,17 @@ under the following permissive licenses:
     \li \l{Qt Quick 3D Graphics Requirements}
     \li \l{Qt Quick 3D Asset Conditioning}
     \li \l{Qt Quick 3D Custom Material Reference}
+    \li \l{Qt Quick 3D Environment Variables}
     \li \l{Balsam Asset Import Tool}
 \endlist
 
 \section1 Reference
 \list
     \li \l{Qt Quick 3D QML Types}
+    \li \l{Qt Quick 3D C++ Classes}
     \li \l{Qt Quick 3D Helpers QML Types}
     \li \l{Qt Quick 3D Materials QML Types}
+    \li \l{Qt Quick 3D Effects QML Types}
 \endlist
 
 \section1 Examples

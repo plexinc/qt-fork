@@ -34,6 +34,7 @@
 
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/web_security_origin.h"
+#include "third_party/blink/renderer/core/probe/async_task_id.h"
 #include "third_party/blink/renderer/core/probe/core_probes.h"
 #include "third_party/blink/renderer/modules/filesystem/directory_entry.h"
 #include "third_party/blink/renderer/modules/filesystem/dom_file_path.h"
@@ -52,7 +53,7 @@ namespace {
 
 void RunCallback(ExecutionContext* execution_context,
                  base::OnceClosure task,
-                 std::unique_ptr<int> identifier) {
+                 std::unique_ptr<probe::AsyncTaskId> identifier) {
   if (!execution_context)
     return;
   DCHECK(execution_context->IsContextThread());
@@ -95,7 +96,7 @@ DOMFileSystem::DOMFileSystem(ExecutionContext* context,
                              mojom::blink::FileSystemType type,
                              const KURL& root_url)
     : DOMFileSystemBase(context, name, type, root_url),
-      ContextClient(context),
+      ExecutionContextClient(context),
       number_of_pending_callbacks_(0),
       root_entry_(
           MakeGarbageCollected<DirectoryEntry>(this, DOMFilePath::kRoot)) {}
@@ -166,7 +167,8 @@ void DOMFileSystem::ScheduleCallback(ExecutionContext* execution_context,
 
   DCHECK(execution_context->IsContextThread());
 
-  std::unique_ptr<int> identifier = std::make_unique<int>(0);
+  std::unique_ptr<probe::AsyncTaskId> identifier =
+      std::make_unique<probe::AsyncTaskId>();
   probe::AsyncTaskScheduled(execution_context, TaskNameForInstrumentation(),
                             identifier.get());
   execution_context->GetTaskRunner(TaskType::kFileReading)
@@ -176,10 +178,10 @@ void DOMFileSystem::ScheduleCallback(ExecutionContext* execution_context,
                            WTF::Passed(std::move(identifier))));
 }
 
-void DOMFileSystem::Trace(blink::Visitor* visitor) {
+void DOMFileSystem::Trace(Visitor* visitor) {
   visitor->Trace(root_entry_);
   DOMFileSystemBase::Trace(visitor);
-  ContextClient::Trace(visitor);
+  ExecutionContextClient::Trace(visitor);
 }
 
 }  // namespace blink

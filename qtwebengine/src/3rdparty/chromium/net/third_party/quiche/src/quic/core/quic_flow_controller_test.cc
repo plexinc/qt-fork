@@ -5,15 +5,15 @@
 #include "net/third_party/quiche/src/quic/core/quic_flow_controller.h"
 
 #include <memory>
+#include <utility>
 
 #include "net/third_party/quiche/src/quic/platform/api/quic_expect_bug.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_ptr_util.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_str_cat.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
 #include "net/third_party/quiche/src/quic/test_tools/quic_connection_peer.h"
 #include "net/third_party/quiche/src/quic/test_tools/quic_flow_controller_peer.h"
 #include "net/third_party/quiche/src/quic/test_tools/quic_sent_packet_manager_peer.h"
 #include "net/third_party/quiche/src/quic/test_tools/quic_test_utils.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_str_cat.h"
 
 using testing::_;
 using testing::Invoke;
@@ -39,8 +39,8 @@ class QuicFlowControllerTest : public QuicTest {
   void Initialize() {
     connection_ = new MockQuicConnection(&helper_, &alarm_factory_,
                                          Perspective::IS_CLIENT);
-    session_ = QuicMakeUnique<MockQuicSession>(connection_);
-    flow_controller_ = QuicMakeUnique<QuicFlowController>(
+    session_ = std::make_unique<MockQuicSession>(connection_);
+    flow_controller_ = std::make_unique<QuicFlowController>(
         session_.get(), stream_id_, /*is_connection_flow_controller*/ false,
         send_window_, receive_window_, kStreamReceiveWindowLimit,
         should_auto_tune_receive_window_, &session_flow_controller_);
@@ -91,9 +91,9 @@ TEST_F(QuicFlowControllerTest, SendingBytes) {
   // Try to send more bytes, violating flow control.
   EXPECT_CALL(*connection_,
               CloseConnection(QUIC_FLOW_CONTROL_SENT_TOO_MUCH_DATA, _, _));
-  EXPECT_QUIC_BUG(
-      flow_controller_->AddBytesSent(send_window_ * 10),
-      QuicStrCat("Trying to send an extra ", send_window_ * 10, " bytes"));
+  EXPECT_QUIC_BUG(flow_controller_->AddBytesSent(send_window_ * 10),
+                  quiche::QuicheStrCat("Trying to send an extra ",
+                                       send_window_ * 10, " bytes"));
   EXPECT_TRUE(flow_controller_->IsBlocked());
   EXPECT_EQ(0u, flow_controller_->SendWindowSize());
 }

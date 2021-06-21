@@ -14,6 +14,7 @@
 #include "base/path_service.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
 #include "third_party/blink/public/common/font_unique_name_lookup/font_table_matcher.h"
@@ -29,9 +30,12 @@
 
 namespace {
 
+// Increment this suffix when changes are needed to the cache structure, e.g.
+// counting up after the dash "-1", "-2", etc.
+const char kFingerprintSuffixForceUpdateCache[] = "-1";
 const char kProtobufFilename[] = "font_unique_name_table.pb";
-static const char* const kAndroidFontPaths[] = {"/system/fonts",
-                                                "/vendor/fonts"};
+static const char* const kAndroidFontPaths[] = {
+    "/system/fonts", "/vendor/fonts", "/product/fonts"};
 
 // These values are logged to UMA. Entries should not be renumbered and
 // numeric values should never be reused. Please keep in sync with
@@ -348,38 +352,35 @@ bool FontUniqueNameLookup::PersistToFile() {
 }
 
 void FontUniqueNameLookup::ScheduleLoadOrUpdateTable() {
-  base::PostTaskWithTraits(FROM_HERE,
-                           {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
-                            base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
-                           base::BindOnce(
-                               [](FontUniqueNameLookup* instance) {
-                                 // Error from LoadFromFile() is ignored:
-                                 // Loading the cache file could be recovered
-                                 // from by rebuilding the font table.
-                                 // UpdateTableIfNeeded() checks whether the
-                                 // internal base::MappedReadOnlyRegion has a
-                                 // size, which it doesn't if the LoadFromFile()
-                                 // failed. If it doesn't have a size, the table
-                                 // is rebuild by calling UpdateTable().
-                                 base::TimeTicks prepare_table_start_time =
-                                     base::TimeTicks::Now();
-                                 bool loaded_from_file =
-                                     instance->LoadFromFile();
-                                 if (loaded_from_file) {
-                                   LogUMALookupTableLoadFromFileDuration(
-                                       base::TimeTicks::Now() -
-                                       prepare_table_start_time);
-                                 }
-                                 if (instance->UpdateTableIfNeeded()) {
-                                   instance->PersistToFile();
-                                 }
-                                 LogUMALookupTableReadyDuration(
-                                     base::TimeTicks::Now() -
-                                     prepare_table_start_time);
-                                 instance->proto_storage_ready_.Signal();
-                                 instance->PostCallbacks();
-                               },
-                               base::Unretained(this)));
+  base::ThreadPool::PostTask(
+      FROM_HERE,
+      {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
+       base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
+      base::BindOnce(
+          [](FontUniqueNameLookup* instance) {
+            // Error from LoadFromFile() is ignored:
+            // Loading the cache file could be recovered
+            // from by rebuilding the font table.
+            // UpdateTableIfNeeded() checks whether the
+            // internal base::MappedReadOnlyRegion has a
+            // size, which it doesn't if the LoadFromFile()
+            // failed. If it doesn't have a size, the table
+            // is rebuild by calling UpdateTable().
+            base::TimeTicks prepare_table_start_time = base::TimeTicks::Now();
+            bool loaded_from_file = instance->LoadFromFile();
+            if (loaded_from_file) {
+              LogUMALookupTableLoadFromFileDuration(base::TimeTicks::Now() -
+                                                    prepare_table_start_time);
+            }
+            if (instance->UpdateTableIfNeeded()) {
+              instance->PersistToFile();
+            }
+            LogUMALookupTableReadyDuration(base::TimeTicks::Now() -
+                                           prepare_table_start_time);
+            instance->proto_storage_ready_.Signal();
+            instance->PostCallbacks();
+          },
+          base::Unretained(this)));
 }
 
 base::FilePath FontUniqueNameLookup::TableCacheFilePath() {
@@ -390,7 +391,9 @@ base::FilePath FontUniqueNameLookup::TableCacheFilePath() {
 std::string FontUniqueNameLookup::GetAndroidBuildFingerprint() const {
   return android_build_fingerprint_for_testing_.size()
              ? android_build_fingerprint_for_testing_
-             : base::android::BuildInfo::GetInstance()->android_build_fp();
+             : std::string(base::android::BuildInfo::GetInstance()
+                               ->android_build_fp()) +
+                   std::string(kFingerprintSuffixForceUpdateCache);
 }
 
 std::vector<std::string> FontUniqueNameLookup::GetFontFilePaths() const {

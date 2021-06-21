@@ -4,10 +4,12 @@
 
 #include "third_party/blink/renderer/core/feature_policy/dom_feature_policy.h"
 
+#include "third_party/blink/public/mojom/feature_policy/feature_policy.mojom-blink.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/feature_policy/feature_policy_parser.h"
 #include "third_party/blink/renderer/core/inspector/console_message.h"
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_utf8_adaptor.h"
 
@@ -37,7 +39,7 @@ bool DOMFeaturePolicy::allowsFeature(ScriptState* script_state,
   scoped_refptr<const SecurityOrigin> origin =
       SecurityOrigin::CreateFromString(url);
   if (!origin || origin->IsOpaque()) {
-    GetDocument()->AddConsoleMessage(ConsoleMessage::Create(
+    GetDocument()->AddConsoleMessage(MakeGarbageCollected<ConsoleMessage>(
         mojom::ConsoleMessageSource::kOther,
         mojom::ConsoleMessageLevel::kWarning,
         "Invalid origin url for feature '" + feature + "': " + url + "."));
@@ -100,7 +102,7 @@ Vector<String> DOMFeaturePolicy::getAllowlistForFeature(
     }
     Vector<String> result;
     for (const auto& entry : values) {
-      result.push_back(WTF::String::FromUTF8(entry.first.Serialize().c_str()));
+      result.push_back(WTF::String::FromUTF8(entry.first.Serialize()));
     }
     return result;
   }
@@ -111,12 +113,12 @@ Vector<String> DOMFeaturePolicy::getAllowlistForFeature(
 
 void DOMFeaturePolicy::AddWarningForUnrecognizedFeature(
     const String& feature) const {
-  GetDocument()->AddConsoleMessage(ConsoleMessage::Create(
+  GetDocument()->AddConsoleMessage(MakeGarbageCollected<ConsoleMessage>(
       mojom::ConsoleMessageSource::kOther, mojom::ConsoleMessageLevel::kWarning,
       "Unrecognized feature: '" + feature + "'."));
 }
 
-void DOMFeaturePolicy::Trace(blink::Visitor* visitor) {
+void DOMFeaturePolicy::Trace(Visitor* visitor) {
   ScriptWrappable::Trace(visitor);
 }
 

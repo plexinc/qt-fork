@@ -48,8 +48,8 @@ Document* FirstMeaningfulPaintDetector::GetDocument() {
 // First Meaningful Paint.
 void FirstMeaningfulPaintDetector::MarkNextPaintAsMeaningfulIfNeeded(
     const LayoutObjectCounter& counter,
-    int contents_height_before_layout,
-    int contents_height_after_layout,
+    double contents_height_before_layout,
+    double contents_height_after_layout,
     int visible_height) {
   if (network_quiet_reached_)
     return;
@@ -60,10 +60,10 @@ void FirstMeaningfulPaintDetector::MarkNextPaintAsMeaningfulIfNeeded(
   if (visible_height == 0)
     return;
 
-  double ratio_before = std::max(
-      1.0, static_cast<double>(contents_height_before_layout) / visible_height);
-  double ratio_after = std::max(
-      1.0, static_cast<double>(contents_height_after_layout) / visible_height);
+  double ratio_before =
+      std::max(1.0, contents_height_before_layout / visible_height);
+  double ratio_after =
+      std::max(1.0, contents_height_after_layout / visible_height);
   double significance = delta / ((ratio_before + ratio_after) / 2);
 
   // If the page has many blank characters, the significance value is
@@ -151,16 +151,15 @@ void FirstMeaningfulPaintDetector::RegisterNotifySwapTime(PaintEvent event) {
                                  WrapCrossThreadWeakPersistent(this), event));
 }
 
-void FirstMeaningfulPaintDetector::ReportSwapTime(
-    PaintEvent event,
-    WebWidgetClient::SwapResult result,
-    base::TimeTicks timestamp) {
+void FirstMeaningfulPaintDetector::ReportSwapTime(PaintEvent event,
+                                                  WebSwapResult result,
+                                                  base::TimeTicks timestamp) {
   DCHECK(event == PaintEvent::kProvisionalFirstMeaningfulPaint);
   DCHECK_GT(outstanding_swap_promise_count_, 0U);
   --outstanding_swap_promise_count_;
 
   // If the swap fails for any reason, we use the timestamp when the SwapPromise
-  // was broken. |result| == WebWidgetClient::SwapResult::kDidNotSwapSwapFails
+  // was broken. |result| == WebSwapResult::kDidNotSwapSwapFails
   // usually means the compositor decided not swap because there was no actual
   // damage, which can happen when what's being painted isn't visible. In this
   // case, the timestamp will be consistent with the case where the swap
@@ -224,7 +223,7 @@ void FirstMeaningfulPaintDetector::SetTickClockForTesting(
   g_clock = clock;
 }
 
-void FirstMeaningfulPaintDetector::Trace(blink::Visitor* visitor) {
+void FirstMeaningfulPaintDetector::Trace(Visitor* visitor) {
   visitor->Trace(paint_timing_);
 }
 

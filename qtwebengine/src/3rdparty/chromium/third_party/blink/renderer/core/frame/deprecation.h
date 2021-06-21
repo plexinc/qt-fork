@@ -9,6 +9,7 @@
 #include "base/macros.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/css/css_property_names.h"
+#include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 
 namespace blink {
@@ -26,7 +27,6 @@ class CORE_EXPORT Deprecation final {
 
  public:
   Deprecation();
-  ~Deprecation();
 
   static void WarnOnDeprecatedProperties(const LocalFrame*,
                                          CSSPropertyID unresolved_property);
@@ -44,6 +44,11 @@ class CORE_EXPORT Deprecation final {
   static void CountDeprecation(ExecutionContext*, WebFeature);
   static void CountDeprecation(const Document&, WebFeature);
   static void CountDeprecation(DocumentLoader*, WebFeature);
+  static void DeprecationWarningOnly(DocumentLoader*, WebFeature);
+
+  // TODO(crbug.com/1029822): Temporary helpers to ease migrating
+  // ExecutionContext to LocalDOMWindow.
+  static void CountDeprecation(Document*, WebFeature);
 
   // Count only features if they're being used in an iframe which does not
   // have script access into the top level document.
@@ -64,6 +69,8 @@ class CORE_EXPORT Deprecation final {
   // Generates a deprecation report, to be routed to the Reporting API and any
   // ReportingObservers. Also sends the deprecation message to the console.
   static void GenerateReport(const LocalFrame*, WebFeature);
+
+  static void CountDeprecation(DocumentLoader*, WebFeature, bool count_usage);
 
   // To minimize the report/console spam from frames coming and going, report
   // each deprecation at most once per page load per renderer process.

@@ -5,6 +5,7 @@
 #include "third_party/blink/renderer/core/timing/performance_element_timing.h"
 
 #include "third_party/blink/renderer/bindings/core/v8/v8_object_builder.h"
+#include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/performance_entry_names.h"
 
 namespace blink {
@@ -90,7 +91,7 @@ void PerformanceElementTiming::BuildJSONValue(V8ObjectBuilder& builder) const {
   builder.Add("url", url_);
 }
 
-void PerformanceElementTiming::Trace(blink::Visitor* visitor) {
+void PerformanceElementTiming::Trace(Visitor* visitor) {
   visitor->Trace(element_);
   visitor->Trace(intersection_rect_);
   PerformanceEntry::Trace(visitor);

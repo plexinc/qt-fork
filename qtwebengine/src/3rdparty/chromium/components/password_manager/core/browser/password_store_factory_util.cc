@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "components/password_manager/core/browser/android_affiliation/affiliated_match_helper.h"
 #include "components/password_manager/core/browser/android_affiliation/affiliation_service.h"
 #include "components/password_manager/core/browser/android_affiliation/affiliation_utils.h"
@@ -40,7 +41,7 @@ void ActivateAffiliationBasedMatching(
   //
   // Task priority is USER_VISIBLE, because AffiliationService-related tasks
   // block obtaining credentials from PasswordStore, hence password autofill.
-  static auto backend_task_runner = base::CreateSequencedTaskRunnerWithTraits(
+  static auto backend_task_runner = base::ThreadPool::CreateSequencedTaskRunner(
       {base::MayBlock(), base::TaskPriority::USER_VISIBLE});
 
   // The PasswordStore is so far the only consumer of the AffiliationService,
@@ -85,10 +86,20 @@ void ToggleAffiliationBasedMatchingBasedOnPasswordSyncedState(
   }
 }
 
-std::unique_ptr<LoginDatabase> CreateLoginDatabase(
+std::unique_ptr<LoginDatabase> CreateLoginDatabaseForProfileStorage(
     const base::FilePath& profile_path) {
-  base::FilePath login_db_file_path = profile_path.Append(kLoginDataFileName);
-  return std::make_unique<LoginDatabase>(login_db_file_path);
+  base::FilePath login_db_file_path =
+      profile_path.Append(kLoginDataForProfileFileName);
+  return std::make_unique<LoginDatabase>(login_db_file_path,
+                                         IsAccountStore(false));
+}
+
+std::unique_ptr<LoginDatabase> CreateLoginDatabaseForAccountStorage(
+    const base::FilePath& profile_path) {
+  base::FilePath login_db_file_path =
+      profile_path.Append(kLoginDataForAccountFileName);
+  return std::make_unique<LoginDatabase>(login_db_file_path,
+                                         IsAccountStore(true));
 }
 
 }  // namespace password_manager

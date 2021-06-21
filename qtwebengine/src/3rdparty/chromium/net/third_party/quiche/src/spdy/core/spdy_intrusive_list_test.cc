@@ -7,10 +7,10 @@
 #include <algorithm>
 #include <cstddef>
 #include <list>
+#include <string>
 #include <utility>
 
-#include "net/third_party/quiche/src/spdy/platform/api/spdy_string.h"
-#include "net/third_party/quiche/src/spdy/platform/api/spdy_test.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_test.h"
 
 namespace spdy {
 namespace test {
@@ -29,11 +29,12 @@ void swap(TestItem &a, TestItem &b) {
   swap(a.n, b.n);
 }
 
-class IntrusiveListTest : public ::testing::Test {
+class IntrusiveListTest : public QuicheTest {
  protected:
   void CheckLists() {
     CheckLists(l1, ll1);
-    if (::testing::Test::HasFailure()) return;
+    if (QuicheTest::HasFailure())
+      return;
     CheckLists(l2, ll2);
   }
 
@@ -72,18 +73,18 @@ class IntrusiveListTest : public ::testing::Test {
 TEST(NewIntrusiveListTest, Basic) {
   TestList list1;
 
-  CHECK_EQ(sizeof(SpdyIntrusiveLink<TestItem>), sizeof(void *) * 2);
+  EXPECT_EQ(sizeof(SpdyIntrusiveLink<TestItem>), sizeof(void*) * 2);
 
   for (int i = 0; i < 10; ++i) {
     TestItem *e = new TestItem;
     e->n = i;
     list1.push_front(e);
   }
-  CHECK_EQ(list1.size(), 10);
+  EXPECT_EQ(list1.size(), 10u);
 
   // Verify we can reverse a list because we defined swap for TestItem.
   std::reverse(list1.begin(), list1.end());
-  CHECK_EQ(list1.size(), 10);
+  EXPECT_EQ(list1.size(), 10u);
 
   // Check both const and non-const forward iteration.
   const TestList& clist1 = list1;
@@ -92,28 +93,28 @@ TEST(NewIntrusiveListTest, Basic) {
   for (;
        iter != list1.end();
        ++iter, ++i) {
-    CHECK_EQ(iter->n, i);
+    EXPECT_EQ(iter->n, i);
   }
-  CHECK(iter == clist1.end());
-  CHECK(iter != clist1.begin());
+  EXPECT_EQ(iter, clist1.end());
+  EXPECT_NE(iter, clist1.begin());
   i = 0;
   iter = list1.begin();
   for (;
        iter != list1.end();
        ++iter, ++i) {
-    CHECK_EQ(iter->n, i);
+    EXPECT_EQ(iter->n, i);
   }
-  CHECK(iter == clist1.end());
-  CHECK(iter != clist1.begin());
+  EXPECT_EQ(iter, clist1.end());
+  EXPECT_NE(iter, clist1.begin());
 
-  CHECK_EQ(list1.front().n, 0);
-  CHECK_EQ(list1.back().n, 9);
+  EXPECT_EQ(list1.front().n, 0);
+  EXPECT_EQ(list1.back().n, 9);
 
   // Verify we can swap 2 lists.
   TestList list2;
   list2.swap(list1);
-  CHECK_EQ(list1.size(), 0);
-  CHECK_EQ(list2.size(), 10);
+  EXPECT_EQ(list1.size(), 0u);
+  EXPECT_EQ(list2.size(), 10u);
 
   // Check both const and non-const reverse iteration.
   const TestList& clist2 = list2;
@@ -122,20 +123,20 @@ TEST(NewIntrusiveListTest, Basic) {
   for (;
        riter != list2.rend();
        ++riter, --i) {
-    CHECK_EQ(riter->n, i);
+    EXPECT_EQ(riter->n, i);
   }
-  CHECK(riter == clist2.rend());
-  CHECK(riter != clist2.rbegin());
+  EXPECT_EQ(riter, clist2.rend());
+  EXPECT_NE(riter, clist2.rbegin());
 
   riter = list2.rbegin();
   i = 9;
   for (;
        riter != list2.rend();
        ++riter, --i) {
-    CHECK_EQ(riter->n, i);
+    EXPECT_EQ(riter->n, i);
   }
-  CHECK(riter == clist2.rend());
-  CHECK(riter != clist2.rbegin());
+  EXPECT_EQ(riter, clist2.rend());
+  EXPECT_NE(riter, clist2.rbegin());
 
   while (!list2.empty()) {
     TestItem *e = &list2.front();
@@ -156,12 +157,12 @@ TEST(NewIntrusiveListTest, Erase) {
 
   // Test that erase works.
   for (int i = 0; i < 10; ++i) {
-    CHECK_EQ(l.size(), (10 - i));
+    EXPECT_EQ(l.size(), (10u - i));
 
     TestList::iterator iter = l.erase(e[i]);
-    CHECK(iter != TestList::iterator(e[i]));
+    EXPECT_NE(iter, TestList::iterator(e[i]));
 
-    CHECK_EQ(l.size(), (10 - i - 1));
+    EXPECT_EQ(l.size(), (10u - i - 1));
     delete e[i];
   }
 }
@@ -175,15 +176,15 @@ TEST(NewIntrusiveListTest, Insert) {
   for (int i = 9; i >= 0; --i) {
     e[i] = new TestItem;
     iter = l.insert(iter, e[i]);
-    CHECK_EQ(&(*iter), e[i]);
+    EXPECT_EQ(&(*iter), e[i]);
   }
 
-  CHECK_EQ(l.size(), 10);
+  EXPECT_EQ(l.size(), 10u);
 
   // Verify insertion order.
   iter = l.begin();
   for (TestItem *item : e) {
-    CHECK_EQ(&(*iter), item);
+    EXPECT_EQ(&(*iter), item);
     iter = l.erase(item);
     delete item;
   }
@@ -264,7 +265,7 @@ TEST_F(IntrusiveListTest, Splice) {
 
             CheckLists();
 
-            ASSERT_EQ(3, secondary_list.size());
+            ASSERT_EQ(3u, secondary_list.size());
             for (int i = 0; i < 3; ++i) {
               EXPECT_EQ(&e[i], &*std::next(secondary_list.begin(), i));
             }
@@ -282,24 +283,24 @@ struct DerivedLinkId {};
 
 struct AbstractBase : public SpdyIntrusiveLink<AbstractBase, BaseLinkId> {
   virtual ~AbstractBase() = 0;
-  virtual SpdyString name() { return "AbstractBase"; }
+  virtual std::string name() { return "AbstractBase"; }
 };
 AbstractBase::~AbstractBase() {}
 struct DerivedClass : public SpdyIntrusiveLink<DerivedClass, DerivedLinkId>,
                       public AbstractBase {
-  virtual ~DerivedClass() {}
-  virtual SpdyString name() { return "DerivedClass"; }
+  ~DerivedClass() override {}
+  std::string name() override { return "DerivedClass"; }
 };
 struct VirtuallyDerivedBaseClass : public virtual AbstractBase {
-  virtual ~VirtuallyDerivedBaseClass() = 0;
-  virtual SpdyString name() { return "VirtuallyDerivedBaseClass"; }
+  ~VirtuallyDerivedBaseClass() override = 0;
+  std::string name() override { return "VirtuallyDerivedBaseClass"; }
 };
 VirtuallyDerivedBaseClass::~VirtuallyDerivedBaseClass() {}
 struct VirtuallyDerivedClassA
     : public SpdyIntrusiveLink<VirtuallyDerivedClassA, DerivedLinkId>,
       public virtual VirtuallyDerivedBaseClass {
-  virtual ~VirtuallyDerivedClassA() {}
-  virtual SpdyString name() { return "VirtuallyDerivedClassA"; }
+  ~VirtuallyDerivedClassA() override {}
+  std::string name() override { return "VirtuallyDerivedClassA"; }
 };
 struct NonceClass {
   virtual ~NonceClass() {}
@@ -309,16 +310,16 @@ struct VirtuallyDerivedClassB
     : public SpdyIntrusiveLink<VirtuallyDerivedClassB, DerivedLinkId>,
       public virtual NonceClass,
       public virtual VirtuallyDerivedBaseClass {
-  virtual ~VirtuallyDerivedClassB() {}
-  virtual SpdyString name() { return "VirtuallyDerivedClassB"; }
+  ~VirtuallyDerivedClassB() override {}
+  std::string name() override { return "VirtuallyDerivedClassB"; }
 };
 struct VirtuallyDerivedClassC
     : public SpdyIntrusiveLink<VirtuallyDerivedClassC, DerivedLinkId>,
       public virtual AbstractBase,
       public virtual NonceClass,
       public virtual VirtuallyDerivedBaseClass {
-  virtual ~VirtuallyDerivedClassC() {}
-  virtual SpdyString name() { return "VirtuallyDerivedClassC"; }
+  ~VirtuallyDerivedClassC() override {}
+  std::string name() override { return "VirtuallyDerivedClassC"; }
 };
 
 // Test for multiple layers between the element type and the link.
@@ -338,11 +339,11 @@ TEST(NewIntrusiveListTest, HandleInheritanceHierarchies) {
     DerivedClass elements[2];
     EXPECT_TRUE(list.empty());
     list.push_back(&elements[0]);
-    EXPECT_EQ(1, list.size());
+    EXPECT_EQ(1u, list.size());
     list.push_back(&elements[1]);
-    EXPECT_EQ(2, list.size());
+    EXPECT_EQ(2u, list.size());
     list.pop_back();
-    EXPECT_EQ(1, list.size());
+    EXPECT_EQ(1u, list.size());
     list.pop_back();
     EXPECT_TRUE(list.empty());
   }
@@ -351,11 +352,11 @@ TEST(NewIntrusiveListTest, HandleInheritanceHierarchies) {
     VirtuallyDerivedClassA elements[2];
     EXPECT_TRUE(list.empty());
     list.push_back(&elements[0]);
-    EXPECT_EQ(1, list.size());
+    EXPECT_EQ(1u, list.size());
     list.push_back(&elements[1]);
-    EXPECT_EQ(2, list.size());
+    EXPECT_EQ(2u, list.size());
     list.pop_back();
-    EXPECT_EQ(1, list.size());
+    EXPECT_EQ(1u, list.size());
     list.pop_back();
     EXPECT_TRUE(list.empty());
   }
@@ -364,11 +365,11 @@ TEST(NewIntrusiveListTest, HandleInheritanceHierarchies) {
     VirtuallyDerivedClassC elements[2];
     EXPECT_TRUE(list.empty());
     list.push_back(&elements[0]);
-    EXPECT_EQ(1, list.size());
+    EXPECT_EQ(1u, list.size());
     list.push_back(&elements[1]);
-    EXPECT_EQ(2, list.size());
+    EXPECT_EQ(2u, list.size());
     list.pop_back();
-    EXPECT_EQ(1, list.size());
+    EXPECT_EQ(1u, list.size());
     list.pop_back();
     EXPECT_TRUE(list.empty());
   }
@@ -380,13 +381,13 @@ TEST(NewIntrusiveListTest, HandleInheritanceHierarchies) {
     VirtuallyDerivedClassC d4;
     EXPECT_TRUE(list.empty());
     list.push_back(&d1);
-    EXPECT_EQ(1, list.size());
+    EXPECT_EQ(1u, list.size());
     list.push_back(&d2);
-    EXPECT_EQ(2, list.size());
+    EXPECT_EQ(2u, list.size());
     list.push_back(&d3);
-    EXPECT_EQ(3, list.size());
+    EXPECT_EQ(3u, list.size());
     list.push_back(&d4);
-    EXPECT_EQ(4, list.size());
+    EXPECT_EQ(4u, list.size());
     SpdyIntrusiveList<AbstractBase, BaseLinkId>::iterator it = list.begin();
     EXPECT_EQ("DerivedClass",           (it++)->name());
     EXPECT_EQ("VirtuallyDerivedClassA", (it++)->name());
@@ -398,11 +399,11 @@ TEST(NewIntrusiveListTest, HandleInheritanceHierarchies) {
     templated_base_link::DerivedClass elements[2];
     EXPECT_TRUE(list.empty());
     list.push_back(&elements[0]);
-    EXPECT_EQ(1, list.size());
+    EXPECT_EQ(1u, list.size());
     list.push_back(&elements[1]);
-    EXPECT_EQ(2, list.size());
+    EXPECT_EQ(2u, list.size());
     list.pop_back();
-    EXPECT_EQ(1, list.size());
+    EXPECT_EQ(1u, list.size());
     list.pop_back();
     EXPECT_TRUE(list.empty());
   }

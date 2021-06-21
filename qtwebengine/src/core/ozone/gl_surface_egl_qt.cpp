@@ -72,6 +72,9 @@ bool GLSurfaceEGLQt::InitializeOneOff()
     if (s_initialized)
         return true;
 
+    // Must be called before initializing the display.
+    g_driver_egl.InitializeClientExtensionBindings();
+
     g_display = GLContextHelper::getEGLDisplay();
     if (!g_display) {
         LOG(ERROR) << "GLContextHelper::getEGLDisplay() failed.";
@@ -107,6 +110,10 @@ bool GLSurfaceEGLQt::InitializeOneOff()
             context->ReleaseCurrent(surface.get());
         }
     }
+
+    // Must be called after initializing the display.
+    g_driver_egl.InitializeExtensionBindings();
+
     s_initialized = true;
     return true;
 }
@@ -187,8 +194,7 @@ bool GLSurfaceEGL::HasEGLExtension(const char* name)
 {
     return ExtensionsContain(GetEGLExtensions(), name);
 }
-
-bool GLSurfaceEGL::InitializeOneOff(EGLNativeDisplayType /*native_display*/)
+bool GLSurfaceEGL::InitializeOneOff(gl::EGLDisplayPlatform /*native_display*/)
 {
     return GLSurfaceEGLQt::InitializeOneOff();
 }
@@ -245,7 +251,7 @@ void GLSurfaceEGLQt::Destroy()
 }
 
 bool GLSurfaceEGLQt::Resize(const gfx::Size& size, float scale_factor,
-                             ColorSpace color_space, bool has_alpha)
+                            const gfx::ColorSpace &color_space, bool has_alpha)
 {
     if (size == m_size)
         return true;
@@ -296,7 +302,7 @@ bool GLSurfacelessQtEGL::IsSurfaceless() const
 }
 
 bool GLSurfacelessQtEGL::Resize(const gfx::Size& size, float scale_factor,
-                                ColorSpace color_space,  bool has_alpha)
+                                const gfx::ColorSpace &color_space,  bool has_alpha)
 {
     m_size = size;
     return true;

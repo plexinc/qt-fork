@@ -35,7 +35,8 @@ class QuicTimeWaitListManagerPeer;
 // wait state.  After the connection_id expires its time wait period, a new
 // connection/session will be created if a packet is received for this
 // connection_id.
-class QuicTimeWaitListManager : public QuicBlockedWriterInterface {
+class QUIC_NO_EXPORT QuicTimeWaitListManager
+    : public QuicBlockedWriterInterface {
  public:
   // Specifies what the time wait list manager should do when processing packets
   // of a time wait connection.
@@ -49,7 +50,7 @@ class QuicTimeWaitListManager : public QuicBlockedWriterInterface {
     DO_NOTHING,
   };
 
-  class Visitor : public QuicSession::Visitor {
+  class QUIC_NO_EXPORT Visitor : public QuicSession::Visitor {
    public:
     // Called after the given connection is added to the time-wait list.
     virtual void OnConnectionAddedToTimeWaitList(
@@ -125,6 +126,7 @@ class QuicTimeWaitListManager : public QuicBlockedWriterInterface {
       QuicConnectionId server_connection_id,
       QuicConnectionId client_connection_id,
       bool ietf_quic,
+      bool use_length_prefix,
       const ParsedQuicVersionVector& supported_versions,
       const QuicSocketAddress& self_address,
       const QuicSocketAddress& peer_address,
@@ -137,6 +139,11 @@ class QuicTimeWaitListManager : public QuicBlockedWriterInterface {
       QuicConnectionId connection_id,
       bool ietf_quic,
       std::unique_ptr<QuicPerPacketContext> packet_context);
+
+  // Called to send |packet|.
+  virtual void SendPacket(const QuicSocketAddress& self_address,
+                          const QuicSocketAddress& peer_address,
+                          const QuicEncryptedPacket& packet);
 
   // Return a non-owning pointer to the packet writer.
   QuicPacketWriter* writer() { return writer_; }
@@ -153,7 +160,7 @@ class QuicTimeWaitListManager : public QuicBlockedWriterInterface {
       QuicConnectionId connection_id) const;
 
   // Internal structure to store pending termination packets.
-  class QueuedPacket {
+  class QUIC_NO_EXPORT QueuedPacket {
    public:
     QueuedPacket(const QuicSocketAddress& self_address,
                  const QuicSocketAddress& peer_address,
@@ -186,8 +193,8 @@ class QuicTimeWaitListManager : public QuicBlockedWriterInterface {
   virtual bool SendOrQueuePacket(std::unique_ptr<QueuedPacket> packet,
                                  const QuicPerPacketContext* packet_context);
 
-  const QuicDeque<std::unique_ptr<QueuedPacket>>& pending_packets_queue()
-      const {
+  const QuicCircularDeque<std::unique_ptr<QueuedPacket>>&
+  pending_packets_queue() const {
     return pending_packets_queue_;
   }
 
@@ -223,7 +230,7 @@ class QuicTimeWaitListManager : public QuicBlockedWriterInterface {
   // A map from a recently closed connection_id to the number of packets
   // received after the termination of the connection bound to the
   // connection_id.
-  struct ConnectionIdData {
+  struct QUIC_NO_EXPORT ConnectionIdData {
     ConnectionIdData(int num_packets,
                      bool ietf_quic,
                      QuicTime time_added,
@@ -253,7 +260,7 @@ class QuicTimeWaitListManager : public QuicBlockedWriterInterface {
 
   // Pending termination packets that need to be sent out to the peer when we
   // are given a chance to write by the dispatcher.
-  QuicDeque<std::unique_ptr<QueuedPacket>> pending_packets_queue_;
+  QuicCircularDeque<std::unique_ptr<QueuedPacket>> pending_packets_queue_;
 
   // Time period for which connection_ids should remain in time wait state.
   const QuicTime::Delta time_wait_period_;

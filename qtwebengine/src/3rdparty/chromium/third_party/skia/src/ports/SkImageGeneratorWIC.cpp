@@ -59,7 +59,7 @@ std::unique_ptr<SkImageGenerator> SkImageGeneratorWIC::MakeFromEncodedWIC(sk_sp<
     SkTScopedComPtr<IStream> iStream;
     // Note that iStream will take ownership of the new memory stream because
     // we set |deleteOnRelease| to true.
-    hr = SkIStream::CreateFromSkStream(new SkMemoryStream(data), true, &iStream);
+    hr = SkIStream::CreateFromSkStream(std::make_unique<SkMemoryStream>(data), &iStream);
     if (FAILED(hr)) {
         return nullptr;
     }

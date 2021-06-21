@@ -4,7 +4,7 @@
 
 #include "base/bind.h"
 #include "base/run_loop.h"
-#include "base/scoped_observer.h"
+#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile_attributes_storage.h"
 #include "chrome/browser/profiles/profile_manager.h"
@@ -46,8 +46,12 @@ Profile* CreateProfile() {
 class ExpectBrowserActivationForProfile : public BrowserListObserver {
  public:
   explicit ExpectBrowserActivationForProfile(Profile* profile)
-      : profile_(profile), scoped_observer_(this) {
-    scoped_observer_.Add(BrowserList::GetInstance());
+      : profile_(profile) {
+    BrowserList::AddObserver(this);
+  }
+
+  ~ExpectBrowserActivationForProfile() override {
+    BrowserList::RemoveObserver(this);
   }
 
   void Wait() {
@@ -63,7 +67,31 @@ class ExpectBrowserActivationForProfile : public BrowserListObserver {
  private:
   Profile* profile_;
   base::RunLoop loop_;
-  ScopedObserver<BrowserList, BrowserListObserver> scoped_observer_;
+};
+
+// An observer that returns back to test code after a new browser is added to
+// the BrowserList.
+class BrowserAddedObserver : public BrowserListObserver {
+ public:
+  BrowserAddedObserver() { BrowserList::AddObserver(this); }
+
+  ~BrowserAddedObserver() override { BrowserList::RemoveObserver(this); }
+
+  Browser* Wait() {
+    run_loop_.Run();
+    return browser_;
+  }
+
+ protected:
+  // BrowserListObserver:
+  void OnBrowserAdded(Browser* browser) override {
+    browser_ = browser;
+    run_loop_.Quit();
+  }
+
+ private:
+  Browser* browser_;
+  base::RunLoop run_loop_;
 };
 
 }  // namespace
@@ -111,7 +139,13 @@ IN_PROC_BROWSER_TEST_F(ProfileHelperTest, OpenNewWindowForProfile) {
 #endif
 }
 
-IN_PROC_BROWSER_TEST_F(ProfileHelperTest, DeleteSoleProfile) {
+// TODO(https://crbug.com/1073451) flaky on windows bots
+#if defined(OS_WIN)
+#define MAYBE_DeleteSoleProfile DISABLED_DeleteSoleProfile
+#else
+#define MAYBE_DeleteSoleProfile DeleteSoleProfile
+#endif
+IN_PROC_BROWSER_TEST_F(ProfileHelperTest, MAYBE_DeleteSoleProfile) {
   content::TestWebUI web_ui;
   Browser* original_browser = browser();
   ProfileAttributesStorage& storage =
@@ -123,16 +157,25 @@ IN_PROC_BROWSER_TEST_F(ProfileHelperTest, DeleteSoleProfile) {
   EXPECT_EQ(1u, storage.GetNumberOfProfiles());
 
   // Original browser will be closed, and browser with the new profile created.
+  BrowserAddedObserver added_observer;
   webui::DeleteProfileAtPath(original_browser->profile()->GetPath(),
                              ProfileMetrics::DELETE_PROFILE_SETTINGS);
   ui_test_utils::WaitForBrowserToClose(original_browser);
+  Browser* new_browser = added_observer.Wait();
 
   EXPECT_EQ(1u, browser_list->size());
   EXPECT_FALSE(base::Contains(*browser_list, original_browser));
+  EXPECT_NE(new_browser, original_browser);
   EXPECT_EQ(1u, storage.GetNumberOfProfiles());
 }
 
-IN_PROC_BROWSER_TEST_F(ProfileHelperTest, DeleteActiveProfile) {
+// TODO(https://crbug.com/1073451) flaky on windows bots
+#if defined(OS_WIN)
+#define MAYBE_DeleteActiveProfile DISABLED_DeleteActiveProfile
+#else
+#define MAYBE_DeleteActiveProfile DeleteActiveProfile
+#endif
+IN_PROC_BROWSER_TEST_F(ProfileHelperTest, MAYBE_DeleteActiveProfile) {
   content::TestWebUI web_ui;
   Browser* original_browser = browser();
   ProfileAttributesStorage& storage =

@@ -12,6 +12,7 @@
 #include <sstream>
 
 #include "core/fpdfapi/parser/cpdf_object.h"
+#include "core/fxcrt/fx_memory_wrappers.h"
 #include "core/fxcrt/fx_stream.h"
 
 class CPDF_Stream final : public CPDF_Object {
@@ -55,9 +56,7 @@ class CPDF_Stream final : public CPDF_Object {
   void InitStreamFromFile(const RetainPtr<IFX_SeekableReadStream>& pFile,
                           RetainPtr<CPDF_Dictionary> pDict);
 
-  bool ReadRawData(FX_FILESIZE offset,
-                   uint8_t* pBuf,
-                   uint32_t buf_size) const;
+  bool ReadRawData(FX_FILESIZE offset, uint8_t* pBuf, uint32_t buf_size) const;
 
   bool IsMemoryBased() const { return m_bMemoryBased; }
   bool HasFilter() const;

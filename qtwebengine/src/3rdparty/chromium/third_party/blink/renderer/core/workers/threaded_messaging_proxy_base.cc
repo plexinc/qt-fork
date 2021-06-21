@@ -16,8 +16,8 @@
 #include "third_party/blink/renderer/core/loader/document_loader.h"
 #include "third_party/blink/renderer/core/workers/global_scope_creation_params.h"
 #include "third_party/blink/renderer/core/workers/worker_global_scope.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_fetcher.h"
-#include "third_party/blink/renderer/platform/wtf/time.h"
 
 namespace blink {
 
@@ -53,7 +53,7 @@ int ThreadedMessagingProxyBase::ProxyCount() {
   return g_live_messaging_proxy_count;
 }
 
-void ThreadedMessagingProxyBase::Trace(blink::Visitor* visitor) {
+void ThreadedMessagingProxyBase::Trace(Visitor* visitor) {
   visitor->Trace(execution_context_);
 }
 
@@ -76,8 +76,7 @@ void ThreadedMessagingProxyBase::InitializeWorkerThread(
       global_scope_creation_params->global_scope_name.IsolatedCopy());
 
   worker_thread_->Start(std::move(global_scope_creation_params),
-                        thread_startup_data, std::move(devtools_params),
-                        GetParentExecutionContextTaskRunners());
+                        thread_startup_data, std::move(devtools_params));
 
   if (auto* scope = DynamicTo<WorkerGlobalScope>(*execution_context_)) {
     scope->GetThread()->ChildThreadStartedOnWorkerThread(worker_thread_.get());
@@ -102,7 +101,7 @@ void ThreadedMessagingProxyBase::ReportConsoleMessage(
   DCHECK(IsParentContextThread());
   if (asked_to_terminate_)
     return;
-  execution_context_->AddConsoleMessage(ConsoleMessage::CreateFromWorker(
+  execution_context_->AddConsoleMessage(MakeGarbageCollected<ConsoleMessage>(
       level, message, std::move(location), worker_thread_.get()));
 }
 

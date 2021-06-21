@@ -218,8 +218,7 @@ BluetoothDeviceClient::Properties::~Properties() = default;
 class BluetoothDeviceClientImpl : public BluetoothDeviceClient,
                                   public dbus::ObjectManager::Interface {
  public:
-  BluetoothDeviceClientImpl()
-      : object_manager_(NULL), weak_ptr_factory_(this) {}
+  BluetoothDeviceClientImpl() : object_manager_(nullptr) {}
 
   ~BluetoothDeviceClientImpl() override {
     // There is an instance of this client that is created but not initialized
@@ -247,11 +246,10 @@ class BluetoothDeviceClientImpl : public BluetoothDeviceClient,
       dbus::ObjectProxy* object_proxy,
       const dbus::ObjectPath& object_path,
       const std::string& interface_name) override {
-    Properties* properties =
-        new Properties(object_proxy, interface_name,
-                       base::Bind(&BluetoothDeviceClientImpl::OnPropertyChanged,
-                                  weak_ptr_factory_.GetWeakPtr(), object_path));
-    return static_cast<dbus::PropertySet*>(properties);
+    return new Properties(
+        object_proxy, interface_name,
+        base::BindRepeating(&BluetoothDeviceClientImpl::OnPropertyChanged,
+                            weak_ptr_factory_.GetWeakPtr(), object_path));
   }
 
   // BluetoothDeviceClient override.
@@ -670,7 +668,7 @@ class BluetoothDeviceClientImpl : public BluetoothDeviceClient,
   // than we do.
   // Note: This should remain the last member so it'll be destroyed and
   // invalidate its weak pointers before any other members are destroyed.
-  base::WeakPtrFactory<BluetoothDeviceClientImpl> weak_ptr_factory_;
+  base::WeakPtrFactory<BluetoothDeviceClientImpl> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(BluetoothDeviceClientImpl);
 };

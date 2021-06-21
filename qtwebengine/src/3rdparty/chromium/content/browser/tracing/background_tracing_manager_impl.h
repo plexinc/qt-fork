@@ -14,7 +14,9 @@
 #include "base/macros.h"
 #include "content/browser/tracing/background_tracing_config_impl.h"
 #include "content/public/browser/background_tracing_manager.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "services/tracing/public/cpp/perfetto/trace_event_data_source.h"
+#include "services/tracing/public/mojom/background_tracing_agent.mojom.h"
 
 namespace base {
 template <typename T>
@@ -24,6 +26,7 @@ class NoDestructor;
 namespace tracing {
 namespace mojom {
 class BackgroundTracingAgent;
+class BackgroundTracingAgentProvider;
 }  // namespace mojom
 }  // namespace tracing
 
@@ -82,6 +85,7 @@ class BackgroundTracingManagerImpl : public BackgroundTracingManager {
     UPLOAD_SUCCEEDED = 11,
     STARTUP_SCENARIO_TRIGGERED = 12,
     LARGE_UPLOAD_WAITING_TO_RETRY = 13,
+    SYSTEM_TRIGGERED = 14,
     NUMBER_OF_BACKGROUND_TRACING_METRICS,
   };
   static void RecordMetric(Metrics metric);
@@ -148,10 +152,15 @@ class BackgroundTracingManagerImpl : public BackgroundTracingManager {
   bool IsSupportedConfig(BackgroundTracingConfigImpl* config);
   std::unique_ptr<base::DictionaryValue> GenerateMetadataDict();
   void GenerateMetadataProto(
-      perfetto::protos::pbzero::ChromeMetadataPacket* metadata);
+      perfetto::protos::pbzero::ChromeMetadataPacket* metadata,
+      bool privacy_filtering_enabled);
   bool IsTriggerHandleValid(TriggerHandle handle) const;
   void OnScenarioAborted();
-  static void AddPendingAgentConstructor(base::OnceClosure constructor);
+  static void AddPendingAgent(
+      int child_process_id,
+      mojo::PendingRemote<tracing::mojom::BackgroundTracingAgentProvider>
+          provider);
+  static void ClearPendingAgent(int child_process_id);
   void MaybeConstructPendingAgents();
 
   std::unique_ptr<BackgroundTracingActiveScenario> active_scenario_;
@@ -166,7 +175,8 @@ class BackgroundTracingManagerImpl : public BackgroundTracingManager {
   std::set<tracing::mojom::BackgroundTracingAgent*> agents_;
   std::set<AgentObserver*> agent_observers_;
 
-  std::vector<base::OnceClosure> pending_agent_constructors_;
+  std::map<int, mojo::Remote<tracing::mojom::BackgroundTracingAgentProvider>>
+      pending_agents_;
 
   IdleCallback idle_callback_;
   base::RepeatingClosure tracing_enabled_callback_for_testing_;

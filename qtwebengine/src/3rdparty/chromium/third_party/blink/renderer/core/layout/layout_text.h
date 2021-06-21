@@ -97,8 +97,12 @@ class CORE_EXPORT LayoutText : public LayoutObject {
   void AttachTextBox(InlineTextBox*);
   void RemoveTextBox(InlineTextBox*);
 
+  bool HasInlineFragments() const final;
   NGPaintFragment* FirstInlineFragment() const final;
   void SetFirstInlineFragment(NGPaintFragment*) final;
+  wtf_size_t FirstInlineFragmentItemIndex() const final;
+  void ClearFirstInlineFragmentItemIndex() final;
+  void SetFirstInlineFragmentItemIndex(wtf_size_t) final;
 
   const String& GetText() const { return text_; }
   virtual unsigned TextStartOffset() const { return 0; }
@@ -187,12 +191,12 @@ class CORE_EXPORT LayoutText : public LayoutObject {
 
   PhysicalOffset FirstLineBoxTopLeft() const;
 
-  virtual void SetText(scoped_refptr<StringImpl>,
-                       bool force = false,
-                       bool avoid_layout_and_only_paint = false);
+  void SetTextIfNeeded(scoped_refptr<StringImpl>);
+  void ForceSetText(scoped_refptr<StringImpl>);
   void SetTextWithOffset(scoped_refptr<StringImpl>,
                          unsigned offset,
                          unsigned len);
+  void SetTextInternal(scoped_refptr<StringImpl>);
 
   virtual void TransformText();
 
@@ -214,10 +218,6 @@ class CORE_EXPORT LayoutText : public LayoutObject {
   // returns first-letter part of |InlineTextBox| instead of remaining part.
   InlineTextBox* FirstTextBox() const { return TextBoxes().First(); }
   InlineTextBox* LastTextBox() const { return TextBoxes().Last(); }
-
-  // True if we have inline text box children which implies rendered text (or
-  // whitespace) output.
-  bool HasTextBoxes() const;
 
   // TODO(layoutng) Legacy-only implementation of HasTextBoxes.
   // All callers should call HasTextBoxes instead, and take NG into account.
@@ -323,11 +323,16 @@ class CORE_EXPORT LayoutText : public LayoutObject {
   void SetHasBidiControlInlineItems() { has_bidi_control_items_ = true; }
   void ClearHasBidiControlInlineItems() { has_bidi_control_items_ = false; }
 
- protected:
   virtual const base::span<NGInlineItem>* GetNGInlineItems() const {
     return nullptr;
   }
   virtual base::span<NGInlineItem>* GetNGInlineItems() { return nullptr; }
+
+  void InvalidateSubtreeLayoutForFontUpdates() override;
+
+  void DetachAbstractInlineTextBoxesIfNeeded();
+
+ protected:
   void WillBeDestroyed() override;
 
   void StyleWillChange(StyleDifference, const ComputedStyle&) final {}
@@ -335,7 +340,7 @@ class CORE_EXPORT LayoutText : public LayoutObject {
 
   void InLayoutNGInlineFormattingContextWillChange(bool) final;
 
-  virtual void SetTextInternal(scoped_refptr<StringImpl>);
+  virtual void TextDidChange();
 
   virtual InlineTextBox* CreateTextBox(int start,
                                        uint16_t length);  // Subclassed by SVG.
@@ -346,6 +351,8 @@ class CORE_EXPORT LayoutText : public LayoutObject {
 
  private:
   InlineTextBoxList& MutableTextBoxes();
+
+  void TextDidChangeWithoutInvalidation();
 
   // PhysicalRectCollector should be like a function:
   // void (const PhysicalRect&).
@@ -386,6 +393,7 @@ class CORE_EXPORT LayoutText : public LayoutObject {
                       FloatRect* glyph_bounds_accumulation,
                       float expansion = 0) const;
 
+  void ApplyTextTransform();
   void SecureText(UChar mask);
 
   bool IsText() const =
@@ -432,6 +440,7 @@ class CORE_EXPORT LayoutText : public LayoutObject {
 
  private:
   ContentCaptureManager* GetContentCaptureManager();
+  void DetachAbstractInlineTextBoxes();
 
   // Used for LayoutNG with accessibility. True if inline fragments are
   // associated to |NGAbstractInlineTextBox|.
@@ -451,6 +460,10 @@ class CORE_EXPORT LayoutText : public LayoutObject {
     // The first fragment of text boxes associated with this object.
     // Valid only when IsInLayoutNGInlineFormattingContext().
     NGPaintFragment* first_paint_fragment_;
+    // The index of the first fragment item associated with this object in
+    // |NGFragmentItems::Items()|. Zero means there are no such item.
+    // Valid only when IsInLayoutNGInlineFormattingContext().
+    wtf_size_t first_fragment_item_index_;
   };
   DOMNodeId node_id_ = kInvalidDOMNodeId;
 };
@@ -461,8 +474,20 @@ inline InlineTextBoxList& LayoutText::MutableTextBoxes() {
 }
 
 inline NGPaintFragment* LayoutText::FirstInlineFragment() const {
-  return IsInLayoutNGInlineFormattingContext() ? first_paint_fragment_
-                                               : nullptr;
+  if (!IsInLayoutNGInlineFormattingContext())
+    return nullptr;
+  // TODO(yosin): Once we replace all usage of |FirstInlineFragment()| to
+  // |NGInlineCursor|, we should change this to |DCHECK()|.
+  if (RuntimeEnabledFeatures::LayoutNGFragmentItemEnabled())
+    return nullptr;
+  return first_paint_fragment_;
+}
+
+inline wtf_size_t LayoutText::FirstInlineFragmentItemIndex() const {
+  if (!IsInLayoutNGInlineFormattingContext())
+    return 0u;
+  DCHECK(RuntimeEnabledFeatures::LayoutNGFragmentItemEnabled());
+  return first_fragment_item_index_;
 }
 
 inline UChar LayoutText::UncheckedCharacterAt(unsigned i) const {
@@ -492,6 +517,11 @@ inline float LayoutText::HyphenWidth(const Font& font,
   const ComputedStyle& style = StyleRef();
   return font.Width(ConstructTextRun(font, style.HyphenString().GetString(),
                                      style, direction));
+}
+
+inline void LayoutText::DetachAbstractInlineTextBoxesIfNeeded() {
+  if (UNLIKELY(has_abstract_inline_text_box_))
+    DetachAbstractInlineTextBoxes();
 }
 
 DEFINE_LAYOUT_OBJECT_TYPE_CASTS(LayoutText, IsText());

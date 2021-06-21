@@ -15,10 +15,14 @@
 
 std::unique_ptr<SkDescriptor> SkDescriptor::Alloc(size_t length) {
     SkASSERT(SkAlign4(length) == length);
-    return std::unique_ptr<SkDescriptor>(static_cast<SkDescriptor*>(::operator new (length)));
+    void* allocation = ::operator new (length);
+    return std::unique_ptr<SkDescriptor>(new (allocation) SkDescriptor{});
 }
 
 void SkDescriptor::operator delete(void* p) { ::operator delete(p); }
+void* SkDescriptor::operator new(size_t) {
+    SK_ABORT("Descriptors are created with placement new.");
+}
 
 void* SkDescriptor::addEntry(uint32_t tag, size_t length, const void* data) {
     SkASSERT(tag);
@@ -86,19 +90,36 @@ uint32_t SkDescriptor::ComputeChecksum(const SkDescriptor* desc) {
 }
 
 bool SkDescriptor::isValid() const {
-    uint32_t count = 0;
+    uint32_t count = fCount;
+    size_t lengthRemaining = this->fLength;
+    if (lengthRemaining < sizeof(SkDescriptor)) {
+        return false;
+    }
+    lengthRemaining -= sizeof(SkDescriptor);
     size_t offset = sizeof(SkDescriptor);
 
-    while (offset < fLength) {
+    while (lengthRemaining > 0 && count > 0) {
+        if (lengthRemaining < sizeof(Entry)) {
+            return false;
+        }
+        lengthRemaining -= sizeof(Entry);
+
         const Entry* entry = (const Entry*)(reinterpret_cast<const char*>(this) + offset);
+
+        if (lengthRemaining < entry->fLen) {
+            return false;
+        }
+        lengthRemaining -= entry->fLen;
+
         // rec tags are always a known size.
         if (entry->fTag == kRec_SkDescriptorTag && entry->fLen != sizeof(SkScalerContextRec)) {
             return false;
         }
+
         offset += sizeof(Entry) + entry->fLen;
-        count++;
+        count--;
     }
-    return offset <= fLength && count == fCount;
+    return lengthRemaining == 0 && count == 0;
 }
 
 SkAutoDescriptor::SkAutoDescriptor() = default;
@@ -117,7 +138,7 @@ SkAutoDescriptor::~SkAutoDescriptor() { this->free(); }
 void SkAutoDescriptor::reset(size_t size) {
     this->free();
     if (size <= sizeof(fStorage)) {
-        fDesc = reinterpret_cast<SkDescriptor*>(&fStorage);
+        fDesc = new (&fStorage) SkDescriptor{};
     } else {
         fDesc = SkDescriptor::Alloc(size).release();
     }

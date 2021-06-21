@@ -35,10 +35,11 @@ HttpReqRep::HttpReqRep(QTcpSocket *socket, QObject *parent)
     connect(m_socket, &QTcpSocket::disconnected, this, &HttpReqRep::handleDisconnected);
 }
 
-void HttpReqRep::sendResponse()
+void HttpReqRep::sendResponse(int statusCode)
 {
     if (m_state != State::REQUEST_RECEIVED)
         return;
+    m_responseStatusCode = statusCode;
     m_socket->write("HTTP/1.1 ");
     m_socket->write(QByteArray::number(m_responseStatusCode));
     m_socket->write(" OK?\r\n");
@@ -67,7 +68,7 @@ void HttpReqRep::close()
 
 QByteArray HttpReqRep::requestHeader(const QByteArray &key) const
 {
-    auto it = m_requestHeaders.find(key);
+    auto it = m_requestHeaders.find(key.toLower());
     if (it != m_requestHeaders.end())
         return it->second;
     return {};

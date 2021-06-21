@@ -8,7 +8,7 @@
 
 #include "services/device/public/cpp/generic_sensor/sensor_reading.h"
 #include "services/device/public/mojom/sensor.mojom-blink.h"
-#include "services/service_manager/public/cpp/interface_provider.h"
+#include "third_party/blink/public/common/browser_interface_broker_proxy.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/platform_event_controller.h"
@@ -79,7 +79,7 @@ DeviceOrientationEventPump::LatestDeviceOrientationData() {
   return data_.Get();
 }
 
-void DeviceOrientationEventPump::Trace(blink::Visitor* visitor) {
+void DeviceOrientationEventPump::Trace(Visitor* visitor) {
   visitor->Trace(relative_orientation_sensor_);
   visitor->Trace(absolute_orientation_sensor_);
   visitor->Trace(data_);
@@ -97,9 +97,9 @@ void DeviceOrientationEventPump::SendStartMessage(LocalFrame* frame) {
   if (!sensor_provider_) {
     DCHECK(frame);
 
-    frame->GetInterfaceProvider().GetInterface(
-        mojo::MakeRequest(&sensor_provider_));
-    sensor_provider_.set_connection_error_handler(
+    frame->GetBrowserInterfaceBroker().GetInterface(
+        sensor_provider_.BindNewPipeAndPassReceiver());
+    sensor_provider_.set_disconnect_handler(
         WTF::Bind(&DeviceSensorEventPump::HandleSensorProviderError,
                   WrapWeakPersistent(this)));
   }

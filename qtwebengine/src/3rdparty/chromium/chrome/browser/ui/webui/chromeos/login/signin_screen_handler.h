@@ -10,6 +10,7 @@
 #include <set>
 #include <string>
 
+#include "ash/public/cpp/tablet_mode_observer.h"
 #include "ash/public/cpp/wallpaper_controller_observer.h"
 #include "base/callback.h"
 #include "base/compiler_specific.h"
@@ -21,7 +22,6 @@
 #include "chrome/browser/chromeos/login/signin_specifics.h"
 #include "chrome/browser/chromeos/login/ui/login_display.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
-#include "chrome/browser/ui/ash/tablet_mode_client_observer.h"
 #include "chrome/browser/ui/webui/chromeos/login/base_webui_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/network_state_informer.h"
 #include "chrome/browser/ui/webui/chromeos/login/oobe_ui.h"
@@ -58,19 +58,6 @@ class LoginFeedback;
 class NativeWindowDelegate;
 class User;
 class UserContext;
-
-// Helper class to pass initial parameters to the login screen.
-class LoginScreenContext {
- public:
-  LoginScreenContext();
-
-  void set_email(const std::string& email) { email_ = email; }
-  const std::string& email() const { return email_; }
-
- private:
-  // Optional email to prefill in gaia signin.
-  std::string email_;
-};
 
 // An interface for WebUILoginDisplay to call SigninScreenHandler.
 class LoginDisplayWebUIHandler {
@@ -183,7 +170,7 @@ class SigninScreenHandler
       public NetworkStateInformer::NetworkStateInformerObserver,
       public PowerManagerClient::Observer,
       public input_method::ImeKeyboard::Observer,
-      public TabletModeClientObserver,
+      public ash::TabletModeObserver,
       public OobeUI::Observer,
       public ash::WallpaperControllerObserver {
  public:
@@ -204,7 +191,7 @@ class SigninScreenHandler
       input_method::InputMethodManager::State* ime_state);
 
   // Shows the sign in screen.
-  void Show(const LoginScreenContext& context, bool oobe_ui);
+  void Show(bool oobe_ui);
 
   // Sets delegate to be used by the handler. It is guaranteed that valid
   // delegate is set before Show() method will be called.
@@ -227,8 +214,6 @@ class SigninScreenHandler
   // ash::WallpaperControllerObserver implementation:
   void OnWallpaperColorsChanged() override;
   void OnWallpaperBlurChanged() override;
-
-  void SetFocusPODCallbackForTesting(base::Closure callback);
 
   // To avoid spurious error messages on flaky networks, the offline message is
   // only shown if the network is offline for a threshold number of seconds.
@@ -302,8 +287,11 @@ class SigninScreenHandler
   // PowerManagerClient::Observer implementation:
   void SuspendDone(const base::TimeDelta& sleep_duration) override;
 
-  // TabletModeClientObserver:
-  void OnTabletModeToggled(bool enabled) override;
+  // ash::TabletModeObserver:
+  void OnTabletModeStarted() override;
+  void OnTabletModeEnded() override;
+
+  void OnTabletModeToggled(bool enabled);
 
   // Restore input focus to current user pod.
   void RefocusCurrentPod();
@@ -324,6 +312,7 @@ class SigninScreenHandler
                                            const std::string& password);
   void HandleAttemptUnlock(const std::string& username);
   void HandleLaunchIncognito();
+  void HandleLaunchSAMLPublicSession(const std::string& email);
   void HandleLaunchPublicSession(const AccountId& account_id,
                                  const std::string& locale,
                                  const std::string& input_method);
@@ -410,10 +399,6 @@ class SigninScreenHandler
   // Callback invoked after the feedback is finished.
   void OnFeedbackFinished();
 
-  // Callback invoked after the feedback sent from the unrecoverable cryptohome
-  // page is finished.
-  void OnUnrecoverableCryptohomeFeedbackFinished();
-
   // Called when the cros property controlling allowed input methods changes.
   void OnAllowedInputMethodsChanged();
 
@@ -488,9 +473,6 @@ class SigninScreenHandler
   // Input Method Engine state used at signin screen.
   scoped_refptr<input_method::InputMethodManager::State> ime_state_;
 
-  // This callback captures "focusPod finished" event for tests.
-  base::Closure test_focus_pod_callback_;
-
   // True if SigninScreenHandler has already been added to OobeUI observers.
   bool oobe_ui_observer_added_ = false;
 
@@ -503,7 +485,7 @@ class SigninScreenHandler
 
   std::unique_ptr<AccountId> focused_pod_account_id_;
 
-  base::WeakPtrFactory<SigninScreenHandler> weak_factory_;
+  base::WeakPtrFactory<SigninScreenHandler> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(SigninScreenHandler);
 };

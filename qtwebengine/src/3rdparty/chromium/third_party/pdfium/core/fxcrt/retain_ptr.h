@@ -31,6 +31,8 @@ class RetainPtr {
 
   RetainPtr() = default;
   RetainPtr(const RetainPtr& that) : RetainPtr(that.Get()) {}
+
+  // Move-construct a RetainPtr. After construction, |that| will be NULL.
   RetainPtr(RetainPtr&& that) noexcept { Swap(that); }
 
   // Deliberately implicit to allow returning nullptrs.
@@ -65,10 +67,14 @@ class RetainPtr {
     return *this;
   }
 
+  // Move-assign a RetainPtr. After assignment, |that| will be NULL.
   RetainPtr& operator=(RetainPtr&& that) {
     m_pObj.reset(that.Leak());
     return *this;
   }
+
+  // Assigment from raw pointers is intentially not provided to make
+  // reference count churn more visible where possible.
 
   bool operator==(const RetainPtr& that) const { return Get() == that.Get(); }
   bool operator!=(const RetainPtr& that) const { return !(*this == that); }
@@ -125,11 +131,21 @@ class Retainable {
   mutable intptr_t m_nRefCount = 0;
 };
 
+template <typename T, typename U>
+inline bool operator==(const U* lhs, const RetainPtr<T>& rhs) {
+  return rhs == lhs;
+}
+
+template <typename T, typename U>
+inline bool operator!=(const U* lhs, const RetainPtr<T>& rhs) {
+  return rhs != lhs;
+}
+
 }  // namespace fxcrt
 
 using fxcrt::ReleaseDeleter;
-using fxcrt::RetainPtr;
 using fxcrt::Retainable;
+using fxcrt::RetainPtr;
 
 namespace pdfium {
 

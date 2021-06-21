@@ -7,6 +7,7 @@
 
 #include "base/memory/scoped_refptr.h"
 #include "base/sequenced_task_runner.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "third_party/blink/public/mojom/content_index/content_index.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
@@ -15,10 +16,10 @@
 namespace blink {
 
 class ContentDescription;
+class ExceptionState;
 class ScriptPromiseResolver;
 class ScriptState;
 class ServiceWorkerRegistration;
-class ThreadedIconLoader;
 
 class ContentIndex final : public ScriptWrappable {
   DEFINE_WRAPPERTYPEINFO();
@@ -30,21 +31,26 @@ class ContentIndex final : public ScriptWrappable {
 
   // Web-exposed function defined in the IDL file.
   ScriptPromise add(ScriptState* script_state,
-                    const ContentDescription* description);
-  ScriptPromise deleteDescription(ScriptState* script_state, const String& id);
-  ScriptPromise getDescriptions(ScriptState* script_state);
+                    const ContentDescription* description,
+                    ExceptionState& exception_state);
+  ScriptPromise deleteDescription(ScriptState* script_state,
+                                  const String& id,
+                                  ExceptionState& exception_state);
+  ScriptPromise getDescriptions(ScriptState* script_state,
+                                ExceptionState& exception_state);
 
-  void Trace(blink::Visitor* visitor) override;
+  void Trace(Visitor* visitor) override;
 
  private:
   mojom::blink::ContentIndexService* GetService();
 
   // Callbacks.
-  void DidGetIcon(ScriptPromiseResolver* resolver,
-                  ThreadedIconLoader* loader,
-                  mojom::blink::ContentDescriptionPtr description,
-                  SkBitmap icon,
-                  double resize_scale);
+  void DidGetIconSizes(ScriptPromiseResolver* resolver,
+                       mojom::blink::ContentDescriptionPtr description,
+                       const Vector<gfx::Size>& icon_sizes);
+  void DidGetIcons(ScriptPromiseResolver* resolver,
+                   mojom::blink::ContentDescriptionPtr description,
+                   Vector<SkBitmap> icons);
   void DidAdd(ScriptPromiseResolver* resolver,
               mojom::blink::ContentIndexError error);
   void DidDeleteDescription(ScriptPromiseResolver* resolver,
@@ -56,7 +62,7 @@ class ContentIndex final : public ScriptWrappable {
 
   Member<ServiceWorkerRegistration> registration_;
   scoped_refptr<base::SequencedTaskRunner> task_runner_;
-  mojom::blink::ContentIndexServicePtr content_index_service_;
+  mojo::Remote<mojom::blink::ContentIndexService> content_index_service_;
 };
 
 }  // namespace blink

@@ -17,15 +17,17 @@ namespace test {
 class MediaStubLocalFrameClient : public EmptyLocalFrameClient {
  public:
   explicit MediaStubLocalFrameClient(std::unique_ptr<WebMediaPlayer>);
+  MediaStubLocalFrameClient(std::unique_ptr<WebMediaPlayer>,
+                            bool allow_empty_player);
 
   std::unique_ptr<WebMediaPlayer> CreateWebMediaPlayer(
       HTMLMediaElement&,
       const WebMediaPlayerSource&,
-      WebMediaPlayerClient*,
-      WebLayerTreeView*) override;
+      WebMediaPlayerClient*) override;
 
  private:
   std::unique_ptr<WebMediaPlayer> player_;
+  bool allow_empty_player_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(MediaStubLocalFrameClient);
 };

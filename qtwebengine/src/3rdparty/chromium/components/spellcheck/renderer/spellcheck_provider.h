@@ -10,14 +10,24 @@
 
 #include "base/containers/id_map.h"
 #include "base/macros.h"
+#include "build/build_config.h"
 #include "components/spellcheck/common/spellcheck.mojom.h"
 #include "components/spellcheck/spellcheck_buildflags.h"
 #include "content/public/renderer/render_frame_observer.h"
-#include "content/public/renderer/render_frame_observer_tracker.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "third_party/blink/public/web/web_text_check_client.h"
+
+#if BUILDFLAG(USE_WIN_HYBRID_SPELLCHECKER)
+#include <unordered_map>
+#endif  // BUILDFLAG(USE_WIN_HYBRID_SPELLCHECKER)
 
 class SpellCheck;
 struct SpellCheckResult;
+
+namespace base {
+class TimeTicks;
+}
 
 namespace blink {
 class WebTextCheckingCompletion;
@@ -30,13 +40,20 @@ class LocalInterfaceProvider;
 
 // This class deals with asynchronously invoking text spelling and grammar
 // checking services provided by the browser process (host).
-class SpellCheckProvider
-    : public content::RenderFrameObserver,
-      public content::RenderFrameObserverTracker<SpellCheckProvider>,
-      public blink::WebTextCheckClient {
+class SpellCheckProvider : public content::RenderFrameObserver,
+                           public blink::WebTextCheckClient {
  public:
   using WebTextCheckCompletions =
       base::IDMap<std::unique_ptr<blink::WebTextCheckingCompletion>>;
+
+#if BUILDFLAG(USE_WIN_HYBRID_SPELLCHECKER)
+  // A struct to hold information related to hybrid spell check requests.
+  struct HybridSpellCheckRequestInfo {
+    bool used_hunspell;
+    bool used_native;
+    base::TimeTicks request_start_ticks;
+  };
+#endif  // BUILDFLAG(USE_WIN_HYBRID_SPELLCHECKER)
 
   SpellCheckProvider(
       content::RenderFrame* render_frame,
@@ -68,8 +85,9 @@ class SpellCheckProvider
   class DictionaryUpdateObserverImpl;
 
   // Sets the SpellCheckHost (for unit tests).
-  void SetSpellCheckHostForTesting(spellcheck::mojom::SpellCheckHostPtr host) {
-    spell_check_host_ = std::move(host);
+  void SetSpellCheckHostForTesting(
+      mojo::PendingRemote<spellcheck::mojom::SpellCheckHost> host) {
+    spell_check_host_.Bind(std::move(host));
   }
 
   // Reset dictionary_update_observer_ in TestingSpellCheckProvider dtor.
@@ -132,10 +150,14 @@ class SpellCheckProvider
   service_manager::LocalInterfaceProvider* embedder_provider_;
 
   // Interface to the SpellCheckHost.
-  spellcheck::mojom::SpellCheckHostPtr spell_check_host_;
+  mojo::Remote<spellcheck::mojom::SpellCheckHost> spell_check_host_;
 
   // Dictionary updated observer.
   std::unique_ptr<DictionaryUpdateObserverImpl> dictionary_update_observer_;
+
+#if BUILDFLAG(USE_WIN_HYBRID_SPELLCHECKER)
+  std::unordered_map<int, HybridSpellCheckRequestInfo> hybrid_requests_info_;
+#endif  // BUILDFLAG(USE_WIN_HYBRID_SPELLCHECKER)
 
   base::WeakPtrFactory<SpellCheckProvider> weak_factory_{this};
 

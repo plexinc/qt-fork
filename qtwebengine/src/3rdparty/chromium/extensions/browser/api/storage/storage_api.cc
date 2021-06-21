@@ -77,7 +77,7 @@ ExtensionFunction::ResponseAction SettingsFunction::Run() {
 
 void SettingsFunction::AsyncRunWithStorage(ValueStore* storage) {
   ResponseValue response = RunWithStorage(storage);
-  base::PostTaskWithTraits(
+  base::PostTask(
       FROM_HERE, {BrowserThread::UI},
       base::BindOnce(&SettingsFunction::Respond, this, std::move(response)));
 }
@@ -141,10 +141,12 @@ void GetModificationQuotaLimitHeuristics(QuotaLimitHeuristics* heuristics) {
       api::storage::sync::MAX_WRITE_OPERATIONS_PER_HOUR,
       base::TimeDelta::FromHours(1)};
   heuristics->push_back(std::make_unique<QuotaService::TimedLimit>(
-      short_limit_config, new QuotaLimitHeuristic::SingletonBucketMapper(),
+      short_limit_config,
+      std::make_unique<QuotaLimitHeuristic::SingletonBucketMapper>(),
       "MAX_WRITE_OPERATIONS_PER_MINUTE"));
   heuristics->push_back(std::make_unique<QuotaService::TimedLimit>(
-      long_limit_config, new QuotaLimitHeuristic::SingletonBucketMapper(),
+      long_limit_config,
+      std::make_unique<QuotaLimitHeuristic::SingletonBucketMapper>(),
       "MAX_WRITE_OPERATIONS_PER_HOUR"));
 }
 

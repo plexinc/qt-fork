@@ -16,7 +16,7 @@
 #include "ui/events/keycodes/dom/keycode_converter.h"
 
 #if defined(OS_CHROMEOS)
-#include "ash/ime/ime_controller.h"
+#include "ash/ime/ime_controller_impl.h"
 #include "ash/shell.h"
 #include "ui/events/ozone/layout/xkb/xkb_keyboard_layout_engine.h"
 #endif
@@ -31,6 +31,7 @@ struct wl_resource;
 
 namespace exo {
 namespace wayland {
+class SerialTracker;
 
 // Keyboard delegate class that accepts events for surfaces owned by the same
 // client as a keyboard resource.
@@ -39,12 +40,13 @@ class WaylandKeyboardDelegate : public WaylandInputDelegate,
                                 public KeyboardObserver
 #if defined(OS_CHROMEOS)
     ,
-                                public ash::ImeController::Observer
+                                public ash::ImeControllerImpl::Observer
 #endif
 {
 #if BUILDFLAG(USE_XKBCOMMON)
  public:
-  explicit WaylandKeyboardDelegate(wl_resource* keyboard_resource);
+  explicit WaylandKeyboardDelegate(wl_resource* keyboard_resource,
+                                   SerialTracker* serial_tracker);
 
 #if defined(OS_CHROMEOS)
   ~WaylandKeyboardDelegate() override;
@@ -63,7 +65,7 @@ class WaylandKeyboardDelegate : public WaylandInputDelegate,
   void OnKeyboardModifiers(int modifier_flags) override;
 
 #if defined(OS_CHROMEOS)
-  // Overridden from ImeController::Observer:
+  // Overridden from ImeControllerImpl::Observer:
   void OnCapsLockChanged(bool enabled) override;
   void OnKeyboardLayoutNameChanged(const std::string& layout_name) override;
 #endif
@@ -89,9 +91,6 @@ class WaylandKeyboardDelegate : public WaylandInputDelegate,
   // The client who own this keyboard instance.
   wl_client* client() const;
 
-  // Returns the next serial to use for keyboard events.
-  uint32_t next_serial() const;
-
   // The keyboard resource associated with the keyboard.
   wl_resource* const keyboard_resource_;
 
@@ -103,6 +102,9 @@ class WaylandKeyboardDelegate : public WaylandInputDelegate,
   // The delegate will keep its clients updated with these modifiers. For CrOS
   // we treat numlock as always on.
   int modifier_flags_ = ui::EF_NUM_LOCK_ON;
+
+  // Owned by Server, which always outlives this delegate.
+  SerialTracker* const serial_tracker_;
 
   DISALLOW_COPY_AND_ASSIGN(WaylandKeyboardDelegate);
 #endif

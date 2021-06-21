@@ -14,7 +14,6 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/stringprintf.h"
-#include "base/task_runner.h"
 #include "base/task_runner_util.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "base/threading/thread.h"
@@ -53,9 +52,10 @@ constexpr char kNameOwnerChangedMember[] = "NameOwnerChanged";
 }  // namespace
 
 ObjectProxy::ReplyCallbackHolder::ReplyCallbackHolder(
-    scoped_refptr<base::TaskRunner> origin_task_runner,
+    scoped_refptr<base::SequencedTaskRunner> origin_task_runner,
     ResponseOrErrorCallback callback)
-    : origin_task_runner_(origin_task_runner), callback_(std::move(callback)) {
+    : origin_task_runner_(std::move(origin_task_runner)),
+      callback_(std::move(callback)) {
   DCHECK(origin_task_runner_.get());
   DCHECK(!callback_.is_null());
 }
@@ -274,6 +274,10 @@ void ObjectProxy::SetNameOwnerChangedCallback(
   bus_->AssertOnOriginThread();
 
   name_owner_changed_callback_ = callback;
+
+  bus_->GetDBusTaskRunner()->PostTask(
+      FROM_HERE,
+      base::BindOnce(&ObjectProxy::TryConnectToNameOwnerChangedSignal, this));
 }
 
 void ObjectProxy::WaitForServiceToBeAvailable(
@@ -456,6 +460,15 @@ bool ObjectProxy::ConnectToNameOwnerChangedSignal() {
   UpdateNameOwnerAndBlock();
 
   return success;
+}
+
+void ObjectProxy::TryConnectToNameOwnerChangedSignal() {
+  bus_->AssertOnDBusThread();
+
+  bool success = ConnectToNameOwnerChangedSignal();
+  LOG_IF(WARNING, !success)
+      << "Failed to connect to NameOwnerChanged signal for object: "
+      << object_path_.value();
 }
 
 bool ObjectProxy::ConnectToSignalInternal(const std::string& interface_name,

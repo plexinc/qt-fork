@@ -9,6 +9,7 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/run_loop.h"
 #include "content/browser/background_sync/background_sync_manager.h"
 #include "content/browser/background_sync/background_sync_network_observer.h"
@@ -84,7 +85,7 @@ void BackgroundSyncServiceImplTestHarness::ErrorCallback(
 }
 
 BackgroundSyncServiceImplTestHarness::BackgroundSyncServiceImplTestHarness()
-    : thread_bundle_(TestBrowserThreadBundle::IO_MAINLOOP) {
+    : task_environment_(BrowserTaskEnvironment::IO_MAINLOOP) {
   default_sync_registration_ = blink::mojom::SyncRegistrationOptions::New();
 }
 
@@ -144,6 +145,7 @@ void BackgroundSyncServiceImplTestHarness::CreateStoragePartition() {
   storage_partition_impl_ = StoragePartitionImpl::Create(
       embedded_worker_helper_->browser_context(), /* in_memory= */ true,
       base::FilePath(), /* partition_domain= */ "");
+  storage_partition_impl_->Initialize();
   embedded_worker_helper_->context_wrapper()->set_storage_partition(
       storage_partition_impl_.get());
 }
@@ -177,6 +179,7 @@ void BackgroundSyncServiceImplTestHarness::CreateServiceWorkerRegistration() {
   options.scope = GURL(kServiceWorkerScope);
   embedded_worker_helper_->context()->RegisterServiceWorker(
       GURL(kServiceWorkerScript), options,
+      blink::mojom::FetchClientSettingsObject::New(),
       base::BindOnce(&RegisterServiceWorkerCallback, &called,
                      &sw_registration_id_));
   base::RunLoop().RunUntilIdle();

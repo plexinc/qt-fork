@@ -84,6 +84,10 @@ gpu::ImageDecodeAcceleratorType VaapiWebPDecoder::GetType() const {
   return gpu::ImageDecodeAcceleratorType::kWebP;
 }
 
+SkYUVColorSpace VaapiWebPDecoder::GetYUVColorSpace() const {
+  return SkYUVColorSpace::kRec601_SkYUVColorSpace;
+}
+
 VaapiImageDecodeStatus VaapiWebPDecoder::AllocateVASurfaceAndSubmitVABuffers(
     base::span<const uint8_t> encoded_image) {
   DCHECK(vaapi_wrapper_);
@@ -117,7 +121,7 @@ VaapiImageDecodeStatus VaapiWebPDecoder::AllocateVASurfaceAndSubmitVABuffers(
     DCHECK(scoped_va_context_and_surface_->IsValid());
   }
 
-  if (!FillVP8DataStructures(vaapi_wrapper_,
+  if (!FillVP8DataStructures(vaapi_wrapper_.get(),
                              scoped_va_context_and_surface_->id(),
                              *parse_result, Vp8ReferenceFrameVector())) {
     return VaapiImageDecodeStatus::kSubmitVABuffersFailed;

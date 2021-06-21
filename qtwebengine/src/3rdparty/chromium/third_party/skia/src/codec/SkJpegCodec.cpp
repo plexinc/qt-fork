@@ -15,6 +15,7 @@
 #include "include/private/SkTo.h"
 #include "src/codec/SkCodecPriv.h"
 #include "src/codec/SkJpegDecoderMgr.h"
+#include "src/codec/SkParseEncodedOrigin.h"
 #include "src/pdf/SkJpegInfo.h"
 
 // stdio is needed for libjpeg-turbo
@@ -36,14 +37,6 @@ bool SkJpegCodec::IsJpeg(const void* buffer, size_t bytesRead) {
     return bytesRead >= 3 && !memcmp(buffer, jpegSig, sizeof(jpegSig));
 }
 
-static uint32_t get_endian_int(const uint8_t* data, bool littleEndian) {
-    if (littleEndian) {
-        return (data[3] << 24) | (data[2] << 16) | (data[1] << 8) | (data[0]);
-    }
-
-    return (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | (data[3]);
-}
-
 const uint32_t kExifHeaderSize = 14;
 const uint32_t kExifMarker = JPEG_APP0 + 1;
 
@@ -59,51 +52,8 @@ static bool is_orientation_marker(jpeg_marker_struct* marker, SkEncodedOrigin* o
 
     // Account for 'E', 'x', 'i', 'f', '\0', '<fill byte>'.
     constexpr size_t kOffset = 6;
-    return is_orientation_marker(marker->data + kOffset, marker->data_length - kOffset,
+    return SkParseEncodedOrigin(marker->data + kOffset, marker->data_length - kOffset,
             orientation);
-}
-
-bool is_orientation_marker(const uint8_t* data, size_t data_length, SkEncodedOrigin* orientation) {
-    bool littleEndian;
-    // We need eight bytes to read the endian marker and the offset, below.
-    if (data_length < 8 || !is_valid_endian_marker(data, &littleEndian)) {
-        return false;
-    }
-
-    // Get the offset from the start of the marker.
-    // Though this only reads four bytes, use a larger int in case it overflows.
-    uint64_t offset = get_endian_int(data + 4, littleEndian);
-
-    // Require that the marker is at least large enough to contain the number of entries.
-    if (data_length < offset + 2) {
-        return false;
-    }
-    uint32_t numEntries = get_endian_short(data + offset, littleEndian);
-
-    // Tag (2 bytes), Datatype (2 bytes), Number of elements (4 bytes), Data (4 bytes)
-    const uint32_t kEntrySize = 12;
-    const auto max = SkTo<uint32_t>((data_length - offset - 2) / kEntrySize);
-    numEntries = SkTMin(numEntries, max);
-
-    // Advance the data to the start of the entries.
-    data += offset + 2;
-
-    const uint16_t kOriginTag = 0x112;
-    const uint16_t kOriginType = 3;
-    for (uint32_t i = 0; i < numEntries; i++, data += kEntrySize) {
-        uint16_t tag = get_endian_short(data, littleEndian);
-        uint16_t type = get_endian_short(data + 2, littleEndian);
-        uint32_t count = get_endian_int(data + 4, littleEndian);
-        if (kOriginTag == tag && kOriginType == type && 1 == count) {
-            uint16_t val = get_endian_short(data + 8, littleEndian);
-            if (0 < val && val <= kLast_SkEncodedOrigin) {
-                *orientation = (SkEncodedOrigin) val;
-                return true;
-            }
-        }
-    }
-
-    return false;
 }
 
 static SkEncodedOrigin get_exif_orientation(jpeg_decompress_struct* dinfo) {
@@ -603,7 +553,9 @@ SkCodec::Result SkJpegCodec::onGetPixels(const SkImageInfo& dstInfo,
         this->initializeSwizzler(dstInfo, options, true);
     }
 
-    this->allocateStorage(dstInfo);
+    if (!this->allocateStorage(dstInfo)) {
+        return kInternalError;
+    }
 
     int rows = this->readRows(dstInfo, dst, dstRowBytes, dstInfo.height(), options);
     if (rows < dstInfo.height()) {
@@ -614,7 +566,7 @@ SkCodec::Result SkJpegCodec::onGetPixels(const SkImageInfo& dstInfo,
     return kSuccess;
 }
 
-void SkJpegCodec::allocateStorage(const SkImageInfo& dstInfo) {
+bool SkJpegCodec::allocateStorage(const SkImageInfo& dstInfo) {
     int dstWidth = dstInfo.width();
 
     size_t swizzleBytes = 0;
@@ -632,11 +584,14 @@ void SkJpegCodec::allocateStorage(const SkImageInfo& dstInfo) {
 
     size_t totalBytes = swizzleBytes + xformBytes;
     if (totalBytes > 0) {
-        fStorage.reset(totalBytes);
+        if (!fStorage.reset(totalBytes)) {
+            return false;
+        }
         fSwizzleSrcRow = (swizzleBytes > 0) ? fStorage.get() : nullptr;
         fColorXformSrcRow = (xformBytes > 0) ?
                 SkTAddOffset<uint32_t>(fStorage.get(), swizzleBytes) : nullptr;
     }
+    return true;
 }
 
 void SkJpegCodec::initializeSwizzler(const SkImageInfo& dstInfo, const Options& options,
@@ -696,7 +651,9 @@ SkSampler* SkJpegCodec::getSampler(bool createIfNecessary) {
             fDecoderMgr->dinfo()->out_color_space, this->getEncodedInfo().profile(),
             this->colorXform());
     this->initializeSwizzler(this->dstInfo(), this->options(), needsCMYKToRGB);
-    this->allocateStorage(this->dstInfo());
+    if (!this->allocateStorage(this->dstInfo())) {
+        return nullptr;
+    }
     return fSwizzler.get();
 }
 
@@ -759,7 +716,9 @@ SkCodec::Result SkJpegCodec::onStartScanlineDecode(const SkImageInfo& dstInfo,
         this->initializeSwizzler(dstInfo, options, true);
     }
 
-    this->allocateStorage(dstInfo);
+    if (!this->allocateStorage(dstInfo)) {
+        return kInternalError;
+    }
 
     return kSuccess;
 }

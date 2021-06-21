@@ -31,7 +31,7 @@ namespace protocol {
 class ServiceWorkerHandler : public DevToolsDomainHandler,
                              public ServiceWorker::Backend {
  public:
-  ServiceWorkerHandler();
+  explicit ServiceWorkerHandler(bool allow_inspect_worker);
   ~ServiceWorkerHandler() override;
 
   void Wire(UberDispatcher* dispatcher) override;
@@ -56,7 +56,9 @@ class ServiceWorkerHandler : public DevToolsDomainHandler,
                              const std::string& registration_id,
                              const std::string& tag,
                              bool last_chance) override;
-  // TODO(crbug.com/961238): Add DispatchPeriodicSyncEvent().
+  Response DispatchPeriodicSyncEvent(const std::string& origin,
+                                     const std::string& registration_id,
+                                     const std::string& tag) override;
 
  private:
   void OnWorkerRegistrationUpdated(
@@ -70,6 +72,7 @@ class ServiceWorkerHandler : public DevToolsDomainHandler,
   void OpenNewDevToolsWindow(int process_id, int devtools_agent_route_id);
   void ClearForceUpdate();
 
+  const bool allow_inspect_worker_;
   scoped_refptr<ServiceWorkerContextWrapper> context_;
   std::unique_ptr<ServiceWorker::Frontend> frontend_;
   bool enabled_;

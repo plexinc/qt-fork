@@ -116,7 +116,7 @@ bool CBC_OnedUPCAWriter::ShowChars(WideStringView contents,
   ByteString str = FX_UTF8Encode(contents);
   size_t length = str.GetLength();
   std::vector<TextCharPos> charpos(length);
-  ByteString tempStr = str.Mid(1, 5);
+  ByteString tempStr = str.Substr(1, 5);
   float strWidth = (float)35 * multiple;
   float blank = 0.0;
 
@@ -129,7 +129,7 @@ bool CBC_OnedUPCAWriter::ShowChars(WideStringView contents,
                      (float)(leftPosition + strWidth - 0.5), (float)m_Height);
   matr.Concat(*matrix);
   FX_RECT re = matr.TransformRect(rect).GetOuterRect();
-  device->FillRect(re, m_backgroundColor);
+  device->FillRect(re, kBackgroundColor);
   CFX_Matrix matr1(m_outputHScale, 0.0, 0.0, 1.0, 0.0, 0.0);
   CFX_FloatRect rect1((float)(leftPosition + 40 * multiple),
                       (float)(m_Height - iTextHeight),
@@ -137,14 +137,14 @@ bool CBC_OnedUPCAWriter::ShowChars(WideStringView contents,
                       (float)m_Height);
   matr1.Concat(*matrix);
   re = matr1.TransformRect(rect1).GetOuterRect();
-  device->FillRect(re, m_backgroundColor);
+  device->FillRect(re, kBackgroundColor);
   float strWidth1 = (float)multiple * 7;
   CFX_Matrix matr2(m_outputHScale, 0.0, 0.0, 1.0, 0.0, 0.0);
   CFX_FloatRect rect2(0.0, (float)(m_Height - iTextHeight),
                       (float)strWidth1 - 1, (float)m_Height);
   matr2.Concat(*matrix);
   re = matr2.TransformRect(rect2).GetOuterRect();
-  device->FillRect(re, m_backgroundColor);
+  device->FillRect(re, kBackgroundColor);
   CFX_Matrix matr3(m_outputHScale, 0.0, 0.0, 1.0, 0.0, 0.0);
   CFX_FloatRect rect3((float)(leftPosition + 85 * multiple),
                       (float)(m_Height - iTextHeight),
@@ -152,7 +152,7 @@ bool CBC_OnedUPCAWriter::ShowChars(WideStringView contents,
                       (float)m_Height);
   matr3.Concat(*matrix);
   re = matr3.TransformRect(rect3).GetOuterRect();
-  device->FillRect(re, m_backgroundColor);
+  device->FillRect(re, kBackgroundColor);
   strWidth = strWidth * m_outputHScale;
 
   CalcTextInfo(tempStr, &charpos[1], m_pFont.Get(), strWidth, iFontSize, blank);
@@ -166,7 +166,7 @@ bool CBC_OnedUPCAWriter::ShowChars(WideStringView contents,
                            static_cast<float>(iFontSize), affine_matrix1,
                            m_fontColor, FXTEXT_CLEARTYPE);
   }
-  tempStr = str.Mid(6, 5);
+  tempStr = str.Substr(6, 5);
   length = tempStr.GetLength();
   CalcTextInfo(tempStr, &charpos[6], m_pFont.Get(), strWidth, iFontSize, blank);
   {
@@ -180,7 +180,7 @@ bool CBC_OnedUPCAWriter::ShowChars(WideStringView contents,
                            static_cast<float>(iFontSize), affine_matrix1,
                            m_fontColor, FXTEXT_CLEARTYPE);
   }
-  tempStr = str.Left(1);
+  tempStr = str.First(1);
   length = tempStr.GetLength();
   strWidth = (float)multiple * 7;
   strWidth = strWidth * m_outputHScale;
@@ -196,7 +196,7 @@ bool CBC_OnedUPCAWriter::ShowChars(WideStringView contents,
                            static_cast<float>(iFontSize), affine_matrix1,
                            m_fontColor, FXTEXT_CLEARTYPE);
   }
-  tempStr = str.Mid(11, 1);
+  tempStr = str.Substr(11, 1);
   length = tempStr.GetLength();
   CalcTextInfo(tempStr, &charpos[11], m_pFont.Get(), strWidth, iFontSize,
                blank);

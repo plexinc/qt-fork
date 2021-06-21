@@ -11,10 +11,9 @@
 #include "third_party/blink/renderer/platform/loader/fetch/resource_response.h"
 #include "third_party/blink/renderer/platform/loader/testing/mock_resource.h"
 #include "third_party/blink/renderer/platform/loader/testing/mock_resource_client.h"
-#include "third_party/blink/renderer/platform/shared_buffer.h"
 #include "third_party/blink/renderer/platform/testing/testing_platform_support_with_mock_scheduler.h"
 #include "third_party/blink/renderer/platform/testing/url_test_helpers.h"
-#include "third_party/blink/renderer/platform/wtf/time.h"
+#include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
 namespace blink {
@@ -574,6 +573,13 @@ TEST(ResourceTest, StaleWhileRevalidateCacheControlWithRedirect) {
   EXPECT_FALSE(resource->MustRevalidateDueToCacheHeaders(true));
   EXPECT_TRUE(resource->ShouldRevalidateStaleResponse());
   EXPECT_TRUE(resource->StaleRevalidationRequested());
+}
+
+// This is a regression test for https://crbug.com/1062837.
+TEST(ResourceTest, DefaultOverheadSize) {
+  const KURL url("http://127.0.0.1:8000/foo.html");
+  auto* resource = MakeGarbageCollected<MockResource>(url);
+  EXPECT_EQ(resource->CalculateOverheadSizeForTest(), resource->OverheadSize());
 }
 
 }  // namespace blink

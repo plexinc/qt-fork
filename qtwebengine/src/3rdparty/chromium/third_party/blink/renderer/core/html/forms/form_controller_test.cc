@@ -20,8 +20,8 @@ TEST(DocumentStateTest, ToStateVectorConnected) {
   Element* html = doc.CreateRawElement(html_names::kHTMLTag);
   doc.appendChild(html);
   Node* body = html->appendChild(doc.CreateRawElement(html_names::kBodyTag));
-  To<Element>(body)->SetInnerHTMLFromString("<select form='ff'></select>");
-  DocumentState* document_state = doc.GetFormController().FormElementsState();
+  To<Element>(body)->setInnerHTML("<select form='ff'></select>");
+  DocumentState* document_state = doc.GetFormController().ControlStates();
   Vector<String> state1 = document_state->ToStateVector();
   // <signature>, <control-size>, <form-key>, <name>, <type>, <data-size(0)>
   EXPECT_EQ(6u, state1.size());
@@ -51,7 +51,7 @@ TEST(FormControllerTest, FormSignature) {
   Element* form = doc.QuerySelector("form", ASSERT_NO_EXCEPTION);
   ASSERT_TRUE(form);
   EXPECT_EQ(String("http://example.com/ [1cb 3s ]"),
-            FormSignature(*ToHTMLFormElement(form)))
+            FormSignature(*To<HTMLFormElement>(form)))
       << "[] should contain names of the first and the third controls.";
 }
 

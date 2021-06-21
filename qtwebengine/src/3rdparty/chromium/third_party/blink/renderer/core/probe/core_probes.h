@@ -33,6 +33,7 @@
 
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/document.h"
+#include "third_party/blink/renderer/core/frame/ad_tracker.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource.h"
 
@@ -52,6 +53,8 @@ class ThreadDebugger;
 
 namespace probe {
 
+class AsyncTaskId;
+
 class CORE_EXPORT ProbeBase {
   STACK_ALLOCATED();
 
@@ -65,20 +68,32 @@ class CORE_EXPORT ProbeBase {
   mutable base::TimeTicks end_time_;
 };
 
+// Tracks execution of a (previously scheduled) asynchronous task. An instance
+// should exist for the full duration of the task's execution.
 class CORE_EXPORT AsyncTask {
   STACK_ALLOCATED();
 
  public:
-  AsyncTask(ExecutionContext*,
-            void* task,
+  // Args:
+  //   context: The ExecutionContext in which the task is executed.
+  //   task: An identifier for the AsyncTask.
+  //   step: A nullptr indicates a task that is not recurring. A non-null value
+  //     indicates a recurring task with the value used for tracing events.
+  //   enabled: Whether the task is asynchronous. If false, the task is not
+  //     reported to the debugger and AdTracker.
+  AsyncTask(ExecutionContext* context,
+            AsyncTaskId* task,
             const char* step = nullptr,
             bool enabled = true);
   ~AsyncTask();
 
  private:
   ThreadDebugger* debugger_;
-  void* task_;
+  AsyncTaskId* task_;
   bool recurring_;
+
+  // This persistent is safe since the class is STACK_ALLOCATED.
+  Persistent<AdTracker> ad_tracker_;
 };
 
 // Called from generated instrumentation code.
@@ -113,15 +128,14 @@ inline CoreProbeSink* ToCoreProbeSink(EventTarget* event_target) {
 
 CORE_EXPORT void AsyncTaskScheduled(ExecutionContext*,
                                     const StringView& name,
-                                    void*);
+                                    AsyncTaskId*);
 CORE_EXPORT void AsyncTaskScheduledBreakable(ExecutionContext*,
                                              const char* name,
-                                             void*);
-CORE_EXPORT void AsyncTaskCanceled(ExecutionContext*, void*);
-CORE_EXPORT void AsyncTaskCanceled(v8::Isolate*, void*);
+                                             AsyncTaskId*);
+CORE_EXPORT void AsyncTaskCanceled(ExecutionContext*, AsyncTaskId*);
 CORE_EXPORT void AsyncTaskCanceledBreakable(ExecutionContext*,
                                             const char* name,
-                                            void*);
+                                            AsyncTaskId*);
 CORE_EXPORT void AllAsyncTasksCanceled(ExecutionContext*);
 
 }  // namespace probe

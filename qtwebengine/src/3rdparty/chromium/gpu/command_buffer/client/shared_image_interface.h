@@ -7,10 +7,23 @@
 
 #include "base/compiler_specific.h"
 #include "base/containers/span.h"
+#include "base/memory/scoped_refptr.h"
 #include "build/build_config.h"
 #include "components/viz/common/resources/resource_format.h"
 #include "gpu/command_buffer/common/mailbox.h"
 #include "gpu/command_buffer/common/sync_token.h"
+#include "gpu/gpu_export.h"
+#include "gpu/ipc/common/surface_handle.h"
+#include "ui/gfx/buffer_types.h"
+
+#if !defined(OS_NACL)
+#include "ui/gfx/native_pixmap.h"
+#include "ui/gfx/native_pixmap_handle.h"
+#endif
+
+#if defined(OS_FUCHSIA)
+#include <lib/zx/channel.h>
+#endif  // defined(OS_FUCHSIA)
 
 namespace gfx {
 class ColorSpace;
@@ -27,7 +40,7 @@ class GpuMemoryBufferManager;
 // It is asynchronous in the same sense as GLES2Interface or RasterInterface in
 // that commands are executed asynchronously on the service side, but can be
 // synchronized using SyncTokens. See //docs/design/gpu_synchronization.md.
-class SharedImageInterface {
+class GPU_EXPORT SharedImageInterface {
  public:
   virtual ~SharedImageInterface() {}
 
@@ -42,10 +55,12 @@ class SharedImageInterface {
   // The |SharedImageInterface| keeps ownership of the image until
   // |DestroySharedImage| is called or the interface itself is destroyed (e.g.
   // the GPU channel is lost).
-  virtual Mailbox CreateSharedImage(viz::ResourceFormat format,
-                                    const gfx::Size& size,
-                                    const gfx::ColorSpace& color_space,
-                                    uint32_t usage) = 0;
+  virtual Mailbox CreateSharedImage(
+      viz::ResourceFormat format,
+      const gfx::Size& size,
+      const gfx::ColorSpace& color_space,
+      uint32_t usage,
+      gpu::SurfaceHandle surface_handle = gpu::kNullSurfaceHandle) = 0;
 
   // Same behavior as the above, except that this version takes |pixel_data|
   // which is used to populate the SharedImage.  |pixel_data| should have the
@@ -101,7 +116,6 @@ class SharedImageInterface {
   virtual void DestroySharedImage(const SyncToken& sync_token,
                                   const Mailbox& mailbox) = 0;
 
-#if defined(OS_WIN)
   struct SwapChainMailboxes {
     Mailbox front_buffer;
     Mailbox back_buffer;
@@ -125,7 +139,21 @@ class SharedImageInterface {
   // presenting the swap chain.
   virtual void PresentSwapChain(const SyncToken& sync_token,
                                 const Mailbox& mailbox) = 0;
-#endif  // OS_WIN
+
+#if defined(OS_FUCHSIA)
+  // Registers a sysmem buffer collection. While the collection exists (i.e.
+  // between RegisterSysmemBufferCollection() and
+  // ReleaseSysmemBufferCollection()) the caller can use CreateSharedImage() to
+  // create shared images from the buffer in the collection by setting
+  // |buffer_collection_id| and |buffer_index| fields in NativePixmapHandle,
+  // wrapping it in GpuMemoryBufferHandle and then creating GpuMemoryBuffer from
+  // that handle.
+  virtual void RegisterSysmemBufferCollection(gfx::SysmemBufferCollectionId id,
+                                              zx::channel token) = 0;
+
+  virtual void ReleaseSysmemBufferCollection(
+      gfx::SysmemBufferCollectionId id) = 0;
+#endif  // defined(OS_FUCHSIA)
 
   // Generates an unverified SyncToken that is released after all previous
   // commands on this interface have executed on the service side.
@@ -137,6 +165,22 @@ class SharedImageInterface {
 
   // Flush the SharedImageInterface, issuing any deferred IPCs.
   virtual void Flush() = 0;
+
+#if !defined(OS_NACL)
+  // Returns the NativePixmap backing |mailbox|. This is a privileged API. Only
+  // the callers living inside the GPU process are able to retrieve the
+  // NativePixmap; otherwise null is returned. Also returns null if the
+  // SharedImage doesn't exist or is not backed by a NativePixmap. The caller is
+  // not expected to read from or write into the provided NativePixmap because
+  // it can be modified at any time. The primary purpose of this method is to
+  // facilitate pageflip testing on the viz thread.
+  virtual scoped_refptr<gfx::NativePixmap> GetNativePixmap(
+      const gpu::Mailbox& mailbox) = 0;
+#endif
+
+  // Provides the usage flags supported by the given |mailbox|. This must have
+  // been created using a SharedImageInterface on the same channel.
+  virtual uint32_t UsageForMailbox(const Mailbox& mailbox);
 };
 
 }  // namespace gpu

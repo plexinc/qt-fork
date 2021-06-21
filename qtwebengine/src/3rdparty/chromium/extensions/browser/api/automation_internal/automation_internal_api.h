@@ -29,21 +29,20 @@ struct AXActionData;
 namespace extensions {
 
 // Implementation of the chrome.automation API.
-class AutomationInternalEnableTabFunction : public UIThreadExtensionFunction {
+class AutomationInternalEnableTabFunction : public ExtensionFunction {
   DECLARE_EXTENSION_FUNCTION("automationInternal.enableTab",
                              AUTOMATIONINTERNAL_ENABLETAB)
  protected:
-  ~AutomationInternalEnableTabFunction() override {}
+  ~AutomationInternalEnableTabFunction() override = default;
 
   ExtensionFunction::ResponseAction Run() override;
 };
 
-class AutomationInternalPerformActionFunction
-    : public UIThreadExtensionFunction {
+class AutomationInternalPerformActionFunction : public ExtensionFunction {
   DECLARE_EXTENSION_FUNCTION("automationInternal.performAction",
                              AUTOMATIONINTERNAL_PERFORMACTION)
  protected:
-  ~AutomationInternalPerformActionFunction() override {}
+  ~AutomationInternalPerformActionFunction() override = default;
 
   ExtensionFunction::ResponseAction Run() override;
 
@@ -54,37 +53,35 @@ class AutomationInternalPerformActionFunction
       ui::AXActionData* data);
 };
 
-class AutomationInternalEnableFrameFunction : public UIThreadExtensionFunction {
-  DECLARE_EXTENSION_FUNCTION("automationInternal.enableFrame",
-                             AUTOMATIONINTERNAL_ENABLEFRAME)
+class AutomationInternalEnableTreeFunction : public ExtensionFunction {
+  DECLARE_EXTENSION_FUNCTION("automationInternal.enableTree",
+                             AUTOMATIONINTERNAL_ENABLETREE)
 
  protected:
-  ~AutomationInternalEnableFrameFunction() override {}
+  ~AutomationInternalEnableTreeFunction() override = default;
 
   ExtensionFunction::ResponseAction Run() override;
 };
 
-class AutomationInternalEnableDesktopFunction
-    : public UIThreadExtensionFunction {
+class AutomationInternalEnableDesktopFunction : public ExtensionFunction {
   DECLARE_EXTENSION_FUNCTION("automationInternal.enableDesktop",
                              AUTOMATIONINTERNAL_ENABLEDESKTOP)
  protected:
-  ~AutomationInternalEnableDesktopFunction() override {}
+  ~AutomationInternalEnableDesktopFunction() override = default;
 
   ResponseAction Run() override;
 };
 
-class AutomationInternalQuerySelectorFunction
-    : public UIThreadExtensionFunction {
+class AutomationInternalQuerySelectorFunction : public ExtensionFunction {
   DECLARE_EXTENSION_FUNCTION("automationInternal.querySelector",
                              AUTOMATIONINTERNAL_QUERYSELECTOR)
 
  public:
-  typedef base::Callback<void(const std::string& error, int result_acc_obj_id)>
-      Callback;
+  using Callback =
+      base::OnceCallback<void(const std::string& error, int result_acc_obj_id)>;
 
  protected:
-  ~AutomationInternalQuerySelectorFunction() override {}
+  ~AutomationInternalQuerySelectorFunction() override = default;
 
   ResponseAction Run() override;
 

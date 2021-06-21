@@ -6,10 +6,12 @@
 
 #include "net/third_party/quiche/src/quic/core/congestion_control/bbr2_sender.h"
 #include "net/third_party/quiche/src/quic/core/quic_time.h"
+#include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
 
 namespace quic {
 
-void Bbr2ProbeRttMode::Enter(const Bbr2CongestionEvent& /*congestion_event*/) {
+void Bbr2ProbeRttMode::Enter(QuicTime /*now*/,
+                             const Bbr2CongestionEvent* /*congestion_event*/) {
   model_->set_pacing_gain(1.0);
   model_->set_cwnd_gain(1.0);
   exit_time_ = QuicTime::Zero();
@@ -26,6 +28,12 @@ Bbr2Mode Bbr2ProbeRttMode::OnCongestionEvent(
         congestion_event.bytes_in_flight <=
             sender_->GetMinimumCongestionWindow()) {
       exit_time_ = congestion_event.event_time + Params().probe_rtt_duration;
+      QUIC_DVLOG(2) << sender_ << " PROBE_RTT exit time set to " << exit_time_
+                    << ". bytes_inflight:" << congestion_event.bytes_in_flight
+                    << ", inflight_target:" << InflightTarget()
+                    << ", min_congestion_window:"
+                    << sender_->GetMinimumCongestionWindow() << "  @ "
+                    << congestion_event.event_time;
     }
     return Bbr2Mode::PROBE_RTT;
   }
@@ -43,6 +51,15 @@ Limits<QuicByteCount> Bbr2ProbeRttMode::GetCwndLimits() const {
   QuicByteCount inflight_upper_bound =
       std::min(model_->inflight_lo(), model_->inflight_hi_with_headroom());
   return NoGreaterThan(std::min(inflight_upper_bound, InflightTarget()));
+}
+
+Bbr2Mode Bbr2ProbeRttMode::OnExitQuiescence(
+    QuicTime now,
+    QuicTime /*quiescence_start_time*/) {
+  if (now > exit_time_) {
+    return Bbr2Mode::PROBE_BW;
+  }
+  return Bbr2Mode::PROBE_RTT;
 }
 
 Bbr2ProbeRttMode::DebugState Bbr2ProbeRttMode::ExportDebugState() const {

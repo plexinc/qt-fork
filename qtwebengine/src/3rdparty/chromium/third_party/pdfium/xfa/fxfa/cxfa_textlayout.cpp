@@ -571,7 +571,7 @@ bool CXFA_TextLayout::DrawString(CFX_RenderDevice* pFxDevice,
     return false;
 
   pFxDevice->SaveState();
-  pFxDevice->SetClip_Rect(rtClip);
+  pFxDevice->SetClip_Rect(rtClip.GetOuterRect());
 
   if (m_pieceLines.empty()) {
     size_t szBlockCount = CountBlocks();
@@ -728,7 +728,7 @@ bool CXFA_TextLayout::LoadRichText(
         bIsOl = true;
         bCurOl = true;
       }
-      if (m_bBlockContinue || bContentNode == false) {
+      if (m_bBlockContinue || !bContentNode) {
         eDisplay = pContext->GetDisplay();
         if (eDisplay != CFX_CSSDisplay::Block &&
             eDisplay != CFX_CSSDisplay::Inline &&
@@ -753,12 +753,9 @@ bool CXFA_TextLayout::LoadRichText(
         }
 
         if (wsName.EqualsASCII("a")) {
-          ASSERT(pElement);
           WideString wsLinkContent = pElement->GetAttribute(L"href");
-          if (!wsLinkContent.IsEmpty()) {
-            pLinkData =
-                pdfium::MakeRetain<CFX_LinkUserData>(wsLinkContent.c_str());
-          }
+          if (!wsLinkContent.IsEmpty())
+            pLinkData = pdfium::MakeRetain<CFX_LinkUserData>(wsLinkContent);
         }
 
         int32_t iTabCount = m_textParser.CountTabs(
@@ -801,8 +798,7 @@ bool CXFA_TextLayout::LoadRichText(
           } else if (CFX_CSSDisplay::Inline == eDisplay &&
                      m_pLoader->bFilterSpace) {
             m_pLoader->bFilterSpace = false;
-          } else if (wsText.GetLength() > 0 &&
-                     (0x20 == wsText[wsText.GetLength() - 1])) {
+          } else if (wsText.GetLength() > 0 && wsText.Back() == 0x20) {
             m_pLoader->bFilterSpace = true;
           } else if (wsText.GetLength() != 0) {
             m_pLoader->bFilterSpace = false;
@@ -819,14 +815,13 @@ bool CXFA_TextLayout::LoadRichText(
           if (AppendChar(wsText, pLinePos, 0, bSavePieces)) {
             if (m_pLoader)
               m_pLoader->bFilterSpace = false;
-            if (IsEnd(bSavePieces)) {
-              if (m_pLoader && m_pLoader->iTotalLines > -1) {
-                m_pLoader->pXMLNode = pXMLNode;
-                m_pLoader->pParentStyle = pParentStyle;
-              }
-              return false;
+            if (!IsEnd(bSavePieces))
+              return true;
+            if (m_pLoader && m_pLoader->iTotalLines > -1) {
+              m_pLoader->pXMLNode = pXMLNode;
+              m_pLoader->pParentStyle = pParentStyle;
             }
-            return true;
+            return false;
           }
         }
       }

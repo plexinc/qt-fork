@@ -10,6 +10,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/time/time.h"
 #include "cc/input/browser_controls_state.h"
+#include "cc/metrics/frame_sequence_tracker.h"
 #include "ui/gfx/geometry/scroll_offset.h"
 #include "ui/gfx/geometry/vector2d_f.h"
 
@@ -22,6 +23,7 @@ struct BeginFrameArgs;
 }
 
 namespace cc {
+struct BeginMainFrameMetrics;
 struct ElementId;
 
 struct ApplyViewportChangesArgs {
@@ -40,9 +42,13 @@ struct ApplyViewportChangesArgs {
   // subframe compositors to throttle their re-rastering during the gesture.
   bool is_pinch_gesture_active;
 
-  // How much the browser controls have been shown or hidden. The ratio runs
-  // between 0 (hidden) and 1 (full-shown). This is additive.
-  float browser_controls_delta;
+  // How much the top controls have been shown or hidden. The ratio runs
+  // between a set min-height (default 0) and 1 (full-shown). This is additive.
+  float top_controls_delta;
+
+  // How much the bottom controls have been shown or hidden. The ratio runs
+  // between a set min-height (default 0) and 1 (full-shown). This is additive.
+  float bottom_controls_delta;
 
   // Whether the browser controls have been locked to fully hidden or shown or
   // whether they can be freely moved.
@@ -95,6 +101,12 @@ class LayerTreeHostClient {
   virtual void WillUpdateLayers() = 0;
   virtual void DidUpdateLayers() = 0;
 
+  // Notification that the proxy started or stopped deferring main frame updates
+  virtual void OnDeferMainFrameUpdatesChanged(bool) = 0;
+
+  // Notification that the proxy started or stopped deferring commits.
+  virtual void OnDeferCommitsChanged(bool) = 0;
+
   // Visual frame-based updates to the state of the LayerTreeHost are expected
   // to happen only in calls to LayerTreeHostClient::UpdateLayerTreeHost, which
   // should mutate/invalidate the layer tree or other page parameters as
@@ -132,7 +144,11 @@ class LayerTreeHostClient {
   virtual void DidInitializeLayerTreeFrameSink() = 0;
   virtual void DidFailToInitializeLayerTreeFrameSink() = 0;
   virtual void WillCommit() = 0;
-  virtual void DidCommit() = 0;
+  // Report that a commit to the impl thread has completed. The
+  // commit_start_time is the time that the impl thread began processing the
+  // commit, or base::TimeTicks() if the commit did not require action by the
+  // impl thread.
+  virtual void DidCommit(base::TimeTicks commit_start_time) = 0;
   virtual void DidCommitAndDrawFrame() = 0;
   virtual void DidReceiveCompositorFrameAck() = 0;
   virtual void DidCompletePageScaleAnimation() = 0;
@@ -142,10 +158,30 @@ class LayerTreeHostClient {
   // Mark the frame start and end time for UMA and UKM metrics that require
   // the time from the start of BeginMainFrame to the Commit, or early out.
   virtual void RecordStartOfFrameMetrics() = 0;
-  virtual void RecordEndOfFrameMetrics(base::TimeTicks frame_begin_time) = 0;
+  virtual void RecordEndOfFrameMetrics(
+      base::TimeTicks frame_begin_time,
+      ActiveFrameSequenceTrackers trackers) = 0;
+  // Return metrics information for the stages of BeginMainFrame. This is
+  // ultimately implemented by Blink's LocalFrameUKMAggregator. It must be a
+  // distinct call from the FrameMetrics above because the BeginMainFrameMetrics
+  // for compositor latency must be gathered before the layer tree is
+  // committed to the compositor, which is before the call to
+  // RecordEndOfFrameMetrics.
+  virtual std::unique_ptr<BeginMainFrameMetrics> GetBeginMainFrameMetrics() = 0;
 
  protected:
   virtual ~LayerTreeHostClient() {}
+};
+
+// LayerTreeHost->WebThreadScheduler callback interface. Instances of this class
+// must be safe to use on both the compositor and main threads.
+class LayerTreeHostSchedulingClient {
+ public:
+  // Indicates that the compositor thread scheduled a BeginMainFrame to run on
+  // the main thread.
+  virtual void DidScheduleBeginMainFrame() = 0;
+  // Called unconditionally when BeginMainFrame runs on the main thread.
+  virtual void DidRunBeginMainFrame() = 0;
 };
 
 }  // namespace cc

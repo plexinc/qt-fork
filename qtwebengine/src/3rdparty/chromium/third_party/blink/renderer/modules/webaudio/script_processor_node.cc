@@ -119,19 +119,15 @@ void ScriptProcessorHandler::Process(uint32_t frames_to_process) {
   // code is the consumer of inputBuffer and the producer for outputBuffer.
 
   // Get input and output busses.
-  AudioBus* input_bus = Input(0).Bus();
+  scoped_refptr<AudioBus> input_bus = Input(0).Bus();
   AudioBus* output_bus = Output(0).Bus();
 
   // Get input and output buffers. We double-buffer both the input and output
   // sides.
   uint32_t double_buffer_index = this->DoubleBufferIndex();
-  bool is_double_buffer_index_good =
-      double_buffer_index < 2 &&
-      double_buffer_index < shared_input_buffers_.size() &&
-      double_buffer_index < shared_output_buffers_.size();
-  DCHECK(is_double_buffer_index_good);
-  if (!is_double_buffer_index_good)
-    return;
+  DCHECK_LT(double_buffer_index, 2u);
+  DCHECK_LT(double_buffer_index, shared_input_buffers_.size());
+  DCHECK_LT(double_buffer_index, shared_output_buffers_.size());
 
   SharedAudioBuffer* shared_input_buffer =
       shared_input_buffers_.at(double_buffer_index).get();
@@ -151,26 +147,17 @@ void ScriptProcessorHandler::Process(uint32_t frames_to_process) {
   }
 
   DCHECK(buffers_are_good);
-  if (!buffers_are_good)
-    return;
 
   // We assume that bufferSize() is evenly divisible by framesToProcess - should
   // always be true, but we should still check.
-  bool is_frames_to_process_good = frames_to_process &&
-                                   BufferSize() >= frames_to_process &&
-                                   !(BufferSize() % frames_to_process);
-  DCHECK(is_frames_to_process_good);
-  if (!is_frames_to_process_good)
-    return;
+  DCHECK_GT(frames_to_process, 0u);
+  DCHECK_GE(BufferSize(), frames_to_process);
+  DCHECK_EQ(BufferSize() % frames_to_process, 0u);
 
   uint32_t number_of_output_channels = output_bus->NumberOfChannels();
 
-  bool channels_are_good =
-      (number_of_input_channels == number_of_input_channels_) &&
-      (number_of_output_channels == number_of_output_channels_);
-  DCHECK(channels_are_good);
-  if (!channels_are_good)
-    return;
+  DCHECK_EQ(number_of_input_channels, number_of_input_channels_);
+  DCHECK_EQ(number_of_output_channels, number_of_output_channels_);
 
   for (uint32_t i = 0; i < number_of_input_channels; ++i)
     internal_input_bus_->SetChannelMemory(
@@ -217,7 +204,7 @@ void ScriptProcessorHandler::Process(uint32_t frames_to_process) {
         PostCrossThreadTask(
             *task_runner_, FROM_HERE,
             CrossThreadBindOnce(&ScriptProcessorHandler::FireProcessEvent,
-                                WrapRefCounted(this), double_buffer_index_));
+                                AsWeakPtr(), double_buffer_index_));
       } else {
         // If this node is in the offline audio context, use the
         // waitable event to synchronize to the offline rendering thread.
@@ -228,7 +215,7 @@ void ScriptProcessorHandler::Process(uint32_t frames_to_process) {
             *task_runner_, FROM_HERE,
             CrossThreadBindOnce(
                 &ScriptProcessorHandler::FireProcessEventForOfflineAudioContext,
-                WrapRefCounted(this), double_buffer_index_,
+                AsWeakPtr(), double_buffer_index_,
                 CrossThreadUnretained(waitable_event.get())));
 
         // Okay to block the offline audio rendering thread since it is
@@ -248,8 +235,6 @@ void ScriptProcessorHandler::FireProcessEvent(uint32_t double_buffer_index) {
     return;
 
   DCHECK_LT(double_buffer_index, 2u);
-  if (double_buffer_index > 1)
-    return;
 
   // Avoid firing the event if the document has already gone away.
   if (GetNode()) {
@@ -528,6 +513,14 @@ void ScriptProcessorNode::Trace(Visitor* visitor) {
   visitor->Trace(input_buffers_);
   visitor->Trace(output_buffers_);
   AudioNode::Trace(visitor);
+}
+
+void ScriptProcessorNode::ReportDidCreate() {
+  GraphTracer().DidCreateAudioNode(this);
+}
+
+void ScriptProcessorNode::ReportWillBeDestroyed() {
+  GraphTracer().WillDestroyAudioNode(this);
 }
 
 }  // namespace blink

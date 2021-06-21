@@ -20,18 +20,14 @@
 #include "base/memory/weak_ptr.h"
 #include "base/process/process.h"
 #include "base/time/time.h"
-#include "components/viz/common/frame_sinks/begin_frame_args.h"
-#include "components/viz/common/frame_sinks/begin_frame_source.h"
-#include "components/viz/common/frame_timing_details_map.h"
+#include "cc/trees/render_frame_metadata.h"
 #include "components/viz/common/quads/selection.h"
 #include "components/viz/common/surfaces/parent_local_surface_id_allocator.h"
-#include "content/browser/devtools/devtools_frame_metadata.h"
 #include "content/browser/renderer_host/input/mouse_wheel_phase_handler.h"
 #include "content/browser/renderer_host/input/stylus_text_selector.h"
 #include "content/browser/renderer_host/render_widget_host_view_base.h"
 #include "content/browser/renderer_host/text_input_manager.h"
 #include "content/common/content_export.h"
-#include "gpu/command_buffer/common/mailbox.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/android/delegated_frame_host_android.h"
 #include "ui/android/view_android.h"
@@ -75,8 +71,7 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
       public ui::GestureProviderClient,
       public ui::TouchSelectionControllerClient,
       public ui::ViewAndroidObserver,
-      public ui::WindowAndroidObserver,
-      public viz::BeginFrameObserver {
+      public ui::WindowAndroidObserver {
  public:
   RenderWidgetHostViewAndroid(RenderWidgetHostImpl* widget,
                               gfx::NativeView parent_native_view);
@@ -138,10 +133,10 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
                               InputEventAckState ack_result) override;
   InputEventAckState FilterInputEvent(
       const blink::WebInputEvent& input_event) override;
-  InputEventAckState FilterChildGestureEvent(
-      const blink::WebGestureEvent& gesture_event) override;
   void GestureEventAck(const blink::WebGestureEvent& event,
                        InputEventAckState ack_result) override;
+  void ChildDidAckGestureEvent(const blink::WebGestureEvent& event,
+                               InputEventAckState ack_result) override;
   bool OnUnconsumedKeyboardEventAck(
       const NativeWebKeyboardEventWithLatencyInfo& event) override;
   void FallbackCursorModeLockCursor(bool left,
@@ -152,17 +147,11 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
   BrowserAccessibilityManager* CreateBrowserAccessibilityManager(
       BrowserAccessibilityDelegate* delegate,
       bool for_root_frame) override;
-  bool LockMouse() override;
+  blink::mojom::PointerLockResult LockMouse(
+      bool request_unadjusted_movement) override;
+  blink::mojom::PointerLockResult ChangeMouseLock(
+      bool request_unadjusted_movement) override;
   void UnlockMouse() override;
-  void DidCreateNewRendererCompositorFrameSink(
-      viz::mojom::CompositorFrameSinkClient* renderer_compositor_frame_sink)
-      override;
-  void SubmitCompositorFrame(
-      const viz::LocalSurfaceId& local_surface_id,
-      viz::CompositorFrame frame,
-      base::Optional<viz::HitTestRegionList> hit_test_region_list) override;
-  void OnDidNotProduceFrame(const viz::BeginFrameAck& ack) override;
-  void ClearCompositorFrame() override;
   void ResetFallbackToFirstNavigationSurface() override;
   bool RequestRepaintForTesting() override;
   void SetIsInVR(bool is_in_vr) override;
@@ -174,8 +163,6 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
   std::unique_ptr<SyntheticGestureTarget> CreateSyntheticGestureTarget()
       override;
   void OnDidNavigateMainFrameToNewPage() override;
-  void SetNeedsBeginFrames(bool needs_begin_frames) override;
-  void SetWantsAnimateOnlyBeginFrames() override;
   const viz::FrameSinkId& GetFrameSinkId() const override;
   viz::FrameSinkId GetRootFrameSinkId() override;
   viz::SurfaceId GetCurrentSurfaceId() const override;
@@ -195,14 +182,16 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
   viz::ScopedSurfaceIdAllocator DidUpdateVisualProperties(
       const cc::RenderFrameMetadata& metadata) override;
   void GetScreenInfo(ScreenInfo* screen_info) override;
-  void CancelActiveTouches() override;
+  std::vector<std::unique_ptr<ui::TouchEvent>> ExtractAndCancelActiveTouches()
+      override;
+  void TransferTouches(
+      const std::vector<std::unique_ptr<ui::TouchEvent>>& touches) override;
 
   // ui::EventHandlerAndroid implementation.
   bool OnTouchEvent(const ui::MotionEventAndroid& m) override;
   bool OnMouseEvent(const ui::MotionEventAndroid& m) override;
   bool OnMouseWheelEvent(const ui::MotionEventAndroid& event) override;
   bool OnGestureEvent(const ui::GestureEventAndroid& event) override;
-  void OnSizeChanged() override;
   void OnPhysicalBackingSizeChanged() override;
 
   // ui::ViewAndroidObserver implementation:
@@ -242,20 +231,6 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
   std::unique_ptr<ui::TouchHandleDrawable> CreateDrawable() override;
   void DidScroll() override;
 
-  // Used by DelegatedFrameHostClientAndroid.
-  void SetBeginFrameSource(viz::BeginFrameSource* begin_frame_source);
-  void DidPresentCompositorFrames(
-      const viz::FrameTimingDetailsMap& timing_details);
-  void DidReceiveCompositorFrameAck(
-      const std::vector<viz::ReturnedResource>& resources);
-  void ReclaimResources(const std::vector<viz::ReturnedResource>& resources);
-
-  // viz::BeginFrameObserver implementation.
-  void OnBeginFrame(const viz::BeginFrameArgs& args) override;
-  const viz::BeginFrameArgs& LastUsedBeginFrameArgs() const override;
-  void OnBeginFrameSourcePausedChanged(bool paused) override;
-  bool WantsAnimateOnlyBeginFrames() const override;
-
   // Non-virtual methods
   void UpdateNativeViewTree(gfx::NativeView parent_native_view);
 
@@ -277,6 +252,9 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
       TextSuggestionHostAndroid* text_suggestion_host) {
     text_suggestion_host_ = text_suggestion_host;
   }
+  TextSuggestionHostAndroid* text_suggestion_host() const {
+    return text_suggestion_host_;
+  }
   void set_gesture_listener_manager(GestureListenerManager* manager) {
     gesture_listener_manager_ = manager;
   }
@@ -297,14 +275,12 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
   bool HasValidFrame() const;
 
   void MoveCaret(const gfx::Point& point);
-  void ShowContextMenuAtPoint(const gfx::Point& point, ui::MenuSourceType);
   void DismissTextHandles();
   void SetTextHandlesTemporarilyHidden(bool hide_handles);
   void SelectWordAroundCaretAck(bool did_select,
                                 int start_adjust,
                                 int end_adjust);
 
-  void SynchronousFrameMetadata(viz::CompositorFrameMetadata frame_metadata);
   // TODO(ericrk): Ideally we'd reemove |root_scroll_offset| from this function
   // once we have a reliable way to get it through RenderFrameMetadata.
   void FrameTokenChangedForSynchronousCompositor(
@@ -347,6 +323,7 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
   // RenderFrameMetadataProvider::Observer
   void OnRenderFrameMetadataChangedBeforeActivation(
       const cc::RenderFrameMetadata& metadata) override;
+  void OnRenderFrameMetadataChangedAfterActivation() override;
 
   void WasEvicted();
 
@@ -372,13 +349,10 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
       jint x,
       jint y);
 
-  // Insets the Visual Viewport's bottom by the amount given.  The adjustment
-  // is specified in pixels and should not be negative.  An adjustment of 0
-  // returns the Visual Viewport to a non-inset viewport that matches the
-  // Layout Viewport.
-  void InsetViewportBottom(JNIEnv* env,
-                           const base::android::JavaParamRef<jobject>& obj,
-                           jint bottom_adjust_px);
+  // Notifies that the Visual Viewport's inset bottom has changed.
+  void OnViewportInsetBottomChanged(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& obj);
 
   void WriteContentBitmapToDiskAsync(
       JNIEnv* env,
@@ -392,6 +366,8 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
     return delegated_frame_host_.get();
   }
 
+  void SetNeedsBeginFrameForFlingProgress();
+
  protected:
   // RenderWidgetHostViewBase:
   void UpdateBackgroundColor() override;
@@ -399,16 +375,14 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
 
  private:
   friend class RenderWidgetHostViewAndroidTest;
+  FRIEND_TEST_ALL_PREFIXES(SitePerProcessBrowserTest,
+                           GestureManagerListensToChildFrames);
 
   MouseWheelPhaseHandler* GetMouseWheelPhaseHandler() override;
 
   void EvictDelegatedFrame();
 
   bool ShouldRouteEvents() const;
-
-  void OnFrameMetadataUpdated(
-      const viz::CompositorFrameMetadata& frame_metadata,
-      bool is_transparent);
 
   void UpdateTouchSelectionController(
       const viz::Selection<gfx::SelectionBound>& selection,
@@ -419,8 +393,10 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
   bool UpdateControls(float dip_scale,
                       float top_controls_height,
                       float top_controls_shown_ratio,
+                      float top_controls_min_height_offset,
                       float bottom_controls_height,
-                      float bottom_controls_shown_ratio);
+                      float bottom_controls_shown_ratio,
+                      float bottom_controls_min_height_offset);
   void OnDidUpdateVisualPropertiesComplete(
       const cc::RenderFrameMetadata& metadata);
 
@@ -446,19 +422,14 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
       const gfx::Size& dst_size_in_pixel,
       base::OnceCallback<void(const SkBitmap&)> callback);
 
+  void MaybeCreateSynchronousCompositor();
+  void ResetSynchronousCompositor();
+
   void EvictDelegatedContent();
   void OnLostResources();
 
-  enum BeginFrameRequestType {
-    BEGIN_FRAME = 1 << 0,
-    PERSISTENT_BEGIN_FRAME = 1 << 1
-  };
-  void AddBeginFrameRequest(BeginFrameRequestType request);
-  void ClearBeginFrameRequest(BeginFrameRequestType request);
   void StartObservingRootWindow();
   void StopObservingRootWindow();
-  void SendBeginFramePaused();
-  void SendBeginFrame(viz::BeginFrameArgs args);
   bool Animate(base::TimeTicks frame_time);
   void RequestDisallowInterceptTouchEvent();
 
@@ -479,16 +450,6 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
   void SetTextHandlesHiddenInternal();
 
   void OnUpdateScopedSelectionHandles();
-
-  // The begin frame source being observed.  Null if none.
-  viz::BeginFrameSource* begin_frame_source_;
-  viz::BeginFrameArgs last_begin_frame_args_;
-  bool begin_frame_paused_ = false;
-  bool wants_animate_only_begin_frames_ = false;
-
-  // Indicates whether and for what reason a request for begin frames has been
-  // issued. Used to control action dispatch at the next |OnBeginFrame()| call.
-  uint32_t outstanding_begin_frame_requests_;
 
   bool is_showing_;
 
@@ -549,6 +510,7 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
   gfx::Rect default_bounds_;
 
   const bool using_browser_compositor_;
+  const bool using_viz_for_webview_;
   std::unique_ptr<SynchronousCompositorHost> sync_compositor_;
 
   SynchronousCompositorClient* synchronous_compositor_client_;
@@ -561,8 +523,10 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
 
   float prev_top_shown_pix_;
   float prev_top_controls_translate_;
+  float prev_top_controls_min_height_offset_pix_;
   float prev_bottom_shown_pix_;
   float prev_bottom_controls_translate_;
+  float prev_bottom_controls_min_height_offset_pix_;
   float page_scale_;
   float min_page_scale_;
   float max_page_scale_;
@@ -570,11 +534,6 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
   base::TimeTicks prev_mousedown_timestamp_;
   gfx::Point prev_mousedown_point_;
   int left_click_count_ = 0;
-
-  gfx::Insets insets_;
-
-  viz::mojom::CompositorFrameSinkClient* renderer_compositor_frame_sink_ =
-      nullptr;
 
   base::ObserverList<DestructionObserver>::Unchecked destruction_observers_;
 
@@ -586,22 +545,21 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
   // If true, then the next allocated surface should be embedded.
   bool navigation_while_hidden_ = false;
 
-  viz::FrameTimingDetailsMap timing_details_;
+  bool render_widget_initialized_ = false;
 
   // Tracks whether we are in SynchronousCopyContents to avoid repeated calls
   // into DevTools capture logic.
   // TODO(ericrk): Make this more robust.
   bool in_sync_copy_contents_ = false;
 
-  // A cached copy of the most up to date DevToolsFrameMetadata, computed from
-  // either RenderFrameMetadata or CompositorFrameMetadata.
-  base::Optional<DevToolsFrameMetadata> last_devtools_frame_metadata_;
+  // A cached copy of the most up to date RenderFrameMetadata.
+  base::Optional<cc::RenderFrameMetadata> last_render_frame_metadata_;
 
   WebContentsAccessibilityAndroid* web_contents_accessibility_ = nullptr;
 
   base::android::ScopedJavaGlobalRef<jobject> obj_;
 
-  base::WeakPtrFactory<RenderWidgetHostViewAndroid> weak_ptr_factory_;
+  base::WeakPtrFactory<RenderWidgetHostViewAndroid> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(RenderWidgetHostViewAndroid);
 };

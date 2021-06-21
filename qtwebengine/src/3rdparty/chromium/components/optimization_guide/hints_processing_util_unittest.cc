@@ -4,21 +4,15 @@
 
 #include "components/optimization_guide/hints_processing_util.h"
 
-#include "components/optimization_guide/hint_update_data.h"
 #include "components/optimization_guide/proto/hint_cache.pb.h"
 #include "components/optimization_guide/proto/hints.pb.h"
+#include "components/optimization_guide/store_update_data.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
 
 namespace optimization_guide {
 
-class HintsProcessingUtilTest : public testing::Test {
- public:
-  HintsProcessingUtilTest() {}
-  ~HintsProcessingUtilTest() override {}
-};
-
-TEST_F(HintsProcessingUtilTest, FindPageHintForSubstringPagePattern) {
+TEST(HintsProcessingUtilTest, FindPageHintForSubstringPagePattern) {
   proto::Hint hint1;
 
   // Page hint for "/one/"
@@ -63,62 +57,40 @@ TEST_F(HintsProcessingUtilTest, FindPageHintForSubstringPagePattern) {
   EXPECT_EQ(page_hint3, FindPageHintForURL(
                             GURL("https://www.foo.org/bar/three.jpg"), &hint1));
 }
-
-TEST_F(HintsProcessingUtilTest, ProcessHintsNoUpdateData) {
-  proto::Hint hint;
-  hint.set_key("whatever.com");
-  hint.set_key_representation(proto::HOST_SUFFIX);
-  proto::PageHint* page_hint = hint.add_page_hints();
-  page_hint->set_page_pattern("foo.org/*/one/");
-
-  google::protobuf::RepeatedPtrField<proto::Hint> hints;
-  *(hints.Add()) = hint;
-
-  EXPECT_FALSE(ProcessHints(&hints, nullptr));
+TEST(HintsProcessingUtilTest, ConvertProtoEffectiveConnectionType) {
+  EXPECT_EQ(
+      ConvertProtoEffectiveConnectionType(
+          proto::EffectiveConnectionType::EFFECTIVE_CONNECTION_TYPE_UNKNOWN),
+      net::EffectiveConnectionType::EFFECTIVE_CONNECTION_TYPE_UNKNOWN);
+  EXPECT_EQ(
+      ConvertProtoEffectiveConnectionType(
+          proto::EffectiveConnectionType::EFFECTIVE_CONNECTION_TYPE_OFFLINE),
+      net::EffectiveConnectionType::EFFECTIVE_CONNECTION_TYPE_OFFLINE);
+  EXPECT_EQ(
+      ConvertProtoEffectiveConnectionType(
+          proto::EffectiveConnectionType::EFFECTIVE_CONNECTION_TYPE_SLOW_2G),
+      net::EffectiveConnectionType::EFFECTIVE_CONNECTION_TYPE_SLOW_2G);
+  EXPECT_EQ(ConvertProtoEffectiveConnectionType(
+                proto::EffectiveConnectionType::EFFECTIVE_CONNECTION_TYPE_2G),
+            net::EffectiveConnectionType::EFFECTIVE_CONNECTION_TYPE_2G);
+  EXPECT_EQ(ConvertProtoEffectiveConnectionType(
+                proto::EffectiveConnectionType::EFFECTIVE_CONNECTION_TYPE_3G),
+            net::EffectiveConnectionType::EFFECTIVE_CONNECTION_TYPE_3G);
+  EXPECT_EQ(ConvertProtoEffectiveConnectionType(
+                proto::EffectiveConnectionType::EFFECTIVE_CONNECTION_TYPE_4G),
+            net::EffectiveConnectionType::EFFECTIVE_CONNECTION_TYPE_4G);
 }
 
-TEST_F(HintsProcessingUtilTest, ProcessHintsWithNoPageHintsAndUpdateData) {
-  proto::Hint hint;
-  hint.set_key("whatever.com");
-  hint.set_key_representation(proto::HOST_SUFFIX);
+TEST(HintsProcessingUtilTest, IsValidURLForURLKeyedHints) {
+  EXPECT_TRUE(IsValidURLForURLKeyedHint(GURL("https://blerg.com")));
+  EXPECT_TRUE(IsValidURLForURLKeyedHint(GURL("http://blerg.com")));
 
-  google::protobuf::RepeatedPtrField<proto::Hint> hints;
-  *(hints.Add()) = hint;
-
-  std::unique_ptr<HintUpdateData> update_data =
-      HintUpdateData::CreateComponentHintUpdateData(base::Version("1.0.0"));
-  EXPECT_FALSE(ProcessHints(&hints, update_data.get()));
-  // Verify there is 1 store entries: 1 for the metadata entry.
-  EXPECT_EQ(1ul, update_data->TakeUpdateEntries()->size());
-}
-
-TEST_F(HintsProcessingUtilTest, ProcessHintsWithPageHintsAndUpdateData) {
-  google::protobuf::RepeatedPtrField<proto::Hint> hints;
-
-  proto::Hint hint;
-  hint.set_key("foo.org");
-  hint.set_key_representation(proto::HOST_SUFFIX);
-  proto::PageHint* page_hint = hint.add_page_hints();
-  page_hint->set_page_pattern("foo.org/*/one/");
-  *(hints.Add()) = hint;
-
-  proto::Hint no_host_suffix_hint;
-  no_host_suffix_hint.set_key("foo2.org");
-  proto::PageHint* page_hint3 = no_host_suffix_hint.add_page_hints();
-  page_hint3->set_page_pattern("foo2.org/blahh");
-  *(hints.Add()) = no_host_suffix_hint;
-
-  proto::Hint no_page_hints_hint;
-  no_page_hints_hint.set_key("whatever.com");
-  no_page_hints_hint.set_key_representation(proto::HOST_SUFFIX);
-  *(hints.Add()) = no_page_hints_hint;
-
-  std::unique_ptr<HintUpdateData> update_data =
-      HintUpdateData::CreateComponentHintUpdateData(base::Version("1.0.0"));
-  EXPECT_TRUE(ProcessHints(&hints, update_data.get()));
-  // Verify there are 2 store entries: 1 for the metadata entry plus
-  // the 1 added hint entries.
-  EXPECT_EQ(2ul, update_data->TakeUpdateEntries()->size());
+  EXPECT_FALSE(IsValidURLForURLKeyedHint(GURL("file://blerg")));
+  EXPECT_FALSE(IsValidURLForURLKeyedHint(GURL("chrome://blerg")));
+  EXPECT_FALSE(IsValidURLForURLKeyedHint(
+      GURL("https://username:password@www.example.com/")));
+  EXPECT_FALSE(IsValidURLForURLKeyedHint(GURL("https://localhost:5000")));
+  EXPECT_FALSE(IsValidURLForURLKeyedHint(GURL("https://192.168.1.1")));
 }
 
 }  // namespace optimization_guide

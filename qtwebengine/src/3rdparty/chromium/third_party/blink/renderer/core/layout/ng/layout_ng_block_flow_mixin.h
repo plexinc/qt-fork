@@ -10,6 +10,7 @@
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/layout/layout_block_flow.h"
 #include "third_party/blink/renderer/core/layout/layout_box_model_object.h"
+#include "third_party/blink/renderer/core/layout/layout_progress.h"
 #include "third_party/blink/renderer/core/layout/layout_table_caption.h"
 #include "third_party/blink/renderer/core/layout/layout_table_cell.h"
 #include "third_party/blink/renderer/core/layout/ng/layout_ng_mixin.h"
@@ -38,7 +39,7 @@ class LayoutNGBlockFlowMixin : public LayoutNGMixin<Base> {
   LayoutUnit FirstLineBoxBaseline() const final;
   LayoutUnit InlineBlockBaseline(LineDirectionMode) const final;
 
-  void Paint(const PaintInfo&) const final;
+  void Paint(const PaintInfo&) const override;
 
   bool NodeAtPoint(HitTestResult&,
                    const HitTestLocation&,
@@ -59,10 +60,10 @@ class LayoutNGBlockFlowMixin : public LayoutNGMixin<Base> {
   void SetPaintFragment(const NGBlockBreakToken*,
                         scoped_refptr<const NGPhysicalFragment>) final;
 
+  using LayoutNGMixin<Base>::CurrentFragment;
+
  protected:
   void StyleDidChange(StyleDifference, const ComputedStyle* old_style) override;
-
-  const NGPhysicalBoxFragment* CurrentFragment() const final;
 
   void AddLayoutOverflowFromChildren() final;
 
@@ -70,12 +71,14 @@ class LayoutNGBlockFlowMixin : public LayoutNGMixin<Base> {
                        const PhysicalOffset& additional_offset,
                        NGOutlineType) const final;
 
-  bool PaintedOutputOfObjectHasNoEffectRegardlessOfSize() const final;
-
-  base::Optional<LayoutUnit> FragmentBaseline(NGBaselineAlgorithmType) const;
+  base::Optional<LayoutUnit> FragmentBaseline() const;
 
   void DirtyLinesFromChangedChild(LayoutObject* child,
                                   MarkingBehavior marking_behavior) final;
+
+  // Intended to be called from UpdateLayout() for subclasses that want the same
+  // behavior as LayoutNGBlockFlow.
+  void UpdateNGBlockLayout();
 
   std::unique_ptr<NGInlineNodeData> ng_inline_node_data_;
   scoped_refptr<NGPaintFragment> paint_fragment_;
@@ -84,12 +87,15 @@ class LayoutNGBlockFlowMixin : public LayoutNGMixin<Base> {
 
  private:
   void AddScrollingOverflowFromChildren();
+  void UpdateMargins();
 };
 
 // If you edit these export templates, also update templates in
 // layout_ng_mixin.h.
 extern template class CORE_EXTERN_TEMPLATE_EXPORT
     LayoutNGBlockFlowMixin<LayoutBlockFlow>;
+extern template class CORE_EXTERN_TEMPLATE_EXPORT
+    LayoutNGBlockFlowMixin<LayoutProgress>;
 extern template class CORE_EXTERN_TEMPLATE_EXPORT
     LayoutNGBlockFlowMixin<LayoutTableCaption>;
 extern template class CORE_EXTERN_TEMPLATE_EXPORT

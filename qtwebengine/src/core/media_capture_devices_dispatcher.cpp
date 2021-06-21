@@ -173,6 +173,10 @@ WebContentsAdapterClient::MediaRequestFlags mediaRequestFlagsForRequest(const co
         request.video_type == MediaStreamType::GUM_DESKTOP_VIDEO_CAPTURE)
         return {WebContentsAdapterClient::MediaDesktopAudioCapture, WebContentsAdapterClient::MediaDesktopVideoCapture};
 
+    if (request.audio_type == MediaStreamType::DISPLAY_AUDIO_CAPTURE &&
+        request.video_type == MediaStreamType::DISPLAY_VIDEO_CAPTURE)
+        return {WebContentsAdapterClient::MediaDesktopAudioCapture, WebContentsAdapterClient::MediaDesktopVideoCapture};
+
     if (request.video_type == MediaStreamType::GUM_DESKTOP_VIDEO_CAPTURE ||
         request.video_type == MediaStreamType::DISPLAY_VIDEO_CAPTURE)
         return {WebContentsAdapterClient::MediaDesktopVideoCapture};
@@ -268,7 +272,8 @@ void MediaCaptureDevicesDispatcher::handleMediaAccessPermissionResponse(content:
                 break;
             }
         } else if (desktopVideoRequested) {
-            getDevicesForDesktopCapture(&devices, getDefaultScreenId(), desktopAudioRequested,
+            bool captureAudio = desktopAudioRequested && m_loopbackAudioSupported;
+            getDevicesForDesktopCapture(&devices, getDefaultScreenId(), captureAudio,
                                         request.video_type, request.audio_type);
         }
     }
@@ -280,9 +285,9 @@ void MediaCaptureDevicesDispatcher::handleMediaAccessPermissionResponse(content:
         // Post a task to process next queued request. It has to be done
         // asynchronously to make sure that calling infobar is not destroyed until
         // after this function returns.
-        base::PostTaskWithTraits(FROM_HERE, {BrowserThread::UI},
-                                 base::BindOnce(&MediaCaptureDevicesDispatcher::ProcessQueuedAccessRequest,
-                                                base::Unretained(this), webContents));
+        base::PostTask(FROM_HERE, {BrowserThread::UI},
+                       base::BindOnce(&MediaCaptureDevicesDispatcher::ProcessQueuedAccessRequest,
+                                      base::Unretained(this), webContents));
     }
 
     if (devices.empty())
@@ -305,6 +310,10 @@ MediaCaptureDevicesDispatcher::MediaCaptureDevicesDispatcher()
     // content::NOTIFICATION_WEB_CONTENTS_DESTROYED, and that will result in
     // possible use after free.
     DCHECK_CURRENTLY_ON(BrowserThread::UI);
+#if defined(OS_WIN)
+    // Currently loopback audio capture is supported only on Windows.
+    m_loopbackAudioSupported = true;
+#endif
     m_notificationsRegistrar.Add(this, content::NOTIFICATION_WEB_CONTENTS_DESTROYED,
                                  content::NotificationService::AllSources());
 }
@@ -368,7 +377,7 @@ void MediaCaptureDevicesDispatcher::processDesktopCaptureAccessRequest(content::
         // Resolve DesktopMediaID for the specified device id.
         mediaId = content::DesktopStreamsRegistry::GetInstance()->RequestMediaForStreamId(
                 request.requested_video_device_id, main_frame->GetProcess()->GetID(),
-                main_frame->GetRoutingID(), request.security_origin,
+                main_frame->GetRoutingID(), url::Origin::Create(request.security_origin),
                 &originalExtensionName, content::kRegistryStreamTypeDesktop);
     }
 
@@ -379,9 +388,11 @@ void MediaCaptureDevicesDispatcher::processDesktopCaptureAccessRequest(content::
     }
 
     // Audio is only supported for screen capture streams.
-    bool capture_audio = (mediaId.type == content::DesktopMediaID::TYPE_SCREEN && request.audio_type == MediaStreamType::GUM_DESKTOP_AUDIO_CAPTURE);
+    bool audioRequested = request.audio_type == MediaStreamType::GUM_DESKTOP_AUDIO_CAPTURE;
+    bool audioSupported = (mediaId.type == content::DesktopMediaID::TYPE_SCREEN && m_loopbackAudioSupported);
+    bool captureAudio = (audioRequested && audioSupported);
 
-    getDevicesForDesktopCapture(&devices, mediaId, capture_audio, request.video_type, request.audio_type);
+    getDevicesForDesktopCapture(&devices, mediaId, captureAudio, request.video_type, request.audio_type);
 
     if (devices.empty())
         std::move(callback).Run(devices, MediaStreamRequestResult::INVALID_STATE,
@@ -444,10 +455,10 @@ void MediaCaptureDevicesDispatcher::getDefaultDevices(const std::string &audioDe
 void MediaCaptureDevicesDispatcher::OnMediaRequestStateChanged(int render_process_id, int render_frame_id, int page_request_id, const GURL &security_origin, blink::mojom::MediaStreamType stream_type, content::MediaRequestState state)
 {
     DCHECK_CURRENTLY_ON(BrowserThread::IO);
-    base::PostTaskWithTraits(FROM_HERE, {BrowserThread::UI},
-                             base::BindOnce(&MediaCaptureDevicesDispatcher::updateMediaRequestStateOnUIThread,
-                                            base::Unretained(this), render_process_id, render_frame_id,
-                                            page_request_id, security_origin, stream_type, state));
+    base::PostTask(FROM_HERE, {BrowserThread::UI},
+                   base::BindOnce(&MediaCaptureDevicesDispatcher::updateMediaRequestStateOnUIThread,
+                                  base::Unretained(this), render_process_id, render_frame_id,
+                                  page_request_id, security_origin, stream_type, state));
 }
 
 void MediaCaptureDevicesDispatcher::updateMediaRequestStateOnUIThread(int render_process_id,

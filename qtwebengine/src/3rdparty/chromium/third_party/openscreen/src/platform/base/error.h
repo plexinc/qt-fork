@@ -5,6 +5,7 @@
 #ifndef PLATFORM_BASE_ERROR_H_
 #define PLATFORM_BASE_ERROR_H_
 
+#include <cassert>
 #include <ostream>
 #include <string>
 #include <utility>
@@ -17,6 +18,7 @@ namespace openscreen {
 // code and an optional message.
 class Error {
  public:
+  // TODO(crbug.com/openscreen/65): Group/rename OSP-specific errors
   enum class Code : int8_t {
     // No error occurred.
     kNone = 0,
@@ -42,11 +44,8 @@ class Error {
     kUnknownRequestId,
 
     kAddressInUse,
-    kAlreadyListening,
     kDomainNameTooLong,
     kDomainNameLabelTooLong,
-
-    kGenericPlatformError,
 
     kIOFailure,
     kInitializationFailure,
@@ -55,16 +54,16 @@ class Error {
     kConnectionFailed,
 
     kSocketOptionSettingFailure,
+    kSocketAcceptFailure,
     kSocketBindFailure,
     kSocketClosedFailure,
+    kSocketConnectFailure,
+    kSocketInvalidState,
+    kSocketListenFailure,
     kSocketReadFailure,
     kSocketSendFailure,
 
     kMdnsRegisterFailure,
-
-    kNoItemFound,
-    kNotImplemented,
-    kNotRunning,
 
     kParseError,
     kUnknownMessageType,
@@ -78,17 +77,111 @@ class Error {
     kJsonParseError,
     kJsonWriteError,
 
-    // OpenSSL errors
+    // OpenSSL errors.
+
+    // Was unable to generate an RSA key.
+    kRSAKeyGenerationFailure,
+    kRSAKeyParseError,
+
+    // Was unable to initialize an EVP_PKEY type.
+    kEVPInitializationError,
+
+    // Was unable to generate a certificate.
+    kCertificateCreationError,
+
+    // Certificate failed validation.
+    kCertificateValidationError,
+
+    // Failed to produce a hashing digest.
+    kSha256HashFailure,
+
+    // A non-recoverable SSL library error has occurred.
+    kFatalSSLError,
     kFileLoadFailure,
 
+    // Cast certificate errors.
+
+    // Certificates were not provided for verification.
+    kErrCertsMissing,
+
+    // The certificates provided could not be parsed.
+    kErrCertsParse,
+
+    // Key usage is missing or is not set to Digital Signature.
+    // This error could also be thrown if the CN is missing.
+    kErrCertsRestrictions,
+
+    // The current date is before the notBefore date or after the notAfter date.
+    kErrCertsDateInvalid,
+
+    // The certificate failed to chain to a trusted root.
+    kErrCertsVerifyGeneric,
+
+    // The CRL is missing or failed to verify.
+    kErrCrlInvalid,
+
+    // One of the certificates in the chain is revoked.
+    kErrCertsRevoked,
+
+    // The pathlen constraint of the root certificate was exceeded.
+    kErrCertsPathlen,
+
+    // Cast authentication errors.
+    kCastV2PeerCertEmpty,
+    kCastV2WrongPayloadType,
+    kCastV2NoPayload,
+    kCastV2PayloadParsingFailed,
+    kCastV2MessageError,
+    kCastV2NoResponse,
+    kCastV2FingerprintNotFound,
+    kCastV2CertNotSignedByTrustedCa,
+    kCastV2CannotExtractPublicKey,
+    kCastV2SignedBlobsMismatch,
+    kCastV2TlsCertValidityPeriodTooLong,
+    kCastV2TlsCertValidStartDateInFuture,
+    kCastV2TlsCertExpired,
+    kCastV2SenderNonceMismatch,
+    kCastV2DigestUnsupported,
+    kCastV2SignatureEmpty,
+
+    // Cast channel errors.
+    kCastV2ChannelNotOpen,
+    kCastV2AuthenticationError,
+    kCastV2ConnectError,
+    kCastV2CastSocketError,
+    kCastV2TransportError,
+    kCastV2InvalidMessage,
+    kCastV2InvalidChannelId,
+    kCastV2ConnectTimeout,
+    kCastV2PingTimeout,
+    kCastV2ChannelPolicyMismatch,
+
+    kCreateSignatureFailed,
+
+    // Discovery errors.
+    kUpdateReceivedRecordFailure,
+    kRecordPublicationError,
+
+    // Generic errors.
+    kUnknownError,
+    kNotImplemented,
     kInsufficientBuffer,
+    kParameterInvalid,
+    kParameterOutOfRange,
+    kParameterNullPointer,
+    kIndexOutOfBounds,
+    kItemAlreadyExists,
+    kItemNotFound,
+    kOperationInvalid,
+    kOperationInProgress,
+    kOperationCancelled,
   };
 
   Error();
   Error(const Error& error);
   Error(Error&& error) noexcept;
 
-  Error(Code code);
+  Error(Code code);  // NOLINT
   Error(Code code, const std::string& message);
   Error(Code code, std::string&& message);
   ~Error();
@@ -96,12 +189,16 @@ class Error {
   Error& operator=(const Error& other);
   Error& operator=(Error&& other);
   bool operator==(const Error& other) const;
+  bool operator!=(const Error& other) const;
   bool ok() const { return code_ == Code::kNone; }
 
   Code code() const { return code_; }
   const std::string& message() const { return message_; }
+  std::string& message() { return message_; }
 
   static const Error& None();
+
+  std::string ToString() const;
 
  private:
   Code code_ = Code::kNone;
@@ -113,7 +210,7 @@ std::ostream& operator<<(std::ostream& os, const Error::Code& code);
 std::ostream& operator<<(std::ostream& out, const Error& error);
 
 // A convenience function to return a single value from a function that can
-// return a value or an error.  For normal results, construct with a Value*
+// return a value or an error.  For normal results, construct with a ValueType*
 // (ErrorOr takes ownership) and the Error will be kNone with an empty message.
 // For Error results, construct with an error code and value.
 //
@@ -128,43 +225,97 @@ std::ostream& operator<<(std::ostream& out, const Error& error);
 // }
 //
 // TODO(mfoltz): Add support for type conversions.
-template <typename Value>
+template <typename ValueType>
 class ErrorOr {
  public:
-  static ErrorOr<Value> None() {
-    static ErrorOr<Value> error(Error::Code::kNone);
+  static ErrorOr<ValueType> None() {
+    static ErrorOr<ValueType> error(Error::Code::kNone);
     return error;
   }
 
-  ErrorOr(ErrorOr&& other) = default;
-  ErrorOr(const Value& value) : value_(value) {}
-  ErrorOr(Value&& value) noexcept : value_(std::move(value)) {}
-  ErrorOr(Error error) : error_(std::move(error)) {}
-  ErrorOr(Error::Code code) : error_(code) {}
+  ErrorOr(const ValueType& value) : value_(value), is_value_(true) {}  // NOLINT
+  ErrorOr(ValueType&& value) noexcept                                  // NOLINT
+      : value_(std::move(value)), is_value_(true) {}
+
+  ErrorOr(const Error& error) : error_(error), is_value_(false) {  // NOLINT
+    assert(error_.code() != Error::Code::kNone);
+  }
+  ErrorOr(Error&& error) noexcept  // NOLINT
+      : error_(std::move(error)), is_value_(false) {
+    assert(error_.code() != Error::Code::kNone);
+  }
+  ErrorOr(Error::Code code) : error_(code), is_value_(false) {  // NOLINT
+    assert(error_.code() != Error::Code::kNone);
+  }
   ErrorOr(Error::Code code, std::string message)
-      : error_(code, std::move(message)) {}
-  ~ErrorOr() = default;
+      : error_(code, std::move(message)), is_value_(false) {
+    assert(error_.code() != Error::Code::kNone);
+  }
 
-  ErrorOr& operator=(ErrorOr&& other) = default;
+  ErrorOr(ErrorOr&& other) noexcept : is_value_(other.is_value_) {
+    // NB: Both |value_| and |error_| are uninitialized memory at this point!
+    // Unlike the other constructors, the compiler will not auto-generate
+    // constructor calls for either union member because neither appeared in
+    // this constructor's initializer list.
+    if (other.is_value_) {
+      new (&value_) ValueType(std::move(other.value_));
+    } else {
+      new (&error_) Error(std::move(other.error_));
+    }
+  }
 
-  bool is_error() const { return error_.code() != Error::Code::kNone; }
-  bool is_value() const { return !is_error(); }
+  ErrorOr& operator=(ErrorOr&& other) noexcept {
+    this->~ErrorOr<ValueType>();
+    new (this) ErrorOr<ValueType>(std::move(other));
+    return *this;
+  }
+
+  ~ErrorOr() {
+    // NB: |value_| or |error_| must be explicitly destroyed since the compiler
+    // will not auto-generate the destructor calls for union members.
+    if (is_value_) {
+      value_.~ValueType();
+    } else {
+      error_.~Error();
+    }
+  }
+
+  bool is_error() const { return !is_value_; }
+  bool is_value() const { return is_value_; }
 
   // Unlike Error, we CAN provide an operator bool here, since it is
   // more obvious to callers that ErrorOr<Foo> will be true if it's Foo.
-  operator bool() const { return is_value(); }
+  operator bool() const { return is_value_; }
 
-  const Error& error() const { return error_; }
+  const Error& error() const {
+    assert(!is_value_);
+    return error_;
+  }
+  Error& error() {
+    assert(!is_value_);
+    return error_;
+  }
 
-  Error&& MoveError() { return std::move(error_); }
-
-  const Value& value() const { return value_; }
-
-  Value&& MoveValue() { return std::move(value_); }
+  const ValueType& value() const {
+    assert(is_value_);
+    return value_;
+  }
+  ValueType& value() {
+    assert(is_value_);
+    return value_;
+  }
 
  private:
-  Error error_;
-  Value value_;
+  // Only one of these is an active member, determined by |is_value_|. Since
+  // they are union'ed, they must be explicitly constructed and destroyed.
+  union {
+    ValueType value_;
+    Error error_;
+  };
+
+  // If true, |value_| is initialized and active. Otherwise, |error_| is
+  // initialized and active.
+  const bool is_value_;
 };
 
 }  // namespace openscreen

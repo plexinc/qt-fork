@@ -67,10 +67,6 @@ ContentClient::ContentClient()
 ContentClient::~ContentClient() {
 }
 
-bool ContentClient::CanSendWhileSwappedOut(const IPC::Message* message) {
-  return false;
-}
-
 base::string16 ContentClient::GetLocalizedString(int message_id) {
   return base::string16();
 }
@@ -88,10 +84,6 @@ base::StringPiece ContentClient::GetDataResource(int resource_id,
 
 base::RefCountedMemory* ContentClient::GetDataResourceBytes(int resource_id) {
   return nullptr;
-}
-
-bool ContentClient::IsDataResourceGzipped(int resource_id) {
-  return false;
 }
 
 gfx::Image& ContentClient::GetNativeImageNamed(int resource_id) {
@@ -127,8 +119,8 @@ media::MediaDrmBridgeClient* ContentClient::GetMediaDrmBridgeClient() {
 }
 #endif  // OS_ANDROID
 
-void ContentClient::BindChildProcessInterface(
-    const std::string& interface_name,
-    mojo::ScopedMessagePipeHandle* receiving_handle) {}
+void ContentClient::ExposeInterfacesToBrowser(
+    scoped_refptr<base::SequencedTaskRunner> io_task_runner,
+    mojo::BinderMap* binders) {}
 
 }  // namespace content

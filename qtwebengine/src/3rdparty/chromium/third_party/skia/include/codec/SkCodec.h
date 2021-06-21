@@ -112,6 +112,24 @@ public:
     static const char* ResultToString(Result);
 
     /**
+     * For container formats that contain both still images and image sequences,
+     * instruct the decoder how the output should be selected. (Refer to comments
+     * for each value for more details.)
+     */
+    enum class SelectionPolicy {
+        /**
+         *  If the container format contains both still images and image sequences,
+         *  SkCodec should choose one of the still images. This is the default.
+         */
+        kPreferStillImage,
+        /**
+         *  If the container format contains both still images and image sequences,
+         *  SkCodec should choose one of the image sequences for animation.
+         */
+        kPreferAnimation,
+    };
+
+    /**
      *  If this stream represents an encoded image that we know how to decode,
      *  return an SkCodec that can decode it. Otherwise return NULL.
      *
@@ -145,8 +163,10 @@ public:
      *  If NULL is returned, the stream is deleted immediately. Otherwise, the
      *  SkCodec takes ownership of it, and will delete it when done with it.
      */
-    static std::unique_ptr<SkCodec> MakeFromStream(std::unique_ptr<SkStream>, Result* = nullptr,
-                                                   SkPngChunkReader* = nullptr);
+    static std::unique_ptr<SkCodec> MakeFromStream(
+            std::unique_ptr<SkStream>, Result* = nullptr,
+            SkPngChunkReader* = nullptr,
+            SelectionPolicy selectionPolicy = SelectionPolicy::kPreferStillImage);
 
     /**
      *  If this data represents an encoded image that we know how to decode,
@@ -170,12 +190,22 @@ public:
 
     /**
      *  Return a reasonable SkImageInfo to decode into.
+     *
+     *  If the image has an ICC profile that does not map to an SkColorSpace,
+     *  the returned SkImageInfo will use SRGB.
      */
     SkImageInfo getInfo() const { return fEncodedInfo.makeImageInfo(); }
 
     SkISize dimensions() const { return {fEncodedInfo.width(), fEncodedInfo.height()}; }
     SkIRect bounds() const {
         return SkIRect::MakeWH(fEncodedInfo.width(), fEncodedInfo.height());
+    }
+
+    /**
+     * Return the ICC profile of the encoded data.
+     */
+    const skcms_ICCProfile* getICCProfile() const {
+        return this->getEncodedInfo().profile();
     }
 
     /**
@@ -324,9 +354,13 @@ public:
      *
      *         If the info contains a non-null SkColorSpace, the codec
      *         will perform the appropriate color space transformation.
-     *         If the caller passes in the same color space that was
-     *         reported by the codec, the color space transformation is
-     *         a no-op.
+     *
+     *         If the caller passes in the SkColorSpace that maps to the
+     *         ICC profile reported by getICCProfile(), the color space
+     *         transformation is a no-op.
+     *
+     *         If the caller passes a null SkColorSpace, no color space
+     *         transformation will be done.
      *
      *  If a scanline decode is in progress, scanline mode will end, requiring the client to call
      *  startScanlineDecode() in order to return to decoding scanlines.

@@ -12,9 +12,11 @@
 #include "base/compiler_specific.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
+#include "base/optional.h"
 #include "ui/native_theme/native_theme.h"
 #include "ui/views/controls/focus_ring.h"
 #include "ui/views/controls/scrollbar/scroll_bar.h"
+#include "ui/views/controls/separator.h"
 
 namespace gfx {
 class ScrollOffset;
@@ -86,17 +88,19 @@ class VIEWS_EXPORT ScrollView : public View, public ScrollBarController {
   //   called the background color comes from the theme (and changes if the
   //   theme changes).
   // . By way of setting an explicit color, i.e. SetBackgroundColor(). Use
-  //   SK_ColorTRANSPARENT if you don't want any color, but be warned this
+  //   base::nullopt if you don't want any color, but be warned this
   //   produces awful results when layers are used with subpixel rendering.
-  SkColor GetBackgroundColor() const;
-  void SetBackgroundColor(SkColor color);
+  base::Optional<SkColor> GetBackgroundColor() const;
+  void SetBackgroundColor(const base::Optional<SkColor>& color);
 
-  void SetBackgroundThemeColorId(ui::NativeTheme::ColorId color_id);
+  base::Optional<ui::NativeTheme::ColorId> GetBackgroundThemeColorId() const;
+  void SetBackgroundThemeColorId(
+      const base::Optional<ui::NativeTheme::ColorId>& color_id);
 
   // Returns the visible region of the content View.
   gfx::Rect GetVisibleRect() const;
 
-  bool GetUseColorId() const { return use_color_id_; }
+  bool GetUseColorId() const { return !!background_color_id_; }
 
   bool GetHideHorizontalScrollBar() const { return hide_horizontal_scrollbar_; }
   void SetHideHorizontalScrollBar(bool visible);
@@ -116,14 +120,15 @@ class VIEWS_EXPORT ScrollView : public View, public ScrollBarController {
   int GetScrollBarLayoutWidth() const;
   int GetScrollBarLayoutHeight() const;
 
-  // Returns the horizontal/vertical scrollbar. This may return NULL.
-  const ScrollBar* horizontal_scroll_bar() const { return horiz_sb_; }
-  const ScrollBar* vertical_scroll_bar() const { return vert_sb_; }
+  // Returns the horizontal/vertical scrollbar. This may return null.
+  ScrollBar* horizontal_scroll_bar() { return horiz_sb_.get(); }
+  const ScrollBar* horizontal_scroll_bar() const { return horiz_sb_.get(); }
+  ScrollBar* vertical_scroll_bar() { return vert_sb_.get(); }
+  const ScrollBar* vertical_scroll_bar() const { return vert_sb_.get(); }
 
-  // Customize the scrollbar design. ScrollView takes the ownership of the
-  // specified ScrollBar. |horiz_sb| and |vert_sb| cannot be NULL.
-  void SetHorizontalScrollBar(ScrollBar* horiz_sb);
-  void SetVerticalScrollBar(ScrollBar* vert_sb);
+  // Customize the scrollbar design. |horiz_sb| and |vert_sb| cannot be null.
+  ScrollBar* SetHorizontalScrollBar(std::unique_ptr<ScrollBar> horiz_sb);
+  ScrollBar* SetVerticalScrollBar(std::unique_ptr<ScrollBar> vert_sb);
 
   // Gets/Sets whether this ScrollView has a focus indicator or not.
   bool GetHasFocusIndicator() const { return draw_focus_indicator_; }
@@ -150,13 +155,8 @@ class VIEWS_EXPORT ScrollView : public View, public ScrollBarController {
 
   class Viewport;
 
-  union BackgroundColorData {
-    SkColor color;
-    ui::NativeTheme::ColorId color_id;
-  };
-
   // Forces |contents_viewport_| to have a Layer (assuming it doesn't already).
-  void EnableViewPortLayer();
+  void EnableViewportLayer();
 
   // Returns true if this or the viewport has a layer.
   bool DoesViewportOrScrollViewHaveLayer() const;
@@ -225,27 +225,29 @@ class VIEWS_EXPORT ScrollView : public View, public ScrollBarController {
   // The current contents and its viewport. |contents_| is contained in
   // |contents_viewport_|.
   View* contents_ = nullptr;
-  View* contents_viewport_;
+  View* contents_viewport_ = nullptr;
 
   // The current header and its viewport. |header_| is contained in
   // |header_viewport_|.
   View* header_ = nullptr;
-  View* header_viewport_;
+  View* header_viewport_ = nullptr;
 
   // Horizontal scrollbar.
-  ScrollBar* horiz_sb_;
+  std::unique_ptr<ScrollBar> horiz_sb_;
 
   // Vertical scrollbar.
-  ScrollBar* vert_sb_;
+  std::unique_ptr<ScrollBar> vert_sb_;
 
   // Corner view.
-  View* corner_view_;
+  std::unique_ptr<View> corner_view_;
 
   // Hidden content indicators
-  std::unique_ptr<Separator> more_content_left_;
-  std::unique_ptr<Separator> more_content_top_;
-  std::unique_ptr<Separator> more_content_right_;
-  std::unique_ptr<Separator> more_content_bottom_;
+  std::unique_ptr<Separator> more_content_left_ = std::make_unique<Separator>();
+  std::unique_ptr<Separator> more_content_top_ = std::make_unique<Separator>();
+  std::unique_ptr<Separator> more_content_right_ =
+      std::make_unique<Separator>();
+  std::unique_ptr<Separator> more_content_bottom_ =
+      std::make_unique<Separator>();
 
   // The min and max height for the bounded scroll view. These are negative
   // values if the view is not bounded.
@@ -253,9 +255,9 @@ class VIEWS_EXPORT ScrollView : public View, public ScrollBarController {
   int max_height_ = -1;
 
   // See description of SetBackgroundColor() for details.
-  BackgroundColorData background_color_data_ = {
-      ui::NativeTheme::kColorId_DialogBackground};
-  bool use_color_id_ = true;
+  base::Optional<SkColor> background_color_;
+  base::Optional<ui::NativeTheme::ColorId> background_color_id_ =
+      ui::NativeTheme::kColorId_DialogBackground;
 
   // If true, never show the horizontal scrollbar (even if the contents is wider
   // than the viewport).
@@ -315,9 +317,11 @@ class VariableRowHeightScrollHelper {
   // determined by querying the Controller for the appropriate row to scroll
   // to.
   int GetPageScrollIncrement(ScrollView* scroll_view,
-                             bool is_horizontal, bool is_positive);
+                             bool is_horizontal,
+                             bool is_positive);
   int GetLineScrollIncrement(ScrollView* scroll_view,
-                             bool is_horizontal, bool is_positive);
+                             bool is_horizontal,
+                             bool is_positive);
 
  protected:
   // Returns the row information for the row at the specified location. This

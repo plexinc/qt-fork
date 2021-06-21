@@ -17,9 +17,9 @@ BindingStateBase::BindingStateBase() = default;
 
 BindingStateBase::~BindingStateBase() = default;
 
-void BindingStateBase::AddFilter(std::unique_ptr<MessageReceiver> filter) {
+void BindingStateBase::SetFilter(std::unique_ptr<MessageFilter> filter) {
   DCHECK(endpoint_client_);
-  endpoint_client_->AddFilter(std::move(filter));
+  endpoint_client_->SetFilter(std::move(filter));
 }
 
 bool BindingStateBase::HasAssociatedInterfaces() const {
@@ -39,6 +39,15 @@ void BindingStateBase::ResumeIncomingMethodCallProcessing() {
 bool BindingStateBase::WaitForIncomingMethodCall(MojoDeadline deadline) {
   DCHECK(router_);
   return router_->WaitForIncomingMessage(deadline);
+}
+
+void BindingStateBase::PauseRemoteCallbacksUntilFlushCompletes(
+    PendingFlush flush) {
+  router_->PausePeerUntilFlushCompletes(std::move(flush));
+}
+
+void BindingStateBase::FlushAsync(AsyncFlusher flusher) {
+  router_->FlushAsync(std::move(flusher));
 }
 
 void BindingStateBase::Close() {

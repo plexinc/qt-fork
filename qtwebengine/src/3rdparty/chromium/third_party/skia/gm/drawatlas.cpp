@@ -140,8 +140,8 @@ static void draw_text_on_path(SkCanvas* canvas, const void* text, size_t length,
 
     // Compute a conservative bounds so we can cull the draw
     const SkRect fontb = SkFontPriv::GetFontBounds(font);
-    const SkScalar max = SkTMax(SkTMax(SkScalarAbs(fontb.fLeft), SkScalarAbs(fontb.fRight)),
-                                SkTMax(SkScalarAbs(fontb.fTop), SkScalarAbs(fontb.fBottom)));
+    const SkScalar max = std::max(std::max(SkScalarAbs(fontb.fLeft), SkScalarAbs(fontb.fRight)),
+                                std::max(SkScalarAbs(fontb.fTop), SkScalarAbs(fontb.fBottom)));
     const SkRect bounds = path.getBounds().makeOutset(max, max);
 
     SkAutoTArray<SkGlyphID> glyphs(count);
@@ -208,8 +208,8 @@ static void drawTextPath(SkCanvas* canvas, bool doStroke) {
     SkPath path;
     const float baseline_offset = -5;
 
-    const SkPath::Direction dirs[] = {
-        SkPath::kCW_Direction, SkPath::kCCW_Direction,
+    const SkPathDirection dirs[] = {
+        SkPathDirection::kCW, SkPathDirection::kCCW,
     };
     for (auto d : dirs) {
         path.reset();

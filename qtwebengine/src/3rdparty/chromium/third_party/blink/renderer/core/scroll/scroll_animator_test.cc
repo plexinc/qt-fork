@@ -53,8 +53,10 @@ double NowTicksInSeconds(const base::TestMockTimeTaskRunner* task_runner) {
   return task_runner->NowTicks().since_origin().InSecondsF();
 }
 
+}  // namespace
+
 class MockScrollableAreaForAnimatorTest
-    : public GarbageCollectedFinalized<MockScrollableAreaForAnimatorTest>,
+    : public GarbageCollected<MockScrollableAreaForAnimatorTest>,
       public ScrollableArea {
   USING_GARBAGE_COLLECTED_MIXIN(MockScrollableAreaForAnimatorTest);
 
@@ -72,22 +74,23 @@ class MockScrollableAreaForAnimatorTest
   MOCK_CONST_METHOD1(ScrollSize, int(ScrollbarOrientation));
   MOCK_CONST_METHOD0(IsScrollCornerVisible, bool());
   MOCK_CONST_METHOD0(ScrollCornerRect, IntRect());
-  MOCK_METHOD2(UpdateScrollOffset, void(const ScrollOffset&, ScrollType));
+  MOCK_METHOD2(UpdateScrollOffset,
+               void(const ScrollOffset&, mojom::blink::ScrollType));
   MOCK_METHOD0(ScrollControlWasSetNeedsPaintInvalidation, void());
   MOCK_CONST_METHOD0(EnclosingScrollableArea, ScrollableArea*());
   MOCK_CONST_METHOD1(VisibleContentRect, IntRect(IncludeScrollbarsInRect));
   MOCK_CONST_METHOD0(ContentsSize, IntSize());
   MOCK_CONST_METHOD0(ScrollbarsCanBeActive, bool());
-  MOCK_CONST_METHOD0(ScrollableAreaBoundingBox, IntRect());
   MOCK_METHOD0(RegisterForAnimation, void());
   MOCK_METHOD0(ScheduleAnimation, bool());
+  MOCK_CONST_METHOD0(UsedColorScheme, WebColorScheme());
 
   bool UserInputScrollable(ScrollbarOrientation) const override { return true; }
   bool ShouldPlaceVerticalScrollbarOnLeft() const override { return false; }
   IntSize ScrollOffsetInt() const override { return IntSize(); }
   int VisibleHeight() const override { return 768; }
   int VisibleWidth() const override { return 1024; }
-  CompositorElementId GetCompositorElementId() const override {
+  CompositorElementId GetScrollElementId() const override {
     return CompositorElementId();
   }
   bool ScrollAnimatorEnabled() const override {
@@ -112,8 +115,9 @@ class MockScrollableAreaForAnimatorTest
   }
 
   void SetScrollOffset(const ScrollOffset& offset,
-                       ScrollType type,
-                       ScrollBehavior behavior = kScrollBehaviorInstant,
+                       mojom::blink::ScrollType type,
+                       mojom::blink::ScrollBehavior behavior =
+                           mojom::blink::ScrollBehavior::kInstant,
                        ScrollCallback on_finish = ScrollCallback()) override {
     if (animator)
       animator->SetCurrentOffset(offset);
@@ -130,10 +134,10 @@ class MockScrollableAreaForAnimatorTest
   }
 
   ScrollbarTheme& GetPageScrollbarTheme() const override {
-    return ScrollbarTheme::DeprecatedStaticGetTheme();
+    return ScrollbarTheme::GetTheme();
   }
 
-  void Trace(blink::Visitor* visitor) override {
+  void Trace(Visitor* visitor) override {
     visitor->Trace(animator);
     ScrollableArea::Trace(visitor);
   }
@@ -175,8 +179,6 @@ class TestScrollAnimator : public ScrollAnimator {
  private:
   bool should_send_to_compositor_ = false;
 };
-
-}  // namespace
 
 static void Reset(ScrollAnimator& scroll_animator) {
   scroll_animator.ScrollToOffsetWithoutAnimation(ScrollOffset());
@@ -850,7 +852,8 @@ TEST(ScrollAnimatorTest, MainThreadAnimationTargetAdjustment) {
 
   // Adjustment
   ScrollOffset new_offset = offset + ScrollOffset(10, -10);
-  animator->AdjustAnimationAndSetScrollOffset(new_offset, kAnchoringScroll);
+  animator->AdjustAnimationAndSetScrollOffset(
+      new_offset, mojom::blink::ScrollType::kAnchoring);
   EXPECT_EQ(ScrollOffset(110, 90), animator->DesiredTargetOffset());
 
   // Adjusting after finished animation should do nothing.
@@ -861,7 +864,8 @@ TEST(ScrollAnimatorTest, MainThreadAnimationTargetAdjustment) {
       animator->RunStateForTesting(),
       ScrollAnimatorCompositorCoordinator::RunState::kPostAnimationCleanup);
   new_offset = animator->CurrentOffset() + ScrollOffset(10, -10);
-  animator->AdjustAnimationAndSetScrollOffset(new_offset, kAnchoringScroll);
+  animator->AdjustAnimationAndSetScrollOffset(
+      new_offset, mojom::blink::ScrollType::kAnchoring);
   EXPECT_EQ(
       animator->RunStateForTesting(),
       ScrollAnimatorCompositorCoordinator::RunState::kPostAnimationCleanup);

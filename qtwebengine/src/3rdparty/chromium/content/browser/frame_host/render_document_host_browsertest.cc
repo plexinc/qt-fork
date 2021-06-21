@@ -6,12 +6,14 @@
 #include "base/test/scoped_feature_list.h"
 #include "content/browser/frame_host/frame_tree_node.h"
 #include "content/browser/web_contents/web_contents_impl.h"
+#include "content/common/content_navigation_policy.h"
 #include "content/public/common/content_features.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
 #include "content/public/test/test_utils.h"
 #include "content/shell/browser/shell.h"
+#include "content/test/render_document_feature.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 
@@ -23,9 +25,11 @@ namespace {
 class RenderDocumentHostBrowserTest : public ContentBrowserTest {
  protected:
   void SetUpCommandLine(base::CommandLine* command_line) override {
-    feature_list_.InitWithFeatures({features::kRenderDocumentForMainFrame,
-                                    features::kRenderDocumentForSubframe},
-                                   {});
+    // RenderDocumentHost only works when RenderDocument is enabled at at least
+    // the sub-frame level.
+    InitAndEnableRenderDocumentFeature(
+        &feature_list_,
+        GetRenderDocumentLevelName(RenderDocumentLevel::kSubframe));
   }
 
   void SetUpOnMainThread() override {
@@ -55,33 +59,32 @@ IN_PROC_BROWSER_TEST_F(RenderDocumentHostBrowserTest, DISABLED_BasicMainFrame) {
   GURL url_3(embedded_test_server()->GetURL("/title3.html"));
 
   // 1) Navigate to A1.
-  NavigateToURL(shell(), url_1);
+  EXPECT_TRUE(NavigateToURL(shell(), url_1));
   RenderFrameHostImpl* rfh_1 = current_main_frame();
   RenderFrameDeletedObserver delete_rfh_1(rfh_1);
 
   // 2) Navigate to A2.
-  NavigateToURL(shell(), url_2);
+  EXPECT_TRUE(NavigateToURL(shell(), url_2));
   RenderFrameHostImpl* rfh_2 = current_main_frame();
   EXPECT_TRUE(delete_rfh_1.deleted());
   EXPECT_NE(rfh_1, rfh_2);
   RenderFrameDeletedObserver delete_rfh_2(rfh_2);
 
   // 3) Navigate to A3.
-  NavigateToURL(shell(), url_3);
+  EXPECT_TRUE(NavigateToURL(shell(), url_3));
   EXPECT_TRUE(delete_rfh_2.deleted());
 }
 
 // A new RenderFrameHost must be used after a same process subframe navigation.
 // This test two cases, when the RenderFrame is not a local root and when it is.
-// TODO(arthursonzogni): Implement RenderDocument and enable this test.
-IN_PROC_BROWSER_TEST_F(RenderDocumentHostBrowserTest, DISABLED_BasicSubframe) {
+IN_PROC_BROWSER_TEST_F(RenderDocumentHostBrowserTest, BasicSubframe) {
   GURL url(embedded_test_server()->GetURL("a.com", "/page_with_iframe.html"));
   GURL url_subframe_2(embedded_test_server()->GetURL("a.com", "/title2.html"));
   GURL url_subframe_3(embedded_test_server()->GetURL("b.com", "/title1.html"));
   GURL url_subframe_4(embedded_test_server()->GetURL("b.com", "/title2.html"));
 
   // 1) Setup a main frame with a same-process subframe
-  NavigateToURL(shell(), url);
+  EXPECT_TRUE(NavigateToURL(shell(), url));
   FrameTreeNode* subframe = current_main_frame()->child_at(0);
   RenderFrameHostImpl* child_rfh_1 = subframe->current_frame_host();
   RenderFrameDeletedObserver delete_child_rfh_1(child_rfh_1);
@@ -114,7 +117,7 @@ IN_PROC_BROWSER_TEST_F(RenderDocumentHostBrowserTest, PopupScriptableNavigate) {
   GURL url_2(embedded_test_server()->GetURL("/title2.html"));
 
   // 1) Navigate and open a new window.
-  NavigateToURL(shell(), url_1);
+  EXPECT_TRUE(NavigateToURL(shell(), url_1));
   ShellAddedObserver shell_added_observer;
   EXPECT_TRUE(ExecJs(shell(), JsReplace("w = window.open($1)", url_1)));
   WebContents* new_contents = shell_added_observer.GetShell()->web_contents();
@@ -152,15 +155,14 @@ IN_PROC_BROWSER_TEST_F(RenderDocumentHostBrowserTest, PopupScriptableNavigate) {
 
 // Two frames are scriptable with each other. Test it works appropriately after
 // one of them doing a same-origin navigation.
-// TODO(arthursonzogni): Implement RenderDocument and enable this test.
 IN_PROC_BROWSER_TEST_F(RenderDocumentHostBrowserTest,
-                       DISABLED_SubframeScriptableNavigate) {
+                       SubframeScriptableNavigate) {
   GURL url_1(embedded_test_server()->GetURL("/page_with_iframe.html"));
   GURL url_2(embedded_test_server()->GetURL("/title2.html"));
   GURL url_3(embedded_test_server()->GetURL("/title3.html"));
 
   // 1) Setup a main frame with an subframe.
-  NavigateToURL(shell(), url_1);
+  EXPECT_TRUE(NavigateToURL(shell(), url_1));
   RenderFrameHostImpl* main_rfh = current_main_frame();
   RenderFrameHostImpl* child_rfh_1 =
       main_rfh->child_at(0)->current_frame_host();
@@ -203,7 +205,7 @@ IN_PROC_BROWSER_TEST_F(RenderDocumentHostBrowserTest, InjectedFunction) {
   GURL url(embedded_test_server()->GetURL("/title1.html"));
 
   // 1) Navigate and open a new window with an injected function.
-  NavigateToURL(shell(), url);
+  EXPECT_TRUE(NavigateToURL(shell(), url));
   ShellAddedObserver shell_added_observer;
   EXPECT_TRUE(ExecJs(
       shell(), JsReplace("w = window.open($1);"

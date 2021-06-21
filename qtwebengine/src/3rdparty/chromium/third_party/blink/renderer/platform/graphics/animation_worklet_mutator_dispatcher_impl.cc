@@ -17,6 +17,7 @@
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
 #include "third_party/blink/renderer/platform/scheduler/public/thread.h"
+#include "third_party/blink/renderer/platform/scheduler/public/thread_scheduler.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 
 namespace blink {
@@ -68,9 +69,12 @@ AnimationWorkletMutatorDispatcherImpl::AnimationWorkletMutatorDispatcherImpl(
     bool main_thread_task_runner)
     : client_(nullptr), outputs_(OutputVectorRef::Create()) {
   // By default web tests run without threaded compositing. See
-  // https://crbug.com/770028 For these situations we run on the Main thread.
+  // https://crbug.com/770028. If threaded compositing is disabled or
+  // |main_thread_task_runner| is true we run on the main thread's compositor
+  // task runner otherwise we run tasks on the compositor thread's default
+  // task runner.
   host_queue_ = main_thread_task_runner || !Thread::CompositorThread()
-                    ? Thread::MainThread()->GetTaskRunner()
+                    ? Thread::MainThread()->Scheduler()->CompositorTaskRunner()
                     : Thread::CompositorThread()->GetTaskRunner();
   tick_clock_ = std::make_unique<base::DefaultTickClock>();
 }
@@ -195,9 +199,9 @@ void AnimationWorkletMutatorDispatcherImpl::MutateAsynchronouslyInternal(
   DCHECK(host_queue_->BelongsToCurrentThread());
   on_async_mutation_complete_ = std::move(done_callback);
   int next_async_mutation_id = GetNextAsyncMutationId();
-  TRACE_EVENT_ASYNC_BEGIN0("cc",
-                           "AnimationWorkletMutatorDispatcherImpl::MutateAsync",
-                           next_async_mutation_id);
+  TRACE_EVENT_NESTABLE_ASYNC_BEGIN0(
+      "cc", "AnimationWorkletMutatorDispatcherImpl::MutateAsync",
+      TRACE_ID_LOCAL(next_async_mutation_id));
 
   CrossThreadOnceClosure on_done = CrossThreadBindOnce(
       [](scoped_refptr<base::SingleThreadTaskRunner> host_queue,
@@ -235,9 +239,9 @@ void AnimationWorkletMutatorDispatcherImpl::AsyncMutationsDone(
   }
   // The trace event deos not include queuing time. It covers the interval
   // between dispatching the request and retrieving the results.
-  TRACE_EVENT_ASYNC_END0("cc",
-                         "AnimationWorkletMutatorDispatcherImpl::MutateAsync",
-                         async_mutation_id);
+  TRACE_EVENT_NESTABLE_ASYNC_END0(
+      "cc", "AnimationWorkletMutatorDispatcherImpl::MutateAsync",
+      TRACE_ID_LOCAL(async_mutation_id));
   // The Async mutation duration is the total time between request and
   // completion, and thus includes queuing time.
   UMA_HISTOGRAM_CUSTOM_MICROSECONDS_TIMES(

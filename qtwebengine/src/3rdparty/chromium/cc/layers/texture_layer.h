@@ -137,13 +137,6 @@ class CC_EXPORT TextureLayer : public Layer, SharedBitmapIdRegistrar {
   // Sets a UV transform to be used at draw time. Defaults to (0, 0) and (1, 1).
   void SetUV(const gfx::PointF& top_left, const gfx::PointF& bottom_right);
 
-  // Sets an opacity value per vertex. It will be multiplied by the layer
-  // opacity value.
-  void SetVertexOpacity(float bottom_left,
-                        float top_left,
-                        float top_right,
-                        float bottom_right);
-
   // Sets whether the alpha channel is premultiplied or unpremultiplied.
   // Defaults to true.
   void SetPremultipliedAlpha(bool premultiplied_alpha);
@@ -151,6 +144,10 @@ class CC_EXPORT TextureLayer : public Layer, SharedBitmapIdRegistrar {
   // Sets whether the texture should be blended with the background color
   // at draw time. Defaults to false.
   void SetBlendBackgroundColor(bool blend);
+
+  // Sets whether we need to ensure that Texture is opaque before using it.
+  // This will blend texture with black color. Defaults to false.
+  void SetForceTextureToOpaque(bool opaque);
 
   // Code path for plugins which supply their own mailbox.
   void SetTransferableResource(
@@ -204,9 +201,9 @@ class CC_EXPORT TextureLayer : public Layer, SharedBitmapIdRegistrar {
   gfx::PointF uv_top_left_ = gfx::PointF();
   gfx::PointF uv_bottom_right_ = gfx::PointF(1.f, 1.f);
   // [bottom left, top left, top right, bottom right]
-  float vertex_opacity_[4] = {1.f, 1.f, 1.f, 1.f};
   bool premultiplied_alpha_ = true;
   bool blend_background_color_ = false;
+  bool force_texture_to_opaque_ = false;
 
   std::unique_ptr<TransferableResourceHolder::MainThreadReference> holder_ref_;
   bool needs_set_resource_ = false;

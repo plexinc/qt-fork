@@ -31,6 +31,8 @@ static blink::WebSourceBufferClient::ParseWarning ParseWarningToBlink(
     CHROMIUM_PARSE_WARNING_TO_BLINK_ENUM_CASE(
         kKeyframeTimeGreaterThanDependant);
     CHROMIUM_PARSE_WARNING_TO_BLINK_ENUM_CASE(kMuxedSequenceMode);
+    CHROMIUM_PARSE_WARNING_TO_BLINK_ENUM_CASE(
+        kGroupEndTimestampDecreaseWithinMediaSegment);
   }
 
   NOTREACHED();
@@ -71,8 +73,8 @@ WebSourceBufferImpl::WebSourceBufferImpl(const std::string& id,
       id, base::Bind(&WebSourceBufferImpl::InitSegmentReceived,
                      base::Unretained(this)));
   demuxer_->SetParseWarningCallback(
-      id, base::Bind(&WebSourceBufferImpl::NotifyParseWarning,
-                     base::Unretained(this)));
+      id, base::BindRepeating(&WebSourceBufferImpl::NotifyParseWarning,
+                              base::Unretained(this)));
 }
 
 WebSourceBufferImpl::~WebSourceBufferImpl() = default;

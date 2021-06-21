@@ -12,9 +12,6 @@
 #include "extensions/renderer/script_context.h"
 #include "extensions/renderer/worker_thread_util.h"
 #include "third_party/blink/public/web/web_local_frame.h"
-#include "third_party/blink/public/web/web_scoped_user_gesture.h"
-#include "third_party/blink/public/web/web_user_gesture_indicator.h"
-#include "third_party/blink/public/web/web_user_gesture_token.h"
 
 namespace extensions {
 
@@ -30,10 +27,7 @@ constexpr char ExtensionInteractionData::kPerContextDataKey[];
 
 // ExtensionInteractionProvider::Token -----------------------------------------
 ExtensionInteractionProvider::Token::Token(bool for_worker)
-    : is_for_service_worker_(for_worker) {
-  if (!is_for_service_worker_)
-    frame_token_ = blink::WebUserGestureIndicator::CurrentUserGestureToken();
-}
+    : is_for_service_worker_(for_worker) {}
 ExtensionInteractionProvider::Token::~Token() {}
 
 // ExtensionInteractionProvider::Scope -----------------------------------------
@@ -54,34 +48,19 @@ ExtensionInteractionProvider::Scope::ForWorker(
 
 // static.
 std::unique_ptr<ExtensionInteractionProvider::Scope>
-ExtensionInteractionProvider::Scope::ForFrame(blink::WebLocalFrame* web_frame) {
-  auto scope = base::WrapUnique(new Scope());
-  scope->main_thread_gesture_ =
-      std::make_unique<blink::WebScopedUserGesture>(web_frame);
-  return scope;
-}
-
-// static.
-std::unique_ptr<ExtensionInteractionProvider::Scope>
 ExtensionInteractionProvider::Scope::ForToken(
     v8::Local<v8::Context> v8_context,
     std::unique_ptr<InteractionProvider::Token> token) {
   Token* token_impl = static_cast<Token*>(token.get());
-  if (!token_impl->is_for_service_worker() &&
-      base::FeatureList::IsEnabled(features::kUserActivationV2)) {
+  if (!token_impl->is_for_service_worker()) {
     // UserActivationV2 replaces the concept of (scoped) tokens with a
     // frame-wide state, hence skips token forwarding.
     return nullptr;
   }
 
   auto scope = base::WrapUnique(new Scope());
-  if (token_impl->is_for_service_worker()) {
-    scope->worker_thread_interaction_ =
-        std::make_unique<ScopedWorkerInteraction>(v8_context, true);
-  } else {
-    scope->main_thread_gesture_ = std::make_unique<blink::WebScopedUserGesture>(
-        token_impl->web_frame_token());
-  }
+  scope->worker_thread_interaction_ =
+      std::make_unique<ScopedWorkerInteraction>(v8_context, true);
   return scope;
 }
 
@@ -139,8 +118,9 @@ bool ExtensionInteractionProvider::HasActiveExtensionInteraction(
   // RenderFrame based context:
   ScriptContext* script_context =
       GetScriptContextFromV8ContextChecked(v8_context);
-  return blink::WebUserGestureIndicator::IsProcessingUserGesture(
-      script_context->web_frame());
+  if (!script_context->web_frame())
+    return false;
+  return script_context->web_frame()->HasTransientUserActivation();
 }
 
 std::unique_ptr<InteractionProvider::Token>

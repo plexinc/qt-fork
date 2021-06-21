@@ -5,6 +5,7 @@
 # for py2/py3 compatibility
 from __future__ import print_function
 
+import datetime
 import json
 import os
 import platform
@@ -92,7 +93,7 @@ class SimpleProgressIndicator(ProgressIndicator):
         print(result.output.stdout.strip())
       print("Command: %s" % result.cmd.to_string())
       if result.output.HasCrashed():
-        print("exit code: %d" % result.output.exit_code)
+        print("exit code: %s" % result.output.exit_code_string)
         print("--- CRASHED ---")
         crashed += 1
       if result.output.HasTimedOut():
@@ -151,12 +152,19 @@ class VerboseProgressIndicator(SimpleProgressIndicator):
       except:
         pass
 
+  def _ensure_delay(self, delay):
+    return time.time() - self._last_printed_time > delay
+
   def _on_heartbeat(self):
-    if time.time() - self._last_printed_time > 30:
+    if self._ensure_delay(30):
       # Print something every 30 seconds to not get killed by an output
       # timeout.
       self._print('Still working...')
       self._print_processes_linux()
+
+  def _on_event(self, event):
+    self._print(event)
+    self._print_processes_linux()
 
 
 class CIProgressIndicator(VerboseProgressIndicator):
@@ -165,6 +173,16 @@ class CIProgressIndicator(VerboseProgressIndicator):
     if self.options.ci_test_completion:
       with open(self.options.ci_test_completion, "a") as f:
         f.write(self._message(test, result) + "\n")
+    self._output_feedback()
+
+  def _output_feedback(self):
+    """Reduced the verbosity leads to getting killed by an ouput timeout.
+    We ensure output every minute.
+    """
+    if self._ensure_delay(60):
+      dt = time.time()
+      st = datetime.datetime.fromtimestamp(dt).strftime('%Y-%m-%d %H:%M:%S')
+      self._print(st)
 
 
 class DotsProgressIndicator(SimpleProgressIndicator):
@@ -229,7 +247,7 @@ class CompactProgressIndicator(ProgressIndicator):
         print(self._templates['stderr'] % stderr)
       print("Command: %s" % result.cmd.to_string(relative=True))
       if output.HasCrashed():
-        print("exit code: %d" % output.exit_code)
+        print("exit code: %s" % output.exit_code_string)
         print("--- CRASHED ---")
       if output.HasTimedOut():
         print("--- TIMEOUT ---")
@@ -250,7 +268,7 @@ class CompactProgressIndicator(ProgressIndicator):
       'progress': progress,
       'failed': self._failed,
       'test': name,
-      'mins': int(elapsed) / 60,
+      'mins': int(elapsed) // 60,
       'secs': int(elapsed) % 60
     }
     status = self._truncate(status, 78)
@@ -299,7 +317,7 @@ class MonochromeProgressIndicator(CompactProgressIndicator):
 
 
 class JsonTestProgressIndicator(ProgressIndicator):
-  def __init__(self, framework_name, json_test_results, arch, mode):
+  def __init__(self, framework_name, arch, mode):
     super(JsonTestProgressIndicator, self).__init__()
     # We want to drop stdout/err for all passed tests on the first try, but we
     # need to get outputs for all runs after the first one. To accommodate that,
@@ -308,7 +326,6 @@ class JsonTestProgressIndicator(ProgressIndicator):
     self._requirement = base.DROP_PASS_STDOUT
 
     self.framework_name = framework_name
-    self.json_test_results = json_test_results
     self.arch = arch
     self.mode = mode
     self.results = []
@@ -354,9 +371,9 @@ class JsonTestProgressIndicator(ProgressIndicator):
 
   def finished(self):
     complete_results = []
-    if os.path.exists(self.json_test_results):
-      with open(self.json_test_results, "r") as f:
-        # Buildbot might start out with an empty file.
+    if os.path.exists(self.options.json_test_results):
+      with open(self.options.json_test_results, "r") as f:
+        # On bots we might start out with an empty file.
         complete_results = json.loads(f.read() or "[]")
 
     duration_mean = None
@@ -368,15 +385,8 @@ class JsonTestProgressIndicator(ProgressIndicator):
 
     # Sort tests by duration.
     self.tests.sort(key=lambda __duration_cmd: __duration_cmd[1], reverse=True)
-    slowest_tests = [
-      {
-        "name": str(test),
-        "flags": cmd.args,
-        "command": cmd.to_string(relative=True),
-        "duration": duration,
-        "marked_slow": test.is_slow,
-      } for (test, duration, cmd) in self.tests[:20]
-    ]
+    cutoff = self.options.slow_tests_cutoff
+    slowest_tests = self._test_records(self.tests[:cutoff])
 
     complete_results.append({
       "arch": self.arch,
@@ -387,5 +397,16 @@ class JsonTestProgressIndicator(ProgressIndicator):
       "test_total": len(self.tests),
     })
 
-    with open(self.json_test_results, "w") as f:
+    with open(self.options.json_test_results, "w") as f:
       f.write(json.dumps(complete_results))
+
+  def _test_records(self, tests):
+    return [
+      {
+        "name": str(test),
+        "flags": cmd.args,
+        "command": cmd.to_string(relative=True),
+        "duration": duration,
+        "marked_slow": test.is_slow,
+      } for (test, duration, cmd) in tests
+    ]

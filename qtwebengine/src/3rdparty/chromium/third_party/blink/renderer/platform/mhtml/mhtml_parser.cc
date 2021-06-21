@@ -91,7 +91,7 @@ void QuotedPrintableDecode(const char* data,
 
 // This class is a limited MIME parser used to parse the MIME headers of MHTML
 // files.
-class MIMEHeader : public GarbageCollectedFinalized<MIMEHeader> {
+class MIMEHeader final : public GarbageCollected<MIMEHeader> {
  public:
   MIMEHeader();
 
@@ -124,7 +124,7 @@ class MIMEHeader : public GarbageCollectedFinalized<MIMEHeader> {
   String EndOfPartBoundary() const { return end_of_part_boundary_; }
   String EndOfDocumentBoundary() const { return end_of_document_boundary_; }
 
-  void Trace(blink::Visitor* visitor) {}
+  void Trace(Visitor* visitor) {}
 
  private:
   static Encoding ParseContentTransferEncoding(const String&);
@@ -234,7 +234,7 @@ MIMEHeader* MIMEHeader::ParseHeader(SharedBufferChunkReader* buffer) {
 
 MIMEHeader::Encoding MIMEHeader::ParseContentTransferEncoding(
     const String& text) {
-  String encoding = text.StripWhiteSpace().DeprecatedLower();
+  String encoding = text.StripWhiteSpace().LowerASCII();
   if (encoding == "base64")
     return Encoding::kBase64;
   if (encoding == "quoted-printable")

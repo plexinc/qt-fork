@@ -10,7 +10,6 @@
 #include "net/third_party/quiche/src/quic/core/quic_utils.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_text_utils.h"
 
 namespace quic {
 
@@ -23,12 +22,13 @@ QuicClientBase::QuicClientBase(
     QuicConnectionHelperInterface* helper,
     QuicAlarmFactory* alarm_factory,
     std::unique_ptr<NetworkHelper> network_helper,
-    std::unique_ptr<ProofVerifier> proof_verifier)
+    std::unique_ptr<ProofVerifier> proof_verifier,
+    std::unique_ptr<SessionCache> session_cache)
     : server_id_(server_id),
       initialized_(false),
       local_port_(0),
       config_(config),
-      crypto_config_(std::move(proof_verifier)),
+      crypto_config_(std::move(proof_verifier), std::move(session_cache)),
       helper_(helper),
       alarm_factory_(alarm_factory),
       supported_versions_(supported_versions),
@@ -36,7 +36,8 @@ QuicClientBase::QuicClientBase(
       num_sent_client_hellos_(0),
       connection_error_(QUIC_NO_ERROR),
       connected_or_attempting_connect_(false),
-      network_helper_(std::move(network_helper)) {}
+      network_helper_(std::move(network_helper)),
+      connection_debug_visitor_(nullptr) {}
 
 QuicClientBase::~QuicClientBase() = default;
 
@@ -71,19 +72,20 @@ bool QuicClientBase::Initialize() {
 bool QuicClientBase::Connect() {
   // Attempt multiple connects until the maximum number of client hellos have
   // been sent.
+  int num_attempts = 0;
   while (!connected() &&
-         GetNumSentClientHellos() <= QuicCryptoClientStream::kMaxClientHellos) {
+         num_attempts <= QuicCryptoClientStream::kMaxClientHellos) {
     StartConnect();
     while (EncryptionBeingEstablished()) {
       WaitForEvents();
     }
     ParsedQuicVersion version = UnsupportedQuicVersion();
-    if (session() != nullptr &&
-        !CanReconnectWithDifferentVersion(&version)) {
+    if (session() != nullptr && !CanReconnectWithDifferentVersion(&version)) {
       // We've successfully created a session but we're not connected, and we
       // cannot reconnect with a different version.  Give up trying.
       break;
     }
+    num_attempts++;
   }
   return session()->connection()->connected();
 }
@@ -114,6 +116,9 @@ void QuicClientBase::StartConnect() {
                          can_reconnect_with_different_version
                              ? ParsedQuicVersionVector{mutual_version}
                              : supported_versions()));
+  if (connection_debug_visitor_ != nullptr) {
+    session()->connection()->set_debug_visitor(connection_debug_visitor_);
+  }
   session()->connection()->set_client_connection_id(GetClientConnectionId());
   if (initial_max_packet_length_ != 0) {
     session()->connection()->SetMaxPacketLength(initial_max_packet_length_);
@@ -122,6 +127,10 @@ void QuicClientBase::StartConnect() {
   // session.
   set_writer(writer);
   InitializeSession();
+  if (can_reconnect_with_different_version) {
+    // This is a reconnect using server supported |mutual_version|.
+    session()->connection()->SetVersionNegotiated();
+  }
   set_connected_or_attempting_connect(true);
 }
 
@@ -227,7 +236,7 @@ void QuicClientBase::WaitForStreamToClose(QuicStreamId id) {
 bool QuicClientBase::WaitForCryptoHandshakeConfirmed() {
   DCHECK(connected());
 
-  while (connected() && !session_->IsCryptoHandshakeConfirmed()) {
+  while (connected() && !session_->OneRttKeysAvailable()) {
     WaitForEvents();
   }
 

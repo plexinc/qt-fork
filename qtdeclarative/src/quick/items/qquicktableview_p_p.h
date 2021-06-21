@@ -90,7 +90,7 @@ private:
     Q_DECLARE_PRIVATE(QQuickTableSectionSizeProvider)
 };
 
-class Q_QML_AUTOTEST_EXPORT QQuickTableViewPrivate : public QQuickFlickablePrivate
+class Q_QUICK_PRIVATE_EXPORT QQuickTableViewPrivate : public QQuickFlickablePrivate
 {
     Q_DECLARE_PUBLIC(QQuickTableView)
 
@@ -211,7 +211,9 @@ public:
         ViewportOnly = 0x2,
         CalculateNewTopLeftRow = 0x4,
         CalculateNewTopLeftColumn = 0x8,
-        All = 0x10,
+        CalculateNewContentWidth = 0x10,
+        CalculateNewContentHeight = 0x20,
+        All = 0x40,
     };
     Q_DECLARE_FLAGS(RebuildOptions, RebuildOption)
 
@@ -276,6 +278,10 @@ public:
     bool inSetLocalViewportPos = false;
     bool inSyncViewportPosRecursive = false;
     bool inUpdateContentSize = false;
+
+    // isTransposed is currently only used by HeaderView.
+    // Consider making it public.
+    bool isTransposed = false;
 
     QJSValue rowHeightProvider;
     QJSValue columnWidthProvider;
@@ -351,7 +357,8 @@ public:
 
     void updateContentWidth();
     void updateContentHeight();
-    void updateAverageEdgeSize();
+    void updateAverageColumnWidth();
+    void updateAverageRowHeight();
     RebuildOptions checkForVisibilityChanges();
     void forceLayout();
 
@@ -403,11 +410,13 @@ public:
     void itemReusedCallback(int modelIndex, QObject *object);
     void modelUpdated(const QQmlChangeSet &changeSet, bool reset);
 
-    inline void syncWithPendingChanges();
-    inline void syncDelegate();
-    inline void syncModel();
+    virtual void syncWithPendingChanges();
+    virtual void syncDelegate();
+    virtual QVariant modelImpl() const;
+    virtual void setModelImpl(const QVariant &newModel);
+    virtual void syncModel();
     inline void syncRebuildOptions();
-    inline void syncSyncView();
+    virtual void syncSyncView();
 
     void connectToModel();
     void disconnectFromModel();
@@ -424,6 +433,7 @@ public:
     void scheduleRebuildIfFastFlick();
     void setLocalViewportX(qreal contentX);
     void setLocalViewportY(qreal contentY);
+    void syncViewportRect();
     void syncViewportPosRecursive();
 
     void fetchMoreData();
@@ -451,6 +461,8 @@ public:
 
     QPoint cell;
 };
+
+Q_DECLARE_OPERATORS_FOR_FLAGS(QQuickTableViewPrivate::RebuildOptions)
 
 QT_END_NAMESPACE
 

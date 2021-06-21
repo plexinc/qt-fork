@@ -44,8 +44,9 @@ class Metrics {
     GET_SCRIPTS_UNPARSABLE = 18,
     NO_INITIAL_SCRIPTS = 19,
     DFM_INSTALL_FAILED = 20,
+    DOMAIN_CHANGE_DURING_BROWSE_MODE = 21,
 
-    kMaxValue = DFM_INSTALL_FAILED
+    kMaxValue = DOMAIN_CHANGE_DURING_BROWSE_MODE
   };
 
   // The different ways that autofill assistant can stop.
@@ -100,10 +101,50 @@ class Metrics {
     kMaxValue = NOTCHANGED_FAILURE
   };
 
+  // Whether a billing postal code was required and whether the user ultimately
+  // succeeded or not.
+  //
+  // This enum is used in histograms, do not remove/renumber entries. Only add
+  // at the end and update kMaxValue. Also remember to update the
+  // AutofillAssistantPaymentRequestMandatoryPostalCode enum listing
+  // in tools/metrics/histograms/enums.xml.
+  enum class PaymentRequestMandatoryPostalCode {
+    REQUIRED_INITIALLY_WRONG_SUCCESS = 0,
+    REQUIRED_INITIALLY_WRONG_FAILURE = 1,
+    REQUIRED_INITIALLY_RIGHT_SUCCESS = 2,
+    REQUIRED_INITIALLY_RIGHT_FAILURE = 3,
+    NOT_REQUIRED = 4,
+
+    kMaxValue = NOT_REQUIRED
+  };
+
+  // The different ways in which DFM can be installed.
+  //
+  // GENERATED_JAVA_ENUM_PACKAGE: (
+  // org.chromium.chrome.browser.autofill_assistant.metrics)
+  // GENERATED_JAVA_CLASS_NAME_OVERRIDE: FeatureModuleInstallation
+  //
+  // This enum is used in histograms, do not remove/renumber entries. Only add
+  // at the end and update kMaxValue. Also remember to update the
+  // AutofillAssistantFeatureModuleInstallation enum listing in
+  // tools/metrics/histograms/enums.xml.
+  enum class FeatureModuleInstallation {
+    DFM_BACKGROUND_INSTALLATION_REQUESTED = 0,
+    DFM_FOREGROUND_INSTALLATION_SUCCEEDED = 1,
+    DFM_FOREGROUND_INSTALLATION_FAILED = 2,
+    DFM_ALREADY_INSTALLED = 3,
+
+    kMaxValue = DFM_ALREADY_INSTALLED
+  };
+
   static void RecordDropOut(DropOutReason reason);
   static void RecordPaymentRequestPrefilledSuccess(bool initially_complete,
                                                    bool success);
   static void RecordPaymentRequestAutofillChanged(bool changed, bool success);
+  static void RecordPaymentRequestFirstNameOnly(bool first_name_only);
+  static void RecordPaymentRequestMandatoryPostalCode(bool required,
+                                                      bool initially_right,
+                                                      bool success);
 
   // Intended for debugging: writes string representation of |reason| to |out|.
   friend std::ostream& operator<<(std::ostream& out,
@@ -177,6 +218,9 @@ class Metrics {
         break;
       case DropOutReason::DFM_INSTALL_FAILED:
         out << "DFM_INSTALL_FAILED";
+        break;
+      case DropOutReason::DOMAIN_CHANGE_DURING_BROWSE_MODE:
+        out << "DOMAIN_CHANGE_DURING_BROWSE_MODE";
         break;
         // Do not add default case to force compilation error for new values.
     }

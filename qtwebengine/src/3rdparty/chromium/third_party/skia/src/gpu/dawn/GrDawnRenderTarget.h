@@ -5,29 +5,22 @@
  * found in the LICENSE file.
  */
 
-
 #ifndef GrDawnRenderTarget_DEFINED
 #define GrDawnRenderTarget_DEFINED
 
 #include "include/gpu/dawn/GrDawnTypes.h"
-#include "include/gpu/GrRenderTarget.h"
+#include "src/gpu/GrRenderTarget.h"
 
 class GrDawnGpu;
 
 class GrDawnRenderTarget: public GrRenderTarget {
 public:
-    static sk_sp<GrDawnRenderTarget> MakeWrapped(GrDawnGpu*, const GrSurfaceDesc&, int sampleCnt,
-                                                 const GrDawnImageInfo&);
+    static sk_sp<GrDawnRenderTarget> MakeWrapped(GrDawnGpu*,
+                                                 SkISize dimensions,
+                                                 int sampleCnt,
+                                                 const GrDawnRenderTargetInfo&);
 
     ~GrDawnRenderTarget() override;
-
-    // override of GrRenderTarget
-    ResolveType getResolveType() const override {
-        if (this->numSamples() > 1) {
-            return kCanResolve_ResolveType;
-        }
-        return kAutoResolves_ResolveType;
-    }
 
     bool canAttemptStencilAttachment() const override {
         return true;
@@ -35,33 +28,23 @@ public:
 
     GrBackendRenderTarget getBackendRenderTarget() const override;
     GrBackendFormat backendFormat() const override;
+    wgpu::TextureView textureView() const { return fInfo.fTextureView; }
 
 protected:
     GrDawnRenderTarget(GrDawnGpu* gpu,
-                       const GrSurfaceDesc& desc,
+                       SkISize dimensions,
                        int sampleCnt,
-                       const GrDawnImageInfo& info,
-                       GrBackendObjectOwnership);
-
-    GrDawnGpu* getDawnGpu() const;
+                       const GrDawnRenderTargetInfo& info);
 
     void onAbandon() override;
     void onRelease() override;
     void onSetRelease(sk_sp<GrRefCntedCallback> releaseHelper) override {}
 
     // This accounts for the texture's memory and any MSAA renderbuffer's memory.
-    size_t onGpuMemorySize() const override {
-        // The plus 1 is to account for the resolve texture or if not using msaa the RT itself
-        int numSamples = this->numSamples() + 1;
-        return GrSurface::ComputeSize(this->config(), this->width(), this->height(),
-                                      numSamples, GrMipMapped::kNo);
-    }
-
-    static GrDawnRenderTarget* Create(GrDawnGpu*, const GrSurfaceDesc&, int sampleCnt,
-                                      const GrDawnImageInfo&, GrBackendObjectOwnership);
+    size_t onGpuMemorySize() const override;
 
     bool completeStencilAttachment() override;
-    GrDawnImageInfo fInfo;
+    GrDawnRenderTargetInfo fInfo;
     typedef GrRenderTarget INHERITED;
 };
 

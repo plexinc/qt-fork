@@ -23,10 +23,12 @@
 #include "extensions/browser/events/event_ack_data.h"
 #include "extensions/browser/events/lazy_event_dispatch_util.h"
 #include "extensions/browser/extension_event_histogram_value.h"
+#include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_registry_observer.h"
 #include "extensions/browser/lazy_context_task_queue.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/event_filtering_info.h"
+#include "extensions/common/features/feature.h"
 #include "ipc/ipc_sender.h"
 #include "url/gurl.h"
 
@@ -41,7 +43,6 @@ class RenderProcessHost;
 namespace extensions {
 class Extension;
 class ExtensionPrefs;
-class ExtensionRegistry;
 
 struct Event;
 struct EventListenerInfo;
@@ -106,7 +107,7 @@ class EventRouter : public KeyedService,
   // Note that this method will dispatch the event with
   // UserGestureState:USER_GESTURE_UNKNOWN.
   static void DispatchEventToSender(IPC::Sender* ipc_sender,
-                                    void* browser_context_id,
+                                    content::BrowserContext* browser_context,
                                     const std::string& extension_id,
                                     events::HistogramValue histogram_value,
                                     const std::string& event_name,
@@ -276,7 +277,7 @@ class EventRouter : public KeyedService,
   static void DispatchExtensionMessage(
       IPC::Sender* ipc_sender,
       int worker_thread_id,
-      void* browser_context_id,
+      content::BrowserContext* browser_context,
       const std::string& extension_id,
       int event_id,
       const std::string& event_name,
@@ -349,8 +350,8 @@ class EventRouter : public KeyedService,
                                int64_t service_worker_version_id);
 
   // static
-  static void DoDispatchEventToSenderBookkeepingOnUI(
-      void* browser_context_id,
+  static void DoDispatchEventToSenderBookkeeping(
+      content::BrowserContext* context,
       const std::string& extension_id,
       int event_id,
       int render_process_id,
@@ -379,9 +380,9 @@ class EventRouter : public KeyedService,
   ExtensionPrefs* const extension_prefs_;
 
   ScopedObserver<ExtensionRegistry, ExtensionRegistryObserver>
-      extension_registry_observer_;
+      extension_registry_observer_{this};
 
-  EventListenerMap listeners_;
+  EventListenerMap listeners_{this};
 
   // Map from base event name to observer.
   using ObserverMap = std::unordered_map<std::string, Observer*>;
@@ -405,6 +406,7 @@ struct Event {
   // given context and extension, and false otherwise.
   using WillDispatchCallback =
       base::RepeatingCallback<bool(content::BrowserContext*,
+                                   Feature::Context,
                                    const Extension*,
                                    Event*,
                                    const base::DictionaryValue*)>;

@@ -4,9 +4,9 @@
 
 #include "third_party/blink/renderer/modules/push_messaging/push_messaging_bridge.h"
 
+#include "third_party/blink/renderer/bindings/modules/v8/v8_push_subscription_options_init.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
 #include "third_party/blink/renderer/modules/permissions/permission_utils.h"
-#include "third_party/blink/renderer/modules/push_messaging/push_subscription_options_init.h"
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
@@ -52,8 +52,8 @@ ScriptPromise PushMessagingBridge::GetPermissionState(
     const PushSubscriptionOptionsInit* options) {
   ExecutionContext* context = ExecutionContext::From(script_state);
   if (!permission_service_) {
-    ConnectToPermissionService(context,
-                               mojo::MakeRequest(&permission_service_));
+    ConnectToPermissionService(
+        context, permission_service_.BindNewPipeAndPassReceiver());
   }
 
   auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);

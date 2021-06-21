@@ -59,7 +59,7 @@ class PaintArtifactCompositor;
 // with compositor animations when both classes of CSS Animations are triggered
 // by the same recalc.
 class CORE_EXPORT PendingAnimations final
-    : public GarbageCollectedFinalized<PendingAnimations> {
+    : public GarbageCollected<PendingAnimations> {
  public:
   explicit PendingAnimations(Document& document)
       : timer_(document.GetTaskRunner(TaskType::kInternalDefault),
@@ -93,11 +93,12 @@ class CORE_EXPORT PendingAnimations final
   void NotifyCompositorAnimationStarted(double monotonic_animation_start_time,
                                         int compositor_group = 0);
 
-  void Trace(blink::Visitor*);
+  void Trace(Visitor*);
 
  private:
   void TimerFired(TimerBase*) { Update(nullptr, false); }
   int NextCompositorGroup();
+  void FlushWaitingNonCompositedAnimations();
 
   HeapVector<Member<Animation>> pending_;
   HeapVector<Member<Animation>> waiting_for_compositor_animation_start_;

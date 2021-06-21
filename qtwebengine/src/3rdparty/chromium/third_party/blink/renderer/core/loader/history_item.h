@@ -48,11 +48,8 @@ namespace mojom {
 enum class FetchCacheMode : int32_t;
 }  // namespace mojom
 
-class CORE_EXPORT HistoryItem final
-    : public GarbageCollectedFinalized<HistoryItem> {
+class CORE_EXPORT HistoryItem final : public GarbageCollected<HistoryItem> {
  public:
-  static HistoryItem* Create() { return MakeGarbageCollected<HistoryItem>(); }
-
   HistoryItem();
   ~HistoryItem();
 
@@ -122,7 +119,7 @@ class CORE_EXPORT HistoryItem final
 
   ResourceRequest GenerateResourceRequest(mojom::FetchCacheMode);
 
-  void Trace(blink::Visitor*);
+  void Trace(Visitor*);
 
  private:
   String url_string_;

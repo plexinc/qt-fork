@@ -28,6 +28,7 @@
 #include "unicode/ures.h"
 #include "unicode/ustring.h"
 #include "unicode/rep.h"
+#include "unicode/region.h"
 #include "cpputils.h"
 #include "mutex.h"
 #include "umutex.h"
@@ -613,27 +614,54 @@ U_CFUNC void U_CALLCONV DateTimePatternGenerator::loadAllowedHourFormatsData(UEr
     ures_getAllItemsWithFallback(rb.getAlias(), "timeData", sink, status);    
 }
 
-void DateTimePatternGenerator::getAllowedHourFormats(const Locale &locale, UErrorCode &status) {
-    if (U_FAILURE(status)) { return; }
-    Locale maxLocale(locale);
-    maxLocale.addLikelySubtags(status);
-    if (U_FAILURE(status)) {
-        return;
-    }
-
-    const char *country = maxLocale.getCountry();
-    if (*country == '\0') { country = "001"; }
-    const char *language = maxLocale.getLanguage();
-
+static int32_t* getAllowedHourFormatsLangCountry(const char* language, const char* country, UErrorCode& status) {
     CharString langCountry;
-    langCountry.append(language, static_cast<int32_t>(uprv_strlen(language)), status);
+    langCountry.append(language, status);
     langCountry.append('_', status);
-    langCountry.append(country, static_cast<int32_t>(uprv_strlen(country)), status);
+    langCountry.append(country, status);
 
-    int32_t *allowedFormats;
+    int32_t* allowedFormats;
     allowedFormats = (int32_t *)uhash_get(localeToAllowedHourFormatsMap, langCountry.data());
     if (allowedFormats == nullptr) {
         allowedFormats = (int32_t *)uhash_get(localeToAllowedHourFormatsMap, const_cast<char *>(country));
+    }
+
+    return allowedFormats;
+}
+
+void DateTimePatternGenerator::getAllowedHourFormats(const Locale &locale, UErrorCode &status) {
+    if (U_FAILURE(status)) { return; }
+
+    const char *language = locale.getLanguage();
+    const char *country = locale.getCountry();
+    Locale maxLocale;  // must be here for correct lifetime
+    if (*language == '\0' || *country == '\0') {
+        maxLocale = locale;
+        UErrorCode localStatus = U_ZERO_ERROR;
+        maxLocale.addLikelySubtags(localStatus);
+        if (U_SUCCESS(localStatus)) {
+            language = maxLocale.getLanguage();
+            country = maxLocale.getCountry();
+        }
+    }
+    if (*language == '\0') {
+        // Unexpected, but fail gracefully
+        language = "und";
+    }
+    if (*country == '\0') {
+        country = "001";
+    }
+
+    int32_t* allowedFormats = getAllowedHourFormatsLangCountry(language, country, status);
+
+    // Check if the region has an alias
+    if (allowedFormats == nullptr) {
+        UErrorCode localStatus = U_ZERO_ERROR;
+        const Region* region = Region::getInstance(country, localStatus);
+        if (U_SUCCESS(localStatus)) {
+            country = region->getRegionCode(); // the real region code
+            allowedFormats = getAllowedHourFormatsLangCountry(language, country, status);
+        }
     }
 
     if (allowedFormats != nullptr) {  // Lookup is successful
@@ -787,6 +815,7 @@ void
 DateTimePatternGenerator::getCalendarTypeToUse(const Locale& locale, CharString& destination, UErrorCode& err) {
     destination.clear().append(DT_DateTimeGregorianTag, -1, err); // initial default
     if ( U_SUCCESS(err) ) {
+        UErrorCode localStatus = U_ZERO_ERROR;
         char localeWithCalendarKey[ULOC_LOCALE_IDENTIFIER_CAPACITY];
         // obtain a locale that always has the calendar key value that should be used
         ures_getFunctionalEquivalent(
@@ -798,8 +827,7 @@ DateTimePatternGenerator::getCalendarTypeToUse(const Locale& locale, CharString&
             locale.getName(),
             nullptr,
             FALSE,
-            &err);
-        if (U_FAILURE(err)) { return; }
+            &localStatus);
         localeWithCalendarKey[ULOC_LOCALE_IDENTIFIER_CAPACITY-1] = 0; // ensure null termination
         // now get the calendar key value from that locale
         char calendarType[ULOC_KEYWORDS_CAPACITY];
@@ -808,13 +836,17 @@ DateTimePatternGenerator::getCalendarTypeToUse(const Locale& locale, CharString&
             "calendar",
             calendarType,
             ULOC_KEYWORDS_CAPACITY,
-            &err);
-        if (U_FAILURE(err)) { return; }
+            &localStatus);
+        // If the input locale was invalid, don't fail with missing resource error, instead
+        // continue with default of Gregorian.
+        if (U_FAILURE(localStatus) && localStatus != U_MISSING_RESOURCE_ERROR) {
+            err = localStatus;
+            return;
+        }
         if (calendarTypeLen < ULOC_KEYWORDS_CAPACITY) {
             destination.clear().append(calendarType, -1, err);
             if (U_FAILURE(err)) { return; }
         }
-        err = U_ZERO_ERROR;
     }
 }
 
@@ -1447,6 +1479,7 @@ DateTimePatternGenerator::getBestRaw(DateTimeMatcher& source,
                                      UErrorCode &status,
                                      const PtnSkeleton** specifiedSkeletonPtr) {
     int32_t bestDistance = 0x7fffffff;
+    int32_t bestMissingFieldMask = -1;
     DistanceInfo tempInfo;
     const UnicodeString *bestPattern=nullptr;
     const PtnSkeleton* specifiedSkeleton=nullptr;
@@ -1460,8 +1493,15 @@ DateTimePatternGenerator::getBestRaw(DateTimeMatcher& source,
             continue;
         }
         int32_t distance=source.getDistance(trial, includeMask, tempInfo);
-        if (distance<bestDistance) {
+        // Because we iterate over a map the order is undefined. Can change between implementations,
+        // versions, and will very likely be different between Java and C/C++.
+        // So if we have patterns with the same distance we also look at the missingFieldMask,
+        // and we favour the smallest one. Because the field is a bitmask this technically means we
+        // favour differences in the "least significant fields". For example we prefer the one with differences
+        // in seconds field vs one with difference in the hours field.
+        if (distance<bestDistance || (distance==bestDistance && bestMissingFieldMask<tempInfo.missingFieldMask)) {
             bestDistance=distance;
+            bestMissingFieldMask=tempInfo.missingFieldMask;
             bestPattern=patternMap->getPatternFromSkeleton(*trial.getSkeletonPtr(), &specifiedSkeleton);
             missingFields->setTo(tempInfo);
             if (distance==0) {
@@ -2130,6 +2170,33 @@ DateTimeMatcher::set(const UnicodeString& pattern, FormatParser* fp, PtnSkeleton
         }
         skeletonResult.type[field] = subField;
     }
+
+    // #20739, we have a skeleton with minutes and milliseconds, but no seconds
+    //
+    // Theoretically we would need to check and fix all fields with "gaps":
+    // for example year-day (no month), month-hour (no day), and so on, All the possible field combinations.
+    // Plus some smartness: year + hour => should we add month, or add day-of-year?
+    // What about month + day-of-week, or month + am/pm indicator.
+    // I think beyond a certain point we should not try to fix bad developer input and try guessing what they mean.
+    // Garbage in, garbage out.
+    if (!skeletonResult.original.isFieldEmpty(UDATPG_MINUTE_FIELD)
+        && !skeletonResult.original.isFieldEmpty(UDATPG_FRACTIONAL_SECOND_FIELD)
+        && skeletonResult.original.isFieldEmpty(UDATPG_SECOND_FIELD)) {
+        // Force the use of seconds
+        for (i = 0; dtTypes[i].patternChar != 0; i++) {
+            if (dtTypes[i].field == UDATPG_SECOND_FIELD) {
+                // first entry for UDATPG_SECOND_FIELD
+                skeletonResult.original.populate(UDATPG_SECOND_FIELD, dtTypes[i].patternChar, dtTypes[i].minLen);
+                skeletonResult.baseOriginal.populate(UDATPG_SECOND_FIELD, dtTypes[i].patternChar, dtTypes[i].minLen);
+                // We add value.length, same as above, when type is first initialized.
+                // The value we want to "fake" here is "s", and 1 means "s".length()
+                int16_t subField = dtTypes[i].type;
+                skeletonResult.type[UDATPG_SECOND_FIELD] = (subField > 0) ? subField + 1 : subField;
+                break;
+            }
+        }
+    }
+
     // #13183, handle special behavior for day period characters (a, b, B)
     if (!skeletonResult.original.isFieldEmpty(UDATPG_HOUR_FIELD)) {
         if (skeletonResult.original.getFieldChar(UDATPG_HOUR_FIELD)==LOW_H || skeletonResult.original.getFieldChar(UDATPG_HOUR_FIELD)==CAP_K) {
@@ -2543,7 +2610,8 @@ UChar SkeletonFields::getFirstChar() const {
 }
 
 
-PtnSkeleton::PtnSkeleton() {
+PtnSkeleton::PtnSkeleton()
+    : addedDefaultDayPeriod(FALSE) {
 }
 
 PtnSkeleton::PtnSkeleton(const PtnSkeleton& other) {
@@ -2554,6 +2622,7 @@ void PtnSkeleton::copyFrom(const PtnSkeleton& other) {
     uprv_memcpy(type, other.type, sizeof(type));
     original.copyFrom(other.original);
     baseOriginal.copyFrom(other.baseOriginal);
+    addedDefaultDayPeriod = other.addedDefaultDayPeriod;
 }
 
 void PtnSkeleton::clear() {

@@ -7,15 +7,17 @@
 #include "third_party/blink/public/common/notifications/notification_constants.h"
 #include "third_party/blink/renderer/bindings/core/v8/serialization/serialized_script_value.h"
 #include "third_party/blink/renderer/bindings/core/v8/serialization/serialized_script_value_factory.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_notification_action.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_notification_options.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
+#include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/modules/notifications/notification.h"
-#include "third_party/blink/renderer/modules/notifications/notification_options.h"
 #include "third_party/blink/renderer/modules/notifications/timestamp_trigger.h"
 #include "third_party/blink/renderer/modules/vibration/vibration_controller.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
+#include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_view.h"
-#include "third_party/blink/renderer/platform/wtf/time.h"
 
 namespace blink {
 namespace {
@@ -143,6 +145,8 @@ mojom::blink::NotificationDataPtr CreateNotificationData(
   notification_data->actions = std::move(actions);
 
   if (options->hasShowTrigger()) {
+    UseCounter::Count(context, WebFeature::kNotificationShowTrigger);
+
     auto* timestamp_trigger = options->showTrigger();
     auto timestamp = base::Time::FromJsTime(timestamp_trigger->timestamp());
 

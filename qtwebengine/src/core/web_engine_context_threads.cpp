@@ -65,13 +65,13 @@ struct GpuThreadControllerQt : content::GpuThreadController
 {
     GpuThreadControllerQt(const content::InProcessChildThreadParams &params, const gpu::GpuPreferences &gpuPreferences)
     {
-        base::PostTaskWithTraits(
+        base::PostTask(
                 FROM_HERE, { content::BrowserThread::UI },
                 base::BindOnce(&GpuThreadControllerQt::createGpuProcess, params, gpuPreferences));
     }
     ~GpuThreadControllerQt() override
     {
-        base::PostTaskWithTraits(
+        base::PostTask(
                 FROM_HERE, { content::BrowserThread::UI },
                 base::BindOnce(&GpuThreadControllerQt::destroyGpuProcess));
     }
@@ -125,11 +125,11 @@ void WebEngineContext::destroyGpuProcess()
 }
 
 // static
-void WebEngineContext::registerMainThreadFactories(bool threaded)
+void WebEngineContext::registerMainThreadFactories()
 {
     content::UtilityProcessHost::RegisterUtilityMainThreadFactory(content::CreateInProcessUtilityThread);
     content::RenderProcessHostImpl::RegisterRendererMainThreadFactory(content::CreateInProcessRendererThread);
-    if (threaded)
+    if (!isGpuServiceOnUIThread())
         content::RegisterGpuMainThreadFactory(content::CreateInProcessGpuThread);
     else
         content::RegisterGpuMainThreadFactory(createGpuThreadController);

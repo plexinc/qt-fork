@@ -7,8 +7,11 @@
 #include <utility>
 
 #include "base/feature_list.h"
+#include "base/message_loop/message_pump_type.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
+#include "third_party/blink/public/common/input/web_input_event_attribution.h"
+#include "third_party/blink/public/platform/scheduler/web_widget_scheduler.h"
 #include "third_party/blink/renderer/platform/scheduler/common/features.h"
 #include "third_party/blink/renderer/platform/scheduler/common/tracing_helper.h"
 #include "third_party/blink/renderer/platform/scheduler/main_thread/main_thread_scheduler_impl.h"
@@ -25,12 +28,9 @@ WebThreadScheduler::CreateMainThreadScheduler(
     base::Optional<base::Time> initial_virtual_time) {
   auto settings =
       base::sequence_manager::SequenceManager::Settings::Builder()
-          .SetMessagePumpType(base::MessagePump::Type::DEFAULT)
+          .SetMessagePumpType(base::MessagePumpType::DEFAULT)
           .SetRandomisedSamplingEnabled(true)
           .SetAddQueueTimeToTasks(true)
-          .SetAntiStarvationLogicForPrioritiesDisabled(
-              base::FeatureList::IsEnabled(
-                  kBlinkSchedulerDisableAntiStarvationForPriorities))
           .Build();
   auto sequence_manager =
       message_pump
@@ -73,12 +73,6 @@ WebThreadScheduler::CompositorTaskRunner() {
 }
 
 scoped_refptr<base::SingleThreadTaskRunner>
-WebThreadScheduler::InputTaskRunner() {
-  NOTREACHED();
-  return nullptr;
-}
-
-scoped_refptr<base::SingleThreadTaskRunner>
 WebThreadScheduler::IPCTaskRunner() {
   NOTREACHED();
   return nullptr;
@@ -97,6 +91,12 @@ WebThreadScheduler::DeprecatedDefaultTaskRunner() {
 }
 
 std::unique_ptr<Thread> WebThreadScheduler::CreateMainThread() {
+  NOTREACHED();
+  return nullptr;
+}
+
+std::unique_ptr<WebWidgetScheduler>
+WebThreadScheduler::CreateWidgetScheduler() {
   NOTREACHED();
   return nullptr;
 }
@@ -130,12 +130,14 @@ void WebThreadScheduler::DidHandleInputEventOnCompositorThread(
 }
 
 void WebThreadScheduler::WillPostInputEventToMainThread(
-    WebInputEvent::Type web_input_event_type) {
+    WebInputEvent::Type web_input_event_type,
+    const WebInputEventAttribution& attribution) {
   NOTREACHED();
 }
 
 void WebThreadScheduler::WillHandleInputEventOnMainThread(
-    WebInputEvent::Type web_input_event_type) {
+    WebInputEvent::Type web_input_event_type,
+    const WebInputEventAttribution& attribution) {
   NOTREACHED();
 }
 
@@ -146,6 +148,14 @@ void WebThreadScheduler::DidHandleInputEventOnMainThread(
 }
 
 void WebThreadScheduler::DidAnimateForInputOnCompositorThread() {
+  NOTREACHED();
+}
+
+void WebThreadScheduler::DidScheduleBeginMainFrame() {
+  NOTREACHED();
+}
+
+void WebThreadScheduler::DidRunBeginMainFrame() {
   NOTREACHED();
 }
 
@@ -189,13 +199,6 @@ void WebThreadScheduler::SetTopLevelBlameContext(
 
 void WebThreadScheduler::SetRendererProcessType(WebRendererProcessType type) {
   NOTREACHED();
-}
-
-WebScopedVirtualTimePauser WebThreadScheduler::CreateWebScopedVirtualTimePauser(
-    const char* name,
-    WebScopedVirtualTimePauser::VirtualTaskDuration duration) {
-  NOTREACHED();
-  return WebScopedVirtualTimePauser();
 }
 
 void WebThreadScheduler::OnMainFrameRequestedForInput() {

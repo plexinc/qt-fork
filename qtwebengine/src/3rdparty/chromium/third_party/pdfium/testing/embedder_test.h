@@ -21,6 +21,7 @@
 #include "testing/fake_file_access.h"
 #include "testing/free_deleter.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/base/span.h"
 
 class TestLoader;
 
@@ -63,6 +64,11 @@ class EmbedderTest : public ::testing::Test,
 
     // Equivalent to FPDF_FORMFILLINFO::FFI_DoURIAction().
     virtual void DoURIAction(FPDF_BYTESTRING uri) {}
+
+    // Equivalent to FPDF_FORMFILLINFO::FFI_OnFocusChange().
+    virtual void OnFocusChange(FPDF_FORMFILLINFO* info,
+                               FPDF_ANNOTATION annot,
+                               int page_index) {}
   };
 
   EmbedderTest();
@@ -78,6 +84,10 @@ class EmbedderTest : public ::testing::Test,
 
   void SetDelegate(Delegate* delegate) {
     delegate_ = delegate ? delegate : default_delegate_.get();
+  }
+
+  void SetFormFillInfoVersion(int form_fill_info_version) {
+    form_fill_info_version_ = form_fill_info_version;
   }
 
   FPDF_DOCUMENT document() const { return document_; }
@@ -105,6 +115,11 @@ class EmbedderTest : public ::testing::Test,
                                 const char* password);
   bool OpenDocumentWithoutJavaScript(const std::string& filename);
 
+  // Close the document from a previous OpenDocument() call. This happens
+  // automatically at tear-down, and is usually not explicitly required,
+  // unless testing multiple documents or duplicate destruction.
+  void CloseDocument();
+
   // Perform JavaScript actions that are to run at document open time.
   void DoOpenActions();
 
@@ -130,6 +145,9 @@ class EmbedderTest : public ::testing::Test,
 
   // Same as UnloadPage(), but does not fire form events.
   void UnloadPageNoEvents(FPDF_PAGE page);
+
+  // Apply standard highlighting color/alpha to forms.
+  void SetInitialFormFieldHighlight(FPDF_FORMHANDLE form);
 
   // RenderLoadedPageWithFlags() with no flags.
   ScopedFPDFBitmap RenderLoadedPage(FPDF_PAGE page);
@@ -168,8 +186,11 @@ class EmbedderTest : public ::testing::Test,
                                                        int flags);
 
   // Get the PostScript data from |emf_data|.
-  static std::string GetPostScriptFromEmf(const std::vector<uint8_t>& emf_data);
-#endif
+  static std::string GetPostScriptFromEmf(pdfium::span<const uint8_t> emf_data);
+#endif  // defined(OS_WIN)
+
+  // Return bytes for each of the FPDFBitmap_* format types.
+  static int BytesPerPixelForFormat(int format);
 
  protected:
   using PageNumberToHandleMap = std::map<int, FPDF_PAGE>;
@@ -185,12 +206,13 @@ class EmbedderTest : public ::testing::Test,
   FPDF_FORMHANDLE SetupFormFillEnvironment(FPDF_DOCUMENT doc,
                                            JavaScriptOption javascript_option);
 
-  // Return the hash of |bitmap|.
+  // Return the hash of only the pixels in |bitmap|. i.e. Excluding the gap, if
+  // any, at the end of a row where the stride is larger than width * bpp.
   static std::string HashBitmap(FPDF_BITMAP bitmap);
 
 #ifndef NDEBUG
   // For debugging purposes.
-  // Write |bitmap| to a png file.
+  // Write |bitmap| as a PNG to |filename|.
   static void WriteBitmapToPng(FPDF_BITMAP bitmap, const std::string& filename);
 #endif
 
@@ -223,11 +245,23 @@ class EmbedderTest : public ::testing::Test,
 
   void SetWholeFileAvailable();
 
-  void OpenPDFFileForWrite(const char* filename);
+#ifndef NDEBUG
+  // For debugging purposes.
+  // While open, write any data that gets passed to WriteBlockCallback() to
+  // |filename|. This is typically used to capture data from FPDF_SaveAsCopy()
+  // calls.
+  void OpenPDFFileForWrite(const std::string& filename);
   void ClosePDFFileForWrite();
+#endif
 
   std::unique_ptr<Delegate> default_delegate_;
   Delegate* delegate_;
+
+#ifdef PDF_ENABLE_XFA
+  int form_fill_info_version_ = 2;
+#else   // PDF_ENABLE_XFA
+  int form_fill_info_version_ = 1;
+#endif  // PDF_ENABLE_XFA
 
   FPDF_DOCUMENT document_ = nullptr;
   FPDF_FORMHANDLE form_handle_ = nullptr;
@@ -265,6 +299,9 @@ class EmbedderTest : public ::testing::Test,
                                      int page_index);
   static void DoURIActionTrampoline(FPDF_FORMFILLINFO* info,
                                     FPDF_BYTESTRING uri);
+  static void OnFocusChangeTrampoline(FPDF_FORMFILLINFO* info,
+                                      FPDF_ANNOTATION annot,
+                                      int page_index);
   static int WriteBlockCallback(FPDF_FILEWRITE* pFileWrite,
                                 const void* data,
                                 unsigned long size);

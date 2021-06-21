@@ -47,19 +47,18 @@ class Document;
 class Frame;
 class IntSize;
 class LayoutBlock;
+class LayoutBox;
+class LayoutNGTableInterface;
 class LayoutObject;
-class LayoutTable;
 class LayoutText;
 class LocalFrame;
-class NGBlockNode;
 class Page;
 class SubtreeLayoutScope;
 
 // Single-pass text autosizer. Documentation at:
 // http://tinyurl.com/TextAutosizer
 
-class CORE_EXPORT TextAutosizer final
-    : public GarbageCollectedFinalized<TextAutosizer> {
+class CORE_EXPORT TextAutosizer final : public GarbageCollected<TextAutosizer> {
  public:
   explicit TextAutosizer(const Document*);
   ~TextAutosizer();
@@ -81,7 +80,7 @@ class CORE_EXPORT TextAutosizer final
 
   bool PageNeedsAutosizing() const;
 
-  void Trace(blink::Visitor*);
+  void Trace(Visitor*);
 
   class LayoutScope {
     STACK_ALLOCATED();
@@ -91,7 +90,7 @@ class CORE_EXPORT TextAutosizer final
     ~LayoutScope();
 
    protected:
-    Member<TextAutosizer> text_autosizer_;
+    TextAutosizer* text_autosizer_;
     LayoutBlock* block_;
   };
 
@@ -99,19 +98,19 @@ class CORE_EXPORT TextAutosizer final
     STACK_ALLOCATED();
 
    public:
-    explicit TableLayoutScope(LayoutTable*);
+    explicit TableLayoutScope(LayoutNGTableInterface*);
   };
 
   class NGLayoutScope {
     STACK_ALLOCATED();
 
    public:
-    explicit NGLayoutScope(const NGBlockNode& node, LayoutUnit inline_size);
+    explicit NGLayoutScope(LayoutBox*, LayoutUnit inline_size);
     ~NGLayoutScope();
 
    protected:
-    Member<TextAutosizer> text_autosizer_;
-    LayoutBlock* block_;
+    TextAutosizer* text_autosizer_;
+    LayoutBox* box_;
   };
 
   class CORE_EXPORT DeferUpdatePageInfo {
@@ -122,7 +121,7 @@ class CORE_EXPORT TextAutosizer final
     ~DeferUpdatePageInfo();
 
    private:
-    Member<LocalFrame> main_frame_;
+    LocalFrame* main_frame_;
   };
 
  private:
@@ -292,7 +291,7 @@ class CORE_EXPORT TextAutosizer final
 
   void BeginLayout(LayoutBlock*, SubtreeLayoutScope*);
   void EndLayout(LayoutBlock*);
-  void InflateAutoTable(LayoutTable*);
+  void InflateAutoTable(LayoutNGTableInterface*);
   float Inflate(LayoutObject*,
                 SubtreeLayoutScope*,
                 InflateBehavior = kThisBlockOnly,

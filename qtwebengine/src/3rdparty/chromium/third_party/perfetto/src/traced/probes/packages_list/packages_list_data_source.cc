@@ -20,11 +20,17 @@
 #include "perfetto/ext/base/string_splitter.h"
 
 #include "perfetto/ext/tracing/core/trace_writer.h"
-#include "perfetto/trace/trace_packet.pbzero.h"
+#include "protos/perfetto/trace/trace_packet.pbzero.h"
 
 using perfetto::protos::pbzero::PackagesListConfig;
 
 namespace perfetto {
+
+// static
+const ProbesDataSource::Descriptor PackagesListDataSource::descriptor = {
+    /*name*/ "android.packages_list",
+    /*flags*/ Descriptor::kFlagsNone,
+};
 
 bool ParsePackagesListStream(protos::pbzero::PackagesList* packages_list_packet,
                              const base::ScopedFstream& fs,
@@ -109,10 +115,10 @@ PackagesListDataSource::PackagesListDataSource(
     const DataSourceConfig& ds_config,
     TracingSessionID session_id,
     std::unique_ptr<TraceWriter> writer)
-    : ProbesDataSource(session_id, kTypeId), writer_(std::move(writer)) {
+    : ProbesDataSource(session_id, &descriptor), writer_(std::move(writer)) {
   PackagesListConfig::Decoder cfg(ds_config.packages_list_config_raw());
   for (auto name = cfg.package_name_filter(); name; ++name) {
-    package_name_filter_.emplace(name->as_std_string());
+    package_name_filter_.emplace((*name).ToStdString());
   }
 }
 

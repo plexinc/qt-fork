@@ -18,8 +18,23 @@ namespace cors {
 namespace {
 
 constexpr size_t kMaxCacheEntries = 1024u;
-constexpr size_t kMaxKeyLength = 512u;
+constexpr size_t kMaxKeyLength = 1024u;
 constexpr size_t kPurgeUnit = 10u;
+
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused.
+enum class CacheMetric {
+  kHitAndPass = 0,
+  kHitAndFail = 1,
+  kMiss = 2,
+  kStale = 3,
+
+  kMaxValue = kStale,
+};
+
+void ReportCacheMetric(CacheMetric metric) {
+  UMA_HISTOGRAM_ENUMERATION("Net.Cors.PreflightCacheResult", metric);
+}
 
 }  // namespace
 
@@ -27,8 +42,9 @@ PreflightCache::PreflightCache() = default;
 PreflightCache::~PreflightCache() = default;
 
 void PreflightCache::AppendEntry(
-    const std::string& origin,
+    const url::Origin& origin,
     const GURL& url,
+    const net::NetworkIsolationKey& network_isolation_key,
     std::unique_ptr<PreflightResult> preflight_result) {
   DCHECK(preflight_result);
 
@@ -37,7 +53,11 @@ void PreflightCache::AppendEntry(
   if (url_spec.length() >= kMaxKeyLength)
     return;
 
-  auto key = std::make_pair(origin, url_spec);
+  DCHECK(
+      !network_isolation_key.GetFrameOrigin().has_value() ||
+      (origin.opaque() && network_isolation_key.GetFrameOrigin()->opaque()) ||
+      network_isolation_key.GetFrameOrigin()->IsSameOriginWith(origin));
+  auto key = std::make_tuple(origin, url_spec, network_isolation_key);
   const auto existing_entry = cache_.find(key);
   if (existing_entry == cache_.end()) {
     // Since one new entry is always added below, let's purge one cache entry
@@ -45,22 +65,31 @@ void PreflightCache::AppendEntry(
     // kMaxCacheEntries at maximum.
     MayPurge(kMaxCacheEntries - 1, kPurgeUnit);
   }
+  UMA_HISTOGRAM_COUNTS_10000("Net.Cors.PreflightCacheKeySize",
+                             url_spec.length());
 
   cache_[key] = std::move(preflight_result);
 }
 
 bool PreflightCache::CheckIfRequestCanSkipPreflight(
-    const std::string& origin,
+    const url::Origin& origin,
     const GURL& url,
+    const net::NetworkIsolationKey& network_isolation_key,
     mojom::CredentialsMode credentials_mode,
     const std::string& method,
     const net::HttpRequestHeaders& request_headers,
     bool is_revalidating) {
   // Check if the entry exists in the cache.
-  auto key = std::make_pair(origin, url.spec());
+  DCHECK(
+      !network_isolation_key.GetFrameOrigin().has_value() ||
+      (origin.opaque() && network_isolation_key.GetFrameOrigin()->opaque()) ||
+      network_isolation_key.GetFrameOrigin()->IsSameOriginWith(origin));
+  auto key = std::make_tuple(origin, url.spec(), network_isolation_key);
   auto cache_entry = cache_.find(key);
-  if (cache_entry == cache_.end())
+  if (cache_entry == cache_.end()) {
+    ReportCacheMetric(CacheMetric::kMiss);
     return false;
+  }
 
   // Check if the entry is still valid.
   if (!cache_entry->second->IsExpired()) {
@@ -68,8 +97,12 @@ bool PreflightCache::CheckIfRequestCanSkipPreflight(
     // skip CORS-preflight.
     if (cache_entry->second->EnsureAllowedRequest(
             credentials_mode, method, request_headers, is_revalidating)) {
+      ReportCacheMetric(CacheMetric::kHitAndPass);
       return true;
     }
+    ReportCacheMetric(CacheMetric::kHitAndFail);
+  } else {
+    ReportCacheMetric(CacheMetric::kStale);
   }
 
   // The cache entry is either stale or not sufficient. Remove the item from the

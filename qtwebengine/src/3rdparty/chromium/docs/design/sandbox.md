@@ -17,7 +17,7 @@ make persistent changes to the computer or access information that is
 confidential. The architecture and exact assurances that the sandbox provides
 are dependent on the operating system. This document covers the Windows
 implementation as well as the general design. The Linux implementation is
-described [here](../linux_sandboxing.md), the OSX implementation
+described [here](../linux/sandboxing.md), the OSX implementation
 [here](http://dev.chromium.org/developers/design-documents/sandbox/osx-sandboxing-design).
 
 If you don't feel like reading this whole document you can read the
@@ -366,6 +366,15 @@ policies on the target process for enforcing security characteristics.
 
 * &gt;= Win10
 * `ProcessFontDisablePolicy`
+
+#### Disable Loading of Unsigned Code (CIG):
+
+* &gt;= Win10 TH2
+* `ProcessSignaturePolicy`
+* Prevents loading unsigned code into our processes. This means attackers can't just LoadLibrary a DLL after gaining execution (which shouldn't be possible anyway due to other sandbox mitigations), but more importantly, prevents third party DLLs from being injected into our processes, which can affect stability and our ability to enable other security mitigations.
+* Enabled (post-startup) for all sandboxed child processes.
+* Enabled (pre-startup) for sandboxed renderer processes. This eliminates a process launch time gap where local injection of improperly signed DLLs into a renderer process could occur.
+* See [msedgedev blog](https://blogs.windows.com/msedgedev/2017/02/23/mitigating-arbitrary-native-code-execution/) for more background on this mitigation.
 
 #### Disable Image Load from Remote Devices:
 

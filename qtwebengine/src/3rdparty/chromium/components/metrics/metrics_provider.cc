@@ -17,8 +17,8 @@ MetricsProvider::~MetricsProvider() {
 void MetricsProvider::Init() {
 }
 
-void MetricsProvider::AsyncInit(const base::Closure& done_callback) {
-  done_callback.Run();
+void MetricsProvider::AsyncInit(base::OnceClosure done_callback) {
+  std::move(done_callback).Run();
 }
 
 void MetricsProvider::OnDidCreateMetricsLog() {
@@ -48,7 +48,12 @@ void MetricsProvider::ProvideIndependentMetrics(
 }
 
 void MetricsProvider::ProvideSystemProfileMetrics(
+    SystemProfileProto* system_profile_proto) {}
+
+void MetricsProvider::ProvideSystemProfileMetricsWithLogCreationTime(
+    base::TimeTicks log_creation_time,
     SystemProfileProto* system_profile_proto) {
+  ProvideSystemProfileMetrics(system_profile_proto);
 }
 
 bool MetricsProvider::HasPreviousSessionData() {

@@ -10,7 +10,6 @@
 
 #include "cc/layers/picture_layer.h"
 #include "third_party/blink/public/mojom/loader/request_context_frame_type.mojom-blink.h"
-#include "third_party/blink/public/platform/web_layer_tree_view.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_source_code.h"
 #include "third_party/blink/renderer/bindings/core/v8/source_location.h"
 #include "third_party/blink/renderer/core/animation/animation.h"
@@ -18,6 +17,9 @@
 #include "third_party/blink/renderer/core/css/invalidation/invalidation_set.h"
 #include "third_party/blink/renderer/core/css/style_change_reason.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
+#include "third_party/blink/renderer/core/events/keyboard_event.h"
+#include "third_party/blink/renderer/core/events/wheel_event.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/html/html_frame_owner_element.h"
@@ -38,6 +40,7 @@
 #include "third_party/blink/renderer/platform/instrumentation/instance_counters.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/traced_value.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_load_priority.h"
+#include "third_party/blink/renderer/platform/loader/fetch/resource_load_timing.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_request.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_response.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
@@ -50,11 +53,6 @@
 namespace blink {
 
 namespace {
-
-void* AsyncId(uint64_t identifier) {
-  // This value should be odd to avoid collisions with regular pointers.
-  return reinterpret_cast<void*>((identifier << 1) | 1);
-}
 
 std::unique_ptr<TracedValue> InspectorParseHtmlBeginData(Document* document,
                                                          unsigned start_line) {
@@ -79,6 +77,20 @@ std::unique_ptr<TracedValue> GetNavigationTracingData(Document* document) {
                   IdentifiersFactory::LoaderId(document->Loader()));
   return data;
 }
+
+int GetModifierFromEvent(const UIEventWithKeyState& event) {
+  int modifier = 0;
+  if (event.altKey())
+    modifier |= 1;
+  if (event.ctrlKey())
+    modifier |= 2;
+  if (event.metaKey())
+    modifier |= 4;
+  if (event.shiftKey())
+    modifier |= 8;
+  return modifier;
+}
+
 }  //  namespace
 
 String ToHexString(const void* p) {
@@ -150,8 +162,6 @@ void InspectorTraceEvents::DidReceiveData(uint64_t identifier,
                        TRACE_EVENT_SCOPE_THREAD, "data",
                        inspector_receive_data_event::Data(
                            loader, identifier, frame, encoded_data_length));
-  probe::AsyncTask async_task(frame ? frame->GetDocument() : nullptr,
-                              AsyncId(identifier), "data");
 }
 
 void InspectorTraceEvents::DidFinishLoading(uint64_t identifier,
@@ -160,14 +170,11 @@ void InspectorTraceEvents::DidFinishLoading(uint64_t identifier,
                                             int64_t encoded_data_length,
                                             int64_t decoded_body_length,
                                             bool should_report_corb_blocking) {
-  LocalFrame* frame = loader ? loader->GetFrame() : nullptr;
   TRACE_EVENT_INSTANT1(
       "devtools.timeline", "ResourceFinish", TRACE_EVENT_SCOPE_THREAD, "data",
       inspector_resource_finish_event::Data(loader, identifier, finish_time,
                                             false, encoded_data_length,
                                             decoded_body_length));
-  probe::AsyncTask async_task(frame ? frame->GetDocument() : nullptr,
-                              AsyncId(identifier));
 }
 
 void InspectorTraceEvents::DidFailLoading(uint64_t identifier,
@@ -177,6 +184,13 @@ void InspectorTraceEvents::DidFailLoading(uint64_t identifier,
                        TRACE_EVENT_SCOPE_THREAD, "data",
                        inspector_resource_finish_event::Data(
                            loader, identifier, base::TimeTicks(), true, 0, 0));
+}
+
+void InspectorTraceEvents::MarkResourceAsCached(DocumentLoader* loader,
+                                                uint64_t identifier) {
+  TRACE_EVENT_INSTANT1(
+      "devtools.timeline", "ResourceMarkAsCached", TRACE_EVENT_SCOPE_THREAD,
+      "data", inspector_mark_resource_cached_event::Data(loader, identifier));
 }
 
 void InspectorTraceEvents::Will(const probe::ExecuteScript&) {}
@@ -261,6 +275,7 @@ const char* PseudoTypeToString(CSSSelector::PseudoType pseudo_type) {
     DEFINE_STRING_MAPPING(PseudoNthLastChild)
     DEFINE_STRING_MAPPING(PseudoNthLastOfType)
     DEFINE_STRING_MAPPING(PseudoPart)
+    DEFINE_STRING_MAPPING(PseudoState)
     DEFINE_STRING_MAPPING(PseudoLink)
     DEFINE_STRING_MAPPING(PseudoVisited)
     DEFINE_STRING_MAPPING(PseudoAny)
@@ -293,6 +308,7 @@ const char* PseudoTypeToString(CSSSelector::PseudoType pseudo_type) {
     DEFINE_STRING_MAPPING(PseudoTarget)
     DEFINE_STRING_MAPPING(PseudoBefore)
     DEFINE_STRING_MAPPING(PseudoAfter)
+    DEFINE_STRING_MAPPING(PseudoMarker)
     DEFINE_STRING_MAPPING(PseudoBackdrop)
     DEFINE_STRING_MAPPING(PseudoLang)
     DEFINE_STRING_MAPPING(PseudoNot)
@@ -343,9 +359,11 @@ const char* PseudoTypeToString(CSSSelector::PseudoType pseudo_type) {
     DEFINE_STRING_MAPPING(PseudoSpatialNavigationInterest)
     DEFINE_STRING_MAPPING(PseudoIsHtml)
     DEFINE_STRING_MAPPING(PseudoListBox)
+    DEFINE_STRING_MAPPING(PseudoMultiSelectFocus)
     DEFINE_STRING_MAPPING(PseudoHostHasAppearance)
     DEFINE_STRING_MAPPING(PseudoVideoPersistent)
     DEFINE_STRING_MAPPING(PseudoVideoPersistentAncestor)
+    DEFINE_STRING_MAPPING(PseudoXrOverlay)
 #undef DEFINE_STRING_MAPPING
   }
 
@@ -593,6 +611,7 @@ inspector_style_invalidator_invalidate_event::InvalidationList(
 std::unique_ptr<TracedValue>
 inspector_style_recalc_invalidation_tracking_event::Data(
     Node* node,
+    StyleChangeType change_type,
     const StyleChangeReasonForTracing& reason) {
   DCHECK(node);
 
@@ -600,6 +619,7 @@ inspector_style_recalc_invalidation_tracking_event::Data(
   value->SetString("frame",
                    IdentifiersFactory::FrameId(node->GetDocument().GetFrame()));
   SetNodeInfo(value.get(), node, "nodeId", "nodeName");
+  value->SetBoolean("subtree", change_type == kSubtreeStyleChange);
   value->SetString("reason", reason.ReasonString());
   value->SetString("extraData", reason.GetExtraData());
   SourceLocation::Capture()->ToTracedValue(value.get(), "stackTrace");
@@ -679,6 +699,7 @@ const char kAttributeChanged[] = "Attribute changed";
 const char kColumnsChanged[] = "Attribute changed";
 const char kChildAnonymousBlockChanged[] = "Child anonymous block changed";
 const char kAnonymousBlockChange[] = "Anonymous block change";
+const char kFontsChanged[] = "Fonts changed";
 const char kFullscreen[] = "Fullscreen change";
 const char kChildChanged[] = "Child changed";
 const char kListValueChange[] = "List value change";
@@ -857,9 +878,18 @@ std::unique_ptr<TracedValue> inspector_resource_finish_event::Data(
   return value;
 }
 
+std::unique_ptr<TracedValue> inspector_mark_resource_cached_event::Data(
+    DocumentLoader* loader,
+    uint64_t identifier) {
+  auto value = std::make_unique<TracedValue>();
+  String request_id = IdentifiersFactory::RequestId(loader, identifier);
+  value->SetString("requestId", request_id);
+  return value;
+}
+
 static LocalFrame* FrameForExecutionContext(ExecutionContext* context) {
-  if (auto* document = DynamicTo<Document>(context))
-    return document->GetFrame();
+  if (auto* window = DynamicTo<LocalDOMWindow>(context))
+    return window->GetFrame();
   return nullptr;
 }
 
@@ -903,9 +933,8 @@ std::unique_ptr<TracedValue> inspector_animation_frame_event::Data(
     int callback_id) {
   auto value = std::make_unique<TracedValue>();
   value->SetInteger("id", callback_id);
-  if (auto* document = DynamicTo<Document>(context)) {
-    value->SetString("frame",
-                     IdentifiersFactory::FrameId(document->GetFrame()));
+  if (auto* window = DynamicTo<LocalDOMWindow>(context)) {
+    value->SetString("frame", IdentifiersFactory::FrameId(window->GetFrame()));
   } else if (auto* scope = DynamicTo<WorkerGlobalScope>(context)) {
     value->SetString("worker", ToHexString(scope));
   }
@@ -1274,6 +1303,39 @@ std::unique_ptr<TracedValue> inspector_event_dispatch_event::Data(
     const Event& event) {
   auto value = std::make_unique<TracedValue>();
   value->SetString("type", event.type());
+  bool record_input_enabled;
+  TRACE_EVENT_CATEGORY_GROUP_ENABLED(
+      TRACE_DISABLED_BY_DEFAULT("devtools.timeline.inputs"),
+      &record_input_enabled);
+  if (record_input_enabled) {
+    const auto* keyboard_event = DynamicTo<KeyboardEvent>(event);
+    if (keyboard_event) {
+      value->SetInteger("modifier", GetModifierFromEvent(*keyboard_event));
+      value->SetDouble(
+          "timestamp",
+          keyboard_event->PlatformTimeStamp().since_origin().InMicroseconds());
+      value->SetString("code", keyboard_event->code());
+      value->SetString("key", keyboard_event->key());
+    }
+
+    const auto* mouse_event = DynamicTo<MouseEvent>(event);
+    const auto* wheel_event = DynamicTo<WheelEvent>(event);
+    if (mouse_event || wheel_event) {
+      value->SetDouble("x", mouse_event->x());
+      value->SetDouble("y", mouse_event->y());
+      value->SetInteger("modifier", GetModifierFromEvent(*mouse_event));
+      value->SetDouble(
+          "timestamp",
+          mouse_event->PlatformTimeStamp().since_origin().InMicroseconds());
+      value->SetInteger("button", mouse_event->button());
+      value->SetInteger("buttons", mouse_event->buttons());
+      value->SetInteger("clickCount", mouse_event->detail());
+      if (wheel_event) {
+        value->SetDouble("deltaX", wheel_event->deltaX());
+        value->SetDouble("deltaY", wheel_event->deltaY());
+      }
+    }
+  }
   SetCallStack(value.get());
   return value;
 }
@@ -1329,10 +1391,8 @@ std::unique_ptr<TracedValue> inspector_set_layer_tree_id::Data(
     LocalFrame* frame) {
   auto value = std::make_unique<TracedValue>();
   value->SetString("frame", IdentifiersFactory::FrameId(frame));
-  WebLayerTreeView* layerTreeView =
-      frame->GetPage()->GetChromeClient().GetWebLayerTreeView(frame);
   value->SetInteger("layerTreeId",
-                    layerTreeView ? layerTreeView->LayerTreeId() : 0);
+                    frame->GetPage()->GetChromeClient().GetLayerTreeId(*frame));
   return value;
 }
 
@@ -1340,11 +1400,11 @@ std::unique_ptr<TracedValue> inspector_animation_event::Data(
     const Animation& animation) {
   auto value = std::make_unique<TracedValue>();
   value->SetString("id", String::Number(animation.SequenceNumber()));
-  value->SetString("state", animation.playState());
+  value->SetString("state", animation.PlayStateString());
   if (const AnimationEffect* effect = animation.effect()) {
     value->SetString("name", animation.id());
-    if (effect->IsKeyframeEffect()) {
-      if (Element* target = ToKeyframeEffect(effect)->target())
+    if (auto* frame_effect = DynamicTo<KeyframeEffect>(effect)) {
+      if (Element* target = frame_effect->EffectTarget())
         SetNodeInfo(value.get(), target, "nodeId", "nodeName");
     }
   }
@@ -1354,7 +1414,7 @@ std::unique_ptr<TracedValue> inspector_animation_event::Data(
 std::unique_ptr<TracedValue> inspector_animation_state_event::Data(
     const Animation& animation) {
   auto value = std::make_unique<TracedValue>();
-  value->SetString("state", animation.playState());
+  value->SetString("state", animation.PlayStateString());
   return value;
 }
 

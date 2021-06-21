@@ -6,7 +6,7 @@
 
 #include <memory>
 #include "third_party/blink/renderer/core/animation/css_position_axis_list_interpolation_type.h"
-#include "third_party/blink/renderer/core/animation/length_interpolation_functions.h"
+#include "third_party/blink/renderer/core/animation/interpolable_length.h"
 #include "third_party/blink/renderer/core/css/css_basic_shape_values.h"
 #include "third_party/blink/renderer/core/style/basic_shapes.h"
 
@@ -14,12 +14,13 @@ namespace blink {
 
 class BasicShapeNonInterpolableValue : public NonInterpolableValue {
  public:
-  static scoped_refptr<NonInterpolableValue> Create(
+  static scoped_refptr<const NonInterpolableValue> Create(
       BasicShape::ShapeType type) {
     return base::AdoptRef(new BasicShapeNonInterpolableValue(type));
   }
-  static scoped_refptr<NonInterpolableValue> CreatePolygon(WindRule wind_rule,
-                                                           wtf_size_t size) {
+  static scoped_refptr<const NonInterpolableValue> CreatePolygon(
+      WindRule wind_rule,
+      wtf_size_t size) {
     return base::AdoptRef(new BasicShapeNonInterpolableValue(wind_rule, size));
   }
 
@@ -68,7 +69,15 @@ class BasicShapeNonInterpolableValue : public NonInterpolableValue {
 };
 
 DEFINE_NON_INTERPOLABLE_VALUE_TYPE(BasicShapeNonInterpolableValue);
-DEFINE_NON_INTERPOLABLE_VALUE_TYPE_CASTS(BasicShapeNonInterpolableValue);
+template <>
+struct DowncastTraits<BasicShapeNonInterpolableValue> {
+  static bool AllowFrom(const NonInterpolableValue* value) {
+    return value && AllowFrom(*value);
+  }
+  static bool AllowFrom(const NonInterpolableValue& value) {
+    return value.GetType() == BasicShapeNonInterpolableValue::static_type_;
+  }
+};
 
 namespace {
 
@@ -83,19 +92,18 @@ std::unique_ptr<InterpolableValue> ConvertCSSCoordinate(
     return Unwrap(
         CSSPositionAxisListInterpolationType::ConvertPositionAxisCSSValue(
             *coordinate));
-  return Unwrap(
-      LengthInterpolationFunctions::MaybeConvertLength(Length::Percent(50), 1));
+  return InterpolableLength::MaybeConvertLength(Length::Percent(50), 1);
 }
 
 std::unique_ptr<InterpolableValue> ConvertCoordinate(
     const BasicShapeCenterCoordinate& coordinate,
     double zoom) {
-  return Unwrap(LengthInterpolationFunctions::MaybeConvertLength(
-      coordinate.ComputedLength(), zoom));
+  return InterpolableLength::MaybeConvertLength(coordinate.ComputedLength(),
+                                                zoom);
 }
 
 std::unique_ptr<InterpolableValue> CreateNeutralInterpolableCoordinate() {
-  return LengthInterpolationFunctions::CreateNeutralInterpolableValue();
+  return InterpolableLength::CreateNeutral();
 }
 
 BasicShapeCenterCoordinate CreateCoordinate(
@@ -103,44 +111,44 @@ BasicShapeCenterCoordinate CreateCoordinate(
     const CSSToLengthConversionData& conversion_data) {
   return BasicShapeCenterCoordinate(
       BasicShapeCenterCoordinate::kTopLeft,
-      LengthInterpolationFunctions::CreateLength(
-          interpolable_value, nullptr, conversion_data, kValueRangeAll));
+      To<InterpolableLength>(interpolable_value)
+          .CreateLength(conversion_data, kValueRangeAll));
 }
 
 std::unique_ptr<InterpolableValue> ConvertCSSRadius(const CSSValue* radius) {
   if (!radius || radius->IsIdentifierValue())
     return nullptr;
-  return Unwrap(LengthInterpolationFunctions::MaybeConvertCSSValue(*radius));
+  return InterpolableLength::MaybeConvertCSSValue(*radius);
 }
 
 std::unique_ptr<InterpolableValue> ConvertRadius(const BasicShapeRadius& radius,
                                                  double zoom) {
   if (radius.GetType() != BasicShapeRadius::kValue)
     return nullptr;
-  return Unwrap(
-      LengthInterpolationFunctions::MaybeConvertLength(radius.Value(), zoom));
+  return InterpolableLength::MaybeConvertLength(radius.Value(), zoom);
 }
 
 std::unique_ptr<InterpolableValue> CreateNeutralInterpolableRadius() {
-  return LengthInterpolationFunctions::CreateNeutralInterpolableValue();
+  return InterpolableLength::CreateNeutral();
 }
 
 BasicShapeRadius CreateRadius(
     const InterpolableValue& interpolable_value,
     const CSSToLengthConversionData& conversion_data) {
-  return BasicShapeRadius(LengthInterpolationFunctions::CreateLength(
-      interpolable_value, nullptr, conversion_data, kValueRangeNonNegative));
+  return BasicShapeRadius(
+      To<InterpolableLength>(interpolable_value)
+          .CreateLength(conversion_data, kValueRangeNonNegative));
 }
 
 std::unique_ptr<InterpolableValue> ConvertCSSLength(const CSSValue* length) {
   if (!length)
-    return LengthInterpolationFunctions::CreateNeutralInterpolableValue();
-  return Unwrap(LengthInterpolationFunctions::MaybeConvertCSSValue(*length));
+    return InterpolableLength::CreateNeutral();
+  return InterpolableLength::MaybeConvertCSSValue(*length);
 }
 
 std::unique_ptr<InterpolableValue> ConvertLength(const Length& length,
                                                  double zoom) {
-  return Unwrap(LengthInterpolationFunctions::MaybeConvertLength(length, zoom));
+  return InterpolableLength::MaybeConvertLength(length, zoom);
 }
 
 std::unique_ptr<InterpolableValue> ConvertCSSBorderRadiusWidth(
@@ -157,11 +165,10 @@ LengthSize CreateBorderRadius(
     const InterpolableValue& width,
     const InterpolableValue& height,
     const CSSToLengthConversionData& conversion_data) {
-  return LengthSize(
-      LengthInterpolationFunctions::CreateLength(
-          width, nullptr, conversion_data, kValueRangeNonNegative),
-      LengthInterpolationFunctions::CreateLength(
-          height, nullptr, conversion_data, kValueRangeNonNegative));
+  return LengthSize(To<InterpolableLength>(width).CreateLength(
+                        conversion_data, kValueRangeNonNegative),
+                    To<InterpolableLength>(height).CreateLength(
+                        conversion_data, kValueRangeNonNegative));
 }
 
 namespace circle_functions {
@@ -217,7 +224,7 @@ scoped_refptr<BasicShape> CreateBasicShape(
     const InterpolableValue& interpolable_value,
     const CSSToLengthConversionData& conversion_data) {
   scoped_refptr<BasicShapeCircle> circle = BasicShapeCircle::Create();
-  const InterpolableList& list = ToInterpolableList(interpolable_value);
+  const auto& list = To<InterpolableList>(interpolable_value);
   circle->SetCenterX(
       CreateCoordinate(*list.Get(kCircleCenterXIndex), conversion_data));
   circle->SetCenterY(
@@ -290,7 +297,7 @@ scoped_refptr<BasicShape> CreateBasicShape(
     const InterpolableValue& interpolable_value,
     const CSSToLengthConversionData& conversion_data) {
   scoped_refptr<BasicShapeEllipse> ellipse = BasicShapeEllipse::Create();
-  const InterpolableList& list = ToInterpolableList(interpolable_value);
+  const auto& list = To<InterpolableList>(interpolable_value);
   ellipse->SetCenterX(
       CreateCoordinate(*list.Get(kEllipseCenterXIndex), conversion_data));
   ellipse->SetCenterY(
@@ -382,31 +389,26 @@ InterpolationValue ConvertBasicShape(const BasicShapeInset& inset,
 
 std::unique_ptr<InterpolableValue> CreateNeutralValue() {
   auto list = std::make_unique<InterpolableList>(kInsetComponentIndexCount);
-  list->Set(kInsetTopIndex,
-            LengthInterpolationFunctions::CreateNeutralInterpolableValue());
-  list->Set(kInsetRightIndex,
-            LengthInterpolationFunctions::CreateNeutralInterpolableValue());
-  list->Set(kInsetBottomIndex,
-            LengthInterpolationFunctions::CreateNeutralInterpolableValue());
-  list->Set(kInsetLeftIndex,
-            LengthInterpolationFunctions::CreateNeutralInterpolableValue());
+  list->Set(kInsetTopIndex, InterpolableLength::CreateNeutral());
+  list->Set(kInsetRightIndex, InterpolableLength::CreateNeutral());
+  list->Set(kInsetBottomIndex, InterpolableLength::CreateNeutral());
+  list->Set(kInsetLeftIndex, InterpolableLength::CreateNeutral());
 
-  list->Set(kInsetBorderTopLeftWidthIndex,
-            LengthInterpolationFunctions::CreateNeutralInterpolableValue());
+  list->Set(kInsetBorderTopLeftWidthIndex, InterpolableLength::CreateNeutral());
   list->Set(kInsetBorderTopLeftHeightIndex,
-            LengthInterpolationFunctions::CreateNeutralInterpolableValue());
+            InterpolableLength::CreateNeutral());
   list->Set(kInsetBorderTopRightWidthIndex,
-            LengthInterpolationFunctions::CreateNeutralInterpolableValue());
+            InterpolableLength::CreateNeutral());
   list->Set(kInsetBorderTopRightHeightIndex,
-            LengthInterpolationFunctions::CreateNeutralInterpolableValue());
+            InterpolableLength::CreateNeutral());
   list->Set(kInsetBorderBottomRightWidthIndex,
-            LengthInterpolationFunctions::CreateNeutralInterpolableValue());
+            InterpolableLength::CreateNeutral());
   list->Set(kInsetBorderBottomRightHeightIndex,
-            LengthInterpolationFunctions::CreateNeutralInterpolableValue());
+            InterpolableLength::CreateNeutral());
   list->Set(kInsetBorderBottomLeftWidthIndex,
-            LengthInterpolationFunctions::CreateNeutralInterpolableValue());
+            InterpolableLength::CreateNeutral());
   list->Set(kInsetBorderBottomLeftHeightIndex,
-            LengthInterpolationFunctions::CreateNeutralInterpolableValue());
+            InterpolableLength::CreateNeutral());
   return std::move(list);
 }
 
@@ -414,15 +416,15 @@ scoped_refptr<BasicShape> CreateBasicShape(
     const InterpolableValue& interpolable_value,
     const CSSToLengthConversionData& conversion_data) {
   scoped_refptr<BasicShapeInset> inset = BasicShapeInset::Create();
-  const InterpolableList& list = ToInterpolableList(interpolable_value);
-  inset->SetTop(LengthInterpolationFunctions::CreateLength(
-      *list.Get(kInsetTopIndex), nullptr, conversion_data, kValueRangeAll));
-  inset->SetRight(LengthInterpolationFunctions::CreateLength(
-      *list.Get(kInsetRightIndex), nullptr, conversion_data, kValueRangeAll));
-  inset->SetBottom(LengthInterpolationFunctions::CreateLength(
-      *list.Get(kInsetBottomIndex), nullptr, conversion_data, kValueRangeAll));
-  inset->SetLeft(LengthInterpolationFunctions::CreateLength(
-      *list.Get(kInsetLeftIndex), nullptr, conversion_data, kValueRangeAll));
+  const auto& list = To<InterpolableList>(interpolable_value);
+  inset->SetTop(To<InterpolableLength>(*list.Get(kInsetTopIndex))
+                    .CreateLength(conversion_data, kValueRangeAll));
+  inset->SetRight(To<InterpolableLength>(*list.Get(kInsetRightIndex))
+                      .CreateLength(conversion_data, kValueRangeAll));
+  inset->SetBottom(To<InterpolableLength>(*list.Get(kInsetBottomIndex))
+                       .CreateLength(conversion_data, kValueRangeAll));
+  inset->SetLeft(To<InterpolableLength>(*list.Get(kInsetLeftIndex))
+                     .CreateLength(conversion_data, kValueRangeAll));
 
   inset->SetTopLeftRadius(CreateBorderRadius(
       *list.Get(kInsetBorderTopLeftWidthIndex),
@@ -469,8 +471,7 @@ std::unique_ptr<InterpolableValue> CreateNeutralValue(
     const BasicShapeNonInterpolableValue& non_interpolable_value) {
   auto list = std::make_unique<InterpolableList>(non_interpolable_value.size());
   for (wtf_size_t i = 0; i < non_interpolable_value.size(); i++)
-    list->Set(i,
-              LengthInterpolationFunctions::CreateNeutralInterpolableValue());
+    list->Set(i, InterpolableLength::CreateNeutral());
   return std::move(list);
 }
 
@@ -480,16 +481,15 @@ scoped_refptr<BasicShape> CreateBasicShape(
     const CSSToLengthConversionData& conversion_data) {
   scoped_refptr<BasicShapePolygon> polygon = BasicShapePolygon::Create();
   polygon->SetWindRule(non_interpolable_value.GetWindRule());
-  const InterpolableList& list = ToInterpolableList(interpolable_value);
+  const auto& list = To<InterpolableList>(interpolable_value);
   wtf_size_t size = non_interpolable_value.size();
   DCHECK_EQ(list.length(), size);
   DCHECK_EQ(size % 2, 0U);
   for (wtf_size_t i = 0; i < size; i += 2) {
-    polygon->AppendPoint(
-        LengthInterpolationFunctions::CreateLength(
-            *list.Get(i), nullptr, conversion_data, kValueRangeAll),
-        LengthInterpolationFunctions::CreateLength(
-            *list.Get(i + 1), nullptr, conversion_data, kValueRangeAll));
+    polygon->AppendPoint(To<InterpolableLength>(*list.Get(i))
+                             .CreateLength(conversion_data, kValueRangeAll),
+                         To<InterpolableLength>(*list.Get(i + 1))
+                             .CreateLength(conversion_data, kValueRangeAll));
   }
   return polygon;
 }
@@ -546,8 +546,8 @@ InterpolationValue basic_shape_interpolation_functions::MaybeConvertBasicShape(
 std::unique_ptr<InterpolableValue>
 basic_shape_interpolation_functions::CreateNeutralValue(
     const NonInterpolableValue& untyped_non_interpolable_value) {
-  const BasicShapeNonInterpolableValue& non_interpolable_value =
-      ToBasicShapeNonInterpolableValue(untyped_non_interpolable_value);
+  const auto& non_interpolable_value =
+      To<BasicShapeNonInterpolableValue>(untyped_non_interpolable_value);
   switch (non_interpolable_value.GetShapeType()) {
     case BasicShape::kBasicShapeCircleType:
       return circle_functions::CreateNeutralValue();
@@ -566,16 +566,16 @@ basic_shape_interpolation_functions::CreateNeutralValue(
 bool basic_shape_interpolation_functions::ShapesAreCompatible(
     const NonInterpolableValue& a,
     const NonInterpolableValue& b) {
-  return ToBasicShapeNonInterpolableValue(a).IsCompatibleWith(
-      ToBasicShapeNonInterpolableValue(b));
+  return To<BasicShapeNonInterpolableValue>(a).IsCompatibleWith(
+      To<BasicShapeNonInterpolableValue>(b));
 }
 
 scoped_refptr<BasicShape> basic_shape_interpolation_functions::CreateBasicShape(
     const InterpolableValue& interpolable_value,
     const NonInterpolableValue& untyped_non_interpolable_value,
     const CSSToLengthConversionData& conversion_data) {
-  const BasicShapeNonInterpolableValue& non_interpolable_value =
-      ToBasicShapeNonInterpolableValue(untyped_non_interpolable_value);
+  const auto& non_interpolable_value =
+      To<BasicShapeNonInterpolableValue>(untyped_non_interpolable_value);
   switch (non_interpolable_value.GetShapeType()) {
     case BasicShape::kBasicShapeCircleType:
       return circle_functions::CreateBasicShape(interpolable_value,

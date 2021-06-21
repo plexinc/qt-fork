@@ -10,13 +10,18 @@
 #include <utility>
 #include <vector>
 
+#include "base/containers/flat_set.h"
+#include "base/guid.h"
 #include "base/memory/ptr_util.h"
 #include "base/pickle.h"
 #include "base/token.h"
 #include "components/sessions/core/base_session_service_commands.h"
-#include "components/sessions/core/base_session_service_delegate.h"
+#include "components/sessions/core/command_storage_manager_delegate.h"
 #include "components/sessions/core/session_command.h"
 #include "components/sessions/core/session_types.h"
+#include "components/tab_groups/tab_group_color.h"
+#include "components/tab_groups/tab_group_id.h"
+#include "components/tab_groups/tab_group_visual_data.h"
 
 namespace sessions {
 
@@ -58,6 +63,9 @@ static const SessionCommand::id_type kCommandLastActiveTime = 21;
 static const SessionCommand::id_type kCommandSetWindowWorkspace2 = 23;
 static const SessionCommand::id_type kCommandTabNavigationPathPruned = 24;
 static const SessionCommand::id_type kCommandSetTabGroup = 25;
+static const SessionCommand::id_type kCommandSetTabGroupMetadata = 26;
+static const SessionCommand::id_type kCommandSetTabGroupMetadata2 = 27;
+static const SessionCommand::id_type kCommandSetTabGuid = 28;
 
 namespace {
 
@@ -112,7 +120,7 @@ struct TabNavigationPathPrunedPayload {
   int32_t count;
 };
 
-struct SerializedTabGroupId {
+struct SerializedToken {
   // These fields correspond to the high and low fields of |base::Token|.
   uint64_t id_high;
   uint64_t id_low;
@@ -120,7 +128,7 @@ struct SerializedTabGroupId {
 
 struct TabGroupPayload {
   SessionID::id_type tab_id;
-  SerializedTabGroupId maybe_group;
+  SerializedToken maybe_group;
   bool has_group;
 };
 
@@ -147,9 +155,6 @@ enum PersistedWindowShowState {
   PERSISTED_SHOW_STATE_DOCKED_DEPRECATED = 7,
   PERSISTED_SHOW_STATE_END = 8,
 };
-
-using IdToSessionTab = std::map<SessionID, std::unique_ptr<SessionTab>>;
-using IdToSessionWindow = std::map<SessionID, std::unique_ptr<SessionWindow>>;
 
 // Assert to ensure PersistedWindowShowState is updated if ui::WindowShowState
 // is changed.
@@ -217,6 +222,11 @@ void UpdateSelectedTabIndex(
   }
 }
 
+using IdToSessionTab = std::map<SessionID, std::unique_ptr<SessionTab>>;
+using IdToSessionWindow = std::map<SessionID, std::unique_ptr<SessionWindow>>;
+using GroupIdToSessionTabGroup =
+    std::map<tab_groups::TabGroupId, std::unique_ptr<SessionTabGroup>>;
+
 // Returns the window in windows with the specified id. If a window does
 // not exist, one is created.
 SessionWindow* GetWindow(SessionID window_id, IdToSessionWindow* windows) {
@@ -242,6 +252,17 @@ SessionTab* GetTab(SessionID tab_id, IdToSessionTab* tabs) {
     return tab;
   }
   return i->second.get();
+}
+
+SessionTabGroup* GetTabGroup(tab_groups::TabGroupId group_id,
+                             GroupIdToSessionTabGroup* groups) {
+  DCHECK(groups);
+  // For |group_id|, insert a corresponding group entry or get the existing one.
+  auto result = groups->emplace(group_id, nullptr);
+  GroupIdToSessionTabGroup::iterator it = result.first;
+  if (result.second)
+    it->second = std::make_unique<SessionTabGroup>(group_id);
+  return it->second.get();
 }
 
 // Returns an iterator into navigations pointing to the navigation whose
@@ -312,9 +333,13 @@ void SortTabsBasedOnVisualOrderAndClear(
 
 // Adds tabs to their parent window based on the tab's window_id. This
 // ignores tabs with no navigations.
-void AddTabsToWindows(IdToSessionTab* tabs, IdToSessionWindow* windows) {
+void AddTabsToWindows(IdToSessionTab* tabs,
+                      GroupIdToSessionTabGroup* tab_groups,
+                      IdToSessionWindow* windows) {
   DVLOG(1) << "AddTabsToWindows";
-  DVLOG(1) << "Tabs " << tabs->size() << ", windows " << windows->size();
+  DVLOG(1) << "Tabs " << tabs->size() << ", groups " << tab_groups->size()
+           << ", windows " << windows->size();
+
   for (auto& tab_pair : *tabs) {
     std::unique_ptr<SessionTab> tab = std::move(tab_pair.second);
     if (!tab->window_id.id() || tab->navigations.empty())
@@ -339,6 +364,35 @@ void AddTabsToWindows(IdToSessionTab* tabs, IdToSessionWindow* windows) {
   // There are no more pointers left in |tabs|, just empty husks from the
   // move, so clear it out.
   tabs->clear();
+
+  // For each window, collect all the tab groups present. We rely on the fact
+  // that tab groups can't be split between windows.
+  for (auto& window_pair : *windows) {
+    SessionWindow* window = window_pair.second.get();
+
+    base::flat_set<tab_groups::TabGroupId> groups_in_current_window;
+    for (const auto& tab : window->tabs) {
+      if (tab->group.has_value())
+        groups_in_current_window.insert(tab->group.value());
+    }
+
+    // Move corresponding SessionTabGroup entries into SessionWindow.
+    for (const tab_groups::TabGroupId& group_id : groups_in_current_window) {
+      auto it = tab_groups->find(group_id);
+      if (it == tab_groups->end()) {
+        window->tab_groups.push_back(
+            std::make_unique<SessionTabGroup>(group_id));
+        continue;
+      }
+      window->tab_groups.push_back(std::move(it->second));
+      tab_groups->erase(it);
+    }
+  }
+
+  // We may have extraneous tab group entries. Since we don't have explicit
+  // commands for opening and closing tab groups, there may be dangling
+  // SessionTabGroup entries after all tabs in a group are closed.
+  tab_groups->clear();
 }
 
 void ProcessTabNavigationPathPrunedCommand(
@@ -376,6 +430,7 @@ void ProcessTabNavigationPathPrunedCommand(
 bool CreateTabsAndWindows(
     const std::vector<std::unique_ptr<SessionCommand>>& data,
     IdToSessionTab* tabs,
+    GroupIdToSessionTabGroup* tab_groups,
     IdToSessionWindow* windows,
     SessionID* active_window_id) {
   // If the file is corrupt (command with wrong size, or unknown command), we
@@ -569,7 +624,50 @@ bool CreateTabsAndWindows(
         const base::Token token(payload.maybe_group.id_high,
                                 payload.maybe_group.id_low);
         session_tab->group =
-            payload.has_group ? base::make_optional(token) : base::nullopt;
+            payload.has_group ? base::make_optional(
+                                    tab_groups::TabGroupId::FromRawToken(token))
+                              : base::nullopt;
+        break;
+      }
+
+      case kCommandSetTabGroupMetadata:
+      case kCommandSetTabGroupMetadata2: {
+        std::unique_ptr<base::Pickle> pickle = command->PayloadAsPickle();
+        base::PickleIterator iter(*pickle);
+
+        base::Optional<base::Token> group_token = ReadTokenFromPickle(&iter);
+        if (!group_token.has_value())
+          return true;
+
+        SessionTabGroup* group = GetTabGroup(
+            tab_groups::TabGroupId::FromRawToken(group_token.value()),
+            tab_groups);
+
+        base::string16 title;
+        if (!iter.ReadString16(&title))
+          return true;
+
+        if (command->id() == kCommandSetTabGroupMetadata) {
+          SkColor color;
+          if (!iter.ReadUInt32(&color))
+            return true;
+
+          // crrev.com/c/1968039 changes the color of a tab group from a SkColor
+          // to a TabGroupColorId. Here we ignore the old SkColor and assign the
+          // default TabGroupColorId because the fallback is acceptable while
+          // the tab groups feature isn't yet launched. Once it is,
+          // kCommandSetTabGroupMetadata will be deprecated in favor of
+          // kCommandSetTabGroupMetadata2, which properly restores
+          // TabGroupColorIds.
+          group->visual_data = tab_groups::TabGroupVisualData(
+              title, tab_groups::TabGroupColorId::kGrey);
+        } else {
+          uint32_t color_int;
+          if (!iter.ReadUInt32(&color_int))
+            return true;
+
+          group->visual_data = tab_groups::TabGroupVisualData(title, color_int);
+        }
         break;
       }
 
@@ -674,9 +772,21 @@ bool CreateTabsAndWindows(
         break;
       }
 
+      case kCommandSetTabGuid: {
+        std::unique_ptr<base::Pickle> pickle(command->PayloadAsPickle());
+        base::PickleIterator it(*pickle);
+        SessionID::id_type tab_id = -1;
+        std::string guid;
+        if (!it.ReadInt(&tab_id) || !it.ReadString(&guid) ||
+            !base::IsValidGUID(guid)) {
+          DVLOG(1) << "Failed reading command " << command->id();
+          return true;
+        }
+        GetTab(SessionID::FromSerializedValue(tab_id), tabs)->guid = guid;
+        break;
+      }
+
       default:
-        // TODO(skuhne): This might call back into a callback handler to extend
-        // the command set for specific implementations.
         DVLOG(1) << "Failed reading an unknown command " << command->id();
         return true;
     }
@@ -776,16 +886,26 @@ std::unique_ptr<SessionCommand> CreateSetWindowTypeCommand(
 
 std::unique_ptr<SessionCommand> CreateTabGroupCommand(
     const SessionID& tab_id,
-    base::Optional<base::Token> group) {
+    base::Optional<tab_groups::TabGroupId> group) {
   TabGroupPayload payload = {0};
   payload.tab_id = tab_id.id();
   if (group.has_value()) {
-    DCHECK(!group.value().is_zero());
-    payload.maybe_group.id_high = group.value().high();
-    payload.maybe_group.id_low = group.value().low();
+    DCHECK(!group.value().token().is_zero());
+    payload.maybe_group.id_high = group.value().token().high();
+    payload.maybe_group.id_low = group.value().token().low();
     payload.has_group = true;
   }
   return CreateSessionCommandForPayload(kCommandSetTabGroup, payload);
+}
+
+std::unique_ptr<SessionCommand> CreateTabGroupMetadataUpdateCommand(
+    const tab_groups::TabGroupId group,
+    const tab_groups::TabGroupVisualData* visual_data) {
+  base::Pickle pickle;
+  WriteTokenToPickle(&pickle, group.token());
+  pickle.WriteString16(visual_data->title());
+  pickle.WriteUInt32(static_cast<int>(visual_data->color()));
+  return std::make_unique<SessionCommand>(kCommandSetTabGroupMetadata2, pickle);
 }
 
 std::unique_ptr<SessionCommand> CreatePinnedStateCommand(
@@ -872,7 +992,16 @@ std::unique_ptr<SessionCommand> CreateSetWindowAppNameCommand(
                                        app_name);
 }
 
-bool ReplacePendingCommand(BaseSessionService* base_session_service,
+std::unique_ptr<SessionCommand> CreateSetTabGuidCommand(
+    const SessionID& tab_id,
+    const std::string& guid) {
+  base::Pickle pickle;
+  pickle.WriteInt(tab_id.id());
+  pickle.WriteString(guid);
+  return std::make_unique<SessionCommand>(kCommandSetTabGuid, pickle);
+}
+
+bool ReplacePendingCommand(CommandStorageManager* command_storage_manager,
                            std::unique_ptr<SessionCommand>* command) {
   // We optimize page navigations, which can happen quite frequently and
   // is expensive. And activation is like Highlander, there can only be one!
@@ -880,8 +1009,8 @@ bool ReplacePendingCommand(BaseSessionService* base_session_service,
       (*command)->id() != kCommandSetActiveWindow) {
     return false;
   }
-  for (auto i = base_session_service->pending_commands().rbegin();
-       i != base_session_service->pending_commands().rend(); ++i) {
+  for (auto i = command_storage_manager->pending_commands().rbegin();
+       i != command_storage_manager->pending_commands().rend(); ++i) {
     SessionCommand* existing_command = i->get();
     if ((*command)->id() == kCommandUpdateTabNavigation &&
         existing_command->id() == kCommandUpdateTabNavigation) {
@@ -913,16 +1042,16 @@ bool ReplacePendingCommand(BaseSessionService* base_session_service,
         // existing_command is an update for the same tab/index pair. Replace
         // it with the new one. We need to add to the end of the list just in
         // case there is a prune command after the update command.
-        base_session_service->EraseCommand((i.base() - 1)->get());
-        base_session_service->AppendRebuildCommand(std::move(*command));
+        command_storage_manager->EraseCommand((i.base() - 1)->get());
+        command_storage_manager->AppendRebuildCommand(std::move(*command));
         return true;
       }
       return false;
     }
     if ((*command)->id() == kCommandSetActiveWindow &&
         existing_command->id() == kCommandSetActiveWindow) {
-      base_session_service->SwapCommand(existing_command,
-                                        (std::move(*command)));
+      command_storage_manager->SwapCommand(existing_command,
+                                           (std::move(*command)));
       return true;
     }
   }
@@ -939,16 +1068,19 @@ void RestoreSessionFromCommands(
     std::vector<std::unique_ptr<SessionWindow>>* valid_windows,
     SessionID* active_window_id) {
   IdToSessionTab tabs;
+  GroupIdToSessionTabGroup tab_groups;
   IdToSessionWindow windows;
 
   DVLOG(1) << "RestoreSessionFromCommands " << commands.size();
-  if (CreateTabsAndWindows(commands, &tabs, &windows, active_window_id)) {
-    AddTabsToWindows(&tabs, &windows);
+  if (CreateTabsAndWindows(commands, &tabs, &tab_groups, &windows,
+                           active_window_id)) {
+    AddTabsToWindows(&tabs, &tab_groups, &windows);
     SortTabsBasedOnVisualOrderAndClear(&windows, valid_windows);
     UpdateSelectedTabIndex(valid_windows);
   }
-  // AddTabsToWindows should have processed all the tabs.
+  // AddTabsToWindows should have processed all the tabs and groups.
   DCHECK_EQ(0u, tabs.size());
+  DCHECK_EQ(0u, tab_groups.size());
   // SortTabsBasedOnVisualOrderAndClear should have processed all the windows.
   DCHECK_EQ(0u, windows.size());
 }

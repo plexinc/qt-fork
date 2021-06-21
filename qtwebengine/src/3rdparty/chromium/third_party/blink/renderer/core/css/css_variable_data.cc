@@ -4,7 +4,7 @@
 
 #include "third_party/blink/renderer/core/css/css_variable_data.h"
 
-#include "third_party/blink/renderer/core/css/css_syntax_descriptor.h"
+#include "third_party/blink/renderer/core/css/css_syntax_definition.h"
 #include "third_party/blink/renderer/core/css/parser/css_parser_context.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_view.h"
@@ -91,12 +91,13 @@ CSSVariableData::CSSVariableData(const CSSParserTokenRange& range,
 }
 
 const CSSValue* CSSVariableData::ParseForSyntax(
-    const CSSSyntaxDescriptor& syntax,
+    const CSSSyntaxDefinition& syntax,
     SecureContextMode secure_context_mode) const {
   DCHECK(!NeedsVariableResolution());
   // TODO(timloh): This probably needs a proper parser context for
   // relative URL resolution.
-  return syntax.Parse(TokenRange(), StrictCSSParserContext(secure_context_mode),
+  return syntax.Parse(TokenRange(),
+                      *StrictCSSParserContext(secure_context_mode),
                       is_animation_tainted_);
 }
 

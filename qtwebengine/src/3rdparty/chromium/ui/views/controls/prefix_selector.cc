@@ -4,6 +4,8 @@
 
 #include "ui/views/controls/prefix_selector.h"
 
+#include <algorithm>
+
 #if defined(OS_WIN)
 #include <vector>
 #endif
@@ -20,12 +22,6 @@
 
 namespace views {
 
-namespace {
-
-constexpr int64_t kTimeBeforeClearingMS = 1000;
-
-}  // namespace
-
 PrefixSelector::PrefixSelector(PrefixDelegate* delegate, View* host_view)
     : prefix_delegate_(delegate),
       host_view_(host_view),
@@ -39,18 +35,16 @@ void PrefixSelector::OnViewBlur() {
 
 bool PrefixSelector::ShouldContinueSelection() const {
   const base::TimeTicks now(tick_clock_->NowTicks());
-  return ((now - time_of_last_key_).InMilliseconds() < kTimeBeforeClearingMS);
+  constexpr auto kTimeBeforeClearing = base::TimeDelta::FromSeconds(1);
+  return (now - time_of_last_key_) < kTimeBeforeClearing;
 }
 
 void PrefixSelector::SetCompositionText(
-    const ui::CompositionText& composition) {
-}
+    const ui::CompositionText& composition) {}
 
-void PrefixSelector::ConfirmCompositionText() {
-}
+void PrefixSelector::ConfirmCompositionText(bool keep_selection) {}
 
-void PrefixSelector::ClearCompositionText() {
-}
+void PrefixSelector::ClearCompositionText() {}
 
 void PrefixSelector::InsertText(const base::string16& text) {
   OnTextInput(text);
@@ -130,7 +124,7 @@ bool PrefixSelector::DeleteRange(const gfx::Range& range) {
 }
 
 bool PrefixSelector::GetTextFromRange(const gfx::Range& range,
-                                        base::string16* text) const {
+                                      base::string16* text) const {
   return false;
 }
 
@@ -143,8 +137,7 @@ bool PrefixSelector::ChangeTextDirectionAndLayoutAlignment(
   return true;
 }
 
-void PrefixSelector::ExtendSelectionAndDelete(size_t before, size_t after) {
-}
+void PrefixSelector::ExtendSelectionAndDelete(size_t before, size_t after) {}
 
 void PrefixSelector::EnsureCaretNotInRect(const gfx::Rect& rect) {}
 
@@ -183,6 +176,10 @@ void PrefixSelector::SetActiveCompositionForAccessibility(
     const gfx::Range& range,
     const base::string16& active_composition_text,
     bool is_composition_committed) {}
+
+void PrefixSelector::GetActiveTextInputControlLayoutBounds(
+    base::Optional<gfx::Rect>* control_bounds,
+    base::Optional<gfx::Rect>* selection_bounds) {}
 #endif
 
 void PrefixSelector::OnTextInput(const base::string16& text) {
@@ -227,7 +224,7 @@ bool PrefixSelector::TextAtRowMatchesText(int row,
   const base::string16 model_text(
       base::i18n::ToLower(prefix_delegate_->GetTextForRow(row)));
   return (model_text.size() >= lower_text.size()) &&
-      (model_text.compare(0, lower_text.size(), lower_text) == 0);
+         (model_text.compare(0, lower_text.size(), lower_text) == 0);
 }
 
 void PrefixSelector::ClearText() {

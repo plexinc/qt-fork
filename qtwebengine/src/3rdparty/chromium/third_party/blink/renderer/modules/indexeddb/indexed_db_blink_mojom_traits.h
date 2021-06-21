@@ -110,8 +110,8 @@ struct MODULES_EXPORT UnionTraits<blink::mojom::IDBKeyDataDataView,
   static bool other_invalid(const std::unique_ptr<blink::IDBKey>& key) {
     return key->GetType() == blink::mojom::IDBKeyType::Invalid;
   }
-  static bool other_null(const std::unique_ptr<blink::IDBKey>& key) {
-    return key->GetType() == blink::mojom::IDBKeyType::Null;
+  static bool other_none(const std::unique_ptr<blink::IDBKey>& key) {
+    return key->GetType() == blink::mojom::IDBKeyType::None;
   }
 };
 
@@ -128,7 +128,7 @@ template <>
 struct MODULES_EXPORT StructTraits<blink::mojom::IDBValueDataView,
                                    std::unique_ptr<blink::IDBValue>> {
   static Vector<uint8_t> bits(const std::unique_ptr<blink::IDBValue>& input);
-  static Vector<blink::mojom::blink::IDBBlobInfoPtr> blob_or_file_info(
+  static Vector<blink::mojom::blink::IDBExternalObjectPtr> external_objects(
       const std::unique_ptr<blink::IDBValue>& input);
   static bool Read(blink::mojom::IDBValueDataView data,
                    std::unique_ptr<blink::IDBValue>* out);

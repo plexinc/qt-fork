@@ -81,14 +81,28 @@ enum class AutofillAssistantState {
   // Autofill assistant is stopped, but the controller is still available.
   //
   // This is a final state for the UI, which, when entering this state, detaches
-  // itself from the controller, waits for a few seconds to let the user read
-  // the message and then disappears.
+  // itself from the controller and lets the user read  the message.
   //
   // In that scenario, the status message at the time of transition to STOPPED
   // is supposed to contain the final message.
   //
-  // Next states: TRACKING.
-  STOPPED
+  // Next states: TRACKING
+  STOPPED,
+
+  // Autofill assistant is waiting for the user to browse the website until one
+  // of a set of specified preconditions match.
+  //
+  // Prompt-like state where a user is expected to browse a website with a
+  // minimal autofill assistant UI. Preconditions are still evaluated and
+  // buttons displayed if they match. There is no touchable
+  // area set for this state.
+  //
+  // In praticular, navigation to subdomains and user gestures like 'go back'
+  // are not a reason to shutdown autofill assistant. Navigating away from the
+  // original domain will however shut down autofill assistant.
+  //
+  // Next states: RUNNING, TRACKING, STOPPED
+  BROWSE,
 };
 
 inline std::ostream& operator<<(std::ostream& out,
@@ -123,6 +137,9 @@ inline std::ostream& operator<<(std::ostream& out,
       break;
     case AutofillAssistantState::STOPPED:
       out << "STOPPED";
+      break;
+    case AutofillAssistantState::BROWSE:
+      out << "BROWSE";
       break;
       // Intentionally no default case to make compilation fail if a new value
       // was added to the enum but not to this list.

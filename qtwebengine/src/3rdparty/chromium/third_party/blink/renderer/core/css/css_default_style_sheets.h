@@ -36,15 +36,15 @@ class Element;
 class RuleSet;
 class StyleSheetContents;
 
-class CSSDefaultStyleSheets
-    : public GarbageCollectedFinalized<CSSDefaultStyleSheets> {
-
+class CSSDefaultStyleSheets final
+    : public GarbageCollected<CSSDefaultStyleSheets> {
  public:
   CORE_EXPORT static CSSDefaultStyleSheets& Instance();
 
   CSSDefaultStyleSheets();
 
   bool EnsureDefaultStyleSheetsForElement(const Element&);
+  bool EnsureDefaultStyleSheetForXrOverlay();
   void EnsureDefaultStyleSheetForFullscreen();
 
   RuleSet* DefaultStyle() { return default_style_.Get(); }
@@ -88,7 +88,7 @@ class CSSDefaultStyleSheets
     return media_controls_style_sheet_loader_.get();
   }
 
-  void Trace(blink::Visitor*);
+  void Trace(Visitor*);
 
  private:
   void InitializeDefaultStyles();
@@ -107,7 +107,9 @@ class CSSDefaultStyleSheets
   Member<StyleSheetContents> svg_style_sheet_;
   Member<StyleSheetContents> mathml_style_sheet_;
   Member<StyleSheetContents> media_controls_style_sheet_;
+  Member<StyleSheetContents> text_track_style_sheet_;
   Member<StyleSheetContents> fullscreen_style_sheet_;
+  Member<StyleSheetContents> webxr_overlay_style_sheet_;
 
   std::unique_ptr<UAStyleSheetLoader> media_controls_style_sheet_loader_;
   DISALLOW_COPY_AND_ASSIGN(CSSDefaultStyleSheets);

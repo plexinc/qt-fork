@@ -81,7 +81,7 @@ QT_BEGIN_NAMESPACE
     position, and the translated() function returns a translated copy
     of this rectangle.
 
-    The size() function returns the rectange's dimensions as a
+    The size() function returns the rectangle's dimensions as a
     QSize. The dimensions can also be retrieved separately using the
     width() and height() functions. To manipulate the dimensions use
     the setSize(), setWidth() or setHeight() functions. Alternatively,
@@ -1340,7 +1340,7 @@ QDebug operator<<(QDebug dbg, const QRect &r)
     current position, and the translated() function returns a
     translated copy of this rectangle.
 
-    The size() function returns the rectange's dimensions as a
+    The size() function returns the rectangle's dimensions as a
     QSizeF. The dimensions can also be retrieved separately using the
     width() and height() functions. To manipulate the dimensions use
     the setSize(), setWidth() or setHeight() functions. Alternatively,
@@ -2391,8 +2391,13 @@ QRect QRectF::toAlignedRect() const noexcept
     \fn bool operator==(const QRectF &r1, const QRectF &r2)
     \relates QRectF
 
-    Returns \c true if the rectangles \a r1 and \a r2 are equal,
+    Returns \c true if the rectangles \a r1 and \a r2 are \b approximately equal,
     otherwise returns \c false.
+
+    \warning This function does not check for strict equality; instead,
+    it uses a fuzzy comparison to compare the rectangles' coordinates.
+
+    \sa qFuzzyCompare
 */
 
 
@@ -2400,8 +2405,11 @@ QRect QRectF::toAlignedRect() const noexcept
     \fn bool operator!=(const QRectF &r1, const QRectF &r2)
     \relates QRectF
 
-    Returns \c true if the rectangles \a r1 and \a r2 are different, otherwise
-    returns \c false.
+    Returns \c true if the rectangles \a r1 and \a r2 are sufficiently
+    different, otherwise returns \c false.
+
+    \warning This function does not check for strict inequality; instead,
+    it uses a fuzzy comparison to compare the rectangles' coordinates.
 */
 
 /*!

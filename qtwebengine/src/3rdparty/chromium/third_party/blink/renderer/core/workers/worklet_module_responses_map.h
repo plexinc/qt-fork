@@ -32,8 +32,8 @@ namespace blink {
 // across worklet threads. All access to this class should be mutex-guarded,
 // and any data passed in or read out is copied to ensure that this object's
 // internal state can be safely destructed from the main thread.
-class CORE_EXPORT WorkletModuleResponsesMap
-    : public GarbageCollectedFinalized<WorkletModuleResponsesMap> {
+class CORE_EXPORT WorkletModuleResponsesMap final
+    : public GarbageCollected<WorkletModuleResponsesMap> {
  public:
   WorkletModuleResponsesMap() = default;
 
@@ -56,7 +56,7 @@ class CORE_EXPORT WorkletModuleResponsesMap
   // Called on main thread.
   void Dispose() LOCKS_EXCLUDED(mutex_);
 
-  void Trace(blink::Visitor*) {}
+  void Trace(Visitor*) {}
 
  private:
   class Entry final {

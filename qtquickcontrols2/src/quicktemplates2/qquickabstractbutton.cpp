@@ -44,7 +44,9 @@
 
 #include <QtGui/qstylehints.h>
 #include <QtGui/qguiapplication.h>
-#include <QtGui/private/qshortcutmap_p.h>
+#if QT_CONFIG(shortcut)
+#  include <QtGui/private/qshortcutmap_p.h>
+#endif
 #include <QtGui/private/qguiapplication_p.h>
 #include <QtQuick/private/qquickevents_p_p.h>
 #include <QtQml/qqmllist.h>
@@ -436,6 +438,7 @@ QQuickAbstractButton::QQuickAbstractButton(QQuickItem *parent)
     setActiveFocusOnTab(true);
     setFocusPolicy(Qt::StrongFocus);
     setAcceptedMouseButtons(Qt::LeftButton);
+    setAcceptTouchEvents(true);
 #if QT_CONFIG(cursor)
     setCursor(Qt::ArrowCursor);
 #endif
@@ -447,6 +450,7 @@ QQuickAbstractButton::QQuickAbstractButton(QQuickAbstractButtonPrivate &dd, QQui
     setActiveFocusOnTab(true);
     setFocusPolicy(Qt::StrongFocus);
     setAcceptedMouseButtons(Qt::LeftButton);
+    setAcceptTouchEvents(true);
 #if QT_CONFIG(cursor)
     setCursor(Qt::ArrowCursor);
 #endif
@@ -713,7 +717,7 @@ void QQuickAbstractButton::setIndicator(QQuickItem *indicator)
     const qreal oldImplicitIndicatorHeight = implicitIndicatorHeight();
 
     d->removeImplicitSizeListener(d->indicator);
-    delete d->indicator;
+    QQuickControlPrivate::hideOldItem(d->indicator);
     d->indicator = indicator;
 
     if (indicator) {
@@ -738,6 +742,7 @@ void QQuickAbstractButton::setIndicator(QQuickItem *indicator)
     \qmlproperty int QtQuick.Controls::AbstractButton::icon.width
     \qmlproperty int QtQuick.Controls::AbstractButton::icon.height
     \qmlproperty color QtQuick.Controls::AbstractButton::icon.color
+    \qmlproperty bool QtQuick.Controls::AbstractButton::icon.cache
 
     This property group was added in QtQuick.Controls 2.3.
 
@@ -1018,8 +1023,8 @@ void QQuickAbstractButton::componentComplete()
 
 bool QQuickAbstractButton::event(QEvent *event)
 {
-    Q_D(QQuickAbstractButton);
 #if QT_CONFIG(shortcut)
+    Q_D(QQuickAbstractButton);
     if (event->type() == QEvent::Shortcut) {
         QShortcutEvent *se = static_cast<QShortcutEvent *>(event);
         if (se->shortcutId() == d->shortcutId) {
@@ -1059,7 +1064,7 @@ void QQuickAbstractButton::keyReleaseEvent(QKeyEvent *event)
 {
     Q_D(QQuickAbstractButton);
     QQuickControl::keyReleaseEvent(event);
-    if (d->acceptKeyClick(static_cast<Qt::Key>(event->key()))) {
+    if (d->pressed && d->acceptKeyClick(static_cast<Qt::Key>(event->key()))) {
         setPressed(false);
 
         nextCheckState();
@@ -1106,9 +1111,9 @@ void QQuickAbstractButton::timerEvent(QTimerEvent *event)
 
 void QQuickAbstractButton::itemChange(ItemChange change, const ItemChangeData &value)
 {
-    Q_D(QQuickAbstractButton);
     QQuickControl::itemChange(change, value);
 #if QT_CONFIG(shortcut)
+    Q_D(QQuickAbstractButton);
     if (change == ItemVisibleHasChanged) {
         if (value.boolValue)
             d->grabShortcut();

@@ -13,12 +13,13 @@
 #include "base/macros.h"
 #include "base/test/simple_test_clock.h"
 #include "base/test/simple_test_tick_clock.h"
+#include "net/base/rand_callback.h"
 #include "net/reporting/reporting_cache.h"
 #include "net/reporting/reporting_context.h"
 #include "net/reporting/reporting_delegate.h"
 #include "net/reporting/reporting_service.h"
 #include "net/reporting/reporting_uploader.h"
-#include "net/test/test_with_scoped_task_environment.h"
+#include "net/test/test_with_task_environment.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
@@ -36,9 +37,9 @@ class Origin;
 
 namespace net {
 
+class NetworkIsolationKey;
 struct ReportingEndpoint;
 class ReportingGarbageCollector;
-class TestURLRequestContext;
 
 // A matcher for ReportingReports, which checks that the url of the report is
 // the given url.
@@ -48,6 +49,8 @@ class TestURLRequestContext;
 MATCHER_P(ReportUrlIs, url, "") {
   return arg.url == url;
 }
+
+RandIntCallback TestReportingRandIntCallback();
 
 // A test implementation of ReportingUploader that holds uploads for tests to
 // examine and complete with a specified outcome.
@@ -79,6 +82,7 @@ class TestReportingUploader : public ReportingUploader {
 
   void StartUpload(const url::Origin& report_origin,
                    const GURL& url,
+                   const NetworkIsolationKey& network_isolation_key,
                    const std::string& json,
                    int max_depth,
                    UploadCallback callback) override;
@@ -128,7 +132,6 @@ class TestReportingDelegate : public ReportingDelegate {
                     const GURL& endpoint) const override;
 
  private:
-  std::unique_ptr<TestURLRequestContext> test_request_context_;
   bool disallow_report_uploads_ = false;
   bool pause_permissions_check_ = false;
 
@@ -162,10 +165,6 @@ class TestReportingContext : public ReportingContext {
   }
 
  private:
-  int RandIntCallback(int min, int max);
-
-  int rand_counter_;
-
   // Owned by the DeliveryAgent and GarbageCollector, respectively, but
   // referenced here to preserve type:
 
@@ -177,7 +176,7 @@ class TestReportingContext : public ReportingContext {
 
 // A unit test base class that provides a TestReportingContext and shorthand
 // getters.
-class ReportingTestBase : public TestWithScopedTaskEnvironment {
+class ReportingTestBase : public TestWithTaskEnvironment {
  protected:
   ReportingTestBase();
   ~ReportingTestBase() override;
@@ -185,19 +184,18 @@ class ReportingTestBase : public TestWithScopedTaskEnvironment {
   void UsePolicy(const ReportingPolicy& policy);
   void UseStore(ReportingCache::PersistentReportingStore* store);
 
-  // Finds a particular endpoint (by origin, group, url) in the cache and
-  // returns it (or an invalid ReportingEndpoint, if not found).
-  const ReportingEndpoint FindEndpointInCache(const url::Origin& origin,
-                                              const std::string& group_name,
-                                              const GURL& url);
+  // Finds a particular endpoint in the cache and returns it (or an invalid
+  // ReportingEndpoint, if not found).
+  const ReportingEndpoint FindEndpointInCache(
+      const ReportingEndpointGroupKey& group_key,
+      const GURL& url);
 
   // Sets an endpoint with the given properties in a group with the given
   // properties, bypassing header parsing. Note that the endpoint is not
   // guaranteed to exist in the cache after calling this function, if endpoint
   // eviction is triggered. Returns whether the endpoint was successfully set.
   bool SetEndpointInCache(
-      const url::Origin& origin,
-      const std::string& group_name,
+      const ReportingEndpointGroupKey& group_key,
       const GURL& url,
       base::Time expires,
       OriginSubdomains include_subdomains = OriginSubdomains::DEFAULT,
@@ -205,26 +203,23 @@ class ReportingTestBase : public TestWithScopedTaskEnvironment {
       int weight = ReportingEndpoint::EndpointInfo::kDefaultWeight);
 
   // Returns whether an endpoint with the given properties exists in the cache.
-  bool EndpointExistsInCache(const url::Origin& origin,
-                             const std::string& group_name,
+  bool EndpointExistsInCache(const ReportingEndpointGroupKey& group_key,
                              const GURL& url);
 
   // Gets the statistics for a given endpoint, if it exists.
   ReportingEndpoint::Statistics GetEndpointStatistics(
-      const url::Origin& origin,
-      const std::string& group_name,
+      const ReportingEndpointGroupKey& group_key,
       const GURL& url);
 
   // Returns whether an endpoint group with exactly the given properties exists
   // in the cache. |expires| can be omitted, in which case it will not be
   // checked.
-  bool EndpointGroupExistsInCache(const url::Origin& origin,
-                                  const std::string& group_name,
+  bool EndpointGroupExistsInCache(const ReportingEndpointGroupKey& group_key,
                                   OriginSubdomains include_subdomains,
                                   base::Time expires = base::Time());
 
   // Returns whether a client for the given origin exists in the cache.
-  bool OriginClientExistsInCache(const url::Origin& origin);
+  bool ClientExistsInCacheForOrigin(const url::Origin& origin);
 
   // Makes a unique URL with the provided index.
   GURL MakeURL(size_t index);
@@ -250,9 +245,6 @@ class ReportingTestBase : public TestWithScopedTaskEnvironment {
   TestReportingUploader* uploader() { return context_->test_uploader(); }
 
   ReportingCache* cache() { return context_->cache(); }
-  ReportingEndpointManager* endpoint_manager() {
-    return context_->endpoint_manager();
-  }
   ReportingDeliveryAgent* delivery_agent() {
     return context_->delivery_agent();
   }

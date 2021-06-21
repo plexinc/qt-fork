@@ -8,6 +8,7 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 
 namespace login {
 
@@ -38,7 +39,7 @@ void GetSecureModuleUsed(GetSecureModuleUsedCallback callback) {
     return;
   }
 
-  base::PostTaskWithTraitsAndReplyWithResult(
+  base::ThreadPool::PostTaskAndReplyWithResult(
       FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
       base::BindOnce(&GetSecureModuleInfoFromFilesAndCacheIt),
       std::move(callback));

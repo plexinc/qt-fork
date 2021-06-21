@@ -60,7 +60,7 @@ class SubtargetGeometry {
  public:
   SubtargetGeometry(Node* node, const FloatQuad& quad)
       : node_(node), quad_(quad) {}
-  void Trace(blink::Visitor* visitor) { visitor->Trace(node_); }
+  void Trace(Visitor* visitor) { visitor->Trace(node_); }
 
   Node* GetNode() const { return node_; }
   FloatQuad Quad() const { return quad_; }
@@ -98,7 +98,7 @@ bool NodeRespondsToTapGesture(Node* node) {
     // Tapping on a text field or other focusable item should trigger
     // adjustment, except that iframe elements are hard-coded to support focus
     // but the effect is often invisible so they should be excluded.
-    if (element->IsMouseFocusable() && !IsHTMLIFrameElement(element))
+    if (element->IsMouseFocusable() && !IsA<HTMLIFrameElement>(element))
       return true;
     // Accept nodes that has a CSS effect when touched.
     if (element->ChildrenOrSiblingsAffectedByActive() ||
@@ -122,7 +122,7 @@ bool NodeIsZoomTarget(Node* node) {
 
 bool ProvidesContextMenuItems(Node* node) {
   // This function tries to match the nodes that receive special context-menu
-  // items in ContextMenuController::populate(), and should be kept uptodate
+  // items in ContextMenuController::populate(), and should be kept up to date
   // with those.
   DCHECK(node->GetLayoutObject() || node->IsShadowRoot());
   if (!node->GetLayoutObject())
@@ -518,10 +518,11 @@ bool FindBestContextMenuCandidate(Node*& target_node,
       subtargets, touch_adjustment::HybridDistanceFunction);
 }
 
-LayoutSize GetHitTestRectForAdjustment(const LocalFrame& frame,
+LayoutSize GetHitTestRectForAdjustment(LocalFrame& frame,
                                        const LayoutSize& touch_area) {
+  ChromeClient& chrome_client = frame.GetChromeClient();
   float device_scale_factor =
-      frame.GetPage()->GetChromeClient().GetScreenInfo().device_scale_factor;
+      chrome_client.GetScreenInfo(frame).device_scale_factor;
   // Check if zoom-for-dsf is enabled. If not, touch_area is in dip, so we don't
   // need to convert max_size_in_dip to physical pixel.
   if (frame.GetPage()->DeviceScaleFactorDeprecated() != 1)

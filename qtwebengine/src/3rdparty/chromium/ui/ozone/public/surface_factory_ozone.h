@@ -78,8 +78,13 @@ class COMPONENT_EXPORT(OZONE_BASE) SurfaceFactoryOzone {
 #if BUILDFLAG(ENABLE_VULKAN)
   // Creates the vulkan implementation. This object should be capable of
   // creating surfaces that swap to a platform window.
-  virtual std::unique_ptr<gpu::VulkanImplementation>
-  CreateVulkanImplementation();
+  // |allow_protected_memory| suggests that the vulkan implementation should
+  // create protected-capable resources, such as VkQueue.
+  // |enforce_protected_memory| suggests that the vulkan implementation should
+  // always use protected memory and resources, such as CommandBuffers.
+  virtual std::unique_ptr<gpu::VulkanImplementation> CreateVulkanImplementation(
+      bool allow_protected_memory,
+      bool enforce_protected_memory);
 
   // Creates a scanout NativePixmap that can be rendered using Vulkan.
   // TODO(spang): Remove this once VK_EXT_image_drm_format_modifier is
@@ -103,23 +108,38 @@ class COMPONENT_EXPORT(OZONE_BASE) SurfaceFactoryOzone {
   virtual std::unique_ptr<OverlaySurface> CreateOverlaySurface(
       gfx::AcceleratedWidget window);
 
-  // Create SurfaceOzoneCanvas for the specified gfx::AcceleratedWidget.
+  // Create SurfaceOzoneCanvas for the specified gfx::AcceleratedWidget. The
+  // |task_runner| may be null if the gpu service runs in a host process.
   //
   // Note: The platform must support creation of SurfaceOzoneCanvas from the
   // Browser Process using only the handle contained in gfx::AcceleratedWidget.
   virtual std::unique_ptr<SurfaceOzoneCanvas> CreateCanvasForWidget(
-      gfx::AcceleratedWidget widget);
+      gfx::AcceleratedWidget widget,
+      scoped_refptr<base::SequencedTaskRunner> task_runner);
 
   // Create a single native buffer to be used for overlay planes or zero copy
   // for |widget| representing a particular display controller or default
-  // display controller for kNullAcceleratedWidget.
-  // It can be called on any thread.
+  // display controller for kNullAcceleratedWidget. |size| corresponds to the
+  // dimensions used to allocate the buffer. |framebuffer_size| is used to
+  // create a framebuffer for the allocated buffer when the usage requires one.
+  // If |framebuffer_size| is not provided, |size| is used instead. In the
+  // typical case |framebuffer_size| represents a 'visible size', i.e., a buffer
+  // of size |size| may actually contain visible data only in the subregion of
+  // size |framebuffer_size|. In more complex cases, it's possible that the
+  // buffer has a visible rectangle whose origin is not at (0, 0). In this case,
+  // |framebuffer_size| would also include some of the non-visible area. For
+  // example, suppose we need to allocate a buffer of size 100x100 for a
+  // hardware decoder, but the visible rectangle is (10, 10, 80x80). In this
+  // case, |size| would be 100x100 while |framebuffer_size| would be 90x90. If
+  // |framebuffer_size| is not contained by |size|, this method returns nullptr.
+  // This method can be called on any thread.
   virtual scoped_refptr<gfx::NativePixmap> CreateNativePixmap(
       gfx::AcceleratedWidget widget,
       VkDevice vk_device,
       gfx::Size size,
       gfx::BufferFormat format,
-      gfx::BufferUsage usage);
+      gfx::BufferUsage usage,
+      base::Optional<gfx::Size> framebuffer_size = base::nullopt);
 
   // Similar to CreateNativePixmap, but returns the result asynchronously.
   using NativePixmapCallback =

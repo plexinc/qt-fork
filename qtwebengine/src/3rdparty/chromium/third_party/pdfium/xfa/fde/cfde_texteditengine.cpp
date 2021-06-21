@@ -98,20 +98,6 @@ class ReplaceOperation final : public CFDE_TextEditEngine::Operation {
   DeleteOperation delete_op_;
 };
 
-bool CheckStateChangeForWordBreak(WordBreakProperty from,
-                                  WordBreakProperty to) {
-  ASSERT(static_cast<int>(from) < 13);
-
-  return !!(gs_FX_WordBreak_Table[static_cast<int>(from)] &
-            static_cast<uint16_t>(1 << static_cast<int>(to)));
-}
-
-WordBreakProperty GetWordBreakProperty(wchar_t wcCodePoint) {
-  uint8_t dwProperty = gs_FX_WordBreak_CodePointProperties[wcCodePoint >> 1];
-  return static_cast<WordBreakProperty>((wcCodePoint & 1) ? (dwProperty & 0x0F)
-                                                          : (dwProperty >> 4));
-}
-
 int GetBreakFlagsFor(WordBreakProperty current, WordBreakProperty next) {
   if (current == WordBreakProperty::kMidLetter) {
     if (next == WordBreakProperty::kALetter)
@@ -247,18 +233,16 @@ size_t CFDE_TextEditEngine::CountCharsExceedingSize(const WideString& text,
   size_t chars_exceeding_size = 0;
   // TODO(dsinclair): Can this get changed to a binary search?
   for (size_t i = 0; i < num_to_check; i++) {
-    // This does a lot of string copying ....
-    // TODO(dsinclair): make CalcLogicSize take a WideStringC instead.
-    text_out->CalcLogicSize(WideString(temp), &text_rect);
-
+    text_out->CalcLogicSize(temp, &text_rect);
     if (limit_horizontal_area_ && text_rect.width <= available_width_)
       break;
     if (limit_vertical_area_ && text_rect.height <= vertical_height)
       break;
 
-    --length;
-    temp = temp.Mid(0, length);
     ++chars_exceeding_size;
+
+    --length;
+    temp = temp.First(length);
   }
 
   return chars_exceeding_size;
@@ -268,7 +252,7 @@ void CFDE_TextEditEngine::Insert(size_t idx,
                                  const WideString& request_text,
                                  RecordOperation add_operation) {
   WideString text = request_text;
-  if (text.GetLength() == 0)
+  if (text.IsEmpty())
     return;
 
   idx = std::min(idx, text_length_);
@@ -310,12 +294,17 @@ void CFDE_TextEditEngine::Insert(size_t idx,
   // engine. Otherwise, if you enter 123456789 for an SSN into a field
   // with a 9 character limit and we reformat to 123-45-6789 we'll truncate
   // the 89 when inserting into the text edit. See https://crbug.com/pdfium/1089
-  if (has_character_limit_ && add_operation != RecordOperation::kSkipNotify &&
-      text_length_ + length > character_limit_) {
-    exceeded_limit = true;
-    length = character_limit_ - text_length_;
+  if (has_character_limit_ && text_length_ + length > character_limit_) {
+    if (add_operation == RecordOperation::kSkipNotify) {
+      // Raise the limit to allow subsequent changes to expanded text.
+      character_limit_ = text_length_ + length;
+    } else {
+      // Trucate the text to comply with the limit.
+      CHECK(text_length_ <= character_limit_);
+      length = character_limit_ - text_length_;
+      exceeded_limit = true;
+    }
   }
-
   AdjustGap(idx, length);
 
   if (validation_enabled_ || limit_horizontal_area_ || limit_vertical_area_) {
@@ -641,6 +630,7 @@ void CFDE_TextEditEngine::SetHasCharacterLimit(bool limit) {
     return;
 
   has_character_limit_ = limit;
+  character_limit_ = std::max(character_limit_, text_length_);
   if (is_comb_text_)
     SetCombTextWidth();
 
@@ -653,7 +643,7 @@ void CFDE_TextEditEngine::SetCharacterLimit(size_t limit) {
 
   ClearOperationRecords();
 
-  character_limit_ = limit;
+  character_limit_ = std::max(limit, text_length_);
   if (is_comb_text_)
     SetCombTextWidth();
 
@@ -689,10 +679,6 @@ void CFDE_TextEditEngine::SetTabWidth(float width) {
     return;
 
   is_dirty_ = true;
-}
-
-float CFDE_TextEditEngine::GetFontAscent() const {
-  return (static_cast<float>(font_->GetAscent()) * font_size_) / 1000;
 }
 
 void CFDE_TextEditEngine::SetAlignment(uint32_t alignment) {
@@ -1116,19 +1102,17 @@ void CFDE_TextEditEngine::RebuildPieces() {
       const CFX_BreakPiece* piece = text_break_.GetBreakPieceUnstable(i);
 
       FDE_TEXTEDITPIECE txtEdtPiece;
-      memset(&txtEdtPiece, 0, sizeof(FDE_TEXTEDITPIECE));
-
-      txtEdtPiece.nBidiLevel = piece->m_iBidiLevel;
-      txtEdtPiece.nCount = piece->GetLength();
-      txtEdtPiece.nStart = current_piece_start;
-      txtEdtPiece.dwCharStyles = piece->m_dwCharStyles;
-      if (FX_IsOdd(piece->m_iBidiLevel))
-        txtEdtPiece.dwCharStyles |= FX_TXTCHARSTYLE_OddBidiLevel;
-
       txtEdtPiece.rtPiece.left = piece->m_iStartPos / 20000.0f;
       txtEdtPiece.rtPiece.top = current_line_start;
       txtEdtPiece.rtPiece.width = piece->m_iWidth / 20000.0f;
       txtEdtPiece.rtPiece.height = line_spacing_;
+      txtEdtPiece.nStart = current_piece_start;
+      txtEdtPiece.nCount = piece->GetLength();
+      txtEdtPiece.nBidiLevel = piece->m_iBidiLevel;
+      txtEdtPiece.dwCharStyles = piece->m_dwCharStyles;
+      if (FX_IsOdd(piece->m_iBidiLevel))
+        txtEdtPiece.dwCharStyles |= FX_TXTCHARSTYLE_OddBidiLevel;
+
       text_piece_info_.push_back(txtEdtPiece);
 
       if (initialized_bounding_box) {
@@ -1277,17 +1261,17 @@ size_t CFDE_TextEditEngine::Iterator::FindNextBreakPos(bool bPrev) {
   WordBreakProperty ePreType = WordBreakProperty::kNone;
   if (!IsEOF(!bPrev)) {
     Next(!bPrev);
-    ePreType = GetWordBreakProperty(GetChar());
+    ePreType = FX_GetWordBreakProperty(GetChar());
     Next(bPrev);
   }
 
-  WordBreakProperty eCurType = GetWordBreakProperty(GetChar());
+  WordBreakProperty eCurType = FX_GetWordBreakProperty(GetChar());
   bool bFirst = true;
   while (!IsEOF(bPrev)) {
     Next(bPrev);
 
-    WordBreakProperty eNextType = GetWordBreakProperty(GetChar());
-    bool wBreak = CheckStateChangeForWordBreak(eCurType, eNextType);
+    WordBreakProperty eNextType = FX_GetWordBreakProperty(GetChar());
+    bool wBreak = FX_CheckStateChangeForWordBreak(eCurType, eNextType);
     if (wBreak) {
       if (IsEOF(bPrev)) {
         Next(!bPrev);
@@ -1312,7 +1296,7 @@ size_t CFDE_TextEditEngine::Iterator::FindNextBreakPos(bool bPrev) {
         }
 
         Next(bPrev);
-        eNextType = GetWordBreakProperty(GetChar());
+        eNextType = FX_GetWordBreakProperty(GetChar());
         if (BreakFlagsChanged(nFlags, eNextType)) {
           Next(!bPrev);
           Next(!bPrev);

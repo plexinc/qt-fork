@@ -222,7 +222,7 @@ void ImageDataInstanceCache::IncrementInsertionPoint() {
 
 class ImageDataCache {
  public:
-  ImageDataCache() : weak_factory_(this) {}
+  ImageDataCache() {}
   ~ImageDataCache() {}
 
   static ImageDataCache* GetInstance();
@@ -256,7 +256,7 @@ class ImageDataCache {
   // scope of the object. Technically, since this class is a leaked static,
   // this will never happen and this factory is unnecessary. However, it's
   // probably better not to make assumptions about the lifetime of this class.
-  base::WeakPtrFactory<ImageDataCache> weak_factory_;
+  base::WeakPtrFactory<ImageDataCache> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(ImageDataCache);
 };
@@ -284,9 +284,9 @@ void ImageDataCache::Add(ImageData* image_data) {
   // Schedule a timer to invalidate this entry.
   PpapiGlobals::Get()->GetMainThreadMessageLoop()->PostDelayedTask(
       FROM_HERE,
-      RunWhileLocked(base::Bind(&ImageDataCache::OnTimer,
-                                weak_factory_.GetWeakPtr(),
-                                image_data->pp_instance())),
+      RunWhileLocked(base::BindOnce(&ImageDataCache::OnTimer,
+                                    weak_factory_.GetWeakPtr(),
+                                    image_data->pp_instance())),
       base::TimeDelta::FromSeconds(kMaxAgeSeconds));
 }
 

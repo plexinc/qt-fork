@@ -101,6 +101,7 @@ class LayoutSVGShape : public LayoutSVGModelObject {
   }
 
   float StrokeWidth() const;
+  float StrokeWidthForMarkerUnits() const;
 
   virtual ShapeGeometryCodePath GeometryCodePath() const {
     return kPathGeometry;
@@ -179,7 +180,6 @@ class LayoutSVGShape : public LayoutSVGModelObject {
   FloatRect ApproximateStrokeBoundingBox(const FloatRect& shape_bounds) const;
   FloatRect CalculateNonScalingStrokeBoundingBox() const;
   void UpdateNonScalingStrokeData();
-  bool UpdateLocalTransform();
 
  private:
   AffineTransform local_transform_;

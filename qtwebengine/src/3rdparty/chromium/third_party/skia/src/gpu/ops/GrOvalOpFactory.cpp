@@ -12,6 +12,7 @@
 #include "src/gpu/GrGeometryProcessor.h"
 #include "src/gpu/GrOpFlushState.h"
 #include "src/gpu/GrProcessor.h"
+#include "src/gpu/GrProgramInfo.h"
 #include "src/gpu/GrResourceProvider.h"
 #include "src/gpu/GrShaderCaps.h"
 #include "src/gpu/GrStyle.h"
@@ -20,7 +21,6 @@
 #include "src/gpu/glsl/GrGLSLGeometryProcessor.h"
 #include "src/gpu/glsl/GrGLSLProgramDataManager.h"
 #include "src/gpu/glsl/GrGLSLUniformHandler.h"
-#include "src/gpu/glsl/GrGLSLUtil.h"
 #include "src/gpu/glsl/GrGLSLVarying.h"
 #include "src/gpu/glsl/GrGLSLVertexGeoBuilder.h"
 #include "src/gpu/ops/GrMeshDrawOp.h"
@@ -63,6 +63,26 @@ static inline GrVertexWriter::TriStrip<float> origin_centered_tri_strip(float x,
 
 class CircleGeometryProcessor : public GrGeometryProcessor {
 public:
+    static GrGeometryProcessor* Make(SkArenaAlloc* arena, bool stroke, bool clipPlane,
+                                     bool isectPlane, bool unionPlane, bool roundCaps,
+                                     bool wideColor, const SkMatrix& localMatrix) {
+        return arena->make<CircleGeometryProcessor>(stroke, clipPlane, isectPlane, unionPlane,
+                                                    roundCaps, wideColor, localMatrix);
+    }
+
+    const char* name() const override { return "CircleGeometryProcessor"; }
+
+    void getGLSLProcessorKey(const GrShaderCaps& caps, GrProcessorKeyBuilder* b) const override {
+        GLSLProcessor::GenKey(*this, caps, b);
+    }
+
+    GrGLSLPrimitiveProcessor* createGLSLInstance(const GrShaderCaps&) const override {
+        return new GLSLProcessor();
+    }
+
+private:
+    friend class ::SkArenaAlloc; // for access to ctor
+
     CircleGeometryProcessor(bool stroke, bool clipPlane, bool isectPlane, bool unionPlane,
                             bool roundCaps, bool wideColor, const SkMatrix& localMatrix)
             : INHERITED(kCircleGeometryProcessor_ClassID)
@@ -90,19 +110,6 @@ public:
         this->setVertexAttributes(&fInPosition, 7);
     }
 
-    ~CircleGeometryProcessor() override {}
-
-    const char* name() const override { return "CircleEdge"; }
-
-    void getGLSLProcessorKey(const GrShaderCaps& caps, GrProcessorKeyBuilder* b) const override {
-        GLSLProcessor::GenKey(*this, caps, b);
-    }
-
-    GrGLSLPrimitiveProcessor* createGLSLInstance(const GrShaderCaps&) const override {
-        return new GLSLProcessor();
-    }
-
-private:
     class GLSLProcessor : public GrGLSLGeometryProcessor {
     public:
         GLSLProcessor() {}
@@ -214,9 +221,9 @@ private:
         }
 
         void setData(const GrGLSLProgramDataManager& pdman, const GrPrimitiveProcessor& primProc,
-                     FPCoordTransformIter&& transformIter) override {
+                     const CoordTransformRange& transformRange) override {
             this->setTransformDataHelper(primProc.cast<CircleGeometryProcessor>().fLocalMatrix,
-                                         pdman, &transformIter);
+                                         pdman, transformRange);
         }
 
     private:
@@ -243,7 +250,7 @@ private:
 GR_DEFINE_GEOMETRY_PROCESSOR_TEST(CircleGeometryProcessor);
 
 #if GR_TEST_UTILS
-sk_sp<GrGeometryProcessor> CircleGeometryProcessor::TestCreate(GrProcessorTestData* d) {
+GrGeometryProcessor* CircleGeometryProcessor::TestCreate(GrProcessorTestData* d) {
     bool stroke = d->fRandom->nextBool();
     bool roundCaps = stroke ? d->fRandom->nextBool() : false;
     bool wideColor = d->fRandom->nextBool();
@@ -251,20 +258,16 @@ sk_sp<GrGeometryProcessor> CircleGeometryProcessor::TestCreate(GrProcessorTestDa
     bool isectPlane = d->fRandom->nextBool();
     bool unionPlane = d->fRandom->nextBool();
     const SkMatrix& matrix = GrTest::TestMatrix(d->fRandom);
-    return sk_sp<GrGeometryProcessor>(new CircleGeometryProcessor(
-            stroke, clipPlane, isectPlane, unionPlane, roundCaps, wideColor, matrix));
+    return CircleGeometryProcessor::Make(d->allocator(), stroke, clipPlane, isectPlane,
+                                         unionPlane, roundCaps, wideColor, matrix);
 }
 #endif
 
 class ButtCapDashedCircleGeometryProcessor : public GrGeometryProcessor {
 public:
-    ButtCapDashedCircleGeometryProcessor(bool wideColor, const SkMatrix& localMatrix)
-            : INHERITED(kButtCapStrokedCircleGeometryProcessor_ClassID), fLocalMatrix(localMatrix) {
-        fInPosition = {"inPosition", kFloat2_GrVertexAttribType, kFloat2_GrSLType};
-        fInColor = MakeColorAttribute("inColor", wideColor);
-        fInCircleEdge = {"inCircleEdge", kFloat4_GrVertexAttribType, kFloat4_GrSLType};
-        fInDashParams = {"inDashParams", kFloat4_GrVertexAttribType, kFloat4_GrSLType};
-        this->setVertexAttributes(&fInPosition, 4);
+    static GrGeometryProcessor* Make(SkArenaAlloc* arena, bool wideColor,
+                                     const SkMatrix& localMatrix) {
+        return arena->make<ButtCapDashedCircleGeometryProcessor>(wideColor, localMatrix);
     }
 
     ~ButtCapDashedCircleGeometryProcessor() override {}
@@ -280,6 +283,18 @@ public:
     }
 
 private:
+    friend class ::SkArenaAlloc; // for access to ctor
+
+    ButtCapDashedCircleGeometryProcessor(bool wideColor, const SkMatrix& localMatrix)
+            : INHERITED(kButtCapStrokedCircleGeometryProcessor_ClassID)
+            , fLocalMatrix(localMatrix) {
+        fInPosition = {"inPosition", kFloat2_GrVertexAttribType, kFloat2_GrSLType};
+        fInColor = MakeColorAttribute("inColor", wideColor);
+        fInCircleEdge = {"inCircleEdge", kFloat4_GrVertexAttribType, kFloat4_GrSLType};
+        fInDashParams = {"inDashParams", kFloat4_GrVertexAttribType, kFloat4_GrSLType};
+        this->setVertexAttributes(&fInPosition, 4);
+    }
+
     class GLSLProcessor : public GrGLSLGeometryProcessor {
     public:
         GLSLProcessor() {}
@@ -466,10 +481,10 @@ private:
         }
 
         void setData(const GrGLSLProgramDataManager& pdman, const GrPrimitiveProcessor& primProc,
-                     FPCoordTransformIter&& transformIter) override {
+                     const CoordTransformRange& transformRange) override {
             this->setTransformDataHelper(
                     primProc.cast<ButtCapDashedCircleGeometryProcessor>().fLocalMatrix, pdman,
-                    &transformIter);
+                    transformRange);
         }
 
     private:
@@ -488,10 +503,10 @@ private:
 };
 
 #if GR_TEST_UTILS
-sk_sp<GrGeometryProcessor> ButtCapDashedCircleGeometryProcessor::TestCreate(GrProcessorTestData* d) {
+GrGeometryProcessor* ButtCapDashedCircleGeometryProcessor::TestCreate(GrProcessorTestData* d) {
     bool wideColor = d->fRandom->nextBool();
     const SkMatrix& matrix = GrTest::TestMatrix(d->fRandom);
-    return sk_sp<GrGeometryProcessor>(new ButtCapDashedCircleGeometryProcessor(wideColor, matrix));
+    return ButtCapDashedCircleGeometryProcessor::Make(d->allocator(), wideColor, matrix);
 }
 #endif
 
@@ -507,12 +522,32 @@ sk_sp<GrGeometryProcessor> ButtCapDashedCircleGeometryProcessor::TestCreate(GrPr
 
 class EllipseGeometryProcessor : public GrGeometryProcessor {
 public:
+    static GrGeometryProcessor* Make(SkArenaAlloc* arena, bool stroke, bool wideColor,
+                                     bool useScale, const SkMatrix& localMatrix) {
+        return arena->make<EllipseGeometryProcessor>(stroke, wideColor, useScale, localMatrix);
+    }
+
+    ~EllipseGeometryProcessor() override {}
+
+    const char* name() const override { return "EllipseGeometryProcessor"; }
+
+    void getGLSLProcessorKey(const GrShaderCaps& caps, GrProcessorKeyBuilder* b) const override {
+        GLSLProcessor::GenKey(*this, caps, b);
+    }
+
+    GrGLSLPrimitiveProcessor* createGLSLInstance(const GrShaderCaps&) const override {
+        return new GLSLProcessor();
+    }
+
+private:
+    friend class ::SkArenaAlloc; // for access to ctor
+
     EllipseGeometryProcessor(bool stroke, bool wideColor, bool useScale,
                              const SkMatrix& localMatrix)
-    : INHERITED(kEllipseGeometryProcessor_ClassID)
-    , fLocalMatrix(localMatrix)
-    , fStroke(stroke)
-    , fUseScale(useScale) {
+            : INHERITED(kEllipseGeometryProcessor_ClassID)
+            , fLocalMatrix(localMatrix)
+            , fStroke(stroke)
+            , fUseScale(useScale) {
         fInPosition = {"inPosition", kFloat2_GrVertexAttribType, kFloat2_GrSLType};
         fInColor = MakeColorAttribute("inColor", wideColor);
         if (useScale) {
@@ -524,19 +559,6 @@ public:
         this->setVertexAttributes(&fInPosition, 4);
     }
 
-    ~EllipseGeometryProcessor() override {}
-
-    const char* name() const override { return "EllipseEdge"; }
-
-    void getGLSLProcessorKey(const GrShaderCaps& caps, GrProcessorKeyBuilder* b) const override {
-        GLSLProcessor::GenKey(*this, caps, b);
-    }
-
-    GrGLSLPrimitiveProcessor* createGLSLInstance(const GrShaderCaps&) const override {
-        return new GLSLProcessor();
-    }
-
-private:
     class GLSLProcessor : public GrGLSLGeometryProcessor {
     public:
         GLSLProcessor() {}
@@ -650,9 +672,9 @@ private:
         }
 
         void setData(const GrGLSLProgramDataManager& pdman, const GrPrimitiveProcessor& primProc,
-                     FPCoordTransformIter&& transformIter) override {
+                     const CoordTransformRange& transformRange) override {
             const EllipseGeometryProcessor& egp = primProc.cast<EllipseGeometryProcessor>();
-            this->setTransformDataHelper(egp.fLocalMatrix, pdman, &transformIter);
+            this->setTransformDataHelper(egp.fLocalMatrix, pdman, transformRange);
         }
 
     private:
@@ -676,10 +698,10 @@ private:
 GR_DEFINE_GEOMETRY_PROCESSOR_TEST(EllipseGeometryProcessor);
 
 #if GR_TEST_UTILS
-sk_sp<GrGeometryProcessor> EllipseGeometryProcessor::TestCreate(GrProcessorTestData* d) {
-    return sk_sp<GrGeometryProcessor>(
-            new EllipseGeometryProcessor(d->fRandom->nextBool(), d->fRandom->nextBool(),
-                                         d->fRandom->nextBool(), GrTest::TestMatrix(d->fRandom)));
+GrGeometryProcessor* EllipseGeometryProcessor::TestCreate(GrProcessorTestData* d) {
+    return EllipseGeometryProcessor::Make(d->allocator(), d->fRandom->nextBool(),
+                                          d->fRandom->nextBool(), d->fRandom->nextBool(),
+                                          GrTest::TestMatrix(d->fRandom));
 }
 #endif
 
@@ -698,6 +720,26 @@ enum class DIEllipseStyle { kStroke = 0, kHairline, kFill };
 
 class DIEllipseGeometryProcessor : public GrGeometryProcessor {
 public:
+    static GrGeometryProcessor* Make(SkArenaAlloc* arena, bool wideColor, bool useScale,
+                                     const SkMatrix& viewMatrix, DIEllipseStyle style) {
+        return arena->make<DIEllipseGeometryProcessor>(wideColor, useScale, viewMatrix, style);
+    }
+
+    ~DIEllipseGeometryProcessor() override {}
+
+    const char* name() const override { return "DIEllipseGeometryProcessor"; }
+
+    void getGLSLProcessorKey(const GrShaderCaps& caps, GrProcessorKeyBuilder* b) const override {
+        GLSLProcessor::GenKey(*this, caps, b);
+    }
+
+    GrGLSLPrimitiveProcessor* createGLSLInstance(const GrShaderCaps&) const override {
+        return new GLSLProcessor();
+    }
+
+private:
+    friend class ::SkArenaAlloc; // for access to ctor
+
     DIEllipseGeometryProcessor(bool wideColor, bool useScale, const SkMatrix& viewMatrix,
                                DIEllipseStyle style)
             : INHERITED(kDIEllipseGeometryProcessor_ClassID)
@@ -717,19 +759,6 @@ public:
         this->setVertexAttributes(&fInPosition, 4);
     }
 
-    ~DIEllipseGeometryProcessor() override {}
-
-    const char* name() const override { return "DIEllipseEdge"; }
-
-    void getGLSLProcessorKey(const GrShaderCaps& caps, GrProcessorKeyBuilder* b) const override {
-        GLSLProcessor::GenKey(*this, caps, b);
-    }
-
-    GrGLSLPrimitiveProcessor* createGLSLInstance(const GrShaderCaps&) const override {
-        return new GLSLProcessor();
-    }
-
-private:
     class GLSLProcessor : public GrGLSLGeometryProcessor {
     public:
         GLSLProcessor() : fViewMatrix(SkMatrix::InvalidMatrix()) {}
@@ -839,16 +868,16 @@ private:
         }
 
         void setData(const GrGLSLProgramDataManager& pdman, const GrPrimitiveProcessor& gp,
-                     FPCoordTransformIter&& transformIter) override {
+                     const CoordTransformRange& transformRange) override {
             const DIEllipseGeometryProcessor& diegp = gp.cast<DIEllipseGeometryProcessor>();
 
-            if (!diegp.fViewMatrix.isIdentity() && !fViewMatrix.cheapEqualTo(diegp.fViewMatrix)) {
+            if (!diegp.fViewMatrix.isIdentity() &&
+                !SkMatrixPriv::CheapEqual(fViewMatrix, diegp.fViewMatrix))
+            {
                 fViewMatrix = diegp.fViewMatrix;
-                float viewMatrix[3 * 3];
-                GrGLSLGetMatrix<3>(viewMatrix, fViewMatrix);
-                pdman.setMatrix3f(fViewMatrixUniform, viewMatrix);
+                pdman.setSkMatrix(fViewMatrixUniform, fViewMatrix);
             }
-            this->setTransformDataHelper(SkMatrix::I(), pdman, &transformIter);
+            this->setTransformDataHelper(SkMatrix::I(), pdman, transformRange);
         }
 
     private:
@@ -876,10 +905,10 @@ private:
 GR_DEFINE_GEOMETRY_PROCESSOR_TEST(DIEllipseGeometryProcessor);
 
 #if GR_TEST_UTILS
-sk_sp<GrGeometryProcessor> DIEllipseGeometryProcessor::TestCreate(GrProcessorTestData* d) {
-    return sk_sp<GrGeometryProcessor>(new DIEllipseGeometryProcessor(
-            d->fRandom->nextBool(), d->fRandom->nextBool(), GrTest::TestMatrix(d->fRandom),
-            (DIEllipseStyle)(d->fRandom->nextRangeU(0, 2))));
+GrGeometryProcessor* DIEllipseGeometryProcessor::TestCreate(GrProcessorTestData* d) {
+    return DIEllipseGeometryProcessor::Make(d->allocator(), d->fRandom->nextBool(),
+                                            d->fRandom->nextBool(), GrTest::TestMatrix(d->fRandom),
+                                            (DIEllipseStyle)(d->fRandom->nextRangeU(0, 2)));
 }
 #endif
 
@@ -1019,7 +1048,8 @@ public:
     CircleOp(const Helper::MakeArgs& helperArgs, const SkPMColor4f& color,
              const SkMatrix& viewMatrix, SkPoint center, SkScalar radius, const GrStyle& style,
              const ArcParams* arcParams)
-            : GrMeshDrawOp(ClassID()), fHelper(helperArgs, GrAAType::kCoverage) {
+            : GrMeshDrawOp(ClassID())
+            , fHelper(helperArgs, GrAAType::kCoverage) {
         const SkStrokeRec& stroke = style.strokeRec();
         SkStrokeRec::Style recStyle = stroke.getStyle();
 
@@ -1081,10 +1111,13 @@ public:
             startPoint.normalize();
             stopPoint.normalize();
 
-            // If the matrix included scale (on one axis) we need to swap our start and end points
-            if ((viewMatrix.getScaleX() < 0) != (viewMatrix.getScaleY() < 0)) {
-                using std::swap;
-                swap(startPoint, stopPoint);
+            // We know the matrix is a similarity here. Detect mirroring which will affect how we
+            // should orient the clip planes for arcs.
+            SkASSERT(viewMatrix.isSimilarity());
+            auto upperLeftDet = viewMatrix.getScaleX()*viewMatrix.getScaleY() -
+                                viewMatrix.getSkewX() *viewMatrix.getSkewY();
+            if (upperLeftDet < 0) {
+                std::swap(startPoint, stopPoint);
             }
 
             fRoundCaps = style.strokeRec().getWidth() > 0 &&
@@ -1191,7 +1224,7 @@ public:
         radius += halfWidth;
         this->setBounds(
                 {center.fX - radius, center.fY - radius, center.fX + radius, center.fY + radius},
-                HasAABloat::kYes, IsZeroArea::kNo);
+                HasAABloat::kYes, IsHairline::kNo);
         fVertCount = circle_type_to_vert_count(stroked);
         fIndexCount = circle_type_to_index_count(stroked);
         fAllFill = !stroked;
@@ -1200,7 +1233,11 @@ public:
     const char* name() const override { return "CircleOp"; }
 
     void visitProxies(const VisitProxyFunc& func) const override {
-        fHelper.visitProxies(func);
+        if (fProgramInfo) {
+            fProgramInfo->visitFPProxies(func);
+        } else {
+            fHelper.visitProxies(func);
+        }
     }
 
 #ifdef SK_DEBUG
@@ -1233,21 +1270,39 @@ public:
     FixedFunctionFlags fixedFunctionFlags() const override { return fHelper.fixedFunctionFlags(); }
 
 private:
-    void onPrepareDraws(Target* target) override {
+    GrProgramInfo* programInfo() override { return fProgramInfo; }
+
+    void onCreateProgramInfo(const GrCaps* caps,
+                             SkArenaAlloc* arena,
+                             const GrSurfaceProxyView* outputView,
+                             GrAppliedClip&& appliedClip,
+                             const GrXferProcessor::DstProxyView& dstProxyView) override {
         SkMatrix localMatrix;
         if (!fViewMatrixIfUsingLocalCoords.invert(&localMatrix)) {
             return;
         }
 
-        // Setup geometry processor
-        sk_sp<GrGeometryProcessor> gp(new CircleGeometryProcessor(
-                !fAllFill, fClipPlane, fClipPlaneIsect, fClipPlaneUnion, fRoundCaps, fWideColor,
-                localMatrix));
+        GrGeometryProcessor* gp = CircleGeometryProcessor::Make(arena, !fAllFill, fClipPlane,
+                                                                fClipPlaneIsect, fClipPlaneUnion,
+                                                                fRoundCaps, fWideColor,
+                                                                localMatrix);
+
+        fProgramInfo = fHelper.createProgramInfo(caps, arena, outputView, std::move(appliedClip),
+                                                 dstProxyView, gp, GrPrimitiveType::kTriangles);
+    }
+
+    void onPrepareDraws(Target* target) override {
+        if (!fProgramInfo) {
+            this->createProgramInfo(target);
+            if (!fProgramInfo) {
+                return;
+            }
+        }
 
         sk_sp<const GrBuffer> vertexBuffer;
         int firstVertex;
-        GrVertexWriter vertices{target->makeVertexSpace(gp->vertexStride(), fVertCount,
-                                                        &vertexBuffer, &firstVertex)};
+        GrVertexWriter vertices{target->makeVertexSpace(fProgramInfo->primProc().vertexStride(),
+                                                        fVertCount, &vertexBuffer, &firstVertex)};
         if (!vertices.fPtr) {
             SkDebugf("Could not allocate vertices\n");
             return;
@@ -1293,7 +1348,7 @@ private:
             for (int i = 0; i < 8; ++i) {
                 // This clips the normalized offset to the half-plane we computed above. Then we
                 // compute the vertex position from this.
-                SkScalar dist = SkTMin(kOctagonOuter[i].dot(geoClipPlane) + offsetClipDist, 0.0f);
+                SkScalar dist = std::min(kOctagonOuter[i].dot(geoClipPlane) + offsetClipDist, 0.0f);
                 SkVector offset = kOctagonOuter[i] - geoClipPlane * dist;
                 vertices.write(center + offset * halfWidth,
                                color,
@@ -1360,18 +1415,23 @@ private:
             currStartVertex += circle_type_to_vert_count(circle.fStroked);
         }
 
-        GrMesh* mesh = target->allocMesh(GrPrimitiveType::kTriangles);
-        mesh->setIndexed(std::move(indexBuffer), fIndexCount, firstIndex, 0, fVertCount - 1,
-                         GrPrimitiveRestart::kNo);
-        mesh->setVertexData(std::move(vertexBuffer), firstVertex);
-        target->recordDraw(std::move(gp), mesh);
+        fMesh = target->allocMesh();
+        fMesh->setIndexed(std::move(indexBuffer), fIndexCount, firstIndex, 0, fVertCount - 1,
+                         GrPrimitiveRestart::kNo, std::move(vertexBuffer), firstVertex);
     }
 
     void onExecute(GrOpFlushState* flushState, const SkRect& chainBounds) override {
-        fHelper.executeDrawsAndUploads(this, flushState, chainBounds);
+        if (!fProgramInfo || !fMesh) {
+            return;
+        }
+
+        flushState->bindPipelineAndScissorClip(*fProgramInfo, chainBounds);
+        flushState->bindTextures(fProgramInfo->primProc(), nullptr, fProgramInfo->pipeline());
+        flushState->drawMesh(*fMesh);
     }
 
-    CombineResult onCombineIfPossible(GrOp* t, const GrCaps& caps) override {
+    CombineResult onCombineIfPossible(GrOp* t, GrRecordingContext::Arenas*,
+                                      const GrCaps& caps) override {
         CircleOp* that = t->cast<CircleOp>();
 
         // can only represent 65535 unique vertices with 16-bit indices
@@ -1384,7 +1444,8 @@ private:
         }
 
         if (fHelper.usesLocalCoords() &&
-            !fViewMatrixIfUsingLocalCoords.cheapEqualTo(that->fViewMatrixIfUsingLocalCoords)) {
+            !SkMatrixPriv::CheapEqual(fViewMatrixIfUsingLocalCoords,
+                                      that->fViewMatrixIfUsingLocalCoords)) {
             return CombineResult::kCannotCombine;
         }
 
@@ -1427,6 +1488,9 @@ private:
     bool fRoundCaps;
     bool fWideColor;
 
+    GrSimpleMesh*  fMesh = nullptr;
+    GrProgramInfo* fProgramInfo = nullptr;
+
     typedef GrMeshDrawOp INHERITED;
 };
 
@@ -1458,7 +1522,8 @@ public:
                           const SkMatrix& viewMatrix, SkPoint center, SkScalar radius,
                           SkScalar strokeWidth, SkScalar startAngle, SkScalar onAngle,
                           SkScalar offAngle, SkScalar phaseAngle)
-            : GrMeshDrawOp(ClassID()), fHelper(helperArgs, GrAAType::kCoverage) {
+            : GrMeshDrawOp(ClassID())
+            , fHelper(helperArgs, GrAAType::kCoverage) {
         SkASSERT(circle_stays_circle(viewMatrix));
         viewMatrix.mapPoints(&center, 1);
         radius = viewMatrix.mapRadius(radius);
@@ -1522,7 +1587,7 @@ public:
         radius += halfWidth;
         this->setBounds(
                 {center.fX - radius, center.fY - radius, center.fX + radius, center.fY + radius},
-                HasAABloat::kYes, IsZeroArea::kNo);
+                HasAABloat::kYes, IsHairline::kNo);
         fVertCount = circle_type_to_vert_count(true);
         fIndexCount = circle_type_to_index_count(true);
     }
@@ -1530,7 +1595,11 @@ public:
     const char* name() const override { return "ButtCappedDashedCircleOp"; }
 
     void visitProxies(const VisitProxyFunc& func) const override {
-        fHelper.visitProxies(func);
+        if (fProgramInfo) {
+            fProgramInfo->visitFPProxies(func);
+        } else {
+            fHelper.visitProxies(func);
+        }
     }
 
 #ifdef SK_DEBUG
@@ -1565,20 +1634,39 @@ public:
     FixedFunctionFlags fixedFunctionFlags() const override { return fHelper.fixedFunctionFlags(); }
 
 private:
-    void onPrepareDraws(Target* target) override {
+    GrProgramInfo* programInfo() override { return fProgramInfo; }
+
+    void onCreateProgramInfo(const GrCaps* caps,
+                             SkArenaAlloc* arena,
+                             const GrSurfaceProxyView* outputView,
+                             GrAppliedClip&& appliedClip,
+                             const GrXferProcessor::DstProxyView& dstProxyView) override {
         SkMatrix localMatrix;
         if (!fViewMatrixIfUsingLocalCoords.invert(&localMatrix)) {
             return;
         }
 
         // Setup geometry processor
-        sk_sp<GrGeometryProcessor> gp(new ButtCapDashedCircleGeometryProcessor(fWideColor,
-                                                                               localMatrix));
+        GrGeometryProcessor* gp = ButtCapDashedCircleGeometryProcessor::Make(arena,
+                                                                             fWideColor,
+                                                                             localMatrix);
+
+        fProgramInfo = fHelper.createProgramInfo(caps, arena, outputView, std::move(appliedClip),
+                                                 dstProxyView, gp, GrPrimitiveType::kTriangles);
+    }
+
+    void onPrepareDraws(Target* target) override {
+        if (!fProgramInfo) {
+            this->createProgramInfo(target);
+            if (!fProgramInfo) {
+                return;
+            }
+        }
 
         sk_sp<const GrBuffer> vertexBuffer;
         int firstVertex;
-        GrVertexWriter vertices{target->makeVertexSpace(gp->vertexStride(), fVertCount,
-                                                        &vertexBuffer, &firstVertex)};
+        GrVertexWriter vertices{target->makeVertexSpace(fProgramInfo->primProc().vertexStride(),
+                                                        fVertCount, &vertexBuffer, &firstVertex)};
         if (!vertices.fPtr) {
             SkDebugf("Could not allocate vertices\n");
             return;
@@ -1650,18 +1738,23 @@ private:
             currStartVertex += circle_type_to_vert_count(true);
         }
 
-        GrMesh* mesh = target->allocMesh(GrPrimitiveType::kTriangles);
-        mesh->setIndexed(std::move(indexBuffer), fIndexCount, firstIndex, 0, fVertCount - 1,
-                         GrPrimitiveRestart::kNo);
-        mesh->setVertexData(std::move(vertexBuffer), firstVertex);
-        target->recordDraw(std::move(gp), mesh);
+        fMesh = target->allocMesh();
+        fMesh->setIndexed(std::move(indexBuffer), fIndexCount, firstIndex, 0, fVertCount - 1,
+                          GrPrimitiveRestart::kNo, std::move(vertexBuffer), firstVertex);
     }
 
     void onExecute(GrOpFlushState* flushState, const SkRect& chainBounds) override {
-        fHelper.executeDrawsAndUploads(this, flushState, chainBounds);
+        if (!fProgramInfo || !fMesh) {
+            return;
+        }
+
+        flushState->bindPipelineAndScissorClip(*fProgramInfo, chainBounds);
+        flushState->bindTextures(fProgramInfo->primProc(), nullptr, fProgramInfo->pipeline());
+        flushState->drawMesh(*fMesh);
     }
 
-    CombineResult onCombineIfPossible(GrOp* t, const GrCaps& caps) override {
+    CombineResult onCombineIfPossible(GrOp* t, GrRecordingContext::Arenas*,
+                                      const GrCaps& caps) override {
         ButtCapDashedCircleOp* that = t->cast<ButtCapDashedCircleOp>();
 
         // can only represent 65535 unique vertices with 16-bit indices
@@ -1674,7 +1767,8 @@ private:
         }
 
         if (fHelper.usesLocalCoords() &&
-            !fViewMatrixIfUsingLocalCoords.cheapEqualTo(that->fViewMatrixIfUsingLocalCoords)) {
+            !SkMatrixPriv::CheapEqual(fViewMatrixIfUsingLocalCoords,
+                                      that->fViewMatrixIfUsingLocalCoords)) {
             return CombineResult::kCannotCombine;
         }
 
@@ -1702,6 +1796,9 @@ private:
     int fVertCount;
     int fIndexCount;
     bool fWideColor;
+
+    GrSimpleMesh*  fMesh = nullptr;
+    GrProgramInfo* fProgramInfo = nullptr;
 
     typedef GrMeshDrawOp INHERITED;
 };
@@ -1817,7 +1914,7 @@ public:
                                                         params.fCenter.fX + params.fXRadius,
                                                         params.fCenter.fY + params.fYRadius)});
 
-        this->setBounds(fEllipses.back().fDevBounds, HasAABloat::kYes, IsZeroArea::kNo);
+        this->setBounds(fEllipses.back().fDevBounds, HasAABloat::kYes, IsHairline::kNo);
 
         // Outset bounds to include half-pixel width antialiasing.
         fEllipses[0].fDevBounds.outset(SK_ScalarHalf, SK_ScalarHalf);
@@ -1829,7 +1926,11 @@ public:
     const char* name() const override { return "EllipseOp"; }
 
     void visitProxies(const VisitProxyFunc& func) const override {
-        fHelper.visitProxies(func);
+        if (fProgramInfo) {
+            fProgramInfo->visitFPProxies(func);
+        } else {
+            fHelper.visitProxies(func);
+        }
     }
 
 #ifdef SK_DEBUG
@@ -1864,18 +1965,37 @@ public:
     FixedFunctionFlags fixedFunctionFlags() const override { return fHelper.fixedFunctionFlags(); }
 
 private:
-    void onPrepareDraws(Target* target) override {
+    GrProgramInfo* programInfo() override { return fProgramInfo; }
+
+    void onCreateProgramInfo(const GrCaps* caps,
+                             SkArenaAlloc* arena,
+                             const GrSurfaceProxyView* outputView,
+                             GrAppliedClip&& appliedClip,
+                             const GrXferProcessor::DstProxyView& dstProxyView) override {
         SkMatrix localMatrix;
         if (!fViewMatrixIfUsingLocalCoords.invert(&localMatrix)) {
             return;
         }
 
-        // Setup geometry processor
-        sk_sp<GrGeometryProcessor> gp(new EllipseGeometryProcessor(fStroked, fWideColor, fUseScale,
-                                                                   localMatrix));
-        QuadHelper helper(target, gp->vertexStride(), fEllipses.count());
+        GrGeometryProcessor* gp = EllipseGeometryProcessor::Make(arena, fStroked, fWideColor,
+                                                                 fUseScale, localMatrix);
+
+        fProgramInfo = fHelper.createProgramInfo(caps, arena, outputView, std::move(appliedClip),
+                                                 dstProxyView, gp, GrPrimitiveType::kTriangles);
+    }
+
+    void onPrepareDraws(Target* target) override {
+        if (!fProgramInfo) {
+            this->createProgramInfo(target);
+            if (!fProgramInfo) {
+                return;
+            }
+        }
+
+        QuadHelper helper(target, fProgramInfo->primProc().vertexStride(), fEllipses.count());
         GrVertexWriter verts{helper.vertices()};
         if (!verts.fPtr) {
+            SkDebugf("Could not allocate vertices\n");
             return;
         }
 
@@ -1905,17 +2025,24 @@ private:
             verts.writeQuad(GrVertexWriter::TriStripFromRect(ellipse.fDevBounds),
                             color,
                             origin_centered_tri_strip(xMaxOffset, yMaxOffset),
-                            GrVertexWriter::If(fUseScale, SkTMax(xRadius, yRadius)),
+                            GrVertexWriter::If(fUseScale, std::max(xRadius, yRadius)),
                             invRadii);
         }
-        helper.recordDraw(target, std::move(gp));
+        fMesh = helper.mesh();
     }
 
     void onExecute(GrOpFlushState* flushState, const SkRect& chainBounds) override {
-        fHelper.executeDrawsAndUploads(this, flushState, chainBounds);
+        if (!fProgramInfo || !fMesh) {
+            return;
+        }
+
+        flushState->bindPipelineAndScissorClip(*fProgramInfo, chainBounds);
+        flushState->bindTextures(fProgramInfo->primProc(), nullptr, fProgramInfo->pipeline());
+        flushState->drawMesh(*fMesh);
     }
 
-    CombineResult onCombineIfPossible(GrOp* t, const GrCaps& caps) override {
+    CombineResult onCombineIfPossible(GrOp* t, GrRecordingContext::Arenas*,
+                                      const GrCaps& caps) override {
         EllipseOp* that = t->cast<EllipseOp>();
 
         if (!fHelper.isCompatible(that->fHelper, caps, this->bounds(), that->bounds())) {
@@ -1927,7 +2054,8 @@ private:
         }
 
         if (fHelper.usesLocalCoords() &&
-            !fViewMatrixIfUsingLocalCoords.cheapEqualTo(that->fViewMatrixIfUsingLocalCoords)) {
+            !SkMatrixPriv::CheapEqual(fViewMatrixIfUsingLocalCoords,
+                                      that->fViewMatrixIfUsingLocalCoords)) {
             return CombineResult::kCannotCombine;
         }
 
@@ -1951,6 +2079,9 @@ private:
     bool fWideColor;
     bool fUseScale;
     SkSTArray<1, Ellipse, true> fEllipses;
+
+    GrSimpleMesh*  fMesh = nullptr;
+    GrProgramInfo* fProgramInfo = nullptr;
 
     typedef GrMeshDrawOp INHERITED;
 };
@@ -2066,13 +2197,17 @@ public:
                                          params.fCenter.fX + params.fXRadius + geoDx,
                                          params.fCenter.fY + params.fYRadius + geoDy)});
         this->setTransformedBounds(fEllipses[0].fBounds, viewMatrix, HasAABloat::kYes,
-                                   IsZeroArea::kNo);
+                                   IsHairline::kNo);
     }
 
     const char* name() const override { return "DIEllipseOp"; }
 
     void visitProxies(const VisitProxyFunc& func) const override {
-        fHelper.visitProxies(func);
+        if (fProgramInfo) {
+            fProgramInfo->visitFPProxies(func);
+        } else {
+            fHelper.visitProxies(func);
+        }
     }
 
 #ifdef SK_DEBUG
@@ -2107,13 +2242,27 @@ public:
     FixedFunctionFlags fixedFunctionFlags() const override { return fHelper.fixedFunctionFlags(); }
 
 private:
-    void onPrepareDraws(Target* target) override {
-        // Setup geometry processor
-        sk_sp<GrGeometryProcessor> gp(
-                new DIEllipseGeometryProcessor(fWideColor, fUseScale, this->viewMatrix(),
-                                               this->style()));
+    GrProgramInfo* programInfo() override { return fProgramInfo; }
 
-        QuadHelper helper(target, gp->vertexStride(), fEllipses.count());
+    void onCreateProgramInfo(const GrCaps* caps,
+                             SkArenaAlloc* arena,
+                             const GrSurfaceProxyView* outputView,
+                             GrAppliedClip&& appliedClip,
+                             const GrXferProcessor::DstProxyView& dstProxyView) override {
+        GrGeometryProcessor* gp = DIEllipseGeometryProcessor::Make(arena, fWideColor, fUseScale,
+                                                                   this->viewMatrix(),
+                                                                   this->style());
+
+        fProgramInfo = fHelper.createProgramInfo(caps, arena, outputView, std::move(appliedClip),
+                                                 dstProxyView, gp, GrPrimitiveType::kTriangles);
+    }
+
+    void onPrepareDraws(Target* target) override {
+        if (!fProgramInfo) {
+            this->createProgramInfo(target);
+        }
+
+        QuadHelper helper(target, fProgramInfo->primProc().vertexStride(), fEllipses.count());
         GrVertexWriter verts{helper.vertices()};
         if (!verts.fPtr) {
             return;
@@ -2141,18 +2290,25 @@ private:
             verts.writeQuad(GrVertexWriter::TriStripFromRect(ellipse.fBounds),
                             color,
                             origin_centered_tri_strip(1.0f + offsetDx, 1.0f + offsetDy),
-                            GrVertexWriter::If(fUseScale, SkTMax(xRadius, yRadius)),
+                            GrVertexWriter::If(fUseScale, std::max(xRadius, yRadius)),
                             origin_centered_tri_strip(innerRatioX + offsetDx,
                                                       innerRatioY + offsetDy));
         }
-        helper.recordDraw(target, std::move(gp));
+        fMesh = helper.mesh();
     }
 
     void onExecute(GrOpFlushState* flushState, const SkRect& chainBounds) override {
-        fHelper.executeDrawsAndUploads(this, flushState, chainBounds);
+        if (!fProgramInfo || !fMesh) {
+            return;
+        }
+
+        flushState->bindPipelineAndScissorClip(*fProgramInfo, chainBounds);
+        flushState->bindTextures(fProgramInfo->primProc(), nullptr, fProgramInfo->pipeline());
+        flushState->drawMesh(*fMesh);
     }
 
-    CombineResult onCombineIfPossible(GrOp* t, const GrCaps& caps) override {
+    CombineResult onCombineIfPossible(GrOp* t, GrRecordingContext::Arenas*,
+                                      const GrCaps& caps) override {
         DIEllipseOp* that = t->cast<DIEllipseOp>();
         if (!fHelper.isCompatible(that->fHelper, caps, this->bounds(), that->bounds())) {
             return CombineResult::kCannotCombine;
@@ -2163,7 +2319,7 @@ private:
         }
 
         // TODO rewrite to allow positioning on CPU
-        if (!this->viewMatrix().cheapEqualTo(that->viewMatrix())) {
+        if (!SkMatrixPriv::CheapEqual(this->viewMatrix(), that->viewMatrix())) {
             return CombineResult::kCannotCombine;
         }
 
@@ -2192,6 +2348,9 @@ private:
     bool fWideColor;
     bool fUseScale;
     SkSTArray<1, Ellipse, true> fEllipses;
+
+    GrSimpleMesh*  fMesh = nullptr;
+    GrProgramInfo* fProgramInfo = nullptr;
 
     typedef GrMeshDrawOp INHERITED;
 };
@@ -2283,7 +2442,6 @@ static int rrect_type_to_vert_count(RRectType type) {
             return kVertsPerOverstrokeRRect;
     }
     SK_ABORT("Invalid type");
-    return 0;
 }
 
 static int rrect_type_to_index_count(RRectType type) {
@@ -2296,7 +2454,6 @@ static int rrect_type_to_index_count(RRectType type) {
             return kIndicesPerOverstrokeRRect;
     }
     SK_ABORT("Invalid type");
-    return 0;
 }
 
 static const uint16_t* rrect_type_to_indices(RRectType type) {
@@ -2308,7 +2465,6 @@ static const uint16_t* rrect_type_to_indices(RRectType type) {
             return gOverstrokeRRectIndices;
     }
     SK_ABORT("Invalid type");
-    return 0;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -2383,7 +2539,7 @@ public:
         outerRadius += SK_ScalarHalf;
         innerRadius -= SK_ScalarHalf;
 
-        this->setBounds(bounds, HasAABloat::kYes, IsZeroArea::kNo);
+        this->setBounds(bounds, HasAABloat::kYes, IsHairline::kNo);
 
         // Expand the rect for aa to generate correct vertices.
         bounds.outset(SK_ScalarHalf, SK_ScalarHalf);
@@ -2397,7 +2553,11 @@ public:
     const char* name() const override { return "CircularRRectOp"; }
 
     void visitProxies(const VisitProxyFunc& func) const override {
-        fHelper.visitProxies(func);
+        if (fProgramInfo) {
+            fProgramInfo->visitFPProxies(func);
+        } else {
+            fHelper.visitProxies(func);
+        }
     }
 
 #ifdef SK_DEBUG
@@ -2480,23 +2640,40 @@ private:
                     outerRadius, innerRadius);
     }
 
-    void onPrepareDraws(Target* target) override {
+    GrProgramInfo* programInfo() override { return fProgramInfo; }
+
+    void onCreateProgramInfo(const GrCaps* caps,
+                             SkArenaAlloc* arena,
+                             const GrSurfaceProxyView* outputView,
+                             GrAppliedClip&& appliedClip,
+                             const GrXferProcessor::DstProxyView& dstProxyView) override {
         // Invert the view matrix as a local matrix (if any other processors require coords).
         SkMatrix localMatrix;
         if (!fViewMatrixIfUsingLocalCoords.invert(&localMatrix)) {
             return;
         }
 
-        // Setup geometry processor
-        sk_sp<GrGeometryProcessor> gp(
-                new CircleGeometryProcessor(!fAllFill, false, false, false, false, fWideColor,
-                                            localMatrix));
+        GrGeometryProcessor* gp = CircleGeometryProcessor::Make(arena, !fAllFill,
+                                                                false, false, false, false,
+                                                                fWideColor, localMatrix);
+
+        fProgramInfo = fHelper.createProgramInfo(caps, arena, outputView, std::move(appliedClip),
+                                                 dstProxyView, gp, GrPrimitiveType::kTriangles);
+    }
+
+    void onPrepareDraws(Target* target) override {
+        if (!fProgramInfo) {
+            this->createProgramInfo(target);
+            if (!fProgramInfo) {
+                return;
+            }
+        }
 
         sk_sp<const GrBuffer> vertexBuffer;
         int firstVertex;
 
-        GrVertexWriter verts{target->makeVertexSpace(gp->vertexStride(), fVertCount,
-                                                     &vertexBuffer, &firstVertex)};
+        GrVertexWriter verts{target->makeVertexSpace(fProgramInfo->primProc().vertexStride(),
+                                                     fVertCount, &vertexBuffer, &firstVertex)};
         if (!verts.fPtr) {
             SkDebugf("Could not allocate vertices\n");
             return;
@@ -2575,18 +2752,23 @@ private:
             currStartVertex += rrect_type_to_vert_count(rrect.fType);
         }
 
-        GrMesh* mesh = target->allocMesh(GrPrimitiveType::kTriangles);
-        mesh->setIndexed(std::move(indexBuffer), fIndexCount, firstIndex, 0, fVertCount - 1,
-                         GrPrimitiveRestart::kNo);
-        mesh->setVertexData(std::move(vertexBuffer), firstVertex);
-        target->recordDraw(std::move(gp), mesh);
+        fMesh = target->allocMesh();
+        fMesh->setIndexed(std::move(indexBuffer), fIndexCount, firstIndex, 0, fVertCount - 1,
+                          GrPrimitiveRestart::kNo, std::move(vertexBuffer), firstVertex);
     }
 
     void onExecute(GrOpFlushState* flushState, const SkRect& chainBounds) override {
-        fHelper.executeDrawsAndUploads(this, flushState, chainBounds);
+        if (!fProgramInfo || !fMesh) {
+            return;
+        }
+
+        flushState->bindPipelineAndScissorClip(*fProgramInfo, chainBounds);
+        flushState->bindTextures(fProgramInfo->primProc(), nullptr, fProgramInfo->pipeline());
+        flushState->drawMesh(*fMesh);
     }
 
-    CombineResult onCombineIfPossible(GrOp* t, const GrCaps& caps) override {
+    CombineResult onCombineIfPossible(GrOp* t, GrRecordingContext::Arenas*,
+                                      const GrCaps& caps) override {
         CircularRRectOp* that = t->cast<CircularRRectOp>();
 
         // can only represent 65535 unique vertices with 16-bit indices
@@ -2599,7 +2781,8 @@ private:
         }
 
         if (fHelper.usesLocalCoords() &&
-            !fViewMatrixIfUsingLocalCoords.cheapEqualTo(that->fViewMatrixIfUsingLocalCoords)) {
+            !SkMatrixPriv::CheapEqual(fViewMatrixIfUsingLocalCoords,
+                                      that->fViewMatrixIfUsingLocalCoords)) {
             return CombineResult::kCannotCombine;
         }
 
@@ -2626,6 +2809,9 @@ private:
     bool fAllFill;
     bool fWideColor;
     SkSTArray<1, RRect, true> fRRects;
+
+    GrSimpleMesh*  fMesh = nullptr;
+    GrProgramInfo* fProgramInfo = nullptr;
 
     typedef GrMeshDrawOp INHERITED;
 };
@@ -2729,7 +2915,7 @@ public:
 
         fStroked = stroked;
         fViewMatrixIfUsingLocalCoords = viewMatrix;
-        this->setBounds(bounds, HasAABloat::kYes, IsZeroArea::kNo);
+        this->setBounds(bounds, HasAABloat::kYes, IsHairline::kNo);
         // Expand the rect for aa in order to generate the correct vertices.
         bounds.outset(SK_ScalarHalf, SK_ScalarHalf);
         fRRects.emplace_back(
@@ -2739,7 +2925,11 @@ public:
     const char* name() const override { return "EllipticalRRectOp"; }
 
     void visitProxies(const VisitProxyFunc& func) const override {
-        fHelper.visitProxies(func);
+        if (fProgramInfo) {
+            fProgramInfo->visitFPProxies(func);
+        } else {
+            fHelper.visitProxies(func);
+        }
     }
 
 #ifdef SK_DEBUG
@@ -2773,15 +2963,32 @@ public:
     FixedFunctionFlags fixedFunctionFlags() const override { return fHelper.fixedFunctionFlags(); }
 
 private:
-    void onPrepareDraws(Target* target) override {
+    GrProgramInfo* programInfo() override { return fProgramInfo; }
+
+    void onCreateProgramInfo(const GrCaps* caps,
+                             SkArenaAlloc* arena,
+                             const GrSurfaceProxyView* outputView,
+                             GrAppliedClip&& appliedClip,
+                             const GrXferProcessor::DstProxyView& dstProxyView) override {
         SkMatrix localMatrix;
         if (!fViewMatrixIfUsingLocalCoords.invert(&localMatrix)) {
             return;
         }
 
-        // Setup geometry processor
-        sk_sp<GrGeometryProcessor> gp(new EllipseGeometryProcessor(fStroked, fWideColor, fUseScale,
-                                                                   localMatrix));
+        GrGeometryProcessor* gp = EllipseGeometryProcessor::Make(arena, fStroked, fWideColor,
+                                                                 fUseScale, localMatrix);
+
+        fProgramInfo = fHelper.createProgramInfo(caps, arena, outputView, std::move(appliedClip),
+                                                 dstProxyView, gp, GrPrimitiveType::kTriangles);
+    }
+
+    void onPrepareDraws(Target* target) override {
+        if (!fProgramInfo) {
+            this->createProgramInfo(target);
+            if (!fProgramInfo) {
+                return;
+            }
+        }
 
         // drop out the middle quad if we're stroked
         int indicesPerInstance = fStroked ? kIndicesPerStrokeRRect : kIndicesPerFillRRect;
@@ -2792,9 +2999,10 @@ private:
             SkDebugf("Could not allocate indices\n");
             return;
         }
-        PatternHelper helper(target, GrPrimitiveType::kTriangles, gp->vertexStride(),
+        PatternHelper helper(target, GrPrimitiveType::kTriangles,
+                             fProgramInfo->primProc().vertexStride(),
                              std::move(indexBuffer), kVertsPerStandardRRect, indicesPerInstance,
-                             fRRects.count());
+                             fRRects.count(), kNumRRectsInIndexBuffer);
         GrVertexWriter verts{helper.vertices()};
         if (!verts.fPtr) {
             SkDebugf("Could not allocate vertices\n");
@@ -2833,7 +3041,7 @@ private:
                                                                // shader, so can't be exactly 0
                                          SK_ScalarNearlyZero, yMaxOffset};
 
-            auto maybeScale = GrVertexWriter::If(fUseScale, SkTMax(rrect.fXRadius, rrect.fYRadius));
+            auto maybeScale = GrVertexWriter::If(fUseScale, std::max(rrect.fXRadius, rrect.fYRadius));
             for (int i = 0; i < 4; ++i) {
                 verts.write(bounds.fLeft, yCoords[i],
                             color,
@@ -2860,14 +3068,21 @@ private:
                             reciprocalRadii);
             }
         }
-        helper.recordDraw(target, std::move(gp));
+        fMesh = helper.mesh();
     }
 
     void onExecute(GrOpFlushState* flushState, const SkRect& chainBounds) override {
-        fHelper.executeDrawsAndUploads(this, flushState, chainBounds);
+        if (!fProgramInfo || !fMesh) {
+            return;
+        }
+
+        flushState->bindPipelineAndScissorClip(*fProgramInfo, chainBounds);
+        flushState->bindTextures(fProgramInfo->primProc(), nullptr, fProgramInfo->pipeline());
+        flushState->drawMesh(*fMesh);
     }
 
-    CombineResult onCombineIfPossible(GrOp* t, const GrCaps& caps) override {
+    CombineResult onCombineIfPossible(GrOp* t, GrRecordingContext::Arenas*,
+                                      const GrCaps& caps) override {
         EllipticalRRectOp* that = t->cast<EllipticalRRectOp>();
 
         if (!fHelper.isCompatible(that->fHelper, caps, this->bounds(), that->bounds())) {
@@ -2879,7 +3094,8 @@ private:
         }
 
         if (fHelper.usesLocalCoords() &&
-            !fViewMatrixIfUsingLocalCoords.cheapEqualTo(that->fViewMatrixIfUsingLocalCoords)) {
+            !SkMatrixPriv::CheapEqual(fViewMatrixIfUsingLocalCoords,
+                                      that->fViewMatrixIfUsingLocalCoords)) {
             return CombineResult::kCannotCombine;
         }
 
@@ -2903,6 +3119,9 @@ private:
     bool fWideColor;
     bool fUseScale;
     SkSTArray<1, RRect, true> fRRects;
+
+    GrSimpleMesh*  fMesh = nullptr;
+    GrProgramInfo* fProgramInfo = nullptr;
 
     typedef GrMeshDrawOp INHERITED;
 };
@@ -2942,7 +3161,8 @@ std::unique_ptr<GrDrawOp> GrOvalOpFactory::MakeCircularRRectOp(GrRecordingContex
         if (SkStrokeRec::kHairline_Style == style) {
             scaledStroke = SK_Scalar1;
         } else {
-            scaledStroke = SkScalarAbs(strokeWidth * (viewMatrix[SkMatrix::kMScaleX] +                                                                        viewMatrix[SkMatrix::kMSkewY]));
+            scaledStroke = SkScalarAbs(strokeWidth * (viewMatrix[SkMatrix::kMScaleX] +
+                                                      viewMatrix[SkMatrix::kMSkewY]));
         }
     }
 

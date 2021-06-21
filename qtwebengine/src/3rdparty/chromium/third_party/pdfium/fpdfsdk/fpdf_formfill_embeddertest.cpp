@@ -368,6 +368,10 @@ class FPDFFormFillListBoxFormEmbedderTest
     // - "Listbox_SingleSelect" - Ff: 0, 3 options with pair values.
     // - "Listbox_MultiSelect" - Ff: 2097152, 26 options with single values.
     // - "Listbox_ReadOnly" - Ff: 1, 3 options with single values.
+    // - "Listbox_MultiSelectMultipleSelected" - Ff: 2097152, 5 options with
+    // single values.
+    // - "Listbox_SingleSelectLastSelected" - Ff: 0, 10 options with single
+    // values.
     return "listbox_form.pdf";
   }
 
@@ -382,6 +386,17 @@ class FPDFFormFillListBoxFormEmbedderTest
               GetFormTypeAtPoint(MultiSelectFirstVisibleOption()));
     EXPECT_EQ(GetFormType(),
               GetFormTypeAtPoint(MultiSelectSecondVisibleOption()));
+    EXPECT_EQ(
+        GetFormType(),
+        GetFormTypeAtPoint(MultiSelectMultipleSelectedFirstVisibleOption()));
+    EXPECT_EQ(
+        GetFormType(),
+        GetFormTypeAtPoint(MultiSelectMultipleSelectedSecondVisibleOption()));
+    EXPECT_EQ(GetFormType(),
+              GetFormTypeAtPoint(SingleSelectLastSelectedFirstVisibleOption()));
+    EXPECT_EQ(
+        GetFormType(),
+        GetFormTypeAtPoint(SingleSelectLastSelectedSecondVisibleOption()));
   }
 
   void ClickOnSingleSelectFormOption(int item_index) {
@@ -408,12 +423,44 @@ class FPDFFormFillListBoxFormEmbedderTest
     }
   }
 
+  void ClickOnMultiSelectMultipleSelectedFormOption(int item_index) {
+    // Only two indices are visible so can only click on those
+    // without scrolling.
+    ASSERT(item_index >= 0);
+    ASSERT(item_index < 2);
+    if (item_index == 0) {
+      ClickOnFormFieldAtPoint(MultiSelectMultipleSelectedFirstVisibleOption());
+    } else {
+      ClickOnFormFieldAtPoint(MultiSelectMultipleSelectedSecondVisibleOption());
+    }
+  }
+
+  void ClickOnSingleSelectLastSelectedFormOption(int item_index) {
+    // Only two indices are visible so can only click on those
+    // without scrolling.
+    ASSERT(item_index >= 0);
+    ASSERT(item_index < 2);
+    if (item_index == 0) {
+      ClickOnFormFieldAtPoint(SingleSelectLastSelectedFirstVisibleOption());
+    } else {
+      ClickOnFormFieldAtPoint(SingleSelectLastSelectedSecondVisibleOption());
+    }
+  }
+
   void FocusOnSingleSelectForm() {
     FocusOnPoint(SingleSelectFirstVisibleOption());
   }
 
   void FocusOnMultiSelectForm() {
     FocusOnPoint(MultiSelectFirstVisibleOption());
+  }
+
+  void FocusOnMultiSelectMultipleSelectedForm() {
+    FocusOnPoint(MultiSelectMultipleSelectedFirstVisibleOption());
+  }
+
+  void FocusOnSingleSelectLastSelectedForm() {
+    FocusOnPoint(SingleSelectLastSelectedFirstVisibleOption());
   }
 
   void FocusOnPoint(const CFX_PointF& point) {
@@ -440,12 +487,48 @@ class FPDFFormFillListBoxFormEmbedderTest
     return point;
   }
 
+  const CFX_PointF& MultiSelectMultipleSelectedFirstVisibleOption() const {
+    static const CFX_PointF point(
+        kFormBeginX, kMultiFormMultipleSelectedYFirstVisibleOption);
+    return point;
+  }
+
+  const CFX_PointF& MultiSelectMultipleSelectedSecondVisibleOption() const {
+    static const CFX_PointF point(
+        kFormBeginX, kMultiFormMultipleSelectedYSecondVisibleOption);
+    return point;
+  }
+
+  const CFX_PointF& SingleSelectLastSelectedFirstVisibleOption() const {
+    static const CFX_PointF point(kFormBeginX,
+                                  kSingleFormLastSelectedYFirstVisibleOption);
+    return point;
+  }
+
+  const CFX_PointF& SingleSelectLastSelectedSecondVisibleOption() const {
+    static const CFX_PointF point(kFormBeginX,
+                                  kSingleFormLastSelectedYSecondVisibleOption);
+    return point;
+  }
+
  private:
   static constexpr float kFormBeginX = 102.0;
   static constexpr float kSingleFormYFirstVisibleOption = 371.0;
   static constexpr float kSingleFormYSecondVisibleOption = 358.0;
   static constexpr float kMultiFormYFirstVisibleOption = 423.0;
   static constexpr float kMultiFormYSecondVisibleOption = 408.0;
+  static constexpr float kMultiFormMultipleSelectedYFirstVisibleOption = 223.0;
+  static constexpr float kMultiFormMultipleSelectedYSecondVisibleOption = 208.0;
+  static constexpr float kSingleFormLastSelectedYFirstVisibleOption = 123.0;
+  static constexpr float kSingleFormLastSelectedYSecondVisibleOption = 108.0;
+};
+
+class FPDFFormFillTextFormEmbedderTestVersion2
+    : public FPDFFormFillTextFormEmbedderTest {
+  void SetUp() override {
+    SetFormFillInfoVersion(2);
+    FPDFFormFillInteractiveEmbedderTest::SetUp();
+  }
 };
 
 TEST_F(FPDFFormFillEmbedderTest, FirstTest) {
@@ -454,6 +537,7 @@ TEST_F(FPDFFormFillEmbedderTest, FirstTest) {
   EXPECT_CALL(mock, UnsupportedHandler(_)).Times(0);
   EXPECT_CALL(mock, SetTimer(_, _)).Times(0);
   EXPECT_CALL(mock, KillTimer(_)).Times(0);
+  EXPECT_CALL(mock, OnFocusChange(_, _, _)).Times(0);
   SetDelegate(&mock);
 
   EXPECT_TRUE(OpenDocument("hello_world.pdf"));
@@ -554,6 +638,93 @@ TEST_F(FPDFFormFillEmbedderTest, BUG_901654_2) {
   UnloadPage(page);
 }
 
+TEST_F(FPDFFormFillEmbedderTest, GetFocusedAnnotation) {
+  ASSERT_TRUE(OpenDocument("annotiter.pdf"));
+  std::vector<FPDF_PAGE> pages;
+  for (size_t i = 0; i < 3; ++i) {
+    pages.push_back(LoadPage(i));
+    ASSERT_TRUE(pages.back());
+  }
+
+  // Ensure that there is no focused annotation.
+  FPDF_ANNOTATION annot = nullptr;
+  int page_index = -2;
+  ASSERT_TRUE(FORM_GetFocusedAnnot(form_handle(), &page_index, &annot));
+  EXPECT_FALSE(annot);
+  EXPECT_EQ(-1, page_index);
+
+  // Validate that nullptr values are handled properly.
+  EXPECT_FALSE(FORM_GetFocusedAnnot(nullptr, &page_index, &annot));
+  EXPECT_FALSE(FORM_GetFocusedAnnot(form_handle(), &page_index, nullptr));
+  EXPECT_FALSE(FORM_GetFocusedAnnot(form_handle(), nullptr, &annot));
+
+  const CFX_PointF right_bottom_annot_point(410.0f, 210.0f);
+  constexpr int kExpectedAnnotIndex = 3;
+
+  for (size_t i = 0; i < pages.size(); ++i) {
+    // Invoke click on the form field to bring it to focus.
+    FORM_OnMouseMove(form_handle(), pages[i], 0, right_bottom_annot_point.x,
+                     right_bottom_annot_point.y);
+    FORM_OnLButtonDown(form_handle(), pages[i], 0, right_bottom_annot_point.x,
+                       right_bottom_annot_point.y);
+    FORM_OnLButtonUp(form_handle(), pages[i], 0, right_bottom_annot_point.x,
+                     right_bottom_annot_point.y);
+
+    ASSERT_TRUE(FORM_GetFocusedAnnot(form_handle(), &page_index, &annot));
+    ASSERT_TRUE(annot);
+
+    EXPECT_EQ(kExpectedAnnotIndex, FPDFPage_GetAnnotIndex(pages[i], annot));
+    EXPECT_EQ(static_cast<int>(i), page_index);
+
+    FPDFPage_CloseAnnot(annot);
+  }
+
+  for (FPDF_PAGE page : pages)
+    UnloadPage(page);
+}
+
+TEST_F(FPDFFormFillEmbedderTest, SetFocusedAnnotation) {
+  ASSERT_TRUE(OpenDocument("annotiter.pdf"));
+  std::vector<FPDF_PAGE> pages;
+  for (size_t i = 0; i < 3; ++i) {
+    pages.push_back(LoadPage(i));
+    ASSERT_TRUE(pages.back());
+  }
+
+  // Ensure that there is no focused annotation.
+  FPDF_ANNOTATION annot = nullptr;
+  int page_index = -2;
+  ASSERT_TRUE(FORM_GetFocusedAnnot(form_handle(), &page_index, &annot));
+  EXPECT_FALSE(annot);
+  EXPECT_EQ(-1, page_index);
+
+  // Validate that nullptr values are handled properly.
+  EXPECT_FALSE(FORM_SetFocusedAnnot(nullptr, pages[0], annot));
+  EXPECT_FALSE(FORM_SetFocusedAnnot(form_handle(), nullptr, annot));
+  EXPECT_FALSE(FORM_SetFocusedAnnot(form_handle(), pages[0], nullptr));
+
+  constexpr int kExpectedAnnotIndex = 2;
+
+  for (size_t i = 0; i < pages.size(); ++i) {
+    // Setting focus on an annotation on page i.
+    ScopedFPDFAnnotation focused_annot(
+        FPDFPage_GetAnnot(pages[i], kExpectedAnnotIndex));
+    ASSERT_TRUE(focused_annot);
+
+    ASSERT_TRUE(
+        FORM_SetFocusedAnnot(form_handle(), pages[i], focused_annot.get()));
+
+    ASSERT_TRUE(FORM_GetFocusedAnnot(form_handle(), &page_index, &annot));
+    EXPECT_EQ(kExpectedAnnotIndex, FPDFPage_GetAnnotIndex(pages[i], annot));
+    EXPECT_EQ(static_cast<int>(i), page_index);
+
+    FPDFPage_CloseAnnot(annot);
+  }
+
+  for (FPDF_PAGE page : pages)
+    UnloadPage(page);
+}
+
 class DoURIActionBlockedDelegate final : public EmbedderTest::Delegate {
  public:
   void DoURIAction(FPDF_BYTESTRING uri) override {
@@ -626,6 +797,26 @@ TEST_F(FPDFFormFillEmbedderTest, DocumentAActions) {
   EXPECT_STREQ(L"Did Save", alerts[1].message.c_str());
   EXPECT_STREQ(L"Will Print", alerts[2].message.c_str());
   EXPECT_STREQ(L"Did Print", alerts[3].message.c_str());
+}
+
+TEST_F(FPDFFormFillEmbedderTest, DocumentAActionsDisableJavaScript) {
+  EmbedderTestTimerHandlingDelegate delegate;
+  SetDelegate(&delegate);
+
+  EXPECT_TRUE(OpenDocumentWithoutJavaScript("document_aactions.pdf"));
+  FPDF_PAGE page = LoadPage(0);
+  EXPECT_TRUE(page);
+
+  const auto& alerts = delegate.GetAlerts();
+  EXPECT_EQ(0U, alerts.size());
+
+  FORM_DoDocumentAAction(form_handle(), FPDFDOC_AACTION_WS);
+  FORM_DoDocumentAAction(form_handle(), FPDFDOC_AACTION_DS);
+  FORM_DoDocumentAAction(form_handle(), FPDFDOC_AACTION_WP);
+  FORM_DoDocumentAAction(form_handle(), FPDFDOC_AACTION_DP);
+  UnloadPage(page);
+
+  ASSERT_EQ(0U, alerts.size());
 }
 
 TEST_F(FPDFFormFillEmbedderTest, BUG_551248) {
@@ -789,11 +980,17 @@ TEST_F(FPDFFormFillEmbedderTest, BUG_765384) {
 }
 #endif  // PDF_ENABLE_V8
 
-TEST_F(FPDFFormFillEmbedderTest, FormText) {
+// TODO(crbug.com/pdfium/11): Fix this test and enable.
+#if defined(_SKIA_SUPPORT_) || defined(_SKIA_SUPPORT_PATHS_)
+#define MAYBE_FormText DISABLED_FormText
+#else
+#define MAYBE_FormText FormText
+#endif
+TEST_F(FPDFFormFillEmbedderTest, MAYBE_FormText) {
 #if defined(OS_MACOSX)
-  const char md5_1[] = "5f11dbe575fe197a37c3fb422559f8ff";
-  const char md5_2[] = "35b1a4b679eafc749a0b6fda750c0e8d";
-  const char md5_3[] = "65c64a7c355388f719a752aa1e23f6fe";
+  const char md5_1[] = "d485541d958fef08d24e8eca3e537023";
+  const char md5_2[] = "c6e4a2fb10661116771ee74f54d9c5e0";
+  const char md5_3[] = "e0c8d5099301d7c10ed831a43e974d9d";
 #elif defined(OS_WIN)
   const char md5_1[] = "d3204faa62b607f0bd3893c9c22cabcb";
   const char md5_2[] = "29d1c3fd226ca6a69597f75937690320";
@@ -813,6 +1010,8 @@ TEST_F(FPDFFormFillEmbedderTest, FormText) {
     // Click on the textfield
     EXPECT_EQ(FPDF_FORMFIELD_TEXTFIELD,
               FPDFPage_HasFormFieldAtPoint(form_handle(), page, 120.0, 120.0));
+    EXPECT_EQ(
+        0, FPDFPage_FormFieldZOrderAtPoint(form_handle(), page, 120.0, 120.0));
     FORM_OnMouseMove(form_handle(), page, 0, 120.0, 120.0);
     FORM_OnLButtonDown(form_handle(), page, 0, 120.0, 120.0);
     FORM_OnLButtonUp(form_handle(), page, 0, 120.0, 120.0);
@@ -824,12 +1023,19 @@ TEST_F(FPDFFormFillEmbedderTest, FormText) {
     ScopedFPDFBitmap bitmap2 = RenderLoadedPage(page);
     CompareBitmap(bitmap2.get(), 300, 300, md5_2);
 
+    // Focus remains despite right clicking out of the textfield
+    FORM_OnMouseMove(form_handle(), page, 0, 15.0, 15.0);
+    FORM_OnRButtonDown(form_handle(), page, 0, 15.0, 15.0);
+    FORM_OnRButtonUp(form_handle(), page, 0, 15.0, 15.0);
+    ScopedFPDFBitmap bitmap3 = RenderLoadedPage(page);
+    CompareBitmap(bitmap3.get(), 300, 300, md5_2);
+
     // Take out focus by clicking out of the textfield
     FORM_OnMouseMove(form_handle(), page, 0, 15.0, 15.0);
     FORM_OnLButtonDown(form_handle(), page, 0, 15.0, 15.0);
     FORM_OnLButtonUp(form_handle(), page, 0, 15.0, 15.0);
-    ScopedFPDFBitmap bitmap3 = RenderLoadedPage(page);
-    CompareBitmap(bitmap3.get(), 300, 300, md5_3);
+    ScopedFPDFBitmap bitmap4 = RenderLoadedPage(page);
+    CompareBitmap(bitmap4.get(), 300, 300, md5_3);
 
     EXPECT_TRUE(FPDF_SaveAsCopy(document(), this, 0));
 
@@ -842,7 +1048,13 @@ TEST_F(FPDFFormFillEmbedderTest, FormText) {
 
 // Tests using FPDF_REVERSE_BYTE_ORDER with FPDF_FFLDraw(). The two rendered
 // bitmaps should be different.
-TEST_F(FPDFFormFillEmbedderTest, BUG_1281) {
+// TODO(crbug.com/pdfium/11): Fix this test and enable.
+#if defined(_SKIA_SUPPORT_) || defined(_SKIA_SUPPORT_PATHS_)
+#define MAYBE_BUG_1281 DISABLED_BUG_1281
+#else
+#define MAYBE_BUG_1281 BUG_1281
+#endif
+TEST_F(FPDFFormFillEmbedderTest, MAYBE_BUG_1281) {
   const char kMd5Normal[] = "6c674642154408e877d88c6c082d67e9";
   const char kMd5ReverseByteOrder[] = "24fff03d1e663b7ece5f6e69ad837124";
 
@@ -857,6 +1069,42 @@ TEST_F(FPDFFormFillEmbedderTest, BUG_1281) {
       RenderLoadedPageWithFlags(page, FPDF_REVERSE_BYTE_ORDER);
   CompareBitmap(bitmap_reverse_byte_order.get(), 200, 200,
                 kMd5ReverseByteOrder);
+
+  UnloadPage(page);
+}
+
+#if defined(_SKIA_SUPPORT_) || defined(_SKIA_SUPPORT_PATHS_)
+#define MAYBE_RemoveFormFieldHighlight DISABLED_RemoveFormFieldHighlight
+#else
+#define MAYBE_RemoveFormFieldHighlight RemoveFormFieldHighlight
+#endif
+TEST_F(FPDFFormFillEmbedderTest, MAYBE_RemoveFormFieldHighlight) {
+#if defined(OS_MACOSX)
+  const char kMd5Normal[] = "d485541d958fef08d24e8eca3e537023";
+  const char kMd5NoHighlight[] = "5e4b87c5b304c6fa9bd5f6311260494e";
+#elif defined(OS_WIN)
+  const char kMd5Normal[] = "d3204faa62b607f0bd3893c9c22cabcb";
+  const char kMd5NoHighlight[] = "3ec0938828e0a37ef23f687ee95a80e1";
+#else
+  const char kMd5Normal[] = "b890950d4b9bc163b1a96797f3004b53";
+  const char kMd5NoHighlight[] = "006010c318457810a518aa5e0b33c498";
+#endif
+
+  EXPECT_TRUE(OpenDocument("text_form.pdf"));
+  FPDF_PAGE page = LoadPage(0);
+  ASSERT_TRUE(page);
+  ScopedFPDFBitmap bitmap1 = RenderLoadedPage(page);
+  CompareBitmap(bitmap1.get(), 300, 300, kMd5Normal);
+
+  // Removing the highlight changes the rendering.
+  FPDF_RemoveFormFieldHighlight(form_handle());
+  ScopedFPDFBitmap bitmap2 = RenderLoadedPage(page);
+  CompareBitmap(bitmap2.get(), 300, 300, kMd5NoHighlight);
+
+  // Restoring it gives the original rendering.
+  SetInitialFormFieldHighlight(form_handle());
+  ScopedFPDFBitmap bitmap3 = RenderLoadedPage(page);
+  CompareBitmap(bitmap3.get(), 300, 300, kMd5Normal);
 
   UnloadPage(page);
 }
@@ -1904,6 +2152,30 @@ TEST_F(FPDFFormFillTextFormEmbedderTest, DoubleClickInTextField) {
   CheckSelection(L"Hello World");
 }
 
+TEST_F(FPDFFormFillTextFormEmbedderTest, FocusAnnotationUpdateToEmbedder) {
+  testing::NiceMock<EmbedderTestMockDelegate> mock;
+  SetDelegate(&mock);
+  CheckFocusedFieldText(L"");
+
+#ifdef PDF_ENABLE_XFA
+  EXPECT_CALL(mock, OnFocusChange(_, _, 0)).Times(1);
+#else   // PDF_ENABLE_XFA
+  EXPECT_CALL(mock, OnFocusChange(_, _, 0)).Times(0);
+#endif  // PDF_ENABLE_XFA
+
+  ClickOnFormFieldAtPoint(RegularFormBegin());
+}
+
+TEST_F(FPDFFormFillTextFormEmbedderTestVersion2,
+       FocusAnnotationUpdateToEmbedder) {
+  testing::NiceMock<EmbedderTestMockDelegate> mock;
+  SetDelegate(&mock);
+  CheckFocusedFieldText(L"");
+
+  EXPECT_CALL(mock, OnFocusChange(_, _, 0)).Times(1);
+  ClickOnFormFieldAtPoint(RegularFormBegin());
+}
+
 TEST_F(FPDFFormFillTextFormEmbedderTest, FocusChanges) {
   static const CFX_PointF kNonFormPoint(1, 1);
   CheckFocusedFieldText(L"");
@@ -2126,9 +2398,13 @@ TEST_F(FPDFFormFillListBoxFormEmbedderTest,
     CheckIsIndexSelected(i, expected);
   }
 
-  ClickOnMultiSelectFormOption(0);
+  // TODO(bug_1377): Behavior should be changed to the one described below.
+  // Multiselect field set to 'Cherry' (index 2), which is index 1 among the
+  // visible form options because the listbox is scrolled down to have 'Banana'
+  // (index 1) at the top.
+  ClickOnMultiSelectFormOption(1);
   for (int i = 0; i < 26; i++) {
-    bool expected = i == 0;
+    bool expected = i == 1;
     CheckIsIndexSelected(i, expected);
   }
 }
@@ -2263,12 +2539,58 @@ TEST_F(FPDFFormFillListBoxFormEmbedderTest,
 
   // Check that above actions are interchangeable with click actions, should be
   // able to use a combination of both.
+  // TODO(bug_1377): Change to click on form option 0 instead of form option 1
   ClickOnMultiSelectFormOption(1);
   for (int i = 0; i < 26; i++) {
     bool expected = i == 1;
     CheckIsIndexSelected(i, expected);
   }
   CheckFocusedFieldText(L"Banana");
+}
+
+TEST_F(FPDFFormFillListBoxFormEmbedderTest, CheckIfMultipleSelected) {
+  // Multiselect field set to 'Gamma' (index 2) and 'Epsilon' (index 4) upon
+  // opening.
+  FocusOnMultiSelectMultipleSelectedForm();
+  for (int i = 0; i < 5; i++) {
+    // TODO(bug_1377): Should be selected at index 2 and index 4.
+    bool expected = false;
+    CheckIsIndexSelected(i, expected);
+  }
+}
+
+TEST_F(FPDFFormFillListBoxFormEmbedderTest,
+       CheckIfVerticalScrollIsAtFirstSelected) {
+  // Multiselect field set to 'Gamma' (index 2) and 'Epsilon' (index 4) upon
+  // opening.
+
+  // TODO(bug_1377): Behavior should be changed to the one described below.
+  // The top visible option is 'Gamma' (index 2), so the first selection should
+  // not change. The second selection, 'Epsilon,' should be deselected.
+  ClickOnMultiSelectMultipleSelectedFormOption(0);
+  for (int i = 0; i < 5; i++) {
+    bool expected = i == 0;
+    CheckIsIndexSelected(i, expected);
+  }
+}
+
+TEST_F(FPDFFormFillListBoxFormEmbedderTest, CheckForNoOverscroll) {
+  // Only the last option in the list, 'Saskatchewan', is selected.
+  FocusOnSingleSelectLastSelectedForm();
+  for (int i = 0; i < 10; i++) {
+    bool expected = i == 9;
+    CheckIsIndexSelected(i, expected);
+  }
+
+  // Even though the top index is specified to be at 'Saskatchewan' (index 9),
+  // the top visible option will be the one above it, 'Quebec' (index 8), to
+  // prevent overscrolling. Therefore, clicking on the first visible option of
+  // the list should select 'Quebec' instead of 'Saskatchewan.'
+  ClickOnSingleSelectLastSelectedFormOption(0);
+  for (int i = 0; i < 10; i++) {
+    bool expected = i == 8;
+    CheckIsIndexSelected(i, expected);
+  }
 }
 
 TEST_F(FPDFFormFillTextFormEmbedderTest, ReplaceSelection) {
@@ -2317,4 +2639,36 @@ TEST_F(FPDFFormFillTextFormEmbedderTest, ReplaceSelection) {
   CheckFocusedFieldText(L"XYZB");
   CheckCanUndo(true);
   CheckCanRedo(false);
+}
+
+class FPDFXFAFormBug1055869EmbedderTest
+    : public FPDFFormFillInteractiveEmbedderTest {
+ protected:
+  FPDFXFAFormBug1055869EmbedderTest() = default;
+  ~FPDFXFAFormBug1055869EmbedderTest() override = default;
+
+  const char* GetDocumentName() const override { return "bug_1055869.pdf"; }
+  int GetFormType() const override { return FORMTYPE_XFA_FULL; }
+};
+
+TEST_F(FPDFXFAFormBug1055869EmbedderTest, Paste) {
+  ScopedFPDFWideString text_to_insert = GetFPDFWideString(L"XYZ");
+  DoubleClickOnFormFieldAtPoint(CFX_PointF(100, 100));
+  FORM_ReplaceSelection(form_handle(), page(), text_to_insert.get());
+}
+
+class FPDFXFAFormBug1058653EmbedderTest
+    : public FPDFFormFillInteractiveEmbedderTest {
+ protected:
+  FPDFXFAFormBug1058653EmbedderTest() = default;
+  ~FPDFXFAFormBug1058653EmbedderTest() override = default;
+
+  const char* GetDocumentName() const override { return "bug_1058653.pdf"; }
+  int GetFormType() const override { return FORMTYPE_XFA_FULL; }
+};
+
+TEST_F(FPDFXFAFormBug1058653EmbedderTest, Paste) {
+  ScopedFPDFWideString text_to_insert = GetFPDFWideString(L"");
+  DoubleClickOnFormFieldAtPoint(CFX_PointF(22, 22));
+  FORM_ReplaceSelection(form_handle(), page(), text_to_insert.get());
 }

@@ -8,12 +8,162 @@
 
 #include "libANGLE/capture_gles_ext_autogen.h"
 
+#include "libANGLE/capture_gles_3_0_autogen.h"
+
 using namespace angle;
 
 namespace gl
 {
+void CaptureDrawElementsInstancedBaseVertexBaseInstanceANGLE_indices(
+    const State &glState,
+    bool isCallValid,
+    PrimitiveMode modePacked,
+    GLsizei count,
+    DrawElementsType typePacked,
+    const GLvoid *indices,
+    GLsizei instanceCounts,
+    GLint baseVertex,
+    GLuint baseInstance,
+    angle::ParamCapture *paramCapture)
+{
+    UNIMPLEMENTED();
+}
 
-void CaptureDrawElementsInstancedANGLE_indices(const Context *context,
+void CaptureMultiDrawArraysInstancedBaseInstanceANGLE_firsts(const State &glState,
+                                                             bool isCallValid,
+                                                             PrimitiveMode modePacked,
+                                                             const GLint *firsts,
+                                                             const GLsizei *counts,
+                                                             const GLsizei *instanceCounts,
+                                                             const GLuint *baseInstances,
+                                                             GLsizei drawcount,
+                                                             angle::ParamCapture *paramCapture)
+{
+    UNIMPLEMENTED();
+}  // namespace gl
+
+void CaptureMultiDrawArraysInstancedBaseInstanceANGLE_counts(const State &glState,
+                                                             bool isCallValid,
+                                                             PrimitiveMode modePacked,
+                                                             const GLint *firsts,
+                                                             const GLsizei *counts,
+                                                             const GLsizei *instanceCounts,
+                                                             const GLuint *baseInstances,
+                                                             GLsizei drawcount,
+                                                             angle::ParamCapture *paramCapture)
+{
+    UNIMPLEMENTED();
+}
+
+void CaptureMultiDrawArraysInstancedBaseInstanceANGLE_instanceCounts(
+    const State &glState,
+    bool isCallValid,
+    PrimitiveMode modePacked,
+    const GLint *firsts,
+    const GLsizei *counts,
+    const GLsizei *instanceCounts,
+    const GLuint *baseInstances,
+    GLsizei drawcount,
+    angle::ParamCapture *paramCapture)
+{
+    UNIMPLEMENTED();
+}
+
+void CaptureMultiDrawArraysInstancedBaseInstanceANGLE_baseInstances(
+    const State &glState,
+    bool isCallValid,
+    PrimitiveMode modePacked,
+    const GLint *firsts,
+    const GLsizei *counts,
+    const GLsizei *instanceCounts,
+    const GLuint *baseInstances,
+    GLsizei drawcount,
+    angle::ParamCapture *paramCapture)
+{
+    UNIMPLEMENTED();
+}
+
+void CaptureMultiDrawElementsInstancedBaseVertexBaseInstanceANGLE_counts(
+    const State &glState,
+    bool isCallValid,
+    PrimitiveMode modePacked,
+    const GLsizei *counts,
+    DrawElementsType typePacked,
+    const GLvoid *const *indices,
+    const GLsizei *instanceCounts,
+    const GLint *baseVertices,
+    const GLuint *baseInstances,
+    GLsizei drawcount,
+    angle::ParamCapture *paramCapture)
+{
+    UNIMPLEMENTED();
+}
+
+void CaptureMultiDrawElementsInstancedBaseVertexBaseInstanceANGLE_indices(
+    const State &glState,
+    bool isCallValid,
+    PrimitiveMode modePacked,
+    const GLsizei *counts,
+    DrawElementsType typePacked,
+    const GLvoid *const *indices,
+    const GLsizei *instanceCounts,
+    const GLint *baseVertices,
+    const GLuint *baseInstances,
+    GLsizei drawcount,
+    angle::ParamCapture *paramCapture)
+{
+    UNIMPLEMENTED();
+}
+
+void CaptureMultiDrawElementsInstancedBaseVertexBaseInstanceANGLE_instanceCounts(
+    const State &glState,
+    bool isCallValid,
+    PrimitiveMode modePacked,
+    const GLsizei *counts,
+    DrawElementsType typePacked,
+    const GLvoid *const *indices,
+    const GLsizei *instanceCounts,
+    const GLint *baseVertices,
+    const GLuint *baseInstances,
+    GLsizei drawcount,
+    angle::ParamCapture *paramCapture)
+{
+    UNIMPLEMENTED();
+}
+
+void CaptureMultiDrawElementsInstancedBaseVertexBaseInstanceANGLE_baseVertices(
+    const State &glState,
+    bool isCallValid,
+    PrimitiveMode modePacked,
+    const GLsizei *counts,
+    DrawElementsType typePacked,
+    const GLvoid *const *indices,
+    const GLsizei *instanceCounts,
+    const GLint *baseVertices,
+    const GLuint *baseInstances,
+    GLsizei drawcount,
+    angle::ParamCapture *paramCapture)
+{
+    UNIMPLEMENTED();
+}
+
+void CaptureMultiDrawElementsInstancedBaseVertexBaseInstanceANGLE_baseInstances(
+    const State &glState,
+    bool isCallValid,
+    PrimitiveMode modePacked,
+    const GLsizei *counts,
+    DrawElementsType typePacked,
+    const GLvoid *const *indices,
+    const GLsizei *instanceCounts,
+    const GLint *baseVertices,
+    const GLuint *baseInstances,
+    GLsizei drawcount,
+    angle::ParamCapture *paramCapture)
+{
+    UNIMPLEMENTED();
+}
+
+void CaptureDrawElementsInstancedANGLE_indices(const State &glState,
                                                bool isCallValid,
                                                PrimitiveMode modePacked,
                                                GLsizei count,
@@ -25,7 +175,124 @@ void CaptureDrawElementsInstancedANGLE_indices(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureMultiDrawArraysANGLE_firsts(const Context *context,
+void CaptureDrawElementsBaseVertexEXT_indices(const State &glState,
+                                              bool isCallValid,
+                                              PrimitiveMode modePacked,
+                                              GLsizei count,
+                                              DrawElementsType typePacked,
+                                              const void *indices,
+                                              GLint basevertex,
+                                              ParamCapture *indicesParam)
+{
+    UNIMPLEMENTED();
+}
+
+void CaptureDrawElementsInstancedBaseVertexEXT_indices(const State &glState,
+                                                       bool isCallValid,
+                                                       PrimitiveMode modePacked,
+                                                       GLsizei count,
+                                                       DrawElementsType typePacked,
+                                                       const void *indices,
+                                                       GLsizei instancecount,
+                                                       GLint basevertex,
+                                                       ParamCapture *indicesParam)
+{
+    UNIMPLEMENTED();
+}
+
+void CaptureDrawRangeElementsBaseVertexEXT_indices(const State &glState,
+                                                   bool isCallValid,
+                                                   PrimitiveMode modePacked,
+                                                   GLuint start,
+                                                   GLuint end,
+                                                   GLsizei count,
+                                                   DrawElementsType typePacked,
+                                                   const void *indices,
+                                                   GLint basevertex,
+                                                   ParamCapture *indicesParam)
+{
+    UNIMPLEMENTED();
+}
+
+void CaptureMultiDrawElementsBaseVertexEXT_count(const State &glState,
+                                                 bool isCallValid,
+                                                 PrimitiveMode modePacked,
+                                                 const GLsizei *count,
+                                                 DrawElementsType typePacked,
+                                                 const void *const *indices,
+                                                 GLsizei drawcount,
+                                                 const GLint *basevertex,
+                                                 ParamCapture *countParam)
+{
+    UNIMPLEMENTED();
+}
+
+void CaptureMultiDrawElementsBaseVertexEXT_indices(const State &glState,
+                                                   bool isCallValid,
+                                                   PrimitiveMode modePacked,
+                                                   const GLsizei *count,
+                                                   DrawElementsType typePacked,
+                                                   const void *const *indices,
+                                                   GLsizei drawcount,
+                                                   const GLint *basevertex,
+                                                   ParamCapture *indicesParam)
+{
+    UNIMPLEMENTED();
+}
+
+void CaptureMultiDrawElementsBaseVertexEXT_basevertex(const State &glState,
+                                                      bool isCallValid,
+                                                      PrimitiveMode modePacked,
+                                                      const GLsizei *count,
+                                                      DrawElementsType typePacked,
+                                                      const void *const *indices,
+                                                      GLsizei drawcount,
+                                                      const GLint *basevertex,
+                                                      ParamCapture *basevertexParam)
+{
+    UNIMPLEMENTED();
+}
+
+void CaptureDrawElementsBaseVertexOES_indices(const State &glState,
+                                              bool isCallValid,
+                                              PrimitiveMode modePacked,
+                                              GLsizei count,
+                                              DrawElementsType typePacked,
+                                              const void *indices,
+                                              GLint basevertex,
+                                              ParamCapture *indicesParam)
+{
+    UNIMPLEMENTED();
+}
+
+void CaptureDrawElementsInstancedBaseVertexOES_indices(const State &glState,
+                                                       bool isCallValid,
+                                                       PrimitiveMode modePacked,
+                                                       GLsizei count,
+                                                       DrawElementsType typePacked,
+                                                       const void *indices,
+                                                       GLsizei instancecount,
+                                                       GLint basevertex,
+                                                       ParamCapture *indicesParam)
+{
+    UNIMPLEMENTED();
+}
+
+void CaptureDrawRangeElementsBaseVertexOES_indices(const State &glState,
+                                                   bool isCallValid,
+                                                   PrimitiveMode modePacked,
+                                                   GLuint start,
+                                                   GLuint end,
+                                                   GLsizei count,
+                                                   DrawElementsType typePacked,
+                                                   const void *indices,
+                                                   GLint basevertex,
+                                                   ParamCapture *indicesParam)
+{
+    UNIMPLEMENTED();
+}
+
+void CaptureMultiDrawArraysANGLE_firsts(const State &glState,
                                         bool isCallValid,
                                         PrimitiveMode modePacked,
                                         const GLint *firsts,
@@ -36,7 +303,7 @@ void CaptureMultiDrawArraysANGLE_firsts(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureMultiDrawArraysANGLE_counts(const Context *context,
+void CaptureMultiDrawArraysANGLE_counts(const State &glState,
                                         bool isCallValid,
                                         PrimitiveMode modePacked,
                                         const GLint *firsts,
@@ -47,7 +314,7 @@ void CaptureMultiDrawArraysANGLE_counts(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureMultiDrawArraysInstancedANGLE_firsts(const Context *context,
+void CaptureMultiDrawArraysInstancedANGLE_firsts(const State &glState,
                                                  bool isCallValid,
                                                  PrimitiveMode modePacked,
                                                  const GLint *firsts,
@@ -59,7 +326,7 @@ void CaptureMultiDrawArraysInstancedANGLE_firsts(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureMultiDrawArraysInstancedANGLE_counts(const Context *context,
+void CaptureMultiDrawArraysInstancedANGLE_counts(const State &glState,
                                                  bool isCallValid,
                                                  PrimitiveMode modePacked,
                                                  const GLint *firsts,
@@ -71,7 +338,7 @@ void CaptureMultiDrawArraysInstancedANGLE_counts(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureMultiDrawArraysInstancedANGLE_instanceCounts(const Context *context,
+void CaptureMultiDrawArraysInstancedANGLE_instanceCounts(const State &glState,
                                                          bool isCallValid,
                                                          PrimitiveMode modePacked,
                                                          const GLint *firsts,
@@ -83,7 +350,7 @@ void CaptureMultiDrawArraysInstancedANGLE_instanceCounts(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureMultiDrawElementsANGLE_counts(const Context *context,
+void CaptureMultiDrawElementsANGLE_counts(const State &glState,
                                           bool isCallValid,
                                           PrimitiveMode modePacked,
                                           const GLsizei *counts,
@@ -95,7 +362,7 @@ void CaptureMultiDrawElementsANGLE_counts(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureMultiDrawElementsANGLE_indices(const Context *context,
+void CaptureMultiDrawElementsANGLE_indices(const State &glState,
                                            bool isCallValid,
                                            PrimitiveMode modePacked,
                                            const GLsizei *counts,
@@ -107,7 +374,7 @@ void CaptureMultiDrawElementsANGLE_indices(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureMultiDrawElementsInstancedANGLE_counts(const Context *context,
+void CaptureMultiDrawElementsInstancedANGLE_counts(const State &glState,
                                                    bool isCallValid,
                                                    PrimitiveMode modePacked,
                                                    const GLsizei *counts,
@@ -120,7 +387,7 @@ void CaptureMultiDrawElementsInstancedANGLE_counts(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureMultiDrawElementsInstancedANGLE_indices(const Context *context,
+void CaptureMultiDrawElementsInstancedANGLE_indices(const State &glState,
                                                     bool isCallValid,
                                                     PrimitiveMode modePacked,
                                                     const GLsizei *counts,
@@ -133,7 +400,7 @@ void CaptureMultiDrawElementsInstancedANGLE_indices(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureMultiDrawElementsInstancedANGLE_instanceCounts(const Context *context,
+void CaptureMultiDrawElementsInstancedANGLE_instanceCounts(const State &glState,
                                                            bool isCallValid,
                                                            PrimitiveMode modePacked,
                                                            const GLsizei *counts,
@@ -146,15 +413,23 @@ void CaptureMultiDrawElementsInstancedANGLE_instanceCounts(const Context *contex
     UNIMPLEMENTED();
 }
 
-void CaptureRequestExtensionANGLE_name(const Context *context,
+void CaptureRequestExtensionANGLE_name(const State &glState,
                                        bool isCallValid,
                                        const GLchar *name,
                                        ParamCapture *paramCapture)
 {
-    UNIMPLEMENTED();
+    CaptureString(name, paramCapture);
 }
 
-void CaptureGetBooleanvRobustANGLE_length(const Context *context,
+void CaptureDisableExtensionANGLE_name(const State &glState,
+                                       bool isCallValid,
+                                       const GLchar *name,
+                                       ParamCapture *paramCapture)
+{
+    CaptureString(name, paramCapture);
+}
+
+void CaptureGetBooleanvRobustANGLE_length(const State &glState,
                                           bool isCallValid,
                                           GLenum pname,
                                           GLsizei bufSize,
@@ -165,7 +440,7 @@ void CaptureGetBooleanvRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetBooleanvRobustANGLE_params(const Context *context,
+void CaptureGetBooleanvRobustANGLE_params(const State &glState,
                                           bool isCallValid,
                                           GLenum pname,
                                           GLsizei bufSize,
@@ -176,7 +451,7 @@ void CaptureGetBooleanvRobustANGLE_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetBufferParameterivRobustANGLE_length(const Context *context,
+void CaptureGetBufferParameterivRobustANGLE_length(const State &glState,
                                                    bool isCallValid,
                                                    BufferBinding targetPacked,
                                                    GLenum pname,
@@ -188,7 +463,7 @@ void CaptureGetBufferParameterivRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetBufferParameterivRobustANGLE_params(const Context *context,
+void CaptureGetBufferParameterivRobustANGLE_params(const State &glState,
                                                    bool isCallValid,
                                                    BufferBinding targetPacked,
                                                    GLenum pname,
@@ -200,7 +475,7 @@ void CaptureGetBufferParameterivRobustANGLE_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetFloatvRobustANGLE_length(const Context *context,
+void CaptureGetFloatvRobustANGLE_length(const State &glState,
                                         bool isCallValid,
                                         GLenum pname,
                                         GLsizei bufSize,
@@ -211,7 +486,7 @@ void CaptureGetFloatvRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetFloatvRobustANGLE_params(const Context *context,
+void CaptureGetFloatvRobustANGLE_params(const State &glState,
                                         bool isCallValid,
                                         GLenum pname,
                                         GLsizei bufSize,
@@ -222,7 +497,7 @@ void CaptureGetFloatvRobustANGLE_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetFramebufferAttachmentParameterivRobustANGLE_length(const Context *context,
+void CaptureGetFramebufferAttachmentParameterivRobustANGLE_length(const State &glState,
                                                                   bool isCallValid,
                                                                   GLenum target,
                                                                   GLenum attachment,
@@ -235,7 +510,7 @@ void CaptureGetFramebufferAttachmentParameterivRobustANGLE_length(const Context 
     UNIMPLEMENTED();
 }
 
-void CaptureGetFramebufferAttachmentParameterivRobustANGLE_params(const Context *context,
+void CaptureGetFramebufferAttachmentParameterivRobustANGLE_params(const State &glState,
                                                                   bool isCallValid,
                                                                   GLenum target,
                                                                   GLenum attachment,
@@ -248,7 +523,7 @@ void CaptureGetFramebufferAttachmentParameterivRobustANGLE_params(const Context 
     UNIMPLEMENTED();
 }
 
-void CaptureGetIntegervRobustANGLE_length(const Context *context,
+void CaptureGetIntegervRobustANGLE_length(const State &glState,
                                           bool isCallValid,
                                           GLenum pname,
                                           GLsizei bufSize,
@@ -259,7 +534,7 @@ void CaptureGetIntegervRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetIntegervRobustANGLE_data(const Context *context,
+void CaptureGetIntegervRobustANGLE_data(const State &glState,
                                         bool isCallValid,
                                         GLenum pname,
                                         GLsizei bufSize,
@@ -270,9 +545,9 @@ void CaptureGetIntegervRobustANGLE_data(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetProgramivRobustANGLE_length(const Context *context,
+void CaptureGetProgramivRobustANGLE_length(const State &glState,
                                            bool isCallValid,
-                                           GLuint program,
+                                           ShaderProgramID program,
                                            GLenum pname,
                                            GLsizei bufSize,
                                            GLsizei *length,
@@ -282,9 +557,9 @@ void CaptureGetProgramivRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetProgramivRobustANGLE_params(const Context *context,
+void CaptureGetProgramivRobustANGLE_params(const State &glState,
                                            bool isCallValid,
-                                           GLuint program,
+                                           ShaderProgramID program,
                                            GLenum pname,
                                            GLsizei bufSize,
                                            GLsizei *length,
@@ -294,7 +569,7 @@ void CaptureGetProgramivRobustANGLE_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetRenderbufferParameterivRobustANGLE_length(const Context *context,
+void CaptureGetRenderbufferParameterivRobustANGLE_length(const State &glState,
                                                          bool isCallValid,
                                                          GLenum target,
                                                          GLenum pname,
@@ -306,7 +581,7 @@ void CaptureGetRenderbufferParameterivRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetRenderbufferParameterivRobustANGLE_params(const Context *context,
+void CaptureGetRenderbufferParameterivRobustANGLE_params(const State &glState,
                                                          bool isCallValid,
                                                          GLenum target,
                                                          GLenum pname,
@@ -318,9 +593,9 @@ void CaptureGetRenderbufferParameterivRobustANGLE_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetShaderivRobustANGLE_length(const Context *context,
+void CaptureGetShaderivRobustANGLE_length(const State &glState,
                                           bool isCallValid,
-                                          GLuint shader,
+                                          ShaderProgramID shader,
                                           GLenum pname,
                                           GLsizei bufSize,
                                           GLsizei *length,
@@ -330,9 +605,9 @@ void CaptureGetShaderivRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetShaderivRobustANGLE_params(const Context *context,
+void CaptureGetShaderivRobustANGLE_params(const State &glState,
                                           bool isCallValid,
-                                          GLuint shader,
+                                          ShaderProgramID shader,
                                           GLenum pname,
                                           GLsizei bufSize,
                                           GLsizei *length,
@@ -342,7 +617,7 @@ void CaptureGetShaderivRobustANGLE_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetTexParameterfvRobustANGLE_length(const Context *context,
+void CaptureGetTexParameterfvRobustANGLE_length(const State &glState,
                                                 bool isCallValid,
                                                 TextureType targetPacked,
                                                 GLenum pname,
@@ -354,7 +629,7 @@ void CaptureGetTexParameterfvRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetTexParameterfvRobustANGLE_params(const Context *context,
+void CaptureGetTexParameterfvRobustANGLE_params(const State &glState,
                                                 bool isCallValid,
                                                 TextureType targetPacked,
                                                 GLenum pname,
@@ -366,7 +641,7 @@ void CaptureGetTexParameterfvRobustANGLE_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetTexParameterivRobustANGLE_length(const Context *context,
+void CaptureGetTexParameterivRobustANGLE_length(const State &glState,
                                                 bool isCallValid,
                                                 TextureType targetPacked,
                                                 GLenum pname,
@@ -378,7 +653,7 @@ void CaptureGetTexParameterivRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetTexParameterivRobustANGLE_params(const Context *context,
+void CaptureGetTexParameterivRobustANGLE_params(const State &glState,
                                                 bool isCallValid,
                                                 TextureType targetPacked,
                                                 GLenum pname,
@@ -390,10 +665,10 @@ void CaptureGetTexParameterivRobustANGLE_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetUniformfvRobustANGLE_length(const Context *context,
+void CaptureGetUniformfvRobustANGLE_length(const State &glState,
                                            bool isCallValid,
-                                           GLuint program,
-                                           GLint location,
+                                           ShaderProgramID program,
+                                           UniformLocation location,
                                            GLsizei bufSize,
                                            GLsizei *length,
                                            GLfloat *params,
@@ -402,10 +677,10 @@ void CaptureGetUniformfvRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetUniformfvRobustANGLE_params(const Context *context,
+void CaptureGetUniformfvRobustANGLE_params(const State &glState,
                                            bool isCallValid,
-                                           GLuint program,
-                                           GLint location,
+                                           ShaderProgramID program,
+                                           UniformLocation location,
                                            GLsizei bufSize,
                                            GLsizei *length,
                                            GLfloat *params,
@@ -414,10 +689,10 @@ void CaptureGetUniformfvRobustANGLE_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetUniformivRobustANGLE_length(const Context *context,
+void CaptureGetUniformivRobustANGLE_length(const State &glState,
                                            bool isCallValid,
-                                           GLuint program,
-                                           GLint location,
+                                           ShaderProgramID program,
+                                           UniformLocation location,
                                            GLsizei bufSize,
                                            GLsizei *length,
                                            GLint *params,
@@ -426,10 +701,10 @@ void CaptureGetUniformivRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetUniformivRobustANGLE_params(const Context *context,
+void CaptureGetUniformivRobustANGLE_params(const State &glState,
                                            bool isCallValid,
-                                           GLuint program,
-                                           GLint location,
+                                           ShaderProgramID program,
+                                           UniformLocation location,
                                            GLsizei bufSize,
                                            GLsizei *length,
                                            GLint *params,
@@ -438,7 +713,7 @@ void CaptureGetUniformivRobustANGLE_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetVertexAttribfvRobustANGLE_length(const Context *context,
+void CaptureGetVertexAttribfvRobustANGLE_length(const State &glState,
                                                 bool isCallValid,
                                                 GLuint index,
                                                 GLenum pname,
@@ -450,7 +725,7 @@ void CaptureGetVertexAttribfvRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetVertexAttribfvRobustANGLE_params(const Context *context,
+void CaptureGetVertexAttribfvRobustANGLE_params(const State &glState,
                                                 bool isCallValid,
                                                 GLuint index,
                                                 GLenum pname,
@@ -462,7 +737,7 @@ void CaptureGetVertexAttribfvRobustANGLE_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetVertexAttribivRobustANGLE_length(const Context *context,
+void CaptureGetVertexAttribivRobustANGLE_length(const State &glState,
                                                 bool isCallValid,
                                                 GLuint index,
                                                 GLenum pname,
@@ -474,7 +749,7 @@ void CaptureGetVertexAttribivRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetVertexAttribivRobustANGLE_params(const Context *context,
+void CaptureGetVertexAttribivRobustANGLE_params(const State &glState,
                                                 bool isCallValid,
                                                 GLuint index,
                                                 GLenum pname,
@@ -486,7 +761,7 @@ void CaptureGetVertexAttribivRobustANGLE_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetVertexAttribPointervRobustANGLE_length(const Context *context,
+void CaptureGetVertexAttribPointervRobustANGLE_length(const State &glState,
                                                       bool isCallValid,
                                                       GLuint index,
                                                       GLenum pname,
@@ -498,7 +773,7 @@ void CaptureGetVertexAttribPointervRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetVertexAttribPointervRobustANGLE_pointer(const Context *context,
+void CaptureGetVertexAttribPointervRobustANGLE_pointer(const State &glState,
                                                        bool isCallValid,
                                                        GLuint index,
                                                        GLenum pname,
@@ -510,7 +785,7 @@ void CaptureGetVertexAttribPointervRobustANGLE_pointer(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureReadPixelsRobustANGLE_length(const Context *context,
+void CaptureReadPixelsRobustANGLE_length(const State &glState,
                                          bool isCallValid,
                                          GLint x,
                                          GLint y,
@@ -528,7 +803,7 @@ void CaptureReadPixelsRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureReadPixelsRobustANGLE_columns(const Context *context,
+void CaptureReadPixelsRobustANGLE_columns(const State &glState,
                                           bool isCallValid,
                                           GLint x,
                                           GLint y,
@@ -546,7 +821,7 @@ void CaptureReadPixelsRobustANGLE_columns(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureReadPixelsRobustANGLE_rows(const Context *context,
+void CaptureReadPixelsRobustANGLE_rows(const State &glState,
                                        bool isCallValid,
                                        GLint x,
                                        GLint y,
@@ -564,7 +839,7 @@ void CaptureReadPixelsRobustANGLE_rows(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureReadPixelsRobustANGLE_pixels(const Context *context,
+void CaptureReadPixelsRobustANGLE_pixels(const State &glState,
                                          bool isCallValid,
                                          GLint x,
                                          GLint y,
@@ -582,7 +857,7 @@ void CaptureReadPixelsRobustANGLE_pixels(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureTexImage2DRobustANGLE_pixels(const Context *context,
+void CaptureTexImage2DRobustANGLE_pixels(const State &glState,
                                          bool isCallValid,
                                          TextureTarget targetPacked,
                                          GLint level,
@@ -599,7 +874,7 @@ void CaptureTexImage2DRobustANGLE_pixels(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureTexParameterfvRobustANGLE_params(const Context *context,
+void CaptureTexParameterfvRobustANGLE_params(const State &glState,
                                              bool isCallValid,
                                              TextureType targetPacked,
                                              GLenum pname,
@@ -610,7 +885,7 @@ void CaptureTexParameterfvRobustANGLE_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureTexParameterivRobustANGLE_params(const Context *context,
+void CaptureTexParameterivRobustANGLE_params(const State &glState,
                                              bool isCallValid,
                                              TextureType targetPacked,
                                              GLenum pname,
@@ -621,7 +896,7 @@ void CaptureTexParameterivRobustANGLE_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureTexSubImage2DRobustANGLE_pixels(const Context *context,
+void CaptureTexSubImage2DRobustANGLE_pixels(const State &glState,
                                             bool isCallValid,
                                             TextureTarget targetPacked,
                                             GLint level,
@@ -638,7 +913,7 @@ void CaptureTexSubImage2DRobustANGLE_pixels(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureTexImage3DRobustANGLE_pixels(const Context *context,
+void CaptureTexImage3DRobustANGLE_pixels(const State &glState,
                                          bool isCallValid,
                                          TextureTarget targetPacked,
                                          GLint level,
@@ -656,7 +931,7 @@ void CaptureTexImage3DRobustANGLE_pixels(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureTexSubImage3DRobustANGLE_pixels(const Context *context,
+void CaptureTexSubImage3DRobustANGLE_pixels(const State &glState,
                                             bool isCallValid,
                                             TextureTarget targetPacked,
                                             GLint level,
@@ -675,7 +950,7 @@ void CaptureTexSubImage3DRobustANGLE_pixels(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureCompressedTexImage2DRobustANGLE_data(const Context *context,
+void CaptureCompressedTexImage2DRobustANGLE_data(const State &glState,
                                                  bool isCallValid,
                                                  TextureTarget targetPacked,
                                                  GLint level,
@@ -691,7 +966,7 @@ void CaptureCompressedTexImage2DRobustANGLE_data(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureCompressedTexSubImage2DRobustANGLE_data(const Context *context,
+void CaptureCompressedTexSubImage2DRobustANGLE_data(const State &glState,
                                                     bool isCallValid,
                                                     TextureTarget targetPacked,
                                                     GLint level,
@@ -708,7 +983,7 @@ void CaptureCompressedTexSubImage2DRobustANGLE_data(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureCompressedTexImage3DRobustANGLE_data(const Context *context,
+void CaptureCompressedTexImage3DRobustANGLE_data(const State &glState,
                                                  bool isCallValid,
                                                  TextureTarget targetPacked,
                                                  GLint level,
@@ -725,7 +1000,7 @@ void CaptureCompressedTexImage3DRobustANGLE_data(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureCompressedTexSubImage3DRobustANGLE_data(const Context *context,
+void CaptureCompressedTexSubImage3DRobustANGLE_data(const State &glState,
                                                     bool isCallValid,
                                                     TextureTarget targetPacked,
                                                     GLint level,
@@ -744,7 +1019,7 @@ void CaptureCompressedTexSubImage3DRobustANGLE_data(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetQueryivRobustANGLE_length(const Context *context,
+void CaptureGetQueryivRobustANGLE_length(const State &glState,
                                          bool isCallValid,
                                          QueryType targetPacked,
                                          GLenum pname,
@@ -756,7 +1031,7 @@ void CaptureGetQueryivRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetQueryivRobustANGLE_params(const Context *context,
+void CaptureGetQueryivRobustANGLE_params(const State &glState,
                                          bool isCallValid,
                                          QueryType targetPacked,
                                          GLenum pname,
@@ -768,9 +1043,9 @@ void CaptureGetQueryivRobustANGLE_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetQueryObjectuivRobustANGLE_length(const Context *context,
+void CaptureGetQueryObjectuivRobustANGLE_length(const State &glState,
                                                 bool isCallValid,
-                                                GLuint id,
+                                                QueryID id,
                                                 GLenum pname,
                                                 GLsizei bufSize,
                                                 GLsizei *length,
@@ -780,9 +1055,9 @@ void CaptureGetQueryObjectuivRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetQueryObjectuivRobustANGLE_params(const Context *context,
+void CaptureGetQueryObjectuivRobustANGLE_params(const State &glState,
                                                 bool isCallValid,
-                                                GLuint id,
+                                                QueryID id,
                                                 GLenum pname,
                                                 GLsizei bufSize,
                                                 GLsizei *length,
@@ -792,7 +1067,7 @@ void CaptureGetQueryObjectuivRobustANGLE_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetBufferPointervRobustANGLE_length(const Context *context,
+void CaptureGetBufferPointervRobustANGLE_length(const State &glState,
                                                 bool isCallValid,
                                                 BufferBinding targetPacked,
                                                 GLenum pname,
@@ -804,7 +1079,7 @@ void CaptureGetBufferPointervRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetBufferPointervRobustANGLE_params(const Context *context,
+void CaptureGetBufferPointervRobustANGLE_params(const State &glState,
                                                 bool isCallValid,
                                                 BufferBinding targetPacked,
                                                 GLenum pname,
@@ -816,7 +1091,7 @@ void CaptureGetBufferPointervRobustANGLE_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetIntegeri_vRobustANGLE_length(const Context *context,
+void CaptureGetIntegeri_vRobustANGLE_length(const State &glState,
                                             bool isCallValid,
                                             GLenum target,
                                             GLuint index,
@@ -828,7 +1103,7 @@ void CaptureGetIntegeri_vRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetIntegeri_vRobustANGLE_data(const Context *context,
+void CaptureGetIntegeri_vRobustANGLE_data(const State &glState,
                                           bool isCallValid,
                                           GLenum target,
                                           GLuint index,
@@ -840,7 +1115,7 @@ void CaptureGetIntegeri_vRobustANGLE_data(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetInternalformativRobustANGLE_length(const Context *context,
+void CaptureGetInternalformativRobustANGLE_length(const State &glState,
                                                   bool isCallValid,
                                                   GLenum target,
                                                   GLenum internalformat,
@@ -853,7 +1128,7 @@ void CaptureGetInternalformativRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetInternalformativRobustANGLE_params(const Context *context,
+void CaptureGetInternalformativRobustANGLE_params(const State &glState,
                                                   bool isCallValid,
                                                   GLenum target,
                                                   GLenum internalformat,
@@ -866,7 +1141,7 @@ void CaptureGetInternalformativRobustANGLE_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetVertexAttribIivRobustANGLE_length(const Context *context,
+void CaptureGetVertexAttribIivRobustANGLE_length(const State &glState,
                                                  bool isCallValid,
                                                  GLuint index,
                                                  GLenum pname,
@@ -878,7 +1153,7 @@ void CaptureGetVertexAttribIivRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetVertexAttribIivRobustANGLE_params(const Context *context,
+void CaptureGetVertexAttribIivRobustANGLE_params(const State &glState,
                                                  bool isCallValid,
                                                  GLuint index,
                                                  GLenum pname,
@@ -890,7 +1165,7 @@ void CaptureGetVertexAttribIivRobustANGLE_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetVertexAttribIuivRobustANGLE_length(const Context *context,
+void CaptureGetVertexAttribIuivRobustANGLE_length(const State &glState,
                                                   bool isCallValid,
                                                   GLuint index,
                                                   GLenum pname,
@@ -902,7 +1177,7 @@ void CaptureGetVertexAttribIuivRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetVertexAttribIuivRobustANGLE_params(const Context *context,
+void CaptureGetVertexAttribIuivRobustANGLE_params(const State &glState,
                                                   bool isCallValid,
                                                   GLuint index,
                                                   GLenum pname,
@@ -914,10 +1189,10 @@ void CaptureGetVertexAttribIuivRobustANGLE_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetUniformuivRobustANGLE_length(const Context *context,
+void CaptureGetUniformuivRobustANGLE_length(const State &glState,
                                             bool isCallValid,
-                                            GLuint program,
-                                            GLint location,
+                                            ShaderProgramID program,
+                                            UniformLocation location,
                                             GLsizei bufSize,
                                             GLsizei *length,
                                             GLuint *params,
@@ -926,10 +1201,10 @@ void CaptureGetUniformuivRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetUniformuivRobustANGLE_params(const Context *context,
+void CaptureGetUniformuivRobustANGLE_params(const State &glState,
                                             bool isCallValid,
-                                            GLuint program,
-                                            GLint location,
+                                            ShaderProgramID program,
+                                            UniformLocation location,
                                             GLsizei bufSize,
                                             GLsizei *length,
                                             GLuint *params,
@@ -938,9 +1213,9 @@ void CaptureGetUniformuivRobustANGLE_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetActiveUniformBlockivRobustANGLE_length(const Context *context,
+void CaptureGetActiveUniformBlockivRobustANGLE_length(const State &glState,
                                                       bool isCallValid,
-                                                      GLuint program,
+                                                      ShaderProgramID program,
                                                       GLuint uniformBlockIndex,
                                                       GLenum pname,
                                                       GLsizei bufSize,
@@ -951,9 +1226,9 @@ void CaptureGetActiveUniformBlockivRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetActiveUniformBlockivRobustANGLE_params(const Context *context,
+void CaptureGetActiveUniformBlockivRobustANGLE_params(const State &glState,
                                                       bool isCallValid,
-                                                      GLuint program,
+                                                      ShaderProgramID program,
                                                       GLuint uniformBlockIndex,
                                                       GLenum pname,
                                                       GLsizei bufSize,
@@ -964,7 +1239,7 @@ void CaptureGetActiveUniformBlockivRobustANGLE_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetInteger64vRobustANGLE_length(const Context *context,
+void CaptureGetInteger64vRobustANGLE_length(const State &glState,
                                             bool isCallValid,
                                             GLenum pname,
                                             GLsizei bufSize,
@@ -975,7 +1250,7 @@ void CaptureGetInteger64vRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetInteger64vRobustANGLE_data(const Context *context,
+void CaptureGetInteger64vRobustANGLE_data(const State &glState,
                                           bool isCallValid,
                                           GLenum pname,
                                           GLsizei bufSize,
@@ -986,7 +1261,7 @@ void CaptureGetInteger64vRobustANGLE_data(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetInteger64i_vRobustANGLE_length(const Context *context,
+void CaptureGetInteger64i_vRobustANGLE_length(const State &glState,
                                               bool isCallValid,
                                               GLenum target,
                                               GLuint index,
@@ -998,7 +1273,7 @@ void CaptureGetInteger64i_vRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetInteger64i_vRobustANGLE_data(const Context *context,
+void CaptureGetInteger64i_vRobustANGLE_data(const State &glState,
                                             bool isCallValid,
                                             GLenum target,
                                             GLuint index,
@@ -1010,7 +1285,7 @@ void CaptureGetInteger64i_vRobustANGLE_data(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetBufferParameteri64vRobustANGLE_length(const Context *context,
+void CaptureGetBufferParameteri64vRobustANGLE_length(const State &glState,
                                                      bool isCallValid,
                                                      BufferBinding targetPacked,
                                                      GLenum pname,
@@ -1022,7 +1297,7 @@ void CaptureGetBufferParameteri64vRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetBufferParameteri64vRobustANGLE_params(const Context *context,
+void CaptureGetBufferParameteri64vRobustANGLE_params(const State &glState,
                                                      bool isCallValid,
                                                      BufferBinding targetPacked,
                                                      GLenum pname,
@@ -1034,9 +1309,9 @@ void CaptureGetBufferParameteri64vRobustANGLE_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureSamplerParameterivRobustANGLE_param(const Context *context,
+void CaptureSamplerParameterivRobustANGLE_param(const State &glState,
                                                 bool isCallValid,
-                                                GLuint sampler,
+                                                SamplerID sampler,
                                                 GLuint pname,
                                                 GLsizei bufSize,
                                                 const GLint *param,
@@ -1045,9 +1320,9 @@ void CaptureSamplerParameterivRobustANGLE_param(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureSamplerParameterfvRobustANGLE_param(const Context *context,
+void CaptureSamplerParameterfvRobustANGLE_param(const State &glState,
                                                 bool isCallValid,
-                                                GLuint sampler,
+                                                SamplerID sampler,
                                                 GLenum pname,
                                                 GLsizei bufSize,
                                                 const GLfloat *param,
@@ -1056,9 +1331,9 @@ void CaptureSamplerParameterfvRobustANGLE_param(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetSamplerParameterivRobustANGLE_length(const Context *context,
+void CaptureGetSamplerParameterivRobustANGLE_length(const State &glState,
                                                     bool isCallValid,
-                                                    GLuint sampler,
+                                                    SamplerID sampler,
                                                     GLenum pname,
                                                     GLsizei bufSize,
                                                     GLsizei *length,
@@ -1068,9 +1343,9 @@ void CaptureGetSamplerParameterivRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetSamplerParameterivRobustANGLE_params(const Context *context,
+void CaptureGetSamplerParameterivRobustANGLE_params(const State &glState,
                                                     bool isCallValid,
-                                                    GLuint sampler,
+                                                    SamplerID sampler,
                                                     GLenum pname,
                                                     GLsizei bufSize,
                                                     GLsizei *length,
@@ -1080,9 +1355,9 @@ void CaptureGetSamplerParameterivRobustANGLE_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetSamplerParameterfvRobustANGLE_length(const Context *context,
+void CaptureGetSamplerParameterfvRobustANGLE_length(const State &glState,
                                                     bool isCallValid,
-                                                    GLuint sampler,
+                                                    SamplerID sampler,
                                                     GLenum pname,
                                                     GLsizei bufSize,
                                                     GLsizei *length,
@@ -1092,9 +1367,9 @@ void CaptureGetSamplerParameterfvRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetSamplerParameterfvRobustANGLE_params(const Context *context,
+void CaptureGetSamplerParameterfvRobustANGLE_params(const State &glState,
                                                     bool isCallValid,
-                                                    GLuint sampler,
+                                                    SamplerID sampler,
                                                     GLenum pname,
                                                     GLsizei bufSize,
                                                     GLsizei *length,
@@ -1104,9 +1379,9 @@ void CaptureGetSamplerParameterfvRobustANGLE_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetFramebufferParameterivRobustANGLE_length(const Context *context,
+void CaptureGetFramebufferParameterivRobustANGLE_length(const State &glState,
                                                         bool isCallValid,
-                                                        GLuint sampler,
+                                                        GLenum target,
                                                         GLenum pname,
                                                         GLsizei bufSize,
                                                         GLsizei *length,
@@ -1116,9 +1391,9 @@ void CaptureGetFramebufferParameterivRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetFramebufferParameterivRobustANGLE_params(const Context *context,
+void CaptureGetFramebufferParameterivRobustANGLE_params(const State &glState,
                                                         bool isCallValid,
-                                                        GLuint sampler,
+                                                        GLenum target,
                                                         GLenum pname,
                                                         GLsizei bufSize,
                                                         GLsizei *length,
@@ -1128,9 +1403,9 @@ void CaptureGetFramebufferParameterivRobustANGLE_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetProgramInterfaceivRobustANGLE_length(const Context *context,
+void CaptureGetProgramInterfaceivRobustANGLE_length(const State &glState,
                                                     bool isCallValid,
-                                                    GLuint program,
+                                                    ShaderProgramID program,
                                                     GLenum programInterface,
                                                     GLenum pname,
                                                     GLsizei bufSize,
@@ -1141,9 +1416,9 @@ void CaptureGetProgramInterfaceivRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetProgramInterfaceivRobustANGLE_params(const Context *context,
+void CaptureGetProgramInterfaceivRobustANGLE_params(const State &glState,
                                                     bool isCallValid,
-                                                    GLuint program,
+                                                    ShaderProgramID program,
                                                     GLenum programInterface,
                                                     GLenum pname,
                                                     GLsizei bufSize,
@@ -1154,7 +1429,7 @@ void CaptureGetProgramInterfaceivRobustANGLE_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetBooleani_vRobustANGLE_length(const Context *context,
+void CaptureGetBooleani_vRobustANGLE_length(const State &glState,
                                             bool isCallValid,
                                             GLenum target,
                                             GLuint index,
@@ -1166,7 +1441,7 @@ void CaptureGetBooleani_vRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetBooleani_vRobustANGLE_data(const Context *context,
+void CaptureGetBooleani_vRobustANGLE_data(const State &glState,
                                           bool isCallValid,
                                           GLenum target,
                                           GLuint index,
@@ -1178,7 +1453,7 @@ void CaptureGetBooleani_vRobustANGLE_data(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetMultisamplefvRobustANGLE_length(const Context *context,
+void CaptureGetMultisamplefvRobustANGLE_length(const State &glState,
                                                bool isCallValid,
                                                GLenum pname,
                                                GLuint index,
@@ -1190,7 +1465,7 @@ void CaptureGetMultisamplefvRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetMultisamplefvRobustANGLE_val(const Context *context,
+void CaptureGetMultisamplefvRobustANGLE_val(const State &glState,
                                             bool isCallValid,
                                             GLenum pname,
                                             GLuint index,
@@ -1202,7 +1477,7 @@ void CaptureGetMultisamplefvRobustANGLE_val(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetTexLevelParameterivRobustANGLE_length(const Context *context,
+void CaptureGetTexLevelParameterivRobustANGLE_length(const State &glState,
                                                      bool isCallValid,
                                                      TextureTarget targetPacked,
                                                      GLint level,
@@ -1215,7 +1490,7 @@ void CaptureGetTexLevelParameterivRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetTexLevelParameterivRobustANGLE_params(const Context *context,
+void CaptureGetTexLevelParameterivRobustANGLE_params(const State &glState,
                                                      bool isCallValid,
                                                      TextureTarget targetPacked,
                                                      GLint level,
@@ -1228,7 +1503,7 @@ void CaptureGetTexLevelParameterivRobustANGLE_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetTexLevelParameterfvRobustANGLE_length(const Context *context,
+void CaptureGetTexLevelParameterfvRobustANGLE_length(const State &glState,
                                                      bool isCallValid,
                                                      TextureTarget targetPacked,
                                                      GLint level,
@@ -1241,7 +1516,7 @@ void CaptureGetTexLevelParameterfvRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetTexLevelParameterfvRobustANGLE_params(const Context *context,
+void CaptureGetTexLevelParameterfvRobustANGLE_params(const State &glState,
                                                      bool isCallValid,
                                                      TextureTarget targetPacked,
                                                      GLint level,
@@ -1254,7 +1529,7 @@ void CaptureGetTexLevelParameterfvRobustANGLE_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetPointervRobustANGLERobustANGLE_length(const Context *context,
+void CaptureGetPointervRobustANGLERobustANGLE_length(const State &glState,
                                                      bool isCallValid,
                                                      GLenum pname,
                                                      GLsizei bufSize,
@@ -1265,7 +1540,7 @@ void CaptureGetPointervRobustANGLERobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetPointervRobustANGLERobustANGLE_params(const Context *context,
+void CaptureGetPointervRobustANGLERobustANGLE_params(const State &glState,
                                                      bool isCallValid,
                                                      GLenum pname,
                                                      GLsizei bufSize,
@@ -1276,7 +1551,7 @@ void CaptureGetPointervRobustANGLERobustANGLE_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureReadnPixelsRobustANGLE_length(const Context *context,
+void CaptureReadnPixelsRobustANGLE_length(const State &glState,
                                           bool isCallValid,
                                           GLint x,
                                           GLint y,
@@ -1294,7 +1569,7 @@ void CaptureReadnPixelsRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureReadnPixelsRobustANGLE_columns(const Context *context,
+void CaptureReadnPixelsRobustANGLE_columns(const State &glState,
                                            bool isCallValid,
                                            GLint x,
                                            GLint y,
@@ -1312,7 +1587,7 @@ void CaptureReadnPixelsRobustANGLE_columns(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureReadnPixelsRobustANGLE_rows(const Context *context,
+void CaptureReadnPixelsRobustANGLE_rows(const State &glState,
                                         bool isCallValid,
                                         GLint x,
                                         GLint y,
@@ -1330,7 +1605,7 @@ void CaptureReadnPixelsRobustANGLE_rows(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureReadnPixelsRobustANGLE_data(const Context *context,
+void CaptureReadnPixelsRobustANGLE_data(const State &glState,
                                         bool isCallValid,
                                         GLint x,
                                         GLint y,
@@ -1348,10 +1623,10 @@ void CaptureReadnPixelsRobustANGLE_data(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetnUniformfvRobustANGLE_length(const Context *context,
+void CaptureGetnUniformfvRobustANGLE_length(const State &glState,
                                             bool isCallValid,
-                                            GLuint program,
-                                            GLint location,
+                                            ShaderProgramID program,
+                                            UniformLocation location,
                                             GLsizei bufSize,
                                             GLsizei *length,
                                             GLfloat *params,
@@ -1360,10 +1635,10 @@ void CaptureGetnUniformfvRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetnUniformfvRobustANGLE_params(const Context *context,
+void CaptureGetnUniformfvRobustANGLE_params(const State &glState,
                                             bool isCallValid,
-                                            GLuint program,
-                                            GLint location,
+                                            ShaderProgramID program,
+                                            UniformLocation location,
                                             GLsizei bufSize,
                                             GLsizei *length,
                                             GLfloat *params,
@@ -1372,10 +1647,10 @@ void CaptureGetnUniformfvRobustANGLE_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetnUniformivRobustANGLE_length(const Context *context,
+void CaptureGetnUniformivRobustANGLE_length(const State &glState,
                                             bool isCallValid,
-                                            GLuint program,
-                                            GLint location,
+                                            ShaderProgramID program,
+                                            UniformLocation location,
                                             GLsizei bufSize,
                                             GLsizei *length,
                                             GLint *params,
@@ -1384,10 +1659,10 @@ void CaptureGetnUniformivRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetnUniformivRobustANGLE_params(const Context *context,
+void CaptureGetnUniformivRobustANGLE_params(const State &glState,
                                             bool isCallValid,
-                                            GLuint program,
-                                            GLint location,
+                                            ShaderProgramID program,
+                                            UniformLocation location,
                                             GLsizei bufSize,
                                             GLsizei *length,
                                             GLint *params,
@@ -1396,10 +1671,10 @@ void CaptureGetnUniformivRobustANGLE_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetnUniformuivRobustANGLE_length(const Context *context,
+void CaptureGetnUniformuivRobustANGLE_length(const State &glState,
                                              bool isCallValid,
-                                             GLuint program,
-                                             GLint location,
+                                             ShaderProgramID program,
+                                             UniformLocation location,
                                              GLsizei bufSize,
                                              GLsizei *length,
                                              GLuint *params,
@@ -1408,10 +1683,10 @@ void CaptureGetnUniformuivRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetnUniformuivRobustANGLE_params(const Context *context,
+void CaptureGetnUniformuivRobustANGLE_params(const State &glState,
                                              bool isCallValid,
-                                             GLuint program,
-                                             GLint location,
+                                             ShaderProgramID program,
+                                             UniformLocation location,
                                              GLsizei bufSize,
                                              GLsizei *length,
                                              GLuint *params,
@@ -1420,7 +1695,7 @@ void CaptureGetnUniformuivRobustANGLE_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureTexParameterIivRobustANGLE_params(const Context *context,
+void CaptureTexParameterIivRobustANGLE_params(const State &glState,
                                               bool isCallValid,
                                               TextureType targetPacked,
                                               GLenum pname,
@@ -1431,7 +1706,7 @@ void CaptureTexParameterIivRobustANGLE_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureTexParameterIuivRobustANGLE_params(const Context *context,
+void CaptureTexParameterIuivRobustANGLE_params(const State &glState,
                                                bool isCallValid,
                                                TextureType targetPacked,
                                                GLenum pname,
@@ -1442,7 +1717,7 @@ void CaptureTexParameterIuivRobustANGLE_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetTexParameterIivRobustANGLE_length(const Context *context,
+void CaptureGetTexParameterIivRobustANGLE_length(const State &glState,
                                                  bool isCallValid,
                                                  TextureType targetPacked,
                                                  GLenum pname,
@@ -1454,7 +1729,7 @@ void CaptureGetTexParameterIivRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetTexParameterIivRobustANGLE_params(const Context *context,
+void CaptureGetTexParameterIivRobustANGLE_params(const State &glState,
                                                  bool isCallValid,
                                                  TextureType targetPacked,
                                                  GLenum pname,
@@ -1466,7 +1741,7 @@ void CaptureGetTexParameterIivRobustANGLE_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetTexParameterIuivRobustANGLE_length(const Context *context,
+void CaptureGetTexParameterIuivRobustANGLE_length(const State &glState,
                                                   bool isCallValid,
                                                   TextureType targetPacked,
                                                   GLenum pname,
@@ -1478,7 +1753,7 @@ void CaptureGetTexParameterIuivRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetTexParameterIuivRobustANGLE_params(const Context *context,
+void CaptureGetTexParameterIuivRobustANGLE_params(const State &glState,
                                                   bool isCallValid,
                                                   TextureType targetPacked,
                                                   GLenum pname,
@@ -1490,9 +1765,9 @@ void CaptureGetTexParameterIuivRobustANGLE_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureSamplerParameterIivRobustANGLE_param(const Context *context,
+void CaptureSamplerParameterIivRobustANGLE_param(const State &glState,
                                                  bool isCallValid,
-                                                 GLuint sampler,
+                                                 SamplerID sampler,
                                                  GLenum pname,
                                                  GLsizei bufSize,
                                                  const GLint *param,
@@ -1501,9 +1776,9 @@ void CaptureSamplerParameterIivRobustANGLE_param(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureSamplerParameterIuivRobustANGLE_param(const Context *context,
+void CaptureSamplerParameterIuivRobustANGLE_param(const State &glState,
                                                   bool isCallValid,
-                                                  GLuint sampler,
+                                                  SamplerID sampler,
                                                   GLenum pname,
                                                   GLsizei bufSize,
                                                   const GLuint *param,
@@ -1512,9 +1787,9 @@ void CaptureSamplerParameterIuivRobustANGLE_param(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetSamplerParameterIivRobustANGLE_length(const Context *context,
+void CaptureGetSamplerParameterIivRobustANGLE_length(const State &glState,
                                                      bool isCallValid,
-                                                     GLuint sampler,
+                                                     SamplerID sampler,
                                                      GLenum pname,
                                                      GLsizei bufSize,
                                                      GLsizei *length,
@@ -1524,9 +1799,9 @@ void CaptureGetSamplerParameterIivRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetSamplerParameterIivRobustANGLE_params(const Context *context,
+void CaptureGetSamplerParameterIivRobustANGLE_params(const State &glState,
                                                      bool isCallValid,
-                                                     GLuint sampler,
+                                                     SamplerID sampler,
                                                      GLenum pname,
                                                      GLsizei bufSize,
                                                      GLsizei *length,
@@ -1536,9 +1811,9 @@ void CaptureGetSamplerParameterIivRobustANGLE_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetSamplerParameterIuivRobustANGLE_length(const Context *context,
+void CaptureGetSamplerParameterIuivRobustANGLE_length(const State &glState,
                                                       bool isCallValid,
-                                                      GLuint sampler,
+                                                      SamplerID sampler,
                                                       GLenum pname,
                                                       GLsizei bufSize,
                                                       GLsizei *length,
@@ -1548,9 +1823,9 @@ void CaptureGetSamplerParameterIuivRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetSamplerParameterIuivRobustANGLE_params(const Context *context,
+void CaptureGetSamplerParameterIuivRobustANGLE_params(const State &glState,
                                                       bool isCallValid,
-                                                      GLuint sampler,
+                                                      SamplerID sampler,
                                                       GLenum pname,
                                                       GLsizei bufSize,
                                                       GLsizei *length,
@@ -1560,9 +1835,9 @@ void CaptureGetSamplerParameterIuivRobustANGLE_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetQueryObjectivRobustANGLE_length(const Context *context,
+void CaptureGetQueryObjectivRobustANGLE_length(const State &glState,
                                                bool isCallValid,
-                                               GLuint id,
+                                               QueryID id,
                                                GLenum pname,
                                                GLsizei bufSize,
                                                GLsizei *length,
@@ -1572,9 +1847,9 @@ void CaptureGetQueryObjectivRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetQueryObjectivRobustANGLE_params(const Context *context,
+void CaptureGetQueryObjectivRobustANGLE_params(const State &glState,
                                                bool isCallValid,
-                                               GLuint id,
+                                               QueryID id,
                                                GLenum pname,
                                                GLsizei bufSize,
                                                GLsizei *length,
@@ -1584,9 +1859,9 @@ void CaptureGetQueryObjectivRobustANGLE_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetQueryObjecti64vRobustANGLE_length(const Context *context,
+void CaptureGetQueryObjecti64vRobustANGLE_length(const State &glState,
                                                  bool isCallValid,
-                                                 GLuint id,
+                                                 QueryID id,
                                                  GLenum pname,
                                                  GLsizei bufSize,
                                                  GLsizei *length,
@@ -1596,9 +1871,9 @@ void CaptureGetQueryObjecti64vRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetQueryObjecti64vRobustANGLE_params(const Context *context,
+void CaptureGetQueryObjecti64vRobustANGLE_params(const State &glState,
                                                  bool isCallValid,
-                                                 GLuint id,
+                                                 QueryID id,
                                                  GLenum pname,
                                                  GLsizei bufSize,
                                                  GLsizei *length,
@@ -1608,9 +1883,9 @@ void CaptureGetQueryObjecti64vRobustANGLE_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetQueryObjectui64vRobustANGLE_length(const Context *context,
+void CaptureGetQueryObjectui64vRobustANGLE_length(const State &glState,
                                                   bool isCallValid,
-                                                  GLuint id,
+                                                  QueryID id,
                                                   GLenum pname,
                                                   GLsizei bufSize,
                                                   GLsizei *length,
@@ -1620,9 +1895,9 @@ void CaptureGetQueryObjectui64vRobustANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetQueryObjectui64vRobustANGLE_params(const Context *context,
+void CaptureGetQueryObjectui64vRobustANGLE_params(const State &glState,
                                                   bool isCallValid,
-                                                  GLuint id,
+                                                  QueryID id,
                                                   GLenum pname,
                                                   GLsizei bufSize,
                                                   GLsizei *length,
@@ -1632,7 +1907,7 @@ void CaptureGetQueryObjectui64vRobustANGLE_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetTexLevelParameterivANGLE_params(const Context *context,
+void CaptureGetTexLevelParameterivANGLE_params(const State &glState,
                                                bool isCallValid,
                                                TextureTarget targetPacked,
                                                GLint level,
@@ -1643,7 +1918,7 @@ void CaptureGetTexLevelParameterivANGLE_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetTexLevelParameterfvANGLE_params(const Context *context,
+void CaptureGetTexLevelParameterfvANGLE_params(const State &glState,
                                                bool isCallValid,
                                                TextureTarget targetPacked,
                                                GLint level,
@@ -1654,7 +1929,7 @@ void CaptureGetTexLevelParameterfvANGLE_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetMultisamplefvANGLE_val(const Context *context,
+void CaptureGetMultisamplefvANGLE_val(const State &glState,
                                       bool isCallValid,
                                       GLenum pname,
                                       GLuint index,
@@ -1664,9 +1939,9 @@ void CaptureGetMultisamplefvANGLE_val(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetTranslatedShaderSourceANGLE_length(const Context *context,
+void CaptureGetTranslatedShaderSourceANGLE_length(const State &glState,
                                                   bool isCallValid,
-                                                  GLuint shader,
+                                                  ShaderProgramID shader,
                                                   GLsizei bufsize,
                                                   GLsizei *length,
                                                   GLchar *source,
@@ -1675,9 +1950,9 @@ void CaptureGetTranslatedShaderSourceANGLE_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetTranslatedShaderSourceANGLE_source(const Context *context,
+void CaptureGetTranslatedShaderSourceANGLE_source(const State &glState,
                                                   bool isCallValid,
-                                                  GLuint shader,
+                                                  ShaderProgramID shader,
                                                   GLsizei bufsize,
                                                   GLsizei *length,
                                                   GLchar *source,
@@ -1686,17 +1961,17 @@ void CaptureGetTranslatedShaderSourceANGLE_source(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureBindUniformLocationCHROMIUM_name(const Context *context,
+void CaptureBindUniformLocationCHROMIUM_name(const State &glState,
                                              bool isCallValid,
-                                             GLuint program,
-                                             GLint location,
+                                             ShaderProgramID program,
+                                             UniformLocation location,
                                              const GLchar *name,
                                              ParamCapture *paramCapture)
 {
-    UNIMPLEMENTED();
+    CaptureString(name, paramCapture);
 }
 
-void CaptureMatrixLoadfCHROMIUM_matrix(const Context *context,
+void CaptureMatrixLoadfCHROMIUM_matrix(const State &glState,
                                        bool isCallValid,
                                        GLenum matrixMode,
                                        const GLfloat *matrix,
@@ -1705,9 +1980,9 @@ void CaptureMatrixLoadfCHROMIUM_matrix(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CapturePathCommandsCHROMIUM_commands(const Context *context,
+void CapturePathCommandsCHROMIUM_commands(const State &glState,
                                           bool isCallValid,
-                                          GLuint path,
+                                          PathID path,
                                           GLsizei numCommands,
                                           const GLubyte *commands,
                                           GLsizei numCoords,
@@ -1718,9 +1993,9 @@ void CapturePathCommandsCHROMIUM_commands(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CapturePathCommandsCHROMIUM_coords(const Context *context,
+void CapturePathCommandsCHROMIUM_coords(const State &glState,
                                         bool isCallValid,
-                                        GLuint path,
+                                        PathID path,
                                         GLsizei numCommands,
                                         const GLubyte *commands,
                                         GLsizei numCoords,
@@ -1731,9 +2006,9 @@ void CapturePathCommandsCHROMIUM_coords(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetPathParameterfvCHROMIUM_value(const Context *context,
+void CaptureGetPathParameterfvCHROMIUM_value(const State &glState,
                                              bool isCallValid,
-                                             GLuint path,
+                                             PathID path,
                                              GLenum pname,
                                              GLfloat *value,
                                              ParamCapture *paramCapture)
@@ -1741,9 +2016,9 @@ void CaptureGetPathParameterfvCHROMIUM_value(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetPathParameterivCHROMIUM_value(const Context *context,
+void CaptureGetPathParameterivCHROMIUM_value(const State &glState,
                                              bool isCallValid,
-                                             GLuint path,
+                                             PathID path,
                                              GLenum pname,
                                              GLint *value,
                                              ParamCapture *paramCapture)
@@ -1751,12 +2026,12 @@ void CaptureGetPathParameterivCHROMIUM_value(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureCoverFillPathInstancedCHROMIUM_paths(const Context *context,
+void CaptureCoverFillPathInstancedCHROMIUM_paths(const State &glState,
                                                  bool isCallValid,
                                                  GLsizei numPath,
                                                  GLenum pathNameType,
                                                  const void *paths,
-                                                 GLuint pathBase,
+                                                 PathID pathBase,
                                                  GLenum coverMode,
                                                  GLenum transformType,
                                                  const GLfloat *transformValues,
@@ -1765,12 +2040,12 @@ void CaptureCoverFillPathInstancedCHROMIUM_paths(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureCoverFillPathInstancedCHROMIUM_transformValues(const Context *context,
+void CaptureCoverFillPathInstancedCHROMIUM_transformValues(const State &glState,
                                                            bool isCallValid,
                                                            GLsizei numPath,
                                                            GLenum pathNameType,
                                                            const void *paths,
-                                                           GLuint pathBase,
+                                                           PathID pathBase,
                                                            GLenum coverMode,
                                                            GLenum transformType,
                                                            const GLfloat *transformValues,
@@ -1779,12 +2054,12 @@ void CaptureCoverFillPathInstancedCHROMIUM_transformValues(const Context *contex
     UNIMPLEMENTED();
 }
 
-void CaptureCoverStrokePathInstancedCHROMIUM_paths(const Context *context,
+void CaptureCoverStrokePathInstancedCHROMIUM_paths(const State &glState,
                                                    bool isCallValid,
                                                    GLsizei numPath,
                                                    GLenum pathNameType,
                                                    const void *paths,
-                                                   GLuint pathBase,
+                                                   PathID pathBase,
                                                    GLenum coverMode,
                                                    GLenum transformType,
                                                    const GLfloat *transformValues,
@@ -1793,12 +2068,12 @@ void CaptureCoverStrokePathInstancedCHROMIUM_paths(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureCoverStrokePathInstancedCHROMIUM_transformValues(const Context *context,
+void CaptureCoverStrokePathInstancedCHROMIUM_transformValues(const State &glState,
                                                              bool isCallValid,
                                                              GLsizei numPath,
                                                              GLenum pathNameType,
                                                              const void *paths,
-                                                             GLuint pathBase,
+                                                             PathID pathBase,
                                                              GLenum coverMode,
                                                              GLenum transformType,
                                                              const GLfloat *transformValues,
@@ -1807,12 +2082,12 @@ void CaptureCoverStrokePathInstancedCHROMIUM_transformValues(const Context *cont
     UNIMPLEMENTED();
 }
 
-void CaptureStencilStrokePathInstancedCHROMIUM_paths(const Context *context,
+void CaptureStencilStrokePathInstancedCHROMIUM_paths(const State &glState,
                                                      bool isCallValid,
                                                      GLsizei numPath,
                                                      GLenum pathNameType,
                                                      const void *paths,
-                                                     GLuint pathBase,
+                                                     PathID pathBase,
                                                      GLint reference,
                                                      GLuint mask,
                                                      GLenum transformType,
@@ -1822,12 +2097,12 @@ void CaptureStencilStrokePathInstancedCHROMIUM_paths(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureStencilStrokePathInstancedCHROMIUM_transformValues(const Context *context,
+void CaptureStencilStrokePathInstancedCHROMIUM_transformValues(const State &glState,
                                                                bool isCallValid,
                                                                GLsizei numPath,
                                                                GLenum pathNameType,
                                                                const void *paths,
-                                                               GLuint pathBase,
+                                                               PathID pathBase,
                                                                GLint reference,
                                                                GLuint mask,
                                                                GLenum transformType,
@@ -1837,12 +2112,12 @@ void CaptureStencilStrokePathInstancedCHROMIUM_transformValues(const Context *co
     UNIMPLEMENTED();
 }
 
-void CaptureStencilFillPathInstancedCHROMIUM_paths(const Context *context,
+void CaptureStencilFillPathInstancedCHROMIUM_paths(const State &glState,
                                                    bool isCallValid,
                                                    GLsizei numPaths,
                                                    GLenum pathNameType,
                                                    const void *paths,
-                                                   GLuint pathBase,
+                                                   PathID pathBase,
                                                    GLenum fillMode,
                                                    GLuint mask,
                                                    GLenum transformType,
@@ -1852,12 +2127,12 @@ void CaptureStencilFillPathInstancedCHROMIUM_paths(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureStencilFillPathInstancedCHROMIUM_transformValues(const Context *context,
+void CaptureStencilFillPathInstancedCHROMIUM_transformValues(const State &glState,
                                                              bool isCallValid,
                                                              GLsizei numPaths,
                                                              GLenum pathNameType,
                                                              const void *paths,
-                                                             GLuint pathBase,
+                                                             PathID pathBase,
                                                              GLenum fillMode,
                                                              GLuint mask,
                                                              GLenum transformType,
@@ -1867,12 +2142,12 @@ void CaptureStencilFillPathInstancedCHROMIUM_transformValues(const Context *cont
     UNIMPLEMENTED();
 }
 
-void CaptureStencilThenCoverFillPathInstancedCHROMIUM_paths(const Context *context,
+void CaptureStencilThenCoverFillPathInstancedCHROMIUM_paths(const State &glState,
                                                             bool isCallValid,
                                                             GLsizei numPaths,
                                                             GLenum pathNameType,
                                                             const void *paths,
-                                                            GLuint pathBase,
+                                                            PathID pathBase,
                                                             GLenum fillMode,
                                                             GLuint mask,
                                                             GLenum coverMode,
@@ -1884,12 +2159,12 @@ void CaptureStencilThenCoverFillPathInstancedCHROMIUM_paths(const Context *conte
 }
 
 void CaptureStencilThenCoverFillPathInstancedCHROMIUM_transformValues(
-    const Context *context,
+    const State &glState,
     bool isCallValid,
     GLsizei numPaths,
     GLenum pathNameType,
     const void *paths,
-    GLuint pathBase,
+    PathID pathBase,
     GLenum fillMode,
     GLuint mask,
     GLenum coverMode,
@@ -1900,12 +2175,12 @@ void CaptureStencilThenCoverFillPathInstancedCHROMIUM_transformValues(
     UNIMPLEMENTED();
 }
 
-void CaptureStencilThenCoverStrokePathInstancedCHROMIUM_paths(const Context *context,
+void CaptureStencilThenCoverStrokePathInstancedCHROMIUM_paths(const State &glState,
                                                               bool isCallValid,
                                                               GLsizei numPaths,
                                                               GLenum pathNameType,
                                                               const void *paths,
-                                                              GLuint pathBase,
+                                                              PathID pathBase,
                                                               GLint reference,
                                                               GLuint mask,
                                                               GLenum coverMode,
@@ -1917,12 +2192,12 @@ void CaptureStencilThenCoverStrokePathInstancedCHROMIUM_paths(const Context *con
 }
 
 void CaptureStencilThenCoverStrokePathInstancedCHROMIUM_transformValues(
-    const Context *context,
+    const State &glState,
     bool isCallValid,
     GLsizei numPaths,
     GLenum pathNameType,
     const void *paths,
-    GLuint pathBase,
+    PathID pathBase,
     GLint reference,
     GLuint mask,
     GLenum coverMode,
@@ -1933,19 +2208,19 @@ void CaptureStencilThenCoverStrokePathInstancedCHROMIUM_transformValues(
     UNIMPLEMENTED();
 }
 
-void CaptureBindFragmentInputLocationCHROMIUM_name(const Context *context,
+void CaptureBindFragmentInputLocationCHROMIUM_name(const State &glState,
                                                    bool isCallValid,
-                                                   GLuint programs,
+                                                   ShaderProgramID programs,
                                                    GLint location,
                                                    const GLchar *name,
                                                    ParamCapture *paramCapture)
 {
-    UNIMPLEMENTED();
+    CaptureString(name, paramCapture);
 }
 
-void CaptureProgramPathFragmentInputGenCHROMIUM_coeffs(const Context *context,
+void CaptureProgramPathFragmentInputGenCHROMIUM_coeffs(const State &glState,
                                                        bool isCallValid,
-                                                       GLuint program,
+                                                       ShaderProgramID program,
                                                        GLint location,
                                                        GLenum genMode,
                                                        GLint components,
@@ -1955,47 +2230,47 @@ void CaptureProgramPathFragmentInputGenCHROMIUM_coeffs(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureBindFragDataLocationEXT_name(const Context *context,
+void CaptureBindFragDataLocationEXT_name(const State &glState,
                                          bool isCallValid,
-                                         GLuint program,
+                                         ShaderProgramID program,
                                          GLuint color,
                                          const GLchar *name,
                                          ParamCapture *paramCapture)
 {
-    UNIMPLEMENTED();
+    CaptureString(name, paramCapture);
 }
 
-void CaptureBindFragDataLocationIndexedEXT_name(const Context *context,
+void CaptureBindFragDataLocationIndexedEXT_name(const State &glState,
                                                 bool isCallValid,
-                                                GLuint program,
+                                                ShaderProgramID program,
                                                 GLuint colorNumber,
                                                 GLuint index,
                                                 const GLchar *name,
                                                 ParamCapture *paramCapture)
 {
-    UNIMPLEMENTED();
+    CaptureString(name, paramCapture);
 }
 
-void CaptureGetFragDataIndexEXT_name(const Context *context,
+void CaptureGetFragDataIndexEXT_name(const State &glState,
                                      bool isCallValid,
-                                     GLuint program,
+                                     ShaderProgramID program,
                                      const GLchar *name,
                                      ParamCapture *paramCapture)
 {
-    UNIMPLEMENTED();
+    CaptureString(name, paramCapture);
 }
 
-void CaptureGetProgramResourceLocationIndexEXT_name(const Context *context,
+void CaptureGetProgramResourceLocationIndexEXT_name(const State &glState,
                                                     bool isCallValid,
-                                                    GLuint program,
+                                                    ShaderProgramID program,
                                                     GLenum programInterface,
                                                     const GLchar *name,
                                                     ParamCapture *paramCapture)
 {
-    UNIMPLEMENTED();
+    CaptureString(name, paramCapture);
 }
 
-void CaptureInsertEventMarkerEXT_marker(const Context *context,
+void CaptureInsertEventMarkerEXT_marker(const State &glState,
                                         bool isCallValid,
                                         GLsizei length,
                                         const GLchar *marker,
@@ -2004,7 +2279,7 @@ void CaptureInsertEventMarkerEXT_marker(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CapturePushGroupMarkerEXT_marker(const Context *context,
+void CapturePushGroupMarkerEXT_marker(const State &glState,
                                       bool isCallValid,
                                       GLsizei length,
                                       const GLchar *marker,
@@ -2013,7 +2288,7 @@ void CapturePushGroupMarkerEXT_marker(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureDiscardFramebufferEXT_attachments(const Context *context,
+void CaptureDiscardFramebufferEXT_attachments(const State &glState,
                                               bool isCallValid,
                                               GLenum target,
                                               GLsizei numAttachments,
@@ -2023,27 +2298,27 @@ void CaptureDiscardFramebufferEXT_attachments(const Context *context,
     CaptureMemory(attachments, sizeof(GLenum) * numAttachments, paramCapture);
 }
 
-void CaptureDeleteQueriesEXT_ids(const Context *context,
-                                 bool isCallValid,
-                                 GLsizei n,
-                                 const GLuint *ids,
-                                 ParamCapture *paramCapture)
+void CaptureDeleteQueriesEXT_idsPacked(const State &glState,
+                                       bool isCallValid,
+                                       GLsizei n,
+                                       const QueryID *ids,
+                                       ParamCapture *paramCapture)
 {
-    UNIMPLEMENTED();
+    CaptureMemory(ids, sizeof(QueryID) * n, paramCapture);
 }
 
-void CaptureGenQueriesEXT_ids(const Context *context,
-                              bool isCallValid,
-                              GLsizei n,
-                              GLuint *ids,
-                              ParamCapture *paramCapture)
+void CaptureGenQueriesEXT_idsPacked(const State &glState,
+                                    bool isCallValid,
+                                    GLsizei n,
+                                    QueryID *ids,
+                                    ParamCapture *paramCapture)
 {
-    UNIMPLEMENTED();
+    CaptureGenHandles(n, ids, paramCapture);
 }
 
-void CaptureGetQueryObjecti64vEXT_params(const Context *context,
+void CaptureGetQueryObjecti64vEXT_params(const State &glState,
                                          bool isCallValid,
-                                         GLuint id,
+                                         QueryID id,
                                          GLenum pname,
                                          GLint64 *params,
                                          ParamCapture *paramCapture)
@@ -2051,9 +2326,18 @@ void CaptureGetQueryObjecti64vEXT_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetQueryObjectivEXT_params(const Context *context,
+void CaptureGetInteger64vEXT_data(const State &glState,
+                                  bool isCallValid,
+                                  GLenum pname,
+                                  GLint64 *data,
+                                  angle::ParamCapture *paramCapture)
+{
+    UNIMPLEMENTED();
+}
+
+void CaptureGetQueryObjectivEXT_params(const State &glState,
                                        bool isCallValid,
-                                       GLuint id,
+                                       QueryID id,
                                        GLenum pname,
                                        GLint *params,
                                        ParamCapture *paramCapture)
@@ -2061,9 +2345,9 @@ void CaptureGetQueryObjectivEXT_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetQueryObjectui64vEXT_params(const Context *context,
+void CaptureGetQueryObjectui64vEXT_params(const State &glState,
                                           bool isCallValid,
-                                          GLuint id,
+                                          QueryID id,
                                           GLenum pname,
                                           GLuint64 *params,
                                           ParamCapture *paramCapture)
@@ -2071,9 +2355,9 @@ void CaptureGetQueryObjectui64vEXT_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetQueryObjectuivEXT_params(const Context *context,
+void CaptureGetQueryObjectuivEXT_params(const State &glState,
                                         bool isCallValid,
-                                        GLuint id,
+                                        QueryID id,
                                         GLenum pname,
                                         GLuint *params,
                                         ParamCapture *paramCapture)
@@ -2081,7 +2365,7 @@ void CaptureGetQueryObjectuivEXT_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetQueryivEXT_params(const Context *context,
+void CaptureGetQueryivEXT_params(const State &glState,
                                  bool isCallValid,
                                  QueryType targetPacked,
                                  GLenum pname,
@@ -2091,16 +2375,16 @@ void CaptureGetQueryivEXT_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureDrawBuffersEXT_bufs(const Context *context,
+void CaptureDrawBuffersEXT_bufs(const State &glState,
                                 bool isCallValid,
                                 GLsizei n,
                                 const GLenum *bufs,
                                 ParamCapture *paramCapture)
 {
-    UNIMPLEMENTED();
+    CaptureDrawBuffers_bufs(glState, isCallValid, n, bufs, paramCapture);
 }
 
-void CaptureDrawElementsInstancedEXT_indices(const Context *context,
+void CaptureDrawElementsInstancedEXT_indices(const State &glState,
                                              bool isCallValid,
                                              PrimitiveMode modePacked,
                                              GLsizei count,
@@ -2112,27 +2396,27 @@ void CaptureDrawElementsInstancedEXT_indices(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureCreateMemoryObjectsEXT_memoryObjects(const Context *context,
-                                                 bool isCallValid,
-                                                 GLsizei n,
-                                                 GLuint *memoryObjects,
-                                                 ParamCapture *paramCapture)
+void CaptureCreateMemoryObjectsEXT_memoryObjectsPacked(const State &glState,
+                                                       bool isCallValid,
+                                                       GLsizei n,
+                                                       MemoryObjectID *memoryObjects,
+                                                       ParamCapture *paramCapture)
 {
     UNIMPLEMENTED();
 }
 
-void CaptureDeleteMemoryObjectsEXT_memoryObjects(const Context *context,
-                                                 bool isCallValid,
-                                                 GLsizei n,
-                                                 const GLuint *memoryObjects,
-                                                 ParamCapture *paramCapture)
+void CaptureDeleteMemoryObjectsEXT_memoryObjectsPacked(const State &glState,
+                                                       bool isCallValid,
+                                                       GLsizei n,
+                                                       const MemoryObjectID *memoryObjects,
+                                                       ParamCapture *paramCapture)
 {
     UNIMPLEMENTED();
 }
 
-void CaptureGetMemoryObjectParameterivEXT_params(const Context *context,
+void CaptureGetMemoryObjectParameterivEXT_params(const State &glState,
                                                  bool isCallValid,
-                                                 GLuint memoryObject,
+                                                 MemoryObjectID memoryObject,
                                                  GLenum pname,
                                                  GLint *params,
                                                  ParamCapture *paramCapture)
@@ -2140,7 +2424,7 @@ void CaptureGetMemoryObjectParameterivEXT_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetUnsignedBytevEXT_data(const Context *context,
+void CaptureGetUnsignedBytevEXT_data(const State &glState,
                                      bool isCallValid,
                                      GLenum pname,
                                      GLubyte *data,
@@ -2149,7 +2433,7 @@ void CaptureGetUnsignedBytevEXT_data(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetUnsignedBytei_vEXT_data(const Context *context,
+void CaptureGetUnsignedBytei_vEXT_data(const State &glState,
                                        bool isCallValid,
                                        GLenum target,
                                        GLuint index,
@@ -2159,9 +2443,9 @@ void CaptureGetUnsignedBytei_vEXT_data(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureMemoryObjectParameterivEXT_params(const Context *context,
+void CaptureMemoryObjectParameterivEXT_params(const State &glState,
                                               bool isCallValid,
-                                              GLuint memoryObject,
+                                              MemoryObjectID memoryObject,
                                               GLenum pname,
                                               const GLint *params,
                                               ParamCapture *paramCapture)
@@ -2169,10 +2453,10 @@ void CaptureMemoryObjectParameterivEXT_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetnUniformfvEXT_params(const Context *context,
+void CaptureGetnUniformfvEXT_params(const State &glState,
                                     bool isCallValid,
-                                    GLuint program,
-                                    GLint location,
+                                    ShaderProgramID program,
+                                    UniformLocation location,
                                     GLsizei bufSize,
                                     GLfloat *params,
                                     ParamCapture *paramCapture)
@@ -2180,10 +2464,10 @@ void CaptureGetnUniformfvEXT_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetnUniformivEXT_params(const Context *context,
+void CaptureGetnUniformivEXT_params(const State &glState,
                                     bool isCallValid,
-                                    GLuint program,
-                                    GLint location,
+                                    ShaderProgramID program,
+                                    UniformLocation location,
                                     GLsizei bufSize,
                                     GLint *params,
                                     ParamCapture *paramCapture)
@@ -2191,7 +2475,7 @@ void CaptureGetnUniformivEXT_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureReadnPixelsEXT_data(const Context *context,
+void CaptureReadnPixelsEXT_data(const State &glState,
                                 bool isCallValid,
                                 GLint x,
                                 GLint y,
@@ -2206,27 +2490,27 @@ void CaptureReadnPixelsEXT_data(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureDeleteSemaphoresEXT_semaphores(const Context *context,
-                                           bool isCallValid,
-                                           GLsizei n,
-                                           const GLuint *semaphores,
-                                           ParamCapture *paramCapture)
-{
-    UNIMPLEMENTED();
-}
-
-void CaptureGenSemaphoresEXT_semaphores(const Context *context,
-                                        bool isCallValid,
-                                        GLsizei n,
-                                        GLuint *semaphores,
-                                        ParamCapture *paramCapture)
-{
-    UNIMPLEMENTED();
-}
-
-void CaptureGetSemaphoreParameterui64vEXT_params(const Context *context,
+void CaptureDeleteSemaphoresEXT_semaphoresPacked(const State &glState,
                                                  bool isCallValid,
-                                                 GLuint semaphore,
+                                                 GLsizei n,
+                                                 const SemaphoreID *semaphores,
+                                                 ParamCapture *paramCapture)
+{
+    UNIMPLEMENTED();
+}
+
+void CaptureGenSemaphoresEXT_semaphoresPacked(const State &glState,
+                                              bool isCallValid,
+                                              GLsizei n,
+                                              SemaphoreID *semaphores,
+                                              ParamCapture *paramCapture)
+{
+    UNIMPLEMENTED();
+}
+
+void CaptureGetSemaphoreParameterui64vEXT_params(const State &glState,
+                                                 bool isCallValid,
+                                                 SemaphoreID semaphore,
                                                  GLenum pname,
                                                  GLuint64 *params,
                                                  ParamCapture *paramCapture)
@@ -2234,9 +2518,9 @@ void CaptureGetSemaphoreParameterui64vEXT_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureSemaphoreParameterui64vEXT_params(const Context *context,
+void CaptureSemaphoreParameterui64vEXT_params(const State &glState,
                                               bool isCallValid,
-                                              GLuint semaphore,
+                                              SemaphoreID semaphore,
                                               GLenum pname,
                                               const GLuint64 *params,
                                               ParamCapture *paramCapture)
@@ -2244,85 +2528,85 @@ void CaptureSemaphoreParameterui64vEXT_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureSignalSemaphoreEXT_buffers(const Context *context,
-                                       bool isCallValid,
-                                       GLuint semaphore,
-                                       GLuint numBufferBarriers,
-                                       const GLuint *buffers,
-                                       GLuint numTextureBarriers,
-                                       const GLuint *textures,
-                                       const GLenum *dstLayouts,
-                                       ParamCapture *paramCapture)
+void CaptureSignalSemaphoreEXT_buffersPacked(const State &glState,
+                                             bool isCallValid,
+                                             SemaphoreID semaphore,
+                                             GLuint numBufferBarriers,
+                                             const BufferID *buffers,
+                                             GLuint numTextureBarriers,
+                                             const TextureID *textures,
+                                             const GLenum *dstLayouts,
+                                             ParamCapture *paramCapture)
 {
     UNIMPLEMENTED();
 }
 
-void CaptureSignalSemaphoreEXT_textures(const Context *context,
-                                        bool isCallValid,
-                                        GLuint semaphore,
-                                        GLuint numBufferBarriers,
-                                        const GLuint *buffers,
-                                        GLuint numTextureBarriers,
-                                        const GLuint *textures,
-                                        const GLenum *dstLayouts,
-                                        ParamCapture *paramCapture)
+void CaptureSignalSemaphoreEXT_texturesPacked(const State &glState,
+                                              bool isCallValid,
+                                              SemaphoreID semaphore,
+                                              GLuint numBufferBarriers,
+                                              const BufferID *buffers,
+                                              GLuint numTextureBarriers,
+                                              const TextureID *textures,
+                                              const GLenum *dstLayouts,
+                                              ParamCapture *paramCapture)
 {
     UNIMPLEMENTED();
 }
 
-void CaptureSignalSemaphoreEXT_dstLayouts(const Context *context,
+void CaptureSignalSemaphoreEXT_dstLayouts(const State &glState,
                                           bool isCallValid,
-                                          GLuint semaphore,
+                                          SemaphoreID semaphore,
                                           GLuint numBufferBarriers,
-                                          const GLuint *buffers,
+                                          const BufferID *buffers,
                                           GLuint numTextureBarriers,
-                                          const GLuint *textures,
+                                          const TextureID *textures,
                                           const GLenum *dstLayouts,
                                           ParamCapture *paramCapture)
 {
     UNIMPLEMENTED();
 }
 
-void CaptureWaitSemaphoreEXT_buffers(const Context *context,
-                                     bool isCallValid,
-                                     GLuint semaphore,
-                                     GLuint numBufferBarriers,
-                                     const GLuint *buffers,
-                                     GLuint numTextureBarriers,
-                                     const GLuint *textures,
-                                     const GLenum *srcLayouts,
-                                     ParamCapture *paramCapture)
+void CaptureWaitSemaphoreEXT_buffersPacked(const State &glState,
+                                           bool isCallValid,
+                                           SemaphoreID semaphore,
+                                           GLuint numBufferBarriers,
+                                           const BufferID *buffers,
+                                           GLuint numTextureBarriers,
+                                           const TextureID *textures,
+                                           const GLenum *srcLayouts,
+                                           ParamCapture *paramCapture)
 {
     UNIMPLEMENTED();
 }
 
-void CaptureWaitSemaphoreEXT_textures(const Context *context,
-                                      bool isCallValid,
-                                      GLuint semaphore,
-                                      GLuint numBufferBarriers,
-                                      const GLuint *buffers,
-                                      GLuint numTextureBarriers,
-                                      const GLuint *textures,
-                                      const GLenum *srcLayouts,
-                                      ParamCapture *paramCapture)
+void CaptureWaitSemaphoreEXT_texturesPacked(const State &glState,
+                                            bool isCallValid,
+                                            SemaphoreID semaphore,
+                                            GLuint numBufferBarriers,
+                                            const BufferID *buffers,
+                                            GLuint numTextureBarriers,
+                                            const TextureID *textures,
+                                            const GLenum *srcLayouts,
+                                            ParamCapture *paramCapture)
 {
     UNIMPLEMENTED();
 }
 
-void CaptureWaitSemaphoreEXT_srcLayouts(const Context *context,
+void CaptureWaitSemaphoreEXT_srcLayouts(const State &glState,
                                         bool isCallValid,
-                                        GLuint semaphore,
+                                        SemaphoreID semaphore,
                                         GLuint numBufferBarriers,
-                                        const GLuint *buffers,
+                                        const BufferID *buffers,
                                         GLuint numTextureBarriers,
-                                        const GLuint *textures,
+                                        const TextureID *textures,
                                         const GLenum *srcLayouts,
                                         ParamCapture *paramCapture)
 {
     UNIMPLEMENTED();
 }
 
-void CaptureDebugMessageCallbackKHR_userParam(const Context *context,
+void CaptureDebugMessageCallbackKHR_userParam(const State &glState,
                                               bool isCallValid,
                                               GLDEBUGPROCKHR callback,
                                               const void *userParam,
@@ -2331,7 +2615,7 @@ void CaptureDebugMessageCallbackKHR_userParam(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureDebugMessageControlKHR_ids(const Context *context,
+void CaptureDebugMessageControlKHR_ids(const State &glState,
                                        bool isCallValid,
                                        GLenum source,
                                        GLenum type,
@@ -2344,7 +2628,7 @@ void CaptureDebugMessageControlKHR_ids(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureDebugMessageInsertKHR_buf(const Context *context,
+void CaptureDebugMessageInsertKHR_buf(const State &glState,
                                       bool isCallValid,
                                       GLenum source,
                                       GLenum type,
@@ -2357,7 +2641,7 @@ void CaptureDebugMessageInsertKHR_buf(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetDebugMessageLogKHR_sources(const Context *context,
+void CaptureGetDebugMessageLogKHR_sources(const State &glState,
                                           bool isCallValid,
                                           GLuint count,
                                           GLsizei bufSize,
@@ -2372,7 +2656,7 @@ void CaptureGetDebugMessageLogKHR_sources(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetDebugMessageLogKHR_types(const Context *context,
+void CaptureGetDebugMessageLogKHR_types(const State &glState,
                                         bool isCallValid,
                                         GLuint count,
                                         GLsizei bufSize,
@@ -2387,7 +2671,7 @@ void CaptureGetDebugMessageLogKHR_types(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetDebugMessageLogKHR_ids(const Context *context,
+void CaptureGetDebugMessageLogKHR_ids(const State &glState,
                                       bool isCallValid,
                                       GLuint count,
                                       GLsizei bufSize,
@@ -2402,7 +2686,7 @@ void CaptureGetDebugMessageLogKHR_ids(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetDebugMessageLogKHR_severities(const Context *context,
+void CaptureGetDebugMessageLogKHR_severities(const State &glState,
                                              bool isCallValid,
                                              GLuint count,
                                              GLsizei bufSize,
@@ -2417,7 +2701,7 @@ void CaptureGetDebugMessageLogKHR_severities(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetDebugMessageLogKHR_lengths(const Context *context,
+void CaptureGetDebugMessageLogKHR_lengths(const State &glState,
                                           bool isCallValid,
                                           GLuint count,
                                           GLsizei bufSize,
@@ -2432,7 +2716,7 @@ void CaptureGetDebugMessageLogKHR_lengths(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetDebugMessageLogKHR_messageLog(const Context *context,
+void CaptureGetDebugMessageLogKHR_messageLog(const State &glState,
                                              bool isCallValid,
                                              GLuint count,
                                              GLsizei bufSize,
@@ -2447,7 +2731,7 @@ void CaptureGetDebugMessageLogKHR_messageLog(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetObjectLabelKHR_length(const Context *context,
+void CaptureGetObjectLabelKHR_length(const State &glState,
                                      bool isCallValid,
                                      GLenum identifier,
                                      GLuint name,
@@ -2459,7 +2743,7 @@ void CaptureGetObjectLabelKHR_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetObjectLabelKHR_label(const Context *context,
+void CaptureGetObjectLabelKHR_label(const State &glState,
                                     bool isCallValid,
                                     GLenum identifier,
                                     GLuint name,
@@ -2471,7 +2755,7 @@ void CaptureGetObjectLabelKHR_label(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetObjectPtrLabelKHR_ptr(const Context *context,
+void CaptureGetObjectPtrLabelKHR_ptr(const State &glState,
                                      bool isCallValid,
                                      const void *ptr,
                                      GLsizei bufSize,
@@ -2482,7 +2766,7 @@ void CaptureGetObjectPtrLabelKHR_ptr(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetObjectPtrLabelKHR_length(const Context *context,
+void CaptureGetObjectPtrLabelKHR_length(const State &glState,
                                         bool isCallValid,
                                         const void *ptr,
                                         GLsizei bufSize,
@@ -2493,7 +2777,7 @@ void CaptureGetObjectPtrLabelKHR_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetObjectPtrLabelKHR_label(const Context *context,
+void CaptureGetObjectPtrLabelKHR_label(const State &glState,
                                        bool isCallValid,
                                        const void *ptr,
                                        GLsizei bufSize,
@@ -2504,7 +2788,7 @@ void CaptureGetObjectPtrLabelKHR_label(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetPointervKHR_params(const Context *context,
+void CaptureGetPointervKHR_params(const State &glState,
                                   bool isCallValid,
                                   GLenum pname,
                                   void **params,
@@ -2513,7 +2797,7 @@ void CaptureGetPointervKHR_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureObjectLabelKHR_label(const Context *context,
+void CaptureObjectLabelKHR_label(const State &glState,
                                  bool isCallValid,
                                  GLenum identifier,
                                  GLuint name,
@@ -2524,7 +2808,7 @@ void CaptureObjectLabelKHR_label(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureObjectPtrLabelKHR_ptr(const Context *context,
+void CaptureObjectPtrLabelKHR_ptr(const State &glState,
                                   bool isCallValid,
                                   const void *ptr,
                                   GLsizei length,
@@ -2534,7 +2818,7 @@ void CaptureObjectPtrLabelKHR_ptr(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureObjectPtrLabelKHR_label(const Context *context,
+void CaptureObjectPtrLabelKHR_label(const State &glState,
                                     bool isCallValid,
                                     const void *ptr,
                                     GLsizei length,
@@ -2544,7 +2828,7 @@ void CaptureObjectPtrLabelKHR_label(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CapturePushDebugGroupKHR_message(const Context *context,
+void CapturePushDebugGroupKHR_message(const State &glState,
                                       bool isCallValid,
                                       GLenum source,
                                       GLuint id,
@@ -2555,27 +2839,27 @@ void CapturePushDebugGroupKHR_message(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureDeleteFencesNV_fences(const Context *context,
-                                  bool isCallValid,
-                                  GLsizei n,
-                                  const GLuint *fences,
-                                  ParamCapture *paramCapture)
+void CaptureDeleteFencesNV_fencesPacked(const State &glState,
+                                        bool isCallValid,
+                                        GLsizei n,
+                                        const FenceNVID *fences,
+                                        ParamCapture *paramCapture)
 {
     UNIMPLEMENTED();
 }
 
-void CaptureGenFencesNV_fences(const Context *context,
-                               bool isCallValid,
-                               GLsizei n,
-                               GLuint *fences,
-                               ParamCapture *paramCapture)
+void CaptureGenFencesNV_fencesPacked(const State &glState,
+                                     bool isCallValid,
+                                     GLsizei n,
+                                     FenceNVID *fences,
+                                     ParamCapture *paramCapture)
 {
     UNIMPLEMENTED();
 }
 
-void CaptureGetFenceivNV_params(const Context *context,
+void CaptureGetFenceivNV_params(const State &glState,
                                 bool isCallValid,
-                                GLuint fence,
+                                FenceNVID fence,
                                 GLenum pname,
                                 GLint *params,
                                 ParamCapture *paramCapture)
@@ -2583,7 +2867,7 @@ void CaptureGetFenceivNV_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureDrawTexfvOES_coords(const Context *context,
+void CaptureDrawTexfvOES_coords(const State &glState,
                                 bool isCallValid,
                                 const GLfloat *coords,
                                 ParamCapture *paramCapture)
@@ -2591,7 +2875,7 @@ void CaptureDrawTexfvOES_coords(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureDrawTexivOES_coords(const Context *context,
+void CaptureDrawTexivOES_coords(const State &glState,
                                 bool isCallValid,
                                 const GLint *coords,
                                 ParamCapture *paramCapture)
@@ -2599,7 +2883,7 @@ void CaptureDrawTexivOES_coords(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureDrawTexsvOES_coords(const Context *context,
+void CaptureDrawTexsvOES_coords(const State &glState,
                                 bool isCallValid,
                                 const GLshort *coords,
                                 ParamCapture *paramCapture)
@@ -2607,7 +2891,7 @@ void CaptureDrawTexsvOES_coords(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureDrawTexxvOES_coords(const Context *context,
+void CaptureDrawTexxvOES_coords(const State &glState,
                                 bool isCallValid,
                                 const GLfixed *coords,
                                 ParamCapture *paramCapture)
@@ -2615,43 +2899,43 @@ void CaptureDrawTexxvOES_coords(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureDeleteFramebuffersOES_framebuffers(const Context *context,
-                                               bool isCallValid,
-                                               GLsizei n,
-                                               const GLuint *framebuffers,
-                                               ParamCapture *paramCapture)
+void CaptureDeleteFramebuffersOES_framebuffersPacked(const State &glState,
+                                                     bool isCallValid,
+                                                     GLsizei n,
+                                                     const FramebufferID *framebuffers,
+                                                     ParamCapture *paramCapture)
 {
     UNIMPLEMENTED();
 }
 
-void CaptureDeleteRenderbuffersOES_renderbuffers(const Context *context,
-                                                 bool isCallValid,
-                                                 GLsizei n,
-                                                 const GLuint *renderbuffers,
-                                                 ParamCapture *paramCapture)
+void CaptureDeleteRenderbuffersOES_renderbuffersPacked(const State &glState,
+                                                       bool isCallValid,
+                                                       GLsizei n,
+                                                       const RenderbufferID *renderbuffers,
+                                                       ParamCapture *paramCapture)
 {
     UNIMPLEMENTED();
 }
 
-void CaptureGenFramebuffersOES_framebuffers(const Context *context,
-                                            bool isCallValid,
-                                            GLsizei n,
-                                            GLuint *framebuffers,
-                                            ParamCapture *paramCapture)
+void CaptureGenFramebuffersOES_framebuffersPacked(const State &glState,
+                                                  bool isCallValid,
+                                                  GLsizei n,
+                                                  FramebufferID *framebuffers,
+                                                  ParamCapture *paramCapture)
 {
     UNIMPLEMENTED();
 }
 
-void CaptureGenRenderbuffersOES_renderbuffers(const Context *context,
-                                              bool isCallValid,
-                                              GLsizei n,
-                                              GLuint *renderbuffers,
-                                              ParamCapture *paramCapture)
+void CaptureGenRenderbuffersOES_renderbuffersPacked(const State &glState,
+                                                    bool isCallValid,
+                                                    GLsizei n,
+                                                    RenderbufferID *renderbuffers,
+                                                    ParamCapture *paramCapture)
 {
     UNIMPLEMENTED();
 }
 
-void CaptureGetFramebufferAttachmentParameterivOES_params(const Context *context,
+void CaptureGetFramebufferAttachmentParameterivOES_params(const State &glState,
                                                           bool isCallValid,
                                                           GLenum target,
                                                           GLenum attachment,
@@ -2662,7 +2946,7 @@ void CaptureGetFramebufferAttachmentParameterivOES_params(const Context *context
     UNIMPLEMENTED();
 }
 
-void CaptureGetRenderbufferParameterivOES_params(const Context *context,
+void CaptureGetRenderbufferParameterivOES_params(const State &glState,
                                                  bool isCallValid,
                                                  GLenum target,
                                                  GLenum pname,
@@ -2672,9 +2956,9 @@ void CaptureGetRenderbufferParameterivOES_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetProgramBinaryOES_length(const Context *context,
+void CaptureGetProgramBinaryOES_length(const State &glState,
                                        bool isCallValid,
-                                       GLuint program,
+                                       ShaderProgramID program,
                                        GLsizei bufSize,
                                        GLsizei *length,
                                        GLenum *binaryFormat,
@@ -2684,9 +2968,9 @@ void CaptureGetProgramBinaryOES_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetProgramBinaryOES_binaryFormat(const Context *context,
+void CaptureGetProgramBinaryOES_binaryFormat(const State &glState,
                                              bool isCallValid,
-                                             GLuint program,
+                                             ShaderProgramID program,
                                              GLsizei bufSize,
                                              GLsizei *length,
                                              GLenum *binaryFormat,
@@ -2696,9 +2980,9 @@ void CaptureGetProgramBinaryOES_binaryFormat(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetProgramBinaryOES_binary(const Context *context,
+void CaptureGetProgramBinaryOES_binary(const State &glState,
                                        bool isCallValid,
-                                       GLuint program,
+                                       ShaderProgramID program,
                                        GLsizei bufSize,
                                        GLsizei *length,
                                        GLenum *binaryFormat,
@@ -2708,9 +2992,9 @@ void CaptureGetProgramBinaryOES_binary(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureProgramBinaryOES_binary(const Context *context,
+void CaptureProgramBinaryOES_binary(const State &glState,
                                     bool isCallValid,
-                                    GLuint program,
+                                    ShaderProgramID program,
                                     GLenum binaryFormat,
                                     const void *binary,
                                     GLint length,
@@ -2719,7 +3003,7 @@ void CaptureProgramBinaryOES_binary(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetBufferPointervOES_params(const Context *context,
+void CaptureGetBufferPointervOES_params(const State &glState,
                                         bool isCallValid,
                                         BufferBinding targetPacked,
                                         GLenum pname,
@@ -2729,7 +3013,7 @@ void CaptureGetBufferPointervOES_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureMatrixIndexPointerOES_pointer(const Context *context,
+void CaptureMatrixIndexPointerOES_pointer(const State &glState,
                                           bool isCallValid,
                                           GLint size,
                                           GLenum type,
@@ -2740,7 +3024,7 @@ void CaptureMatrixIndexPointerOES_pointer(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureWeightPointerOES_pointer(const Context *context,
+void CaptureWeightPointerOES_pointer(const State &glState,
                                      bool isCallValid,
                                      GLint size,
                                      GLenum type,
@@ -2751,7 +3035,7 @@ void CaptureWeightPointerOES_pointer(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CapturePointSizePointerOES_pointer(const Context *context,
+void CapturePointSizePointerOES_pointer(const State &glState,
                                         bool isCallValid,
                                         VertexAttribType typePacked,
                                         GLsizei stride,
@@ -2761,7 +3045,7 @@ void CapturePointSizePointerOES_pointer(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureQueryMatrixxOES_mantissa(const Context *context,
+void CaptureQueryMatrixxOES_mantissa(const State &glState,
                                      bool isCallValid,
                                      GLfixed *mantissa,
                                      GLint *exponent,
@@ -2770,7 +3054,7 @@ void CaptureQueryMatrixxOES_mantissa(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureQueryMatrixxOES_exponent(const Context *context,
+void CaptureQueryMatrixxOES_exponent(const State &glState,
                                      bool isCallValid,
                                      GLfixed *mantissa,
                                      GLint *exponent,
@@ -2779,7 +3063,7 @@ void CaptureQueryMatrixxOES_exponent(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureCompressedTexImage3DOES_data(const Context *context,
+void CaptureCompressedTexImage3DOES_data(const State &glState,
                                          bool isCallValid,
                                          TextureTarget targetPacked,
                                          GLint level,
@@ -2795,7 +3079,7 @@ void CaptureCompressedTexImage3DOES_data(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureCompressedTexSubImage3DOES_data(const Context *context,
+void CaptureCompressedTexSubImage3DOES_data(const State &glState,
                                             bool isCallValid,
                                             TextureTarget targetPacked,
                                             GLint level,
@@ -2813,7 +3097,7 @@ void CaptureCompressedTexSubImage3DOES_data(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureTexImage3DOES_pixels(const Context *context,
+void CaptureTexImage3DOES_pixels(const State &glState,
                                  bool isCallValid,
                                  TextureTarget targetPacked,
                                  GLint level,
@@ -2830,7 +3114,7 @@ void CaptureTexImage3DOES_pixels(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureTexSubImage3DOES_pixels(const Context *context,
+void CaptureTexSubImage3DOES_pixels(const State &glState,
                                     bool isCallValid,
                                     TextureTarget targetPacked,
                                     GLint level,
@@ -2848,9 +3132,9 @@ void CaptureTexSubImage3DOES_pixels(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetSamplerParameterIivOES_params(const Context *context,
+void CaptureGetSamplerParameterIivOES_params(const State &glState,
                                              bool isCallValid,
-                                             GLuint sampler,
+                                             SamplerID sampler,
                                              GLenum pname,
                                              GLint *params,
                                              ParamCapture *paramCapture)
@@ -2858,9 +3142,9 @@ void CaptureGetSamplerParameterIivOES_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetSamplerParameterIuivOES_params(const Context *context,
+void CaptureGetSamplerParameterIuivOES_params(const State &glState,
                                               bool isCallValid,
-                                              GLuint sampler,
+                                              SamplerID sampler,
                                               GLenum pname,
                                               GLuint *params,
                                               ParamCapture *paramCapture)
@@ -2868,7 +3152,7 @@ void CaptureGetSamplerParameterIuivOES_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetTexParameterIivOES_params(const Context *context,
+void CaptureGetTexParameterIivOES_params(const State &glState,
                                          bool isCallValid,
                                          TextureType targetPacked,
                                          GLenum pname,
@@ -2878,7 +3162,7 @@ void CaptureGetTexParameterIivOES_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetTexParameterIuivOES_params(const Context *context,
+void CaptureGetTexParameterIuivOES_params(const State &glState,
                                           bool isCallValid,
                                           TextureType targetPacked,
                                           GLenum pname,
@@ -2888,9 +3172,9 @@ void CaptureGetTexParameterIuivOES_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureSamplerParameterIivOES_param(const Context *context,
+void CaptureSamplerParameterIivOES_param(const State &glState,
                                          bool isCallValid,
-                                         GLuint sampler,
+                                         SamplerID sampler,
                                          GLenum pname,
                                          const GLint *param,
                                          ParamCapture *paramCapture)
@@ -2898,9 +3182,9 @@ void CaptureSamplerParameterIivOES_param(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureSamplerParameterIuivOES_param(const Context *context,
+void CaptureSamplerParameterIuivOES_param(const State &glState,
                                           bool isCallValid,
-                                          GLuint sampler,
+                                          SamplerID sampler,
                                           GLenum pname,
                                           const GLuint *param,
                                           ParamCapture *paramCapture)
@@ -2908,7 +3192,7 @@ void CaptureSamplerParameterIuivOES_param(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureTexParameterIivOES_params(const Context *context,
+void CaptureTexParameterIivOES_params(const State &glState,
                                       bool isCallValid,
                                       TextureType targetPacked,
                                       GLenum pname,
@@ -2918,7 +3202,7 @@ void CaptureTexParameterIivOES_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureTexParameterIuivOES_params(const Context *context,
+void CaptureTexParameterIuivOES_params(const State &glState,
                                        bool isCallValid,
                                        TextureType targetPacked,
                                        GLenum pname,
@@ -2928,7 +3212,7 @@ void CaptureTexParameterIuivOES_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetTexGenfvOES_params(const Context *context,
+void CaptureGetTexGenfvOES_params(const State &glState,
                                   bool isCallValid,
                                   GLenum coord,
                                   GLenum pname,
@@ -2938,7 +3222,7 @@ void CaptureGetTexGenfvOES_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetTexGenivOES_params(const Context *context,
+void CaptureGetTexGenivOES_params(const State &glState,
                                   bool isCallValid,
                                   GLenum coord,
                                   GLenum pname,
@@ -2948,7 +3232,7 @@ void CaptureGetTexGenivOES_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetTexGenxvOES_params(const Context *context,
+void CaptureGetTexGenxvOES_params(const State &glState,
                                   bool isCallValid,
                                   GLenum coord,
                                   GLenum pname,
@@ -2958,7 +3242,7 @@ void CaptureGetTexGenxvOES_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureTexGenfvOES_params(const Context *context,
+void CaptureTexGenfvOES_params(const State &glState,
                                bool isCallValid,
                                GLenum coord,
                                GLenum pname,
@@ -2968,7 +3252,7 @@ void CaptureTexGenfvOES_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureTexGenivOES_params(const Context *context,
+void CaptureTexGenivOES_params(const State &glState,
                                bool isCallValid,
                                GLenum coord,
                                GLenum pname,
@@ -2978,7 +3262,7 @@ void CaptureTexGenivOES_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureTexGenxvOES_params(const Context *context,
+void CaptureTexGenxvOES_params(const State &glState,
                                bool isCallValid,
                                GLenum coord,
                                GLenum pname,
@@ -2988,22 +3272,44 @@ void CaptureTexGenxvOES_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureDeleteVertexArraysOES_arrays(const Context *context,
-                                         bool isCallValid,
-                                         GLsizei n,
-                                         const GLuint *arrays,
-                                         ParamCapture *paramCapture)
+void CaptureDeleteVertexArraysOES_arraysPacked(const State &glState,
+                                               bool isCallValid,
+                                               GLsizei n,
+                                               const VertexArrayID *arrays,
+                                               ParamCapture *paramCapture)
 {
     UNIMPLEMENTED();
 }
 
-void CaptureGenVertexArraysOES_arrays(const Context *context,
-                                      bool isCallValid,
-                                      GLsizei n,
-                                      GLuint *arrays,
-                                      ParamCapture *paramCapture)
+void CaptureGenVertexArraysOES_arraysPacked(const State &glState,
+                                            bool isCallValid,
+                                            GLsizei n,
+                                            VertexArrayID *arrays,
+                                            ParamCapture *paramCapture)
 {
     UNIMPLEMENTED();
 }
 
+void CaptureGetTexImageANGLE_pixels(const State &glState,
+                                    bool isCallValid,
+                                    TextureTarget target,
+                                    GLint level,
+                                    GLenum format,
+                                    GLenum type,
+                                    void *pixels,
+                                    angle::ParamCapture *paramCapture)
+{
+    UNIMPLEMENTED();
+}
+
+void CaptureGetRenderbufferImageANGLE_pixels(const State &glState,
+                                             bool isCallValid,
+                                             GLenum target,
+                                             GLenum format,
+                                             GLenum type,
+                                             void *pixels,
+                                             angle::ParamCapture *paramCapture)
+{
+    UNIMPLEMENTED();
+}
 }  // namespace gl

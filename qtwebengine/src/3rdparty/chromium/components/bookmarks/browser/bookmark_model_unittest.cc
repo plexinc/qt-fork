@@ -18,6 +18,7 @@
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/guid.h"
 #include "base/run_loop.h"
 #include "base/stl_util.h"
 #include "base/strings/string16.h"
@@ -25,7 +26,7 @@
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "components/bookmarks/browser/bookmark_model_observer.h"
@@ -431,12 +432,8 @@ class BookmarkModelTest : public testing::Test,
   BookmarkPermanentNode* ReloadModelWithManagedNode() {
     model_->RemoveObserver(this);
 
-    auto owned_managed_node =
-        std::make_unique<BookmarkPermanentNode>(100, BookmarkNode::FOLDER);
-    BookmarkPermanentNode* managed_node = owned_managed_node.get();
-
-    std::unique_ptr<TestBookmarkClient> client(new TestBookmarkClient);
-    client->SetManagedNodeToLoad(std::move(owned_managed_node));
+    auto client = std::make_unique<TestBookmarkClient>();
+    BookmarkPermanentNode* managed_node = client->EnableManagedNode();
 
     model_ = TestBookmarkClient::CreateModelWithClient(std::move(client));
     model_->AddObserver(this);
@@ -505,6 +502,7 @@ TEST_F(BookmarkModelTest, AddURL) {
   ASSERT_EQ(1u, root->children().size());
   ASSERT_EQ(title, new_node->GetTitle());
   ASSERT_TRUE(url == new_node->url());
+  ASSERT_TRUE(!new_node->guid().empty());
   ASSERT_EQ(BookmarkNode::URL, new_node->type());
   ASSERT_TRUE(new_node == model_->GetMostRecentlyAddedUserNodeForURL(url));
 
@@ -558,14 +556,15 @@ TEST_F(BookmarkModelTest, AddURLWithCreationTimeAndMetaInfo) {
   BookmarkNode::MetaInfoMap meta_info;
   meta_info["foo"] = "bar";
 
-  const BookmarkNode* new_node = model_->AddURLWithCreationTimeAndMetaInfo(
-      root, 0, title, url, time, &meta_info);
+  const BookmarkNode* new_node =
+      model_->AddURL(root, 0, title, url, &meta_info, time);
   AssertObserverCount(1, 0, 0, 0, 0, 0, 0, 0, 0);
   observer_details_.ExpectEquals(root, nullptr, 0, size_t{-1});
 
   ASSERT_EQ(1u, root->children().size());
   ASSERT_EQ(title, new_node->GetTitle());
   ASSERT_TRUE(url == new_node->url());
+  ASSERT_TRUE(!new_node->guid().empty());
   ASSERT_EQ(BookmarkNode::URL, new_node->type());
   ASSERT_EQ(time, new_node->date_added());
   ASSERT_TRUE(new_node->GetMetaInfoMap());
@@ -575,6 +574,20 @@ TEST_F(BookmarkModelTest, AddURLWithCreationTimeAndMetaInfo) {
   EXPECT_TRUE(new_node->id() != root->id() &&
               new_node->id() != model_->other_node()->id() &&
               new_node->id() != model_->mobile_node()->id());
+}
+
+TEST_F(BookmarkModelTest, AddURLWithGUID) {
+  const BookmarkNode* root = model_->bookmark_bar_node();
+  const base::string16 title(ASCIIToUTF16("foo"));
+  const GURL url("http://foo.com");
+  const Time time = Time::Now() - TimeDelta::FromDays(1);
+  BookmarkNode::MetaInfoMap meta_info;
+  const std::string guid = base::GenerateGUID();
+
+  const BookmarkNode* new_node =
+      model_->AddURL(root, /*index=*/0, title, url, &meta_info, time, guid);
+
+  EXPECT_EQ(guid, new_node->guid());
 }
 
 TEST_F(BookmarkModelTest, AddURLToMobileBookmarks) {
@@ -607,6 +620,7 @@ TEST_F(BookmarkModelTest, AddFolder) {
 
   ASSERT_EQ(1u, root->children().size());
   ASSERT_EQ(title, new_node->GetTitle());
+  ASSERT_TRUE(!new_node->guid().empty());
   ASSERT_EQ(BookmarkNode::FOLDER, new_node->type());
 
   EXPECT_TRUE(new_node->id() != root->id() &&
@@ -618,6 +632,18 @@ TEST_F(BookmarkModelTest, AddFolder) {
   model_->AddFolder(root, 0, title);
   AssertObserverCount(1, 0, 0, 0, 0, 0, 0, 0, 0);
   observer_details_.ExpectEquals(root, nullptr, 0, size_t{-1});
+}
+
+TEST_F(BookmarkModelTest, AddFolderWithGUID) {
+  const BookmarkNode* root = model_->bookmark_bar_node();
+  const base::string16 title(ASCIIToUTF16("foo"));
+  BookmarkNode::MetaInfoMap meta_info;
+  const std::string guid = base::GenerateGUID();
+
+  const BookmarkNode* new_node =
+      model_->AddFolder(root, /*index=*/0, title, &meta_info, guid);
+
+  EXPECT_EQ(guid, new_node->guid());
 }
 
 TEST_F(BookmarkModelTest, AddFolderWithWhitespaceTitle) {
@@ -1094,17 +1120,6 @@ TEST_F(BookmarkModelTest, NodeVisibility) {
   EXPECT_TRUE(model_->other_node()->IsVisible());
   EXPECT_FALSE(model_->mobile_node()->IsVisible());
 
-  // Visibility of permanent node can only be changed if they are not
-  // forced to be visible by the client.
-  model_->SetPermanentNodeVisible(BookmarkNode::BOOKMARK_BAR, false);
-  EXPECT_TRUE(model_->bookmark_bar_node()->IsVisible());
-  model_->SetPermanentNodeVisible(BookmarkNode::OTHER_NODE, false);
-  EXPECT_TRUE(model_->other_node()->IsVisible());
-  model_->SetPermanentNodeVisible(BookmarkNode::MOBILE, true);
-  EXPECT_TRUE(model_->mobile_node()->IsVisible());
-  model_->SetPermanentNodeVisible(BookmarkNode::MOBILE, false);
-  EXPECT_FALSE(model_->mobile_node()->IsVisible());
-
   // Arbitrary node should be visible
   TestNode bbn;
   PopulateNodeFromString("B", &bbn);
@@ -1227,7 +1242,7 @@ TEST(BookmarkModelLoadTest, TitledUrlIndexPopulatedOnLoad) {
   // Create a model with a single url.
   base::ScopedTempDir tmp_dir;
   ASSERT_TRUE(tmp_dir.CreateUniqueTempDir());
-  base::test::ScopedTaskEnvironment scoped_task_environment;
+  base::test::TaskEnvironment task_environment;
   std::unique_ptr<BookmarkModel> model =
       std::make_unique<BookmarkModel>(std::make_unique<TestBookmarkClient>());
   model->Load(nullptr, tmp_dir.GetPath(), base::ThreadTaskRunnerHandle::Get(),
@@ -1257,7 +1272,7 @@ TEST(BookmarkModelLoadTest, TitledUrlIndexPopulatedOnLoad) {
 
 TEST(BookmarkNodeTest, NodeMetaInfo) {
   GURL url;
-  BookmarkNode node(url);
+  BookmarkNode node(/*id=*/0, base::GenerateGUID(), url);
   EXPECT_FALSE(node.GetMetaInfoMap());
 
   EXPECT_TRUE(node.SetMetaInfo("key1", "value1"));

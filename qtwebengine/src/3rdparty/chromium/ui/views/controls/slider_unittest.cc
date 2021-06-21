@@ -6,6 +6,7 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 
 #include "base/i18n/rtl.h"
 #include "base/macros.h"
@@ -14,6 +15,7 @@
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/events/event.h"
 #include "ui/events/gesture_event_details.h"
 #include "ui/events/keycodes/keyboard_codes.h"
@@ -35,25 +37,17 @@ class TestSliderListener : public views::SliderListener {
   TestSliderListener();
   ~TestSliderListener() override;
 
-  int last_event_epoch() {
-    return last_event_epoch_;
-  }
+  int last_event_epoch() { return last_event_epoch_; }
 
-  int last_drag_started_epoch() {
-    return last_drag_started_epoch_;
-  }
+  int last_drag_started_epoch() { return last_drag_started_epoch_; }
 
-  int last_drag_ended_epoch() {
-    return last_drag_ended_epoch_;
-  }
+  int last_drag_ended_epoch() { return last_drag_ended_epoch_; }
 
   views::Slider* last_drag_started_sender() {
     return last_drag_started_sender_;
   }
 
-  views::Slider* last_drag_ended_sender() {
-    return last_drag_ended_sender_;
-  }
+  views::Slider* last_drag_ended_sender() { return last_drag_ended_sender_; }
 
   // Resets the state of this as if it were newly created.
   virtual void ResetCallHistory();
@@ -146,21 +140,13 @@ class SliderTest : public views::ViewsTestBase {
   ~SliderTest() override = default;
 
  protected:
-  Slider* slider() {
-    return slider_;
-  }
+  Slider* slider() { return slider_; }
 
-  TestSliderListener& slider_listener() {
-    return slider_listener_;
-  }
+  TestSliderListener& slider_listener() { return slider_listener_; }
 
-  int max_x() {
-    return max_x_;
-  }
+  int max_x() { return max_x_; }
 
-  int max_y() {
-    return max_y_;
-  }
+  int max_y() { return max_y_; }
 
   virtual void ClickAt(int x, int y);
 
@@ -168,9 +154,7 @@ class SliderTest : public views::ViewsTestBase {
   void SetUp() override;
   void TearDown() override;
 
-  ui::test::EventGenerator* event_generator() {
-    return event_generator_.get();
-  }
+  ui::test::EventGenerator* event_generator() { return event_generator_.get(); }
 
  private:
   // The Slider to be tested.
@@ -203,12 +187,12 @@ void SliderTest::SetUp() {
   max_y_ = size.height() - 1;
   default_locale_ = base::i18n::GetConfiguredLocale();
 
-  views::Widget::InitParams init_params(CreateParams(
-        views::Widget::InitParams::TYPE_WINDOW_FRAMELESS));
+  views::Widget::InitParams init_params(
+      CreateParams(views::Widget::InitParams::TYPE_WINDOW_FRAMELESS));
   init_params.bounds = gfx::Rect(size);
 
   widget_ = new views::Widget();
-  widget_->Init(init_params);
+  widget_->Init(std::move(init_params));
   widget_->SetContentsView(slider_);
   widget_->Show();
 
@@ -353,10 +337,9 @@ TEST_F(SliderTest, SliderListenerEventsForScrollGesture) {
   slider_test_api.SetListener(&slider_listener());
 
   event_generator()->GestureScrollSequence(
-    gfx::Point(0.25 * max_x(), 0.25 * max_y()),
-    gfx::Point(0.75 * max_x(), 0.75 * max_y()),
-    base::TimeDelta::FromMilliseconds(0),
-    5 /* steps */);
+      gfx::Point(0.25 * max_x(), 0.25 * max_y()),
+      gfx::Point(0.75 * max_x(), 0.75 * max_y()),
+      base::TimeDelta::FromMilliseconds(0), 5 /* steps */);
 
   EXPECT_EQ(1, slider_listener().last_drag_started_epoch());
   EXPECT_GT(slider_listener().last_drag_ended_epoch(),
@@ -373,8 +356,8 @@ TEST_F(SliderTest, SliderListenerEventsForMultiFingerScrollGesture) {
 
   gfx::Point points[] = {gfx::Point(0, 0.1 * max_y()),
                          gfx::Point(0, 0.2 * max_y())};
-  event_generator()->GestureMultiFingerScroll(2 /* count */, points,
-      0 /* event_separation_time_ms */, 5 /* steps */,
+  event_generator()->GestureMultiFingerScroll(
+      2 /* count */, points, 0 /* event_separation_time_ms */, 5 /* steps */,
       2 /* move_x */, 0 /* move_y */);
 
   EXPECT_EQ(1, slider_listener().last_drag_started_epoch());

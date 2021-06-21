@@ -30,6 +30,7 @@
 #include "third_party/blink/renderer/core/css/resolver/viewport_style_resolver.h"
 
 #include "third_party/blink/renderer/core/css/css_default_style_sheets.h"
+#include "third_party/blink/renderer/core/css/css_numeric_literal_value.h"
 #include "third_party/blink/renderer/core/css/css_primitive_value_mappings.h"
 #include "third_party/blink/renderer/core/css/css_property_value_set.h"
 #include "third_party/blink/renderer/core/css/css_style_sheet.h"
@@ -262,9 +263,12 @@ float ViewportStyleResolver::ViewportArgumentValue(CSSPropertyID id) const {
   if (primitive_value->IsNumber() || primitive_value->IsPx())
     return primitive_value->GetFloatValue();
 
-  if (primitive_value->IsFontRelativeLength()) {
-    return primitive_value->GetFloatValue() *
-           initial_style_->GetFontDescription().ComputedSize();
+  if (const auto* numeric_literal =
+          DynamicTo<CSSNumericLiteralValue>(primitive_value)) {
+    if (numeric_literal->IsFontRelativeLength()) {
+      return primitive_value->GetFloatValue() *
+             initial_style_->GetFontDescription().ComputedSize();
+    }
   }
 
   if (primitive_value->IsPercentage()) {
@@ -316,7 +320,7 @@ Length ViewportStyleResolver::ViewportLengthValue(CSSPropertyID id) {
   if (result.IsFixed() && document_->GetPage()) {
     float scaled_value =
         document_->GetPage()->GetChromeClient().WindowToViewportScalar(
-            result.GetFloatValue());
+            document_->GetFrame(), result.GetFloatValue());
     result = Length::Fixed(scaled_value);
   }
   return result;
@@ -354,13 +358,9 @@ void ViewportStyleResolver::InitialViewportChanged() {
   if (has_viewport_units_)
     needs_update_ = kResolve;
 
-  auto& results = viewport_dependent_media_query_results_;
-  for (unsigned i = 0; i < results.size(); i++) {
-    if (initial_viewport_medium_->Eval(results[i].Expression()) !=
-        results[i].Result()) {
-      needs_update_ = kCollectRules;
-      break;
-    }
+  if (initial_viewport_medium_->DidResultsChange(
+          viewport_dependent_media_query_results_)) {
+    needs_update_ = kCollectRules;
   }
   if (needs_update_ == kNoUpdate)
     return;
@@ -392,7 +392,7 @@ void ViewportStyleResolver::UpdateViewport(
   needs_update_ = kNoUpdate;
 }
 
-void ViewportStyleResolver::Trace(blink::Visitor* visitor) {
+void ViewportStyleResolver::Trace(Visitor* visitor) {
   visitor->Trace(document_);
   visitor->Trace(property_set_);
   visitor->Trace(initial_viewport_medium_);

@@ -109,6 +109,7 @@ class Compiler {
     Vulkan,        // Default to Vulkan 1.0
     OpenGL,        // Default to OpenGL 4.5
     OpenGLCompat,  // Deprecated.
+    WebGPU,
   };
 
   // Target environment versions.  These numbers match those used by Glslang.
@@ -117,6 +118,7 @@ class Compiler {
     // For Vulkan, use numbering scheme from vulkan.h
     Vulkan_1_0 = ((1 << 22)),              // Vulkan 1.0
     Vulkan_1_1 = ((1 << 22) | (1 << 12)),  // Vulkan 1.1
+    Vulkan_1_2 = ((1 << 22) | (2 << 12)),  // Vulkan 1.2
     // For OpenGL, use the numbering from #version in shaders.
     OpenGL_4_5 = 450,
   };
@@ -128,6 +130,7 @@ class Compiler {
     v1_2 = 0x010200u,
     v1_3 = 0x010300u,
     v1_4 = 0x010400u,
+    v1_5 = 0x010500u,
   };
 
   enum class OutputType {
@@ -180,7 +183,6 @@ class Compiler {
     Geometry,
     Fragment,
     Compute,
-#ifdef NV_EXTENSIONS
     RayGenNV,
     IntersectNV,
     AnyHitNV,
@@ -189,7 +191,6 @@ class Compiler {
     CallableNV,
     TaskNV,
     MeshNV,
-#endif
     StageEnd,
   };
   enum { kNumStages = int(Stage::StageEnd) };
@@ -203,7 +204,6 @@ class Compiler {
         Stage::Geometry,
         Stage::Fragment,
         Stage::Compute,
-#ifdef NV_EXTENSIONS
         Stage::RayGenNV,
         Stage::IntersectNV,
         Stage::AnyHitNV,
@@ -212,7 +212,6 @@ class Compiler {
         Stage::CallableNV,
         Stage::TaskNV,
         Stage::MeshNV,
-#endif
     }};
     return values;
   }
@@ -586,7 +585,6 @@ inline Compiler::Stage ConvertToStage(EShLanguage stage) {
       return Compiler::Stage::Fragment;
     case EShLangCompute:
       return Compiler::Stage::Compute;
-#ifdef NV_EXTENSIONS
     case EShLangRayGenNV:
       return Compiler::Stage::RayGenNV;
     case EShLangIntersectNV:
@@ -603,7 +601,6 @@ inline Compiler::Stage ConvertToStage(EShLanguage stage) {
       return Compiler::Stage::TaskNV;
     case EShLangMeshNV:
       return Compiler::Stage::MeshNV;
-#endif
     default:
       break;
   }

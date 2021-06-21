@@ -5,6 +5,7 @@
 #ifndef BASE_TASK_SEQUENCE_MANAGER_SEQUENCE_MANAGER_IMPL_H_
 #define BASE_TASK_SEQUENCE_MANAGER_SEQUENCE_MANAGER_IMPL_H_
 
+#include <deque>
 #include <list>
 #include <map>
 #include <memory>
@@ -12,7 +13,6 @@
 #include <set>
 #include <unordered_map>
 #include <utility>
-#include <vector>
 
 #include "base/atomic_sequence_num.h"
 #include "base/cancelable_callback.h"
@@ -21,9 +21,11 @@
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
-#include "base/message_loop/message_loop.h"
+#include "base/message_loop/message_loop_current.h"
+#include "base/message_loop/message_pump_type.h"
 #include "base/pending_task.h"
 #include "base/run_loop.h"
+#include "base/sequenced_task_runner.h"
 #include "base/single_thread_task_runner.h"
 #include "base/synchronization/lock.h"
 #include "base/task/common/task_annotator.h"
@@ -98,13 +100,9 @@ class BASE_EXPORT SequenceManagerImpl
   static std::unique_ptr<SequenceManagerImpl> CreateUnbound(
       SequenceManager::Settings settings);
 
-  // Create a SequenceManager that funnels it's tasks down onto |task_runner|.
-  static std::unique_ptr<SequenceManagerImpl> CreateSequenceFunneled(
-      scoped_refptr<SingleThreadTaskRunner> task_runner,
-      SequenceManager::Settings settings);
-
   // SequenceManager implementation:
   void BindToCurrentThread() override;
+  scoped_refptr<SequencedTaskRunner> GetTaskRunnerForCurrentTask() override;
   void BindToMessagePump(std::unique_ptr<MessagePump> message_pump) override;
   void SetObserver(Observer* observer) override;
   void AddTaskTimeObserver(TaskTimeObserver* task_time_observer) override;
@@ -128,16 +126,16 @@ class BASE_EXPORT SequenceManagerImpl
   std::string DescribeAllPendingTasks() const override;
   std::unique_ptr<NativeWorkHandle> OnNativeWorkPending(
       TaskQueue::QueuePriority priority) override;
+  void AddTaskObserver(TaskObserver* task_observer) override;
+  void RemoveTaskObserver(TaskObserver* task_observer) override;
 
   // SequencedTaskSource implementation:
-  Optional<Task> TakeTask() override;
+  Task* SelectNextTask() override;
   void DidRunTask() override;
   TimeDelta DelayTillNextTask(LazyNow* lazy_now) const override;
   bool HasPendingHighResolutionTasks() override;
   bool OnSystemIdle() override;
 
-  void AddTaskObserver(MessageLoop::TaskObserver* task_observer);
-  void RemoveTaskObserver(MessageLoop::TaskObserver* task_observer);
   void AddDestructionObserver(
       MessageLoopCurrent::DestructionObserver* destruction_observer);
   void RemoveDestructionObserver(
@@ -148,7 +146,7 @@ class BASE_EXPORT SequenceManagerImpl
   scoped_refptr<SingleThreadTaskRunner> GetTaskRunner();
   bool IsBoundToCurrentThread() const;
   MessagePump* GetMessagePump() const;
-  bool IsType(MessagePump::Type type) const;
+  bool IsType(MessagePumpType type) const;
   void SetAddQueueTimeToTasks(bool enable);
   void SetTaskExecutionAllowed(bool allowed);
   bool IsTaskExecutionAllowed() const;
@@ -159,7 +157,7 @@ class BASE_EXPORT SequenceManagerImpl
   void BindToCurrentThread(std::unique_ptr<MessagePump> pump);
   void DeletePendingTasks();
   bool HasTasks();
-  MessagePump::Type GetType() const;
+  MessagePumpType GetType() const;
 
   // Requests that a task to process work is scheduled.
   void ScheduleWork();
@@ -234,7 +232,8 @@ class BASE_EXPORT SequenceManagerImpl
 
   // We have to track rentrancy because we support nested runloops but the
   // selector interface is unaware of those.  This struct keeps track off all
-  // task related state needed to make pairs of TakeTask() / DidRunTask() work.
+  // task related state needed to make pairs of SelectNextTask() / DidRunTask()
+  // work.
   struct ExecutingTask {
     ExecutingTask(Task&& task,
                   internal::TaskQueueImpl* task_queue,
@@ -278,7 +277,7 @@ class BASE_EXPORT SequenceManagerImpl
     std::uniform_real_distribution<double> uniform_distribution;
 
     internal::TaskQueueSelector selector;
-    ObserverList<MessageLoop::TaskObserver>::Unchecked task_observers;
+    ObserverList<TaskObserver>::Unchecked task_observers;
     ObserverList<TaskTimeObserver>::Unchecked task_time_observers;
     std::set<TimeDomain*> time_domains;
     std::unique_ptr<internal::RealTimeDomain> real_time_domain;
@@ -310,7 +309,9 @@ class BASE_EXPORT SequenceManagerImpl
     bool nesting_observer_registered_ = false;
 
     // Due to nested runloops more than one task can be executing concurrently.
-    std::vector<ExecutingTask> task_execution_stack;
+    // Note that this uses std::deque for pointer stability, since pointers to
+    // objects in this container are stored in TLS.
+    std::deque<ExecutingTask> task_execution_stack;
 
     Observer* observer = nullptr;  // NOT OWNED
 
@@ -350,6 +351,9 @@ class BASE_EXPORT SequenceManagerImpl
   std::unique_ptr<trace_event::ConvertableToTraceFormat>
   AsValueWithSelectorResult(internal::WorkQueue* selected_work_queue,
                             bool force_verbose) const;
+  void AsValueWithSelectorResultInto(trace_event::TracedValue*,
+                                     internal::WorkQueue* selected_work_queue,
+                                     bool force_verbose) const;
 
   // Used in construction of TaskQueueImpl to obtain an AtomicFlag which it can
   // use to request reload by ReloadEmptyWorkQueues. The lifetime of
@@ -381,8 +385,8 @@ class BASE_EXPORT SequenceManagerImpl
   void RecordCrashKeys(const PendingTask&);
 
   // Helper to terminate all scoped trace events to allow starting new ones
-  // in TakeTask().
-  Optional<Task> TakeTaskImpl();
+  // in SelectNextTask().
+  Task* SelectNextTaskImpl();
 
   // Check if a task of priority |priority| should run given the pending set of
   // native work.
@@ -392,7 +396,7 @@ class BASE_EXPORT SequenceManagerImpl
   TimeDelta GetDelayTillNextDelayedTask(LazyNow* lazy_now) const;
 
 #if DCHECK_IS_ON()
-  void LogTaskDebugInfo(const ExecutingTask& executing_task);
+  void LogTaskDebugInfo(const internal::WorkQueue* work_queue) const;
 #endif
 
   // Determines if wall time or thread time should be recorded for the next

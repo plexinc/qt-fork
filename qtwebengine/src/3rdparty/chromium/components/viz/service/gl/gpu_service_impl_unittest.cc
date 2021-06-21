@@ -18,7 +18,7 @@
 #include "gpu/ipc/service/gpu_watchdog_thread.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/remote.h"
-#include "services/viz/public/interfaces/gpu.mojom.h"
+#include "services/viz/public/mojom/gpu.mojom.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/gl/init/gl_factory.h"
@@ -73,6 +73,7 @@ class GpuServiceTest : public testing::Test {
         gpu_info, /*watchdog_thread=*/nullptr, io_thread_.task_runner(),
         gpu::GpuFeatureInfo(), gpu::GpuPreferences(), gpu::GPUInfo(),
         gpu::GpuFeatureInfo(), gpu::GpuExtraInfo(),
+        /*device_perf_info=*/base::nullopt,
         /*vulkan_implementation=*/nullptr,
         /*exit_callback=*/base::DoNothing());
   }

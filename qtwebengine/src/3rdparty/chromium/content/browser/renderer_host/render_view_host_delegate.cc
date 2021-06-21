@@ -37,7 +37,7 @@ FrameTree* RenderViewHostDelegate::GetFrameTree() {
   return nullptr;
 }
 
-bool RenderViewHostDelegate::IsNeverVisible() {
+bool RenderViewHostDelegate::IsNeverComposited() {
   return false;
 }
 
@@ -65,7 +65,7 @@ bool RenderViewHostDelegate::IsSpatialNavigationDisabled() const {
   return false;
 }
 
-RenderFrameHost* RenderViewHostDelegate::GetPendingMainFrame() {
+RenderFrameHostImpl* RenderViewHostDelegate::GetPendingMainFrame() {
   return nullptr;
 }
 

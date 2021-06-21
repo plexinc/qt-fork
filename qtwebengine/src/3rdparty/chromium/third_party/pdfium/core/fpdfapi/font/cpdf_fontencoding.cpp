@@ -1655,10 +1655,6 @@ uint32_t PDF_FindCode(const uint16_t* pCodes, uint16_t unicode) {
 
 }  // namespace
 
-CPDF_FontEncoding::CPDF_FontEncoding() {
-  memset(m_Unicodes, 0, sizeof(m_Unicodes));
-}
-
 int CPDF_FontEncoding::CharCodeFromUnicode(wchar_t unicode) const {
   for (size_t i = 0; i < FX_ArraySize(m_Unicodes); i++) {
     if (m_Unicodes[i] == unicode)
@@ -1669,11 +1665,11 @@ int CPDF_FontEncoding::CharCodeFromUnicode(wchar_t unicode) const {
 
 CPDF_FontEncoding::CPDF_FontEncoding(int PredefinedEncoding) {
   const uint16_t* pSrc = PDF_UnicodesForPredefinedCharSet(PredefinedEncoding);
-  if (!pSrc) {
-    memset(m_Unicodes, 0, sizeof(m_Unicodes));
-  } else {
+  if (pSrc) {
     for (size_t i = 0; i < FX_ArraySize(m_Unicodes); i++)
       m_Unicodes[i] = pSrc[i];
+  } else {
+    memset(m_Unicodes, 0, sizeof(m_Unicodes));
   }
 }
 
@@ -1719,8 +1715,8 @@ RetainPtr<CPDF_Object> CPDF_FontEncoding::Realize(
     if (pStandard[i] == m_Unicodes[i])
       continue;
 
-    pDiff->AddNew<CPDF_Number>(static_cast<int>(i));
-    pDiff->AddNew<CPDF_Name>(PDF_AdobeNameFromUnicode(m_Unicodes[i]));
+    pDiff->AppendNew<CPDF_Number>(static_cast<int>(i));
+    pDiff->AppendNew<CPDF_Name>(PDF_AdobeNameFromUnicode(m_Unicodes[i]));
   }
 
   auto pDict = pdfium::MakeRetain<CPDF_Dictionary>(pPool);

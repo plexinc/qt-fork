@@ -39,18 +39,18 @@ source_set("video") {
     "video_decode_accelerator.h",
     "video_encode_accelerator.cc",
     "video_encode_accelerator.h",
+    "video_encoder_info.cc",
+    "video_encoder_info.h",
   ]
 
-  if (proprietary_codecs && enable_hevc_demuxing) {
+  if (proprietary_codecs && enable_platform_hevc) {
     sources += [
       "h265_parser.cc",
       "h265_parser.h",
     ]
   }
 
-  public_deps = [
-    "//gpu/command_buffer/client:gles2_interface",
-  ]
+  public_deps = [ "//gpu/command_buffer/client:gles2_interface" ]
 
   deps = [
     "//gpu/command_buffer/client",
@@ -74,6 +74,8 @@ static_library("test_support") {
   visibility = [ "//media:test_support" ]
   testonly = true
   sources = [
+    "fake_gpu_memory_buffer.cc",
+    "fake_gpu_memory_buffer.h",
     "fake_video_encode_accelerator.cc",
     "fake_video_encode_accelerator.h",
     "mock_gpu_memory_buffer_video_frame_pool.cc",
@@ -107,7 +109,7 @@ source_set("unit_tests") {
     "half_float_maker_unittest.cc",
     "supported_video_decoder_config_unittest.cc",
   ]
-  if (enable_hevc_demuxing) {
+  if (enable_platform_hevc) {
     sources += [ "h265_parser_unittest.cc" ]
   }
 
@@ -127,9 +129,7 @@ source_set("unit_tests") {
 }
 
 fuzzer_test("media_h264_parser_fuzzer") {
-  sources = [
-    "h264_parser_fuzzertest.cc",
-  ]
+  sources = [ "h264_parser_fuzzertest.cc" ]
   deps = [
     "//base",
     "//media",

@@ -15,7 +15,7 @@ namespace autofill_assistant {
 
 UploadDomAction::UploadDomAction(ActionDelegate* delegate,
                                  const ActionProto& proto)
-    : Action(delegate, proto), weak_ptr_factory_(this) {
+    : Action(delegate, proto) {
   DCHECK(proto_.has_upload_dom());
 }
 
@@ -24,7 +24,7 @@ UploadDomAction::~UploadDomAction() {}
 void UploadDomAction::InternalProcessAction(ProcessActionCallback callback) {
   Selector selector = Selector(proto_.upload_dom().tree_root());
   if (selector.empty()) {
-    DVLOG(1) << __func__ << ": empty selector";
+    VLOG(1) << __func__ << ": empty selector";
     UpdateProcessedAction(INVALID_SELECTOR);
     return;
   }
@@ -36,9 +36,9 @@ void UploadDomAction::InternalProcessAction(ProcessActionCallback callback) {
 
 void UploadDomAction::OnWaitForElement(ProcessActionCallback callback,
                                        const Selector& selector,
-                                       bool element_found) {
-  if (!element_found) {
-    UpdateProcessedAction(ELEMENT_RESOLUTION_FAILED);
+                                       const ClientStatus& element_status) {
+  if (!element_status.ok()) {
+    UpdateProcessedAction(element_status.proto_status());
     std::move(callback).Run(std::move(processed_action_proto_));
     return;
   }

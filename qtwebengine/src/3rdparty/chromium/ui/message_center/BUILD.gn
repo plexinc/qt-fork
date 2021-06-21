@@ -32,9 +32,7 @@ jumbo_component("message_center") {
     "//url",
   ]
 
-  public_deps = [
-    "//ui/message_center/public/cpp",
-  ]
+  public_deps = [ "//ui/message_center/public/cpp" ]
 
   defines = [ "MESSAGE_CENTER_IMPLEMENTATION" ]
 
@@ -92,8 +90,8 @@ jumbo_component("message_center") {
 
     if (toolkit_views) {
       sources += [
-        "views/desktop_popup_alignment_delegate.cc",
-        "views/desktop_popup_alignment_delegate.h",
+        "views/desktop_message_popup_collection.cc",
+        "views/desktop_message_popup_collection.h",
         "views/message_popup_collection.cc",
         "views/message_popup_collection.h",
         "views/message_popup_view.cc",
@@ -105,8 +103,6 @@ jumbo_component("message_center") {
         "views/message_view_factory.h",
         "views/notification_background_painter.cc",
         "views/notification_background_painter.h",
-        "views/notification_button.cc",
-        "views/notification_button.h",
         "views/notification_control_buttons_view.cc",
         "views/notification_control_buttons_view.h",
         "views/notification_header_view.cc",
@@ -115,26 +111,23 @@ jumbo_component("message_center") {
         "views/notification_view_md.h",
         "views/padded_button.cc",
         "views/padded_button.h",
-        "views/popup_alignment_delegate.cc",
-        "views/popup_alignment_delegate.h",
         "views/proportional_image_view.cc",
         "views/proportional_image_view.h",
         "views/relative_time_formatter.cc",
         "views/relative_time_formatter.h",
-        "views/slide_out_controller.cc",
-        "views/slide_out_controller.h",
       ]
       deps += [
         "//ui/compositor",
         "//ui/events",
         "//ui/views",
       ]
+      if (is_mac) {
+        libs = [ "Foundation.framework" ]
+      }
     }
   } else {
     # Notification service disabled.
-    sources = [
-      "dummy_message_center.cc",
-    ]
+    sources = [ "dummy_message_center.cc" ]
   }
 }
 
@@ -206,7 +199,6 @@ if (enable_message_center) {
         "views/notification_header_view_unittest.cc",
         "views/notification_view_md_unittest.cc",
         "views/relative_time_formatter_unittest.cc",
-        "views/slide_out_controller_unittest.cc",
       ]
       deps += [
         "//ui/display",

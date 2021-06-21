@@ -18,17 +18,26 @@
 #include "base/strings/string_util.h"
 #include "base/test/bind_test_util.h"
 #include "base/test/scoped_feature_list.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "net/base/escape.h"
+#include "net/base/ip_address.h"
+#include "net/base/ip_endpoint.h"
 #include "net/base/mock_network_change_notifier.h"
 #include "net/base/url_util.h"
+#include "net/dns/dns_client.h"
+#include "net/dns/dns_config.h"
 #include "net/dns/dns_config_service.h"
+#include "net/dns/dns_test_util.h"
 #include "net/dns/host_resolver.h"
 #include "net/dns/host_resolver_manager.h"
+#include "net/dns/public/dns_over_https_server_config.h"
+#include "net/dns/public/dns_protocol.h"
 #include "net/http/http_auth_handler_factory.h"
 #include "net/http/http_auth_scheme.h"
+#include "net/http/http_network_session.h"
+#include "net/http/http_transaction_factory.h"
 #include "net/net_buildflags.h"
 #include "net/proxy_resolution/proxy_config.h"
 #include "net/socket/client_socket_pool_manager.h"
@@ -49,7 +58,6 @@
 #include "services/network/test/test_network_context_client.h"
 #include "services/network/test/test_network_service_client.h"
 #include "services/network/test/test_url_loader_client.h"
-#include "services/service_manager/public/cpp/test/test_connector_factory.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
 
@@ -60,8 +68,6 @@
 namespace network {
 
 namespace {
-
-const char kNetworkServiceName[] = "network";
 
 const base::FilePath::CharType kServicesTestData[] =
     FILE_PATH_LITERAL("services/test/data");
@@ -84,26 +90,30 @@ mojom::NetworkContextParamsPtr CreateContextParams() {
 
 class NetworkServiceTest : public testing::Test {
  public:
-  NetworkServiceTest()
-      : scoped_task_environment_(
-            base::test::ScopedTaskEnvironment::MainThreadType::IO),
+  explicit NetworkServiceTest(
+      base::test::TaskEnvironment::TimeSource time_source =
+          base::test::TaskEnvironment::TimeSource::MOCK_TIME)
+      : task_environment_(base::test::TaskEnvironment::MainThreadType::IO,
+                          time_source),
         service_(NetworkService::CreateForTesting()) {}
   ~NetworkServiceTest() override {}
+
+  base::test::TaskEnvironment* task_environment() { return &task_environment_; }
 
   NetworkService* service() const { return service_.get(); }
 
   void DestroyService() { service_.reset(); }
 
  private:
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::TaskEnvironment task_environment_;
   std::unique_ptr<NetworkService> service_;
 };
 
 // Test shutdown in the case a NetworkContext is destroyed before the
 // NetworkService.
 TEST_F(NetworkServiceTest, CreateAndDestroyContext) {
-  mojom::NetworkContextPtr network_context;
-  service()->CreateNetworkContext(mojo::MakeRequest(&network_context),
+  mojo::Remote<mojom::NetworkContext> network_context;
+  service()->CreateNetworkContext(network_context.BindNewPipeAndPassReceiver(),
                                   CreateContextParams());
   network_context.reset();
   // Make sure the NetworkContext is destroyed.
@@ -114,11 +124,11 @@ TEST_F(NetworkServiceTest, CreateAndDestroyContext) {
 // NetworkService is destroyed. The service should destroy the NetworkContext
 // itself.
 TEST_F(NetworkServiceTest, DestroyingServiceDestroysContext) {
-  mojom::NetworkContextPtr network_context;
-  service()->CreateNetworkContext(mojo::MakeRequest(&network_context),
+  mojo::Remote<mojom::NetworkContext> network_context;
+  service()->CreateNetworkContext(network_context.BindNewPipeAndPassReceiver(),
                                   CreateContextParams());
   base::RunLoop run_loop;
-  network_context.set_connection_error_handler(run_loop.QuitClosure());
+  network_context.set_disconnect_handler(run_loop.QuitClosure());
   DestroyService();
 
   // Destroying the service should destroy the context, causing a connection
@@ -130,8 +140,8 @@ TEST_F(NetworkServiceTest, CreateContextWithoutChannelID) {
   mojom::NetworkContextParamsPtr params = CreateContextParams();
   params->cookie_path = base::FilePath();
   params->enable_encrypted_cookies = false;
-  mojom::NetworkContextPtr network_context;
-  service()->CreateNetworkContext(mojo::MakeRequest(&network_context),
+  mojo::Remote<mojom::NetworkContext> network_context;
+  service()->CreateNetworkContext(network_context.BindNewPipeAndPassReceiver(),
                                   std::move(params));
   network_context.reset();
   // Make sure the NetworkContext is destroyed.
@@ -153,10 +163,10 @@ net::HttpAuthHandlerNegotiate::Factory* GetNegotiateFactory(
 #endif  // BUILDFLAG(USE_KERBEROS)
 
 TEST_F(NetworkServiceTest, AuthDefaultParams) {
-  mojom::NetworkContextPtr network_context_ptr;
-  NetworkContext network_context(service(),
-                                 mojo::MakeRequest(&network_context_ptr),
-                                 CreateContextParams());
+  mojo::Remote<mojom::NetworkContext> network_context_remote;
+  NetworkContext network_context(
+      service(), network_context_remote.BindNewPipeAndPassReceiver(),
+      CreateContextParams());
   net::HttpAuthHandlerRegistryFactory* auth_handler_factory =
       reinterpret_cast<net::HttpAuthHandlerRegistryFactory*>(
           network_context.url_request_context()->http_auth_handler_factory());
@@ -196,10 +206,10 @@ TEST_F(NetworkServiceTest, AuthSchemesDigestAndNtlmOnly) {
   auth_params->supported_schemes.push_back("ntlm");
   service()->SetUpHttpAuth(std::move(auth_params));
 
-  mojom::NetworkContextPtr network_context_ptr;
-  NetworkContext network_context(service(),
-                                 mojo::MakeRequest(&network_context_ptr),
-                                 CreateContextParams());
+  mojo::Remote<mojom::NetworkContext> network_context_remote;
+  NetworkContext network_context(
+      service(), network_context_remote.BindNewPipeAndPassReceiver(),
+      CreateContextParams());
   net::HttpAuthHandlerRegistryFactory* auth_handler_factory =
       reinterpret_cast<net::HttpAuthHandlerRegistryFactory*>(
           network_context.url_request_context()->http_auth_handler_factory());
@@ -216,10 +226,10 @@ TEST_F(NetworkServiceTest, AuthSchemesNone) {
   // An empty list means to support no schemes.
   service()->SetUpHttpAuth(mojom::HttpAuthStaticParams::New());
 
-  mojom::NetworkContextPtr network_context_ptr;
-  NetworkContext network_context(service(),
-                                 mojo::MakeRequest(&network_context_ptr),
-                                 CreateContextParams());
+  mojo::Remote<mojom::NetworkContext> network_context_remote;
+  NetworkContext network_context(
+      service(), network_context_remote.BindNewPipeAndPassReceiver(),
+      CreateContextParams());
   net::HttpAuthHandlerRegistryFactory* auth_handler_factory =
       reinterpret_cast<net::HttpAuthHandlerRegistryFactory*>(
           network_context.url_request_context()->http_auth_handler_factory());
@@ -239,28 +249,28 @@ TEST_F(NetworkServiceTest, AuthGssapiLibraryName) {
   auth_params->gssapi_library_name = kGssapiLibraryName;
   service()->SetUpHttpAuth(std::move(auth_params));
 
-  mojom::NetworkContextPtr network_context_ptr;
-  NetworkContext network_context(service(),
-                                 mojo::MakeRequest(&network_context_ptr),
-                                 CreateContextParams());
+  mojo::Remote<mojom::NetworkContext> network_context_remote;
+  NetworkContext network_context(
+      service(), network_context_remote.BindNewPipeAndPassReceiver(),
+      CreateContextParams());
   ASSERT_TRUE(GetNegotiateFactory(&network_context));
   EXPECT_EQ(kGssapiLibraryName,
             GetNegotiateFactory(&network_context)->GetLibraryNameForTesting());
 }
 #endif  // BUILDFLAG(USE_EXTERNAL_GSSAPI)
 
-TEST_F(NetworkServiceTest, AuthServerWhitelist) {
-  // Add one server to the whitelist before creating any NetworkContexts.
+TEST_F(NetworkServiceTest, AuthServerAllowlist) {
+  // Add one server to the allowlist before creating any NetworkContexts.
   mojom::HttpAuthDynamicParamsPtr auth_params =
       mojom::HttpAuthDynamicParams::New();
-  auth_params->server_whitelist = "server1";
+  auth_params->server_allowlist = "server1";
   service()->ConfigureHttpAuthPrefs(std::move(auth_params));
 
-  // Create a network context, which should reflect the whitelist.
-  mojom::NetworkContextPtr network_context_ptr;
-  NetworkContext network_context(service(),
-                                 mojo::MakeRequest(&network_context_ptr),
-                                 CreateContextParams());
+  // Create a network context, which should reflect the allowlist.
+  mojo::Remote<mojom::NetworkContext> network_context_remote;
+  NetworkContext network_context(
+      service(), network_context_remote.BindNewPipeAndPassReceiver(),
+      CreateContextParams());
   net::HttpAuthHandlerFactory* auth_handler_factory =
       network_context.url_request_context()->http_auth_handler_factory();
   ASSERT_TRUE(auth_handler_factory);
@@ -272,10 +282,10 @@ TEST_F(NetworkServiceTest, AuthServerWhitelist) {
       auth_handler_factory->http_auth_preferences()->CanUseDefaultCredentials(
           GURL("https://server2/")));
 
-  // Change whitelist to only have a different server on it. The pre-existing
+  // Change allowlist to only have a different server on it. The pre-existing
   // NetworkContext should be using the new list.
   auth_params = mojom::HttpAuthDynamicParams::New();
-  auth_params->server_whitelist = "server2";
+  auth_params->server_allowlist = "server2";
   service()->ConfigureHttpAuthPrefs(std::move(auth_params));
   EXPECT_FALSE(
       auth_handler_factory->http_auth_preferences()->CanUseDefaultCredentials(
@@ -284,10 +294,10 @@ TEST_F(NetworkServiceTest, AuthServerWhitelist) {
       auth_handler_factory->http_auth_preferences()->CanUseDefaultCredentials(
           GURL("https://server2/")));
 
-  // Change whitelist to have multiple servers. The pre-existing NetworkContext
+  // Change allowlist to have multiple servers. The pre-existing NetworkContext
   // should be using the new list.
   auth_params = mojom::HttpAuthDynamicParams::New();
-  auth_params->server_whitelist = "server1,server2";
+  auth_params->server_allowlist = "server1,server2";
   service()->ConfigureHttpAuthPrefs(std::move(auth_params));
   EXPECT_TRUE(
       auth_handler_factory->http_auth_preferences()->CanUseDefaultCredentials(
@@ -297,20 +307,20 @@ TEST_F(NetworkServiceTest, AuthServerWhitelist) {
           GURL("https://server2/")));
 }
 
-TEST_F(NetworkServiceTest, AuthDelegateWhitelist) {
+TEST_F(NetworkServiceTest, AuthDelegateAllowlist) {
   using DelegationType = net::HttpAuth::DelegationType;
 
-  // Add one server to the whitelist before creating any NetworkContexts.
+  // Add one server to the allowlist before creating any NetworkContexts.
   mojom::HttpAuthDynamicParamsPtr auth_params =
       mojom::HttpAuthDynamicParams::New();
-  auth_params->delegate_whitelist = "server1";
+  auth_params->delegate_allowlist = "server1";
   service()->ConfigureHttpAuthPrefs(std::move(auth_params));
 
-  // Create a network context, which should reflect the whitelist.
-  mojom::NetworkContextPtr network_context_ptr;
-  NetworkContext network_context(service(),
-                                 mojo::MakeRequest(&network_context_ptr),
-                                 CreateContextParams());
+  // Create a network context, which should reflect the allowlist.
+  mojo::Remote<mojom::NetworkContext> network_context_remote;
+  NetworkContext network_context(
+      service(), network_context_remote.BindNewPipeAndPassReceiver(),
+      CreateContextParams());
   net::HttpAuthHandlerFactory* auth_handler_factory =
       network_context.url_request_context()->http_auth_handler_factory();
   ASSERT_TRUE(auth_handler_factory);
@@ -322,20 +332,20 @@ TEST_F(NetworkServiceTest, AuthDelegateWhitelist) {
   EXPECT_EQ(DelegationType::kNone,
             auth_prefs->GetDelegationType(GURL("https://server2/")));
 
-  // Change whitelist to only have a different server on it. The pre-existing
+  // Change allowlist to only have a different server on it. The pre-existing
   // NetworkContext should be using the new list.
   auth_params = mojom::HttpAuthDynamicParams::New();
-  auth_params->delegate_whitelist = "server2";
+  auth_params->delegate_allowlist = "server2";
   service()->ConfigureHttpAuthPrefs(std::move(auth_params));
   EXPECT_EQ(DelegationType::kNone,
             auth_prefs->GetDelegationType(GURL("https://server1/")));
   EXPECT_EQ(DelegationType::kUnconstrained,
             auth_prefs->GetDelegationType(GURL("https://server2/")));
 
-  // Change whitelist to have multiple servers. The pre-existing NetworkContext
+  // Change allowlist to have multiple servers. The pre-existing NetworkContext
   // should be using the new list.
   auth_params = mojom::HttpAuthDynamicParams::New();
-  auth_params->delegate_whitelist = "server1,server2";
+  auth_params->delegate_allowlist = "server1,server2";
   service()->ConfigureHttpAuthPrefs(std::move(auth_params));
   EXPECT_EQ(DelegationType::kUnconstrained,
             auth_prefs->GetDelegationType(GURL("https://server1/")));
@@ -345,10 +355,10 @@ TEST_F(NetworkServiceTest, AuthDelegateWhitelist) {
 
 TEST_F(NetworkServiceTest, DelegateByKdcPolicy) {
   // Create a network context, which should use default value.
-  mojom::NetworkContextPtr network_context_ptr;
-  NetworkContext network_context(service(),
-                                 mojo::MakeRequest(&network_context_ptr),
-                                 CreateContextParams());
+  mojo::Remote<mojom::NetworkContext> network_context_remote;
+  NetworkContext network_context(
+      service(), network_context_remote.BindNewPipeAndPassReceiver(),
+      CreateContextParams());
   net::HttpAuthHandlerFactory* auth_handler_factory =
       network_context.url_request_context()->http_auth_handler_factory();
   ASSERT_TRUE(auth_handler_factory);
@@ -356,7 +366,7 @@ TEST_F(NetworkServiceTest, DelegateByKdcPolicy) {
   EXPECT_FALSE(
       auth_handler_factory->http_auth_preferences()->delegate_by_kdc_policy());
 
-  // Change whitelist to only have a different server on it. The pre-existing
+  // Change allowlist to only have a different server on it. The pre-existing
   // NetworkContext should be using the new list.
   mojom::HttpAuthDynamicParamsPtr auth_params =
       mojom::HttpAuthDynamicParams::New();
@@ -375,10 +385,10 @@ TEST_F(NetworkServiceTest, AuthNegotiateCnameLookup) {
   service()->ConfigureHttpAuthPrefs(std::move(auth_params));
 
   // Create a network context, which should reflect the setting.
-  mojom::NetworkContextPtr network_context_ptr;
-  NetworkContext network_context(service(),
-                                 mojo::MakeRequest(&network_context_ptr),
-                                 CreateContextParams());
+  mojo::Remote<mojom::NetworkContext> network_context_remote;
+  NetworkContext network_context(
+      service(), network_context_remote.BindNewPipeAndPassReceiver(),
+      CreateContextParams());
   net::HttpAuthHandlerFactory* auth_handler_factory =
       network_context.url_request_context()->http_auth_handler_factory();
   ASSERT_TRUE(auth_handler_factory);
@@ -411,10 +421,10 @@ TEST_F(NetworkServiceTest, AuthEnableNegotiatePort) {
   service()->ConfigureHttpAuthPrefs(std::move(auth_params));
 
   // Create a network context, which should reflect the setting.
-  mojom::NetworkContextPtr network_context_ptr;
-  NetworkContext network_context(service(),
-                                 mojo::MakeRequest(&network_context_ptr),
-                                 CreateContextParams());
+  mojo::Remote<mojom::NetworkContext> network_context_remote;
+  NetworkContext network_context(
+      service(), network_context_remote.BindNewPipeAndPassReceiver(),
+      CreateContextParams());
   net::HttpAuthHandlerFactory* auth_handler_factory =
       network_context.url_request_context()->http_auth_handler_factory();
   ASSERT_TRUE(auth_handler_factory);
@@ -443,17 +453,52 @@ TEST_F(NetworkServiceTest, AuthEnableNegotiatePort) {
 #if !defined(OS_IOS)
 
 TEST_F(NetworkServiceTest, DnsClientEnableDisable) {
-  // HostResolver::GetDnsConfigAsValue() returns nullptr if the stub resolver is
-  // disabled.
-  EXPECT_FALSE(service()->host_resolver_manager()->GetDnsConfigAsValue());
+  // Create valid DnsConfig.
+  net::DnsConfig config;
+  config.nameservers.push_back(net::IPEndPoint());
+  auto dns_client = std::make_unique<net::MockDnsClient>(
+      std::move(config), net::MockDnsClientRuleList());
+  dns_client->set_ignore_system_config_changes(true);
+  net::DnsClient* dns_client_ptr = dns_client.get();
+  service()->host_resolver_manager()->SetDnsClientForTesting(
+      std::move(dns_client));
+
   service()->ConfigureStubHostResolver(
-      true /* stub_resolver_enabled */,
+      true /* insecure_dns_client_enabled */,
+      net::DnsConfig::SecureDnsMode::OFF,
       base::nullopt /* dns_over_https_servers */);
-  EXPECT_TRUE(service()->host_resolver_manager()->GetDnsConfigAsValue());
+  EXPECT_TRUE(dns_client_ptr->CanUseInsecureDnsTransactions());
+  EXPECT_EQ(net::DnsConfig::SecureDnsMode::OFF,
+            dns_client_ptr->GetEffectiveConfig()->secure_dns_mode);
+
   service()->ConfigureStubHostResolver(
-      false /* stub_resolver_enabled */,
+      false /* insecure_dns_client_enabled */,
+      net::DnsConfig::SecureDnsMode::OFF,
       base::nullopt /* dns_over_https_servers */);
-  EXPECT_FALSE(service()->host_resolver_manager()->GetDnsConfigAsValue());
+  EXPECT_FALSE(dns_client_ptr->CanUseInsecureDnsTransactions());
+  EXPECT_EQ(net::DnsConfig::SecureDnsMode::OFF,
+            dns_client_ptr->GetEffectiveConfig()->secure_dns_mode);
+
+  service()->ConfigureStubHostResolver(
+      false /* insecure_dns_client_enabled */,
+      net::DnsConfig::SecureDnsMode::AUTOMATIC,
+      base::nullopt /* dns_over_https_servers */);
+  EXPECT_FALSE(dns_client_ptr->CanUseInsecureDnsTransactions());
+  EXPECT_EQ(net::DnsConfig::SecureDnsMode::AUTOMATIC,
+            dns_client_ptr->GetEffectiveConfig()->secure_dns_mode);
+
+  std::vector<mojom::DnsOverHttpsServerPtr> dns_over_https_servers_ptr;
+  mojom::DnsOverHttpsServerPtr dns_over_https_server =
+      mojom::DnsOverHttpsServer::New();
+  dns_over_https_server->server_template = "https://foo/";
+  dns_over_https_server->use_post = true;
+  dns_over_https_servers_ptr.emplace_back(std::move(dns_over_https_server));
+  service()->ConfigureStubHostResolver(false /* insecure_dns_client_enabled */,
+                                       net::DnsConfig::SecureDnsMode::AUTOMATIC,
+                                       std::move(dns_over_https_servers_ptr));
+  EXPECT_FALSE(dns_client_ptr->CanUseInsecureDnsTransactions());
+  EXPECT_EQ(net::DnsConfig::SecureDnsMode::AUTOMATIC,
+            dns_client_ptr->GetEffectiveConfig()->secure_dns_mode);
 }
 
 TEST_F(NetworkServiceTest, DnsOverHttpsEnableDisable) {
@@ -464,16 +509,15 @@ TEST_F(NetworkServiceTest, DnsOverHttpsEnableDisable) {
   const std::string kServer3 = "https://grapefruit/resolver/query{?dns}";
   const bool kServer3UsePost = false;
 
-  // HostResolver::GetDnsClientForTesting() returns nullptr if the stub resolver
-  // is disabled.
-  EXPECT_FALSE(service()->host_resolver_manager()->GetDnsConfigAsValue());
-
-  // Create the primary NetworkContext before enabling DNS over HTTPS.
-  mojom::NetworkContextPtr network_context;
-  mojom::NetworkContextParamsPtr context_params = CreateContextParams();
-  context_params->primary_network_context = true;
-  service()->CreateNetworkContext(mojo::MakeRequest(&network_context),
-                                  std::move(context_params));
+  // Create valid DnsConfig.
+  net::DnsConfig config;
+  config.nameservers.push_back(net::IPEndPoint());
+  auto dns_client = std::make_unique<net::MockDnsClient>(
+      std::move(config), net::MockDnsClientRuleList());
+  dns_client->set_ignore_system_config_changes(true);
+  net::MockDnsClient* dns_client_ptr = dns_client.get();
+  service()->host_resolver_manager()->SetDnsClientForTesting(
+      std::move(dns_client));
 
   // Enable DNS over HTTPS for one server.
 
@@ -485,15 +529,15 @@ TEST_F(NetworkServiceTest, DnsOverHttpsEnableDisable) {
   dns_over_https_server->use_post = kServer1UsePost;
   dns_over_https_servers_ptr.emplace_back(std::move(dns_over_https_server));
 
-  service()->ConfigureStubHostResolver(true /* stub_resolver_enabled */,
+  service()->ConfigureStubHostResolver(false /* insecure_dns_client_enabled */,
+                                       net::DnsConfig::SecureDnsMode::AUTOMATIC,
                                        std::move(dns_over_https_servers_ptr));
   EXPECT_TRUE(service()->host_resolver_manager()->GetDnsConfigAsValue());
-  const auto* dns_over_https_servers =
-      service()->host_resolver_manager()->GetDnsOverHttpsServersForTesting();
-  ASSERT_TRUE(dns_over_https_servers);
-  ASSERT_EQ(1u, dns_over_https_servers->size());
-  EXPECT_EQ(kServer1, (*dns_over_https_servers)[0].server_template);
-  EXPECT_EQ(kServer1UsePost, (*dns_over_https_servers)[0].use_post);
+  std::vector<net::DnsOverHttpsServerConfig> dns_over_https_servers =
+      dns_client_ptr->GetEffectiveConfig()->dns_over_https_servers;
+  ASSERT_EQ(1u, dns_over_https_servers.size());
+  EXPECT_EQ(kServer1, dns_over_https_servers[0].server_template);
+  EXPECT_EQ(kServer1UsePost, dns_over_https_servers[0].use_post);
 
   // Enable DNS over HTTPS for two servers.
 
@@ -508,26 +552,258 @@ TEST_F(NetworkServiceTest, DnsOverHttpsEnableDisable) {
   dns_over_https_server->use_post = kServer3UsePost;
   dns_over_https_servers_ptr.emplace_back(std::move(dns_over_https_server));
 
-  service()->ConfigureStubHostResolver(true /* stub_resolver_enabled */,
+  service()->ConfigureStubHostResolver(true /* insecure_dns_client_enabled */,
+                                       net::DnsConfig::SecureDnsMode::SECURE,
                                        std::move(dns_over_https_servers_ptr));
   EXPECT_TRUE(service()->host_resolver_manager()->GetDnsConfigAsValue());
   dns_over_https_servers =
-      service()->host_resolver_manager()->GetDnsOverHttpsServersForTesting();
-  ASSERT_TRUE(dns_over_https_servers);
-  ASSERT_EQ(2u, dns_over_https_servers->size());
-  EXPECT_EQ(kServer2, (*dns_over_https_servers)[0].server_template);
-  EXPECT_EQ(kServer2UsePost, (*dns_over_https_servers)[0].use_post);
-  EXPECT_EQ(kServer3, (*dns_over_https_servers)[1].server_template);
-  EXPECT_EQ(kServer3UsePost, (*dns_over_https_servers)[1].use_post);
+      dns_client_ptr->GetEffectiveConfig()->dns_over_https_servers;
+  ASSERT_EQ(2u, dns_over_https_servers.size());
+  EXPECT_EQ(kServer2, dns_over_https_servers[0].server_template);
+  EXPECT_EQ(kServer2UsePost, dns_over_https_servers[0].use_post);
+  EXPECT_EQ(kServer3, dns_over_https_servers[1].server_template);
+  EXPECT_EQ(kServer3UsePost, dns_over_https_servers[1].use_post);
+}
 
-  // Destroying the primary NetworkContext should disable DNS over HTTPS.
+TEST_F(NetworkServiceTest, DisableDohUpgradeProviders) {
+  base::test::ScopedFeatureList scoped_features;
+  scoped_features.InitAndEnableFeatureWithParameters(
+      features::kDnsOverHttpsUpgrade,
+      {{"DisabledProviders", "CleanBrowsingSecure, , Cloudflare,Unexpected"}});
+  service()->ConfigureStubHostResolver(
+      true /* insecure_dns_client_enabled */,
+      net::DnsConfig::SecureDnsMode::AUTOMATIC,
+      base::nullopt /* dns_over_https_servers */);
+
+  // Set valid DnsConfig.
+  net::DnsConfig config;
+  // Cloudflare upgradeable IPs
+  net::IPAddress dns_ip0(1, 0, 0, 1);
+  net::IPAddress dns_ip1;
+  EXPECT_TRUE(dns_ip1.AssignFromIPLiteral("2606:4700:4700::1111"));
+  // CleanBrowsing family filter upgradeable IP
+  net::IPAddress dns_ip2;
+  EXPECT_TRUE(dns_ip2.AssignFromIPLiteral("2a0d:2a00:2::"));
+  // CleanBrowsing security filter upgradeable IP
+  net::IPAddress dns_ip3(185, 228, 169, 9);
+  // Non-upgradeable IP
+  net::IPAddress dns_ip4(1, 2, 3, 4);
+
+  config.nameservers.push_back(
+      net::IPEndPoint(dns_ip0, net::dns_protocol::kDefaultPort));
+  config.nameservers.push_back(
+      net::IPEndPoint(dns_ip1, net::dns_protocol::kDefaultPort));
+  config.nameservers.push_back(net::IPEndPoint(dns_ip2, 54));
+  config.nameservers.push_back(
+      net::IPEndPoint(dns_ip3, net::dns_protocol::kDefaultPort));
+  config.nameservers.push_back(
+      net::IPEndPoint(dns_ip4, net::dns_protocol::kDefaultPort));
+
+  auto dns_client = net::DnsClient::CreateClient(nullptr /* net_log */);
+  dns_client->SetSystemConfig(config);
+  net::DnsClient* dns_client_ptr = dns_client.get();
+  service()->host_resolver_manager()->SetDnsClientForTesting(
+      std::move(dns_client));
+
+  std::vector<net::DnsOverHttpsServerConfig> expected_doh_servers = {
+      {"https://doh.cleanbrowsing.org/doh/family-filter{?dns}",
+       false /* use_post */}};
+  EXPECT_TRUE(dns_client_ptr->GetEffectiveConfig());
+  EXPECT_EQ(expected_doh_servers,
+            dns_client_ptr->GetEffectiveConfig()->dns_over_https_servers);
+}
+
+TEST_F(NetworkServiceTest, DohProbe) {
+  mojom::NetworkContextParamsPtr context_params = CreateContextParams();
+  context_params->primary_network_context = true;
+  mojo::Remote<mojom::NetworkContext> network_context;
+  service()->CreateNetworkContext(network_context.BindNewPipeAndPassReceiver(),
+                                  std::move(context_params));
+
+  net::DnsConfig config;
+  config.nameservers.push_back(net::IPEndPoint());
+  config.dns_over_https_servers.emplace_back("example.com",
+                                             true /* use_post */);
+  auto dns_client = std::make_unique<net::MockDnsClient>(
+      std::move(config), net::MockDnsClientRuleList());
+  dns_client->set_ignore_system_config_changes(true);
+  net::MockDnsClient* dns_client_ptr = dns_client.get();
+  service()->host_resolver_manager()->SetDnsClientForTesting(
+      std::move(dns_client));
+
+  EXPECT_FALSE(dns_client_ptr->factory()->doh_probes_running());
+
+  task_environment()->FastForwardBy(NetworkService::kInitialDohProbeTimeout);
+  EXPECT_TRUE(dns_client_ptr->factory()->doh_probes_running());
+}
+
+TEST_F(NetworkServiceTest, DohProbe_NoPrimaryContext) {
+  mojom::NetworkContextParamsPtr context_params = CreateContextParams();
+  context_params->primary_network_context = false;
+  mojo::Remote<mojom::NetworkContext> network_context;
+  service()->CreateNetworkContext(network_context.BindNewPipeAndPassReceiver(),
+                                  std::move(context_params));
+
+  net::DnsConfig config;
+  config.nameservers.push_back(net::IPEndPoint());
+  config.dns_over_https_servers.emplace_back("example.com",
+                                             true /* use_post */);
+  auto dns_client = std::make_unique<net::MockDnsClient>(
+      std::move(config), net::MockDnsClientRuleList());
+  dns_client->set_ignore_system_config_changes(true);
+  net::MockDnsClient* dns_client_ptr = dns_client.get();
+  service()->host_resolver_manager()->SetDnsClientForTesting(
+      std::move(dns_client));
+
+  EXPECT_FALSE(dns_client_ptr->factory()->doh_probes_running());
+
+  task_environment()->FastForwardBy(NetworkService::kInitialDohProbeTimeout);
+  EXPECT_TRUE(dns_client_ptr->factory()->doh_probes_running());
+}
+
+TEST_F(NetworkServiceTest, DohProbe_MultipleContexts) {
+  mojom::NetworkContextParamsPtr context_params1 = CreateContextParams();
+  context_params1->primary_network_context = true;
+  mojo::Remote<mojom::NetworkContext> network_context1;
+  service()->CreateNetworkContext(network_context1.BindNewPipeAndPassReceiver(),
+                                  std::move(context_params1));
+
+  net::DnsConfig config;
+  config.nameservers.push_back(net::IPEndPoint());
+  config.dns_over_https_servers.emplace_back("example.com",
+                                             true /* use_post */);
+  auto dns_client = std::make_unique<net::MockDnsClient>(
+      std::move(config), net::MockDnsClientRuleList());
+  dns_client->set_ignore_system_config_changes(true);
+  net::MockDnsClient* dns_client_ptr = dns_client.get();
+  service()->host_resolver_manager()->SetDnsClientForTesting(
+      std::move(dns_client));
+
+  task_environment()->FastForwardBy(NetworkService::kInitialDohProbeTimeout);
+  ASSERT_TRUE(dns_client_ptr->factory()->doh_probes_running());
+
+  mojom::NetworkContextParamsPtr context_params2 = CreateContextParams();
+  context_params2->primary_network_context = false;
+  mojo::Remote<mojom::NetworkContext> network_context2;
+  service()->CreateNetworkContext(network_context2.BindNewPipeAndPassReceiver(),
+                                  std::move(context_params2));
+  EXPECT_TRUE(dns_client_ptr->factory()->doh_probes_running());
+
+  network_context2.reset();
+  task_environment()->FastForwardUntilNoTasksRemain();
+  EXPECT_TRUE(dns_client_ptr->factory()->doh_probes_running());
+
+  network_context1.reset();
+  task_environment()->FastForwardUntilNoTasksRemain();
+  EXPECT_FALSE(dns_client_ptr->factory()->doh_probes_running());
+}
+
+TEST_F(NetworkServiceTest, DohProbe_ContextAddedBeforeTimeout) {
+  net::DnsConfig config;
+  config.nameservers.push_back(net::IPEndPoint());
+  config.dns_over_https_servers.emplace_back("example.com",
+                                             true /* use_post */);
+  auto dns_client = std::make_unique<net::MockDnsClient>(
+      std::move(config), net::MockDnsClientRuleList());
+  dns_client->set_ignore_system_config_changes(true);
+  net::MockDnsClient* dns_client_ptr = dns_client.get();
+  service()->host_resolver_manager()->SetDnsClientForTesting(
+      std::move(dns_client));
+
+  EXPECT_FALSE(dns_client_ptr->factory()->doh_probes_running());
+
+  mojom::NetworkContextParamsPtr context_params = CreateContextParams();
+  context_params->primary_network_context = true;
+  mojo::Remote<mojom::NetworkContext> network_context;
+  service()->CreateNetworkContext(network_context.BindNewPipeAndPassReceiver(),
+                                  std::move(context_params));
+
+  EXPECT_FALSE(dns_client_ptr->factory()->doh_probes_running());
+
+  task_environment()->FastForwardBy(NetworkService::kInitialDohProbeTimeout);
+  EXPECT_TRUE(dns_client_ptr->factory()->doh_probes_running());
+}
+
+TEST_F(NetworkServiceTest, DohProbe_ContextAddedAfterTimeout) {
+  net::DnsConfig config;
+  config.nameservers.push_back(net::IPEndPoint());
+  config.dns_over_https_servers.emplace_back("example.com",
+                                             true /* use_post */);
+  auto dns_client = std::make_unique<net::MockDnsClient>(
+      std::move(config), net::MockDnsClientRuleList());
+  dns_client->set_ignore_system_config_changes(true);
+  net::MockDnsClient* dns_client_ptr = dns_client.get();
+  service()->host_resolver_manager()->SetDnsClientForTesting(
+      std::move(dns_client));
+
+  EXPECT_FALSE(dns_client_ptr->factory()->doh_probes_running());
+
+  task_environment()->FastForwardBy(NetworkService::kInitialDohProbeTimeout);
+  EXPECT_FALSE(dns_client_ptr->factory()->doh_probes_running());
+
+  mojom::NetworkContextParamsPtr context_params = CreateContextParams();
+  context_params->primary_network_context = true;
+  mojo::Remote<mojom::NetworkContext> network_context;
+  service()->CreateNetworkContext(network_context.BindNewPipeAndPassReceiver(),
+                                  std::move(context_params));
+
+  EXPECT_TRUE(dns_client_ptr->factory()->doh_probes_running());
+}
+
+TEST_F(NetworkServiceTest, DohProbe_ContextRemovedBeforeTimeout) {
+  mojom::NetworkContextParamsPtr context_params = CreateContextParams();
+  context_params->primary_network_context = true;
+  mojo::Remote<mojom::NetworkContext> network_context;
+  service()->CreateNetworkContext(network_context.BindNewPipeAndPassReceiver(),
+                                  std::move(context_params));
+
+  net::DnsConfig config;
+  config.nameservers.push_back(net::IPEndPoint());
+  config.dns_over_https_servers.emplace_back("example.com",
+                                             true /* use_post */);
+  auto dns_client = std::make_unique<net::MockDnsClient>(
+      std::move(config), net::MockDnsClientRuleList());
+  dns_client->set_ignore_system_config_changes(true);
+  net::MockDnsClient* dns_client_ptr = dns_client.get();
+  service()->host_resolver_manager()->SetDnsClientForTesting(
+      std::move(dns_client));
+
+  EXPECT_FALSE(dns_client_ptr->factory()->doh_probes_running());
+
   network_context.reset();
-  base::RunLoop().RunUntilIdle();
-  // DnsClient is still enabled.
-  EXPECT_TRUE(service()->host_resolver_manager()->GetDnsConfigAsValue());
-  // DNS over HTTPS is not.
-  EXPECT_FALSE(
-      service()->host_resolver_manager()->GetDnsOverHttpsServersForTesting());
+  task_environment()->FastForwardUntilNoTasksRemain();
+  EXPECT_FALSE(dns_client_ptr->factory()->doh_probes_running());
+
+  task_environment()->FastForwardBy(NetworkService::kInitialDohProbeTimeout);
+  EXPECT_FALSE(dns_client_ptr->factory()->doh_probes_running());
+}
+
+TEST_F(NetworkServiceTest, DohProbe_ContextRemovedAfterTimeout) {
+  mojom::NetworkContextParamsPtr context_params = CreateContextParams();
+  context_params->primary_network_context = true;
+  mojo::Remote<mojom::NetworkContext> network_context;
+  service()->CreateNetworkContext(network_context.BindNewPipeAndPassReceiver(),
+                                  std::move(context_params));
+
+  net::DnsConfig config;
+  config.nameservers.push_back(net::IPEndPoint());
+  config.dns_over_https_servers.emplace_back("example.com",
+                                             true /* use_post */);
+  auto dns_client = std::make_unique<net::MockDnsClient>(
+      std::move(config), net::MockDnsClientRuleList());
+  dns_client->set_ignore_system_config_changes(true);
+  net::MockDnsClient* dns_client_ptr = dns_client.get();
+  service()->host_resolver_manager()->SetDnsClientForTesting(
+      std::move(dns_client));
+
+  EXPECT_FALSE(dns_client_ptr->factory()->doh_probes_running());
+
+  task_environment()->FastForwardBy(NetworkService::kInitialDohProbeTimeout);
+  EXPECT_TRUE(dns_client_ptr->factory()->doh_probes_running());
+
+  network_context.reset();
+  task_environment()->FastForwardUntilNoTasksRemain();
+  EXPECT_FALSE(dns_client_ptr->factory()->doh_probes_running());
 }
 
 #endif  // !defined(OS_IOS)
@@ -542,10 +818,10 @@ TEST_F(NetworkServiceTest, AuthNtlmV2Enabled) {
   service()->ConfigureHttpAuthPrefs(std::move(auth_params));
 
   // Create a network context, which should reflect the setting.
-  mojom::NetworkContextPtr network_context_ptr;
-  NetworkContext network_context(service(),
-                                 mojo::MakeRequest(&network_context_ptr),
-                                 CreateContextParams());
+  mojo::Remote<mojom::NetworkContext> network_context_remote;
+  NetworkContext network_context(
+      service(), network_context_remote.BindNewPipeAndPassReceiver(),
+      CreateContextParams());
   net::HttpAuthHandlerFactory* auth_handler_factory =
       network_context.url_request_context()->http_auth_handler_factory();
   ASSERT_TRUE(auth_handler_factory);
@@ -581,10 +857,10 @@ TEST_F(NetworkServiceTest, AuthAndroidNegotiateAccountType) {
   service()->ConfigureHttpAuthPrefs(std::move(auth_params));
 
   // Create a network context, which should reflect the setting.
-  mojom::NetworkContextPtr network_context_ptr;
-  NetworkContext network_context(service(),
-                                 mojo::MakeRequest(&network_context_ptr),
-                                 CreateContextParams());
+  mojo::Remote<mojom::NetworkContext> network_context_remote;
+  NetworkContext network_context(
+      service(), network_context_remote.BindNewPipeAndPassReceiver(),
+      CreateContextParams());
   net::HttpAuthHandlerFactory* auth_handler_factory =
       network_context.url_request_context()->http_auth_handler_factory();
   ASSERT_TRUE(auth_handler_factory);
@@ -641,24 +917,22 @@ TEST_F(NetworkServiceTest, SetMaxConnectionsPerProxy) {
 class NetworkServiceTestWithService : public testing::Test {
  public:
   NetworkServiceTestWithService()
-      : task_environment_(
-            base::test::ScopedTaskEnvironment::MainThreadType::IO) {}
+      : task_environment_(base::test::TaskEnvironment::MainThreadType::IO) {}
   ~NetworkServiceTestWithService() override {}
 
   void SetUp() override {
     test_server_.AddDefaultHandlers(base::FilePath(kServicesTestData));
     ASSERT_TRUE(test_server_.Start());
-    service_ = NetworkService::CreateForTesting(
-        test_connector_factory_.RegisterInstance(kNetworkServiceName));
-    test_connector_factory_.GetDefaultConnector()->BindInterface(
-        kNetworkServiceName, &network_service_);
+    service_ = NetworkService::CreateForTesting();
+    service_->Bind(network_service_.BindNewPipeAndPassReceiver());
   }
 
   void CreateNetworkContext() {
     mojom::NetworkContextParamsPtr context_params =
         mojom::NetworkContextParams::New();
-    network_service_->CreateNetworkContext(mojo::MakeRequest(&network_context_),
-                                           std::move(context_params));
+    network_service_->CreateNetworkContext(
+        network_context_.BindNewPipeAndPassReceiver(),
+        std::move(context_params));
   }
 
   void LoadURL(const GURL& url, int options = mojom::kURLLoadOptionNone) {
@@ -674,17 +948,18 @@ class NetworkServiceTestWithService : public testing::Test {
                        uint32_t process_id,
                        int options = mojom::kURLLoadOptionNone) {
     client_.reset(new TestURLLoaderClient());
-    mojom::URLLoaderFactoryPtr loader_factory;
+    mojo::Remote<mojom::URLLoaderFactory> loader_factory;
     mojom::URLLoaderFactoryParamsPtr params =
         mojom::URLLoaderFactoryParams::New();
     params->process_id = process_id;
     params->is_corb_enabled = false;
-    network_context_->CreateURLLoaderFactory(mojo::MakeRequest(&loader_factory),
-                                             std::move(params));
+    network_context_->CreateURLLoaderFactory(
+        loader_factory.BindNewPipeAndPassReceiver(), std::move(params));
 
+    loader_.reset();
     loader_factory->CreateLoaderAndStart(
-        mojo::MakeRequest(&loader_), 1, 1, options, request,
-        client_->CreateInterfacePtr(),
+        loader_.BindNewPipeAndPassReceiver(), 1, 1, options, request,
+        client_->CreateRemote(),
         net::MutableNetworkTrafficAnnotationTag(TRAFFIC_ANNOTATION_FOR_TESTS));
   }
 
@@ -697,15 +972,14 @@ class NetworkServiceTestWithService : public testing::Test {
   mojom::NetworkContext* context() { return network_context_.get(); }
 
  protected:
-  base::test::ScopedTaskEnvironment task_environment_;
-  service_manager::TestConnectorFactory test_connector_factory_;
+  base::test::TaskEnvironment task_environment_;
   std::unique_ptr<NetworkService> service_;
 
   net::EmbeddedTestServer test_server_;
   std::unique_ptr<TestURLLoaderClient> client_;
-  mojom::NetworkServicePtr network_service_;
-  mojom::NetworkContextPtr network_context_;
-  mojom::URLLoaderPtr loader_;
+  mojo::Remote<mojom::NetworkService> network_service_;
+  mojo::Remote<mojom::NetworkContext> network_context_;
+  mojo::Remote<mojom::URLLoader> loader_;
 
   DISALLOW_COPY_AND_ASSIGN(NetworkServiceTestWithService);
 };
@@ -761,10 +1035,10 @@ TEST_F(NetworkServiceTestWithService, RawRequestHeadersAbsent) {
   StartLoadingURL(request, 0);
   client()->RunUntilRedirectReceived();
   EXPECT_TRUE(client()->has_received_redirect());
-  EXPECT_TRUE(!client()->response_head().raw_request_response_info);
+  EXPECT_TRUE(!client()->response_head()->raw_request_response_info);
   loader()->FollowRedirect({}, {}, base::nullopt);
   client()->RunUntilComplete();
-  EXPECT_TRUE(!client()->response_head().raw_request_response_info);
+  EXPECT_TRUE(!client()->response_head()->raw_request_response_info);
 }
 
 TEST_F(NetworkServiceTestWithService, RawRequestHeadersPresent) {
@@ -778,8 +1052,8 @@ TEST_F(NetworkServiceTestWithService, RawRequestHeadersPresent) {
   client()->RunUntilRedirectReceived();
   EXPECT_TRUE(client()->has_received_redirect());
   {
-    scoped_refptr<HttpRawRequestResponseInfo> request_response_info =
-        client()->response_head().raw_request_response_info;
+    auto& request_response_info =
+        client()->response_head()->raw_request_response_info;
     ASSERT_TRUE(request_response_info);
     EXPECT_EQ(301, request_response_info->http_status_code);
     EXPECT_EQ("Moved Permanently", request_response_info->http_status_text);
@@ -795,8 +1069,8 @@ TEST_F(NetworkServiceTestWithService, RawRequestHeadersPresent) {
   loader()->FollowRedirect({}, {}, base::nullopt);
   client()->RunUntilComplete();
   {
-    scoped_refptr<HttpRawRequestResponseInfo> request_response_info =
-        client()->response_head().raw_request_response_info;
+    auto& request_response_info =
+        client()->response_head()->raw_request_response_info;
     EXPECT_EQ(200, request_response_info->http_status_code);
     EXPECT_EQ("OK", request_response_info->http_status_text);
     EXPECT_TRUE(base::StartsWith(request_response_info->request_headers_text,
@@ -821,7 +1095,7 @@ TEST_F(NetworkServiceTestWithService, RawRequestAccessControl) {
 
   StartLoadingURL(request, process_id);
   client()->RunUntilComplete();
-  EXPECT_FALSE(client()->response_head().raw_request_response_info);
+  EXPECT_FALSE(client()->response_head()->raw_request_response_info);
   service()->SetRawHeadersAccess(
       process_id,
       {url::Origin::CreateFromNormalizedTuple("http", "example.com", 80),
@@ -829,8 +1103,8 @@ TEST_F(NetworkServiceTestWithService, RawRequestAccessControl) {
   StartLoadingURL(request, process_id);
   client()->RunUntilComplete();
   {
-    scoped_refptr<HttpRawRequestResponseInfo> request_response_info =
-        client()->response_head().raw_request_response_info;
+    auto& request_response_info =
+        client()->response_head()->raw_request_response_info;
     ASSERT_TRUE(request_response_info);
     EXPECT_EQ(200, request_response_info->http_status_code);
     EXPECT_EQ("OK", request_response_info->http_status_text);
@@ -839,14 +1113,14 @@ TEST_F(NetworkServiceTestWithService, RawRequestAccessControl) {
   service()->SetRawHeadersAccess(process_id, {});
   StartLoadingURL(request, process_id);
   client()->RunUntilComplete();
-  EXPECT_FALSE(client()->response_head().raw_request_response_info.get());
+  EXPECT_FALSE(client()->response_head()->raw_request_response_info.get());
 
   service()->SetRawHeadersAccess(
       process_id,
       {url::Origin::CreateFromNormalizedTuple("http", "example.com", 80)});
   StartLoadingURL(request, process_id);
   client()->RunUntilComplete();
-  EXPECT_FALSE(client()->response_head().raw_request_response_info.get());
+  EXPECT_FALSE(client()->response_head()->raw_request_response_info.get());
 }
 
 class NetworkServiceTestWithResolverMap : public NetworkServiceTestWithService {
@@ -878,31 +1152,31 @@ TEST_F(NetworkServiceTestWithResolverMap, RawRequestAccessControlWithRedirect) {
 
   StartLoadingURL(request, process_id);
   client()->RunUntilRedirectReceived();  // from a.test to b.test
-  EXPECT_TRUE(client()->response_head().raw_request_response_info);
+  EXPECT_TRUE(client()->response_head()->raw_request_response_info);
 
   loader()->FollowRedirect({}, {}, base::nullopt);
   client()->ClearHasReceivedRedirect();
   client()->RunUntilRedirectReceived();  // from b.test to a.test
-  EXPECT_FALSE(client()->response_head().raw_request_response_info);
+  EXPECT_FALSE(client()->response_head()->raw_request_response_info);
 
   loader()->FollowRedirect({}, {}, base::nullopt);
   client()->RunUntilComplete();  // Done loading a.test
-  EXPECT_TRUE(client()->response_head().raw_request_response_info.get());
+  EXPECT_TRUE(client()->response_head()->raw_request_response_info.get());
 
   service()->SetRawHeadersAccess(process_id, {url::Origin::Create(url_b)});
 
   StartLoadingURL(request, process_id);
   client()->RunUntilRedirectReceived();  // from a.test to b.test
-  EXPECT_FALSE(client()->response_head().raw_request_response_info);
+  EXPECT_FALSE(client()->response_head()->raw_request_response_info);
 
   loader()->FollowRedirect({}, {}, base::nullopt);
   client()->ClearHasReceivedRedirect();
   client()->RunUntilRedirectReceived();  // from b.test to a.test
-  EXPECT_TRUE(client()->response_head().raw_request_response_info);
+  EXPECT_TRUE(client()->response_head()->raw_request_response_info);
 
   loader()->FollowRedirect({}, {}, base::nullopt);
   client()->RunUntilComplete();  // Done loading a.test
-  EXPECT_FALSE(client()->response_head().raw_request_response_info.get());
+  EXPECT_FALSE(client()->response_head()->raw_request_response_info.get());
 }
 
 TEST_F(NetworkServiceTestWithService, SetNetworkConditions) {
@@ -949,6 +1223,38 @@ TEST_F(NetworkServiceTestWithService, SetNetworkConditions) {
   EXPECT_EQ(net::OK, client()->completion_status().error_code);
 }
 
+// Integration test confirming that the SetTrustTokenKeyCommitments IPC is wired
+// up correctly by verifying that it's possible to read a value previously
+// passed to the setter.
+TEST_F(NetworkServiceTestWithService, SetsTrustTokenKeyCommitments) {
+  ASSERT_TRUE(service_->trust_token_key_commitments());
+
+  auto expectation = mojom::TrustTokenKeyCommitmentResult::New();
+  expectation->batch_size = mojom::TrustTokenKeyCommitmentBatchSize::New(5);
+
+  url::Origin issuer_origin =
+      url::Origin::Create(GURL("https://issuer.example"));
+
+  base::flat_map<url::Origin, mojom::TrustTokenKeyCommitmentResultPtr> to_set;
+  to_set.insert_or_assign(issuer_origin, expectation.Clone());
+  network_service_->SetTrustTokenKeyCommitments(std::move(to_set));
+  network_service_.FlushForTesting();
+
+  mojom::TrustTokenKeyCommitmentResultPtr result;
+  bool ran = false;
+
+  service_->trust_token_key_commitments()->Get(
+      issuer_origin, base::BindLambdaForTesting(
+                         [&](mojom::TrustTokenKeyCommitmentResultPtr ptr) {
+                           result = std::move(ptr);
+                           ran = true;
+                         }));
+
+  ASSERT_TRUE(ran);
+
+  EXPECT_TRUE(result.Equals(expectation));
+}
+
 // CRLSets are not supported on iOS and Android system verifiers.
 #if !defined(OS_IOS) && !defined(OS_ANDROID)
 
@@ -973,15 +1279,21 @@ TEST_F(NetworkServiceTestWithService, CRLSetIsApplied) {
       net::GetTestCertsDirectory().AppendASCII("crlset_by_leaf_spki.raw"),
       &crl_set_bytes));
 
-  service()->UpdateCRLSet(base::as_bytes(base::make_span(crl_set_bytes)));
-  network_service_.FlushForTesting();
+  {
+    base::RunLoop run_loop;
+    service()->UpdateCRLSet(base::as_bytes(base::make_span(crl_set_bytes)),
+                            run_loop.QuitClosure());
+    run_loop.Run();
+  }
 
   // Flush all connections in the context, to force a new connection. A new
   // verification should be attempted, due to the configuration having
   // changed, thus forcing the CRLSet to be checked.
-  base::RunLoop run_loop;
-  context()->CloseAllConnections(run_loop.QuitClosure());
-  run_loop.Run();
+  {
+    base::RunLoop run_loop;
+    context()->CloseAllConnections(run_loop.QuitClosure());
+    run_loop.Run();
+  }
 
   // Make sure the connection fails, due to the certificate being revoked.
   LoadURL(test_server.GetURL("/echo"), options);
@@ -1007,8 +1319,10 @@ TEST_F(NetworkServiceTestWithService, CRLSetIsPassedToNewContexts) {
       net::GetTestCertsDirectory().AppendASCII("crlset_by_leaf_spki.raw"),
       &crl_set_bytes));
 
-  service()->UpdateCRLSet(base::as_bytes(base::make_span(crl_set_bytes)));
-  network_service_.FlushForTesting();
+  base::RunLoop run_loop;
+  service()->UpdateCRLSet(base::as_bytes(base::make_span(crl_set_bytes)),
+                          run_loop.QuitClosure());
+  run_loop.Run();
 
   // Configure a new NetworkContext.
   CreateNetworkContext();
@@ -1038,14 +1352,18 @@ TEST_F(NetworkServiceTestWithService, CRLSetIsUpdatedIfNewer) {
       net::GetTestCertsDirectory().AppendASCII("crlset_by_root_subject.raw"),
       &crl_set_bytes));
 
-  service()->UpdateCRLSet(base::as_bytes(base::make_span(crl_set_bytes)));
-  network_service_.FlushForTesting();
+  {
+    base::RunLoop run_loop;
+    service()->UpdateCRLSet(base::as_bytes(base::make_span(crl_set_bytes)),
+                            run_loop.QuitClosure());
+    run_loop.Run();
+  }
 
   CreateNetworkContext();
 
   uint32_t options = mojom::kURLLoadOptionSendSSLInfoWithResponse |
                      mojom::kURLLoadOptionSendSSLInfoForCertificateError;
-  // Make sure the connection loads, due to the root being whitelisted.
+  // Make sure the connection loads, due to the root being permitted.
   LoadURL(test_server.GetURL("/echo"), options);
   ASSERT_EQ(net::OK, client()->completion_status().error_code);
 
@@ -1054,15 +1372,21 @@ TEST_F(NetworkServiceTestWithService, CRLSetIsUpdatedIfNewer) {
                                          "crlset_by_root_subject_no_spki.raw"),
                                      &crl_set_bytes));
 
-  service()->UpdateCRLSet(base::as_bytes(base::make_span(crl_set_bytes)));
-  network_service_.FlushForTesting();
+  {
+    base::RunLoop run_loop;
+    service()->UpdateCRLSet(base::as_bytes(base::make_span(crl_set_bytes)),
+                            run_loop.QuitClosure());
+    run_loop.Run();
+  }
 
   // Flush all connections in the context, to force a new connection. A new
   // verification should be attempted, due to the configuration having
   // changed, thus forcing the CRLSet to be checked.
-  base::RunLoop run_loop;
-  context()->CloseAllConnections(run_loop.QuitClosure());
-  run_loop.Run();
+  {
+    base::RunLoop run_loop;
+    context()->CloseAllConnections(run_loop.QuitClosure());
+    run_loop.Run();
+  }
 
   // Make sure the connection fails, due to the certificate being revoked.
   LoadURL(test_server.GetURL("/echo"), options);
@@ -1087,8 +1411,12 @@ TEST_F(NetworkServiceTestWithService, CRLSetDoesNotDowngrade) {
                                          "crlset_by_root_subject_no_spki.raw"),
                                      &crl_set_bytes));
 
-  service()->UpdateCRLSet(base::as_bytes(base::make_span(crl_set_bytes)));
-  network_service_.FlushForTesting();
+  {
+    base::RunLoop run_loop;
+    service()->UpdateCRLSet(base::as_bytes(base::make_span(crl_set_bytes)),
+                            run_loop.QuitClosure());
+    run_loop.Run();
+  }
 
   CreateNetworkContext();
 
@@ -1107,15 +1435,21 @@ TEST_F(NetworkServiceTestWithService, CRLSetDoesNotDowngrade) {
       net::GetTestCertsDirectory().AppendASCII("crlset_by_root_subject.raw"),
       &crl_set_bytes));
 
-  service()->UpdateCRLSet(base::as_bytes(base::make_span(crl_set_bytes)));
-  network_service_.FlushForTesting();
+  {
+    base::RunLoop run_loop;
+    service()->UpdateCRLSet(base::as_bytes(base::make_span(crl_set_bytes)),
+                            run_loop.QuitClosure());
+    run_loop.Run();
+  }
 
   // Flush all connections in the context, to force a new connection. A new
   // verification should be attempted, due to the configuration having
   // changed, thus forcing the CRLSet to be checked.
-  base::RunLoop run_loop;
-  context()->CloseAllConnections(run_loop.QuitClosure());
-  run_loop.Run();
+  {
+    base::RunLoop run_loop;
+    context()->CloseAllConnections(run_loop.QuitClosure());
+    run_loop.Run();
+  }
 
   // Make sure the connection still fails, due to the newer CRLSet still
   // applying.
@@ -1143,30 +1477,32 @@ TEST_F(NetworkServiceTestWithService, CRLSetDoesNotDowngrade) {
 
 #endif  // !defined(OS_IOS) && !defined(OS_ANDROID)
 
-// The SpawnedTestServer does not work on iOS.
-#if !defined(OS_IOS)
-
+// TODO(crbug.com/860189): AIA tests fail on iOS
+#if defined(OS_IOS)
+#define MAYBE_AIAFetching DISABLED_AIAFetching
+#else
+#define MAYBE_AIAFetching AIAFetching
+#endif
 // Test |primary_network_context|, which is required by AIA fetching, among
 // other things.
-TEST_F(NetworkServiceTestWithService, AIAFetching) {
+TEST_F(NetworkServiceTestWithService, MAYBE_AIAFetching) {
   mojom::NetworkContextParamsPtr context_params = CreateContextParams();
   context_params->primary_network_context = true;
 
-  network_service_->CreateNetworkContext(mojo::MakeRequest(&network_context_),
-                                         std::move(context_params));
+  network_service_->CreateNetworkContext(
+      network_context_.BindNewPipeAndPassReceiver(), std::move(context_params));
 
-  net::SpawnedTestServer::SSLOptions ssl_options(
-      net::SpawnedTestServer::SSLOptions::CERT_AUTO_AIA_INTERMEDIATE);
-  net::SpawnedTestServer test_server(net::SpawnedTestServer::TYPE_HTTPS,
-                                     ssl_options,
-                                     base::FilePath(kServicesTestData));
+  net::EmbeddedTestServer test_server(net::EmbeddedTestServer::TYPE_HTTPS);
+  test_server.SetSSLConfig(net::EmbeddedTestServer::CERT_AUTO_AIA_INTERMEDIATE);
+  test_server.AddDefaultHandlers(base::FilePath(kServicesTestData));
   ASSERT_TRUE(test_server.Start());
 
   LoadURL(test_server.GetURL("/echo"),
           mojom::kURLLoadOptionSendSSLInfoWithResponse);
   EXPECT_EQ(net::OK, client()->completion_status().error_code);
+  ASSERT_TRUE(client()->response_head());
   EXPECT_EQ(
-      0u, client()->response_head().cert_status & net::CERT_STATUS_ALL_ERRORS);
+      0u, client()->response_head()->cert_status & net::CERT_STATUS_ALL_ERRORS);
   ASSERT_TRUE(client()->ssl_info());
   ASSERT_TRUE(client()->ssl_info()->cert);
   EXPECT_EQ(2u, client()->ssl_info()->cert->intermediate_buffers().size());
@@ -1174,7 +1510,6 @@ TEST_F(NetworkServiceTestWithService, AIAFetching) {
   EXPECT_EQ(
       0u, client()->ssl_info()->unverified_cert->intermediate_buffers().size());
 }
-#endif  // !defined(OS_IOS)
 
 // Check that destroying a NetworkContext with |primary_network_context| set
 // destroys all other NetworkContexts.
@@ -1182,16 +1517,16 @@ TEST_F(NetworkServiceTestWithService,
        DestroyingPrimaryNetworkContextDestroysOtherContexts) {
   mojom::NetworkContextParamsPtr context_params = CreateContextParams();
   context_params->primary_network_context = true;
-  mojom::NetworkContextPtr cert_validating_network_context;
+  mojo::Remote<mojom::NetworkContext> cert_validating_network_context;
   network_service_->CreateNetworkContext(
-      mojo::MakeRequest(&cert_validating_network_context),
+      cert_validating_network_context.BindNewPipeAndPassReceiver(),
       std::move(context_params));
 
   base::RunLoop run_loop;
-  mojom::NetworkContextPtr network_context;
-  network_service_->CreateNetworkContext(mojo::MakeRequest(&network_context),
-                                         CreateContextParams());
-  network_context.set_connection_error_handler(run_loop.QuitClosure());
+  mojo::Remote<mojom::NetworkContext> network_context;
+  network_service_->CreateNetworkContext(
+      network_context.BindNewPipeAndPassReceiver(), CreateContextParams());
+  network_context.set_disconnect_handler(run_loop.QuitClosure());
 
   // Wait until the new NetworkContext has been created, so it's not created
   // after the primary NetworkContext is destroyed.
@@ -1201,15 +1536,16 @@ TEST_F(NetworkServiceTestWithService,
   // |network_context| as well.
   cert_validating_network_context.reset();
   run_loop.Run();
-  EXPECT_TRUE(network_context.encountered_error());
+  EXPECT_FALSE(network_context.is_connected());
 }
 
 TEST_F(NetworkServiceTestWithService, GetDnsConfigChangeManager) {
-  mojom::DnsConfigChangeManagerPtr ptr;
-  ASSERT_FALSE(ptr.is_bound());
+  mojo::Remote<mojom::DnsConfigChangeManager> remote;
+  ASSERT_FALSE(remote.is_bound());
 
-  network_service_->GetDnsConfigChangeManager(mojo::MakeRequest(&ptr));
-  EXPECT_TRUE(ptr.is_bound());
+  network_service_->GetDnsConfigChangeManager(
+      remote.BindNewPipeAndPassReceiver());
+  EXPECT_TRUE(remote.is_bound());
 }
 
 TEST_F(NetworkServiceTestWithService, GetNetworkList) {
@@ -1241,17 +1577,14 @@ class TestNetworkChangeManagerClient
  public:
   explicit TestNetworkChangeManagerClient(
       mojom::NetworkService* network_service)
-      : connection_type_(mojom::ConnectionType::CONNECTION_UNKNOWN),
-        binding_(this) {
-    mojom::NetworkChangeManagerPtr manager_ptr;
-    mojom::NetworkChangeManagerRequest request(mojo::MakeRequest(&manager_ptr));
-    network_service->GetNetworkChangeManager(std::move(request));
+      : connection_type_(mojom::ConnectionType::CONNECTION_UNKNOWN) {
+    mojo::Remote<mojom::NetworkChangeManager> manager_remote;
+    network_service->GetNetworkChangeManager(
+        manager_remote.BindNewPipeAndPassReceiver());
 
-    mojom::NetworkChangeManagerClientPtr client_ptr;
-    mojom::NetworkChangeManagerClientRequest client_request(
-        mojo::MakeRequest(&client_ptr));
-    binding_.Bind(std::move(client_request));
-    manager_ptr->RequestNotifications(std::move(client_ptr));
+    mojo::PendingRemote<mojom::NetworkChangeManagerClient> client_remote;
+    receiver_.Bind(client_remote.InitWithNewPipeAndPassReceiver());
+    manager_remote->RequestNotifications(std::move(client_remote));
   }
 
   ~TestNetworkChangeManagerClient() override {}
@@ -1273,12 +1606,12 @@ class TestNetworkChangeManagerClient
     run_loop_.Run();
   }
 
-  void Flush() { binding_.FlushForTesting(); }
+  void Flush() { receiver_.FlushForTesting(); }
 
  private:
   base::RunLoop run_loop_;
   mojom::ConnectionType connection_type_;
-  mojo::Binding<mojom::NetworkChangeManagerClient> binding_;
+  mojo::Receiver<mojom::NetworkChangeManagerClient> receiver_{this};
 
   DISALLOW_COPY_AND_ASSIGN(TestNetworkChangeManagerClient);
 };
@@ -1286,9 +1619,9 @@ class TestNetworkChangeManagerClient
 class NetworkChangeTest : public testing::Test {
  public:
   NetworkChangeTest()
-      : scoped_task_environment_(
-            base::test::ScopedTaskEnvironment::MainThreadType::IO),
-        network_change_notifier_(net::NetworkChangeNotifier::CreateMock()),
+      : task_environment_(base::test::TaskEnvironment::MainThreadType::IO),
+        network_change_notifier_(
+            net::NetworkChangeNotifier::CreateMockIfNeeded()),
         service_(NetworkService::CreateForTesting()) {}
 
   ~NetworkChangeTest() override {}
@@ -1296,7 +1629,7 @@ class NetworkChangeTest : public testing::Test {
   NetworkService* service() const { return service_.get(); }
 
  private:
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::TaskEnvironment task_environment_;
   std::unique_ptr<net::NetworkChangeNotifier> network_change_notifier_;
   std::unique_ptr<NetworkService> service_;
 };
@@ -1318,13 +1651,11 @@ TEST_F(NetworkChangeTest, MAYBE_NetworkChangeManagerRequest) {
 class NetworkServiceNetworkChangeTest : public testing::Test {
  public:
   NetworkServiceNetworkChangeTest()
-      : task_environment_(
-            base::test::ScopedTaskEnvironment::MainThreadType::IO),
-        network_change_notifier_(net::NetworkChangeNotifier::CreateMock()),
-        service_(NetworkService::CreateForTesting(
-            test_connector_factory_.RegisterInstance(kNetworkServiceName))) {
-    test_connector_factory_.GetDefaultConnector()->BindInterface(
-        kNetworkServiceName, &network_service_);
+      : task_environment_(base::test::TaskEnvironment::MainThreadType::IO),
+        network_change_notifier_(
+            net::NetworkChangeNotifier::CreateMockIfNeeded()),
+        service_(NetworkService::CreateForTesting()) {
+    service_->Bind(network_service_.BindNewPipeAndPassReceiver());
   }
 
   ~NetworkServiceNetworkChangeTest() override {}
@@ -1332,12 +1663,10 @@ class NetworkServiceNetworkChangeTest : public testing::Test {
   mojom::NetworkService* service() { return network_service_.get(); }
 
  private:
-  base::test::ScopedTaskEnvironment task_environment_;
-  service_manager::TestConnectorFactory test_connector_factory_;
+  base::test::TaskEnvironment task_environment_;
   std::unique_ptr<net::NetworkChangeNotifier> network_change_notifier_;
+  mojo::Remote<mojom::NetworkService> network_service_;
   std::unique_ptr<NetworkService> service_;
-
-  mojom::NetworkServicePtr network_service_;
 
   DISALLOW_COPY_AND_ASSIGN(NetworkServiceNetworkChangeTest);
 };
@@ -1358,19 +1687,17 @@ TEST_F(NetworkServiceNetworkChangeTest, MAYBE_NetworkChangeManagerRequest) {
 
 class NetworkServiceNetworkDelegateTest : public NetworkServiceTest {
  public:
-  NetworkServiceNetworkDelegateTest() {
-    // |NetworkServiceNetworkDelegate::HandleClearSiteDataHeader| requires
-    // Network Service.
-    scoped_feature_list_.InitAndEnableFeature(
-        network::features::kNetworkService);
-  }
+  NetworkServiceNetworkDelegateTest()
+      : NetworkServiceTest(
+            base::test::TaskEnvironment::TimeSource::SYSTEM_TIME) {}
   ~NetworkServiceNetworkDelegateTest() override = default;
 
   void CreateNetworkContext() {
     mojom::NetworkContextParamsPtr context_params =
         mojom::NetworkContextParams::New();
-    service()->CreateNetworkContext(mojo::MakeRequest(&network_context_),
-                                    std::move(context_params));
+    service()->CreateNetworkContext(
+        network_context_.BindNewPipeAndPassReceiver(),
+        std::move(context_params));
   }
 
   void LoadURL(const GURL& url, int options = mojom::kURLLoadOptionNone) {
@@ -1386,17 +1713,18 @@ class NetworkServiceNetworkDelegateTest : public NetworkServiceTest {
                        uint32_t process_id,
                        int options = mojom::kURLLoadOptionNone) {
     client_.reset(new TestURLLoaderClient());
-    mojom::URLLoaderFactoryPtr loader_factory;
+    mojo::Remote<mojom::URLLoaderFactory> loader_factory;
     mojom::URLLoaderFactoryParamsPtr params =
         mojom::URLLoaderFactoryParams::New();
     params->process_id = process_id;
     params->is_corb_enabled = false;
-    network_context_->CreateURLLoaderFactory(mojo::MakeRequest(&loader_factory),
-                                             std::move(params));
+    network_context_->CreateURLLoaderFactory(
+        loader_factory.BindNewPipeAndPassReceiver(), std::move(params));
 
+    loader_.reset();
     loader_factory->CreateLoaderAndStart(
-        mojo::MakeRequest(&loader_), 1, 1, options, request,
-        client_->CreateInterfacePtr(),
+        loader_.BindNewPipeAndPassReceiver(), 1, 1, options, request,
+        client_->CreateRemote(),
         net::MutableNetworkTrafficAnnotationTag(TRAFFIC_ANNOTATION_FOR_TESTS));
   }
 
@@ -1441,9 +1769,8 @@ class NetworkServiceNetworkDelegateTest : public NetworkServiceTest {
 
   std::unique_ptr<net::EmbeddedTestServer> https_server_;
   std::unique_ptr<TestURLLoaderClient> client_;
-  mojom::NetworkContextPtr network_context_;
-  mojom::URLLoaderPtr loader_;
-  base::test::ScopedFeatureList scoped_feature_list_;
+  mojo::Remote<mojom::NetworkContext> network_context_;
+  mojo::Remote<mojom::URLLoader> loader_;
 
   DISALLOW_COPY_AND_ASSIGN(NetworkServiceNetworkDelegateTest);
 };
@@ -1451,11 +1778,11 @@ class NetworkServiceNetworkDelegateTest : public NetworkServiceTest {
 class ClearSiteDataNetworkContextClient : public TestNetworkContextClient {
  public:
   explicit ClearSiteDataNetworkContextClient(
-      mojom::NetworkContextClientRequest request)
-      : binding_(this, std::move(request)) {}
+      mojo::PendingReceiver<mojom::NetworkContextClient> receiver)
+      : receiver_(this, std::move(receiver)) {}
   ~ClearSiteDataNetworkContextClient() override = default;
 
-  void OnClearSiteData(uint32_t process_id,
+  void OnClearSiteData(int32_t process_id,
                        int32_t routing_id,
                        const GURL& url,
                        const std::string& header_value,
@@ -1480,7 +1807,7 @@ class ClearSiteDataNetworkContextClient : public TestNetworkContextClient {
  private:
   int on_clear_site_data_counter_ = 0;
   std::string last_on_clear_site_data_header_value_;
-  mojo::Binding<mojom::NetworkContextClient> binding_;
+  mojo::Receiver<mojom::NetworkContextClient> receiver_;
 };
 
 // Check that |NetworkServiceNetworkDelegate| handles Clear-Site-Data header
@@ -1498,10 +1825,10 @@ TEST_F(NetworkServiceNetworkDelegateTest, ClearSiteDataNetworkContextCient) {
 
   // With |NetworkContextCient|. The request should go through
   // |ClearSiteDataNetworkContextClient| and complete.
-  mojom::NetworkContextClientPtr client_ptr;
+  mojo::PendingRemote<mojom::NetworkContextClient> client_remote;
   auto client_impl = std::make_unique<ClearSiteDataNetworkContextClient>(
-      mojo::MakeRequest(&client_ptr));
-  network_context_->SetClient(std::move(client_ptr));
+      client_remote.InitWithNewPipeAndPassReceiver());
+  network_context_->SetClient(std::move(client_remote));
   url = https_server()->GetURL("/bar");
   url = AddQuery(url, "header", kClearCookiesHeader);
   EXPECT_EQ(0, client_impl->on_clear_site_data_counter());
@@ -1516,10 +1843,10 @@ TEST_F(NetworkServiceNetworkDelegateTest, HandleClearSiteDataHeaders) {
   const char kClearCookiesHeader[] = "Clear-Site-Data: \"cookies\"";
   CreateNetworkContext();
 
-  mojom::NetworkContextClientPtr client_ptr;
+  mojo::PendingRemote<mojom::NetworkContextClient> client_remote;
   auto client_impl = std::make_unique<ClearSiteDataNetworkContextClient>(
-      mojo::MakeRequest(&client_ptr));
-  network_context_->SetClient(std::move(client_ptr));
+      client_remote.InitWithNewPipeAndPassReceiver());
+  network_context_->SetClient(std::move(client_remote));
 
   // |passed_header_value| are only checked if |should_call_client| is true.
   const struct TestCase {

@@ -72,20 +72,9 @@ source_set("libfuzzer") {
 
 if (use_afl) {
   source_set("afl_driver") {
-    sources = [
-      "src/afl/afl_driver.cpp",
-    ]
+    sources = [ "src/afl/afl_driver.cpp" ]
 
     configs -= fuzzing_engine_remove_configs
     configs += fuzzing_engine_add_configs
   }
-}
-
-source_set("fuzzed_data_provider") {
-  sources = [
-    "src/utils/FuzzedDataProvider.h",
-  ]
-
-  configs -= fuzzing_engine_remove_configs
-  configs += fuzzing_engine_add_configs
 }

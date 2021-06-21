@@ -31,7 +31,7 @@ class JSV8BreakIterator : public JSObject {
  public:
   V8_WARN_UNUSED_RESULT static MaybeHandle<JSV8BreakIterator> New(
       Isolate* isolate, Handle<Map> map, Handle<Object> input_locales,
-      Handle<Object> input_options);
+      Handle<Object> input_options, const char* service);
 
   static Handle<JSObject> ResolvedOptions(
       Isolate* isolate, Handle<JSV8BreakIterator> break_iterator);
@@ -51,12 +51,6 @@ class JSV8BreakIterator : public JSObject {
   static String BreakType(Isolate* isolate,
                           Handle<JSV8BreakIterator> break_iterator);
 
-  enum class Type { CHARACTER, WORD, SENTENCE, LINE };
-  inline void set_type(Type type);
-  inline Type type() const;
-
-  Handle<String> TypeAsString() const;
-
   DECL_CAST(JSV8BreakIterator)
   DECL_PRINTER(JSV8BreakIterator)
   DECL_VERIFIER(JSV8BreakIterator)
@@ -72,11 +66,9 @@ class JSV8BreakIterator : public JSObject {
 
   // Layout description.
   DEFINE_FIELD_OFFSET_CONSTANTS(JSObject::kHeaderSize,
-                                TORQUE_GENERATED_JSV8BREAK_ITERATOR_FIELDS)
+                                TORQUE_GENERATED_JS_V8_BREAK_ITERATOR_FIELDS)
 
  private:
-  DECL_INT_ACCESSORS(raw_type)
-
   OBJECT_CONSTRUCTORS(JSV8BreakIterator, JSObject);
 };
 

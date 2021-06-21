@@ -39,9 +39,15 @@ extern const char kAllowedTypes[];
 // A boolean that tracks whether apps are allowed to enter fullscreen mode.
 extern const char kAppFullscreenAllowed[];
 
+// A boolean indicating if external extensions are blocked from installing.
+extern const char kBlockExternalExtensions[];
+
 // Dictionary pref that keeps track of per-extension settings. The keys are
 // extension ids.
 extern const char kExtensions[];
+
+// A boolean indicating if the extensions checkup has been shown on startup.
+extern const char kExtensionCheckupOnStartup[];
 
 // Dictionary pref that manages extensions, controlled by policy.
 // Values are expected to conform to the schema of the ExtensionManagement
@@ -103,6 +109,10 @@ extern const char kToolbar[];
 // Integer pref that tracks the number of browser actions visible in the browser
 // actions toolbar.
 extern const char kToolbarSize[];
+
+// Indicates whether extensions have been migrated from BrowserActionsContainer
+// to the ExtensionsToolbarContainer.
+extern const char kPinnedExtensionsMigrationComplete[];
 
 // Properties in kExtensions dictionaries --------------------------------------
 

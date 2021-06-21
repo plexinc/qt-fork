@@ -123,6 +123,11 @@ QQuickAnimatorProxyJob::QQuickAnimatorProxyJob(QAbstractAnimationJob *job, QObje
     }
 }
 
+void QQuickAnimatorProxyJob::updateLoopCount(int loopCount)
+{
+    m_job->setLoopCount(loopCount);
+}
+
 QQuickAnimatorProxyJob::~QQuickAnimatorProxyJob()
 {
     if (m_job && m_controller)
@@ -142,6 +147,10 @@ void QQuickAnimatorProxyJob::updateCurrentTime(int)
 {
     if (m_internalState != State_Running)
         return;
+
+    // Copy current loop number from the job
+    // we could make currentLoop() virtual but it would be less efficient
+    m_currentLoop = m_job->currentLoop();
 
     // A proxy which is being ticked should be associated with a window, (see
     // setWindow() below). If we get here when there is no more controller we
@@ -184,7 +193,7 @@ void QQuickAnimatorProxyJob::updateState(QAbstractAnimationJob::State newState, 
 
 void QQuickAnimatorProxyJob::debugAnimation(QDebug d) const
 {
-    d << "QuickAnimatorProxyJob("<< hex << (const void *) this << dec
+    d << "QuickAnimatorProxyJob("<< Qt::hex << (const void *) this << Qt::dec
       << "state:" << state() << "duration:" << duration()
       << "proxying: (" << job() << ')';
 }
@@ -266,7 +275,7 @@ QQuickAnimatorJob::QQuickAnimatorJob()
 
 void QQuickAnimatorJob::debugAnimation(QDebug d) const
 {
-    d << "QuickAnimatorJob(" << hex << (const void *) this << dec
+    d << "QuickAnimatorJob(" << Qt::hex << (const void *) this << Qt::dec
       << ") state:" << state() << "duration:" << duration()
       << "target:" << m_target << "value:" << m_value;
 }
@@ -582,6 +591,7 @@ void QQuickOpacityAnimatorJob::postSync()
         }
 
         d->extra.value().opacityNode = m_opacityNode;
+        updateCurrentTime(0);
     }
     Q_ASSERT(m_opacityNode);
 }

@@ -9,17 +9,17 @@
 #define GrSurfaceContext_DEFINED
 
 #include "include/core/SkFilterQuality.h"
-#include "include/core/SkImageInfo.h"
 #include "include/core/SkRect.h"
 #include "include/core/SkRefCnt.h"
 #include "include/core/SkSurface.h"
-#include "src/gpu/GrColorSpaceInfo.h"
+#include "src/gpu/GrColorInfo.h"
 #include "src/gpu/GrDataUtils.h"
+#include "src/gpu/GrImageInfo.h"
 #include "src/gpu/GrSurfaceProxy.h"
+#include "src/gpu/GrSurfaceProxyView.h"
 
 class GrAuditTrail;
 class GrDrawingManager;
-class GrOpList;
 class GrRecordingContext;
 class GrRenderTargetContext;
 class GrRenderTargetProxy;
@@ -34,15 +34,41 @@ struct SkIRect;
 /**
  * A helper object to orchestrate commands for a particular surface
  */
-class SK_API GrSurfaceContext : public SkRefCnt {
+class GrSurfaceContext {
 public:
-    ~GrSurfaceContext() override {}
+    // If the passed in GrSurfaceProxy is renderable this will return a GrRenderTargetContext,
+    // otherwise it will return a GrSurfaceContext.
+    static std::unique_ptr<GrSurfaceContext> Make(GrRecordingContext*,
+                                                  GrSurfaceProxyView readView,
+                                                  GrColorType, SkAlphaType, sk_sp<SkColorSpace>);
 
-    const GrColorSpaceInfo& colorSpaceInfo() const { return fColorSpaceInfo; }
+    static std::unique_ptr<GrSurfaceContext> Make(GrRecordingContext*, SkISize dimensions,
+                                                  const GrBackendFormat&, GrRenderable,
+                                                  int renderTargetSampleCnt, GrMipMapped,
+                                                  GrProtected, GrSurfaceOrigin, GrColorType,
+                                                  SkAlphaType, sk_sp<SkColorSpace>, SkBackingFit,
+                                                  SkBudgeted);
 
-    // TODO: these two calls would be way cooler if this object had a GrSurfaceProxy pointer
-    int width() const { return this->asSurfaceProxy()->width(); }
-    int height() const { return this->asSurfaceProxy()->height(); }
+    // If it is known that the GrSurfaceProxy is not renderable, you can directly call the the ctor
+    // here to make a GrSurfaceContext on the stack.
+    GrSurfaceContext(GrRecordingContext*, GrSurfaceProxyView readView, GrColorType, SkAlphaType,
+                     sk_sp<SkColorSpace>);
+
+    virtual ~GrSurfaceContext() = default;
+
+    const GrColorInfo& colorInfo() const { return fColorInfo; }
+    GrImageInfo imageInfo() const { return {fColorInfo, fReadView.proxy()->dimensions()}; }
+
+    GrSurfaceOrigin origin() const { return fReadView.origin(); }
+    GrSwizzle readSwizzle() const { return fReadView.swizzle(); }
+    // TODO: See if it makes sense for this to return a const& instead and require the callers to
+    // make a copy (which refs the proxy) if needed.
+    GrSurfaceProxyView readSurfaceView() { return fReadView; }
+
+    int width() const { return fReadView.proxy()->width(); }
+    int height() const { return fReadView.proxy()->height(); }
+
+    const GrCaps* caps() const;
 
     /**
      * Reads a rectangle of pixels from the render target context.
@@ -53,7 +79,7 @@ public:
      * @param direct        The direct context to use. If null will use our GrRecordingContext if it
      *                      is a GrDirectContext and fail otherwise.
      */
-    bool readPixels(const GrPixelInfo& dstInfo, void* dst, size_t rowBytes, SkIPoint srcPt,
+    bool readPixels(const GrImageInfo& dstInfo, void* dst, size_t rowBytes, SkIPoint srcPt,
                     GrContext* direct = nullptr);
 
     /**
@@ -66,20 +92,24 @@ public:
      * @param direct        The direct context to use. If null will use our GrRecordingContext if it
      *                      is a GrDirectContext and fail otherwise.
      */
-    bool writePixels(const GrPixelInfo& srcInfo, const void* src, size_t rowBytes, SkIPoint dstPt,
+    bool writePixels(const GrImageInfo& srcInfo, const void* src, size_t rowBytes, SkIPoint dstPt,
                      GrContext* direct = nullptr);
 
-    // TODO: this is virtual b.c. this object doesn't have a pointer to the wrapped GrSurfaceProxy?
-    virtual GrSurfaceProxy* asSurfaceProxy() = 0;
-    virtual const GrSurfaceProxy* asSurfaceProxy() const = 0;
-    virtual sk_sp<GrSurfaceProxy> asSurfaceProxyRef() = 0;
+    GrSurfaceProxy* asSurfaceProxy() { return fReadView.proxy(); }
+    const GrSurfaceProxy* asSurfaceProxy() const { return fReadView.proxy(); }
+    sk_sp<GrSurfaceProxy> asSurfaceProxyRef() { return fReadView.refProxy(); }
 
-    virtual GrTextureProxy* asTextureProxy() = 0;
-    virtual const GrTextureProxy* asTextureProxy() const = 0;
-    virtual sk_sp<GrTextureProxy> asTextureProxyRef() = 0;
+    GrTextureProxy* asTextureProxy() { return fReadView.asTextureProxy(); }
+    const GrTextureProxy* asTextureProxy() const { return fReadView.asTextureProxy(); }
+    sk_sp<GrTextureProxy> asTextureProxyRef() { return fReadView.asTextureProxyRef(); }
 
-    virtual GrRenderTargetProxy* asRenderTargetProxy() = 0;
-    virtual sk_sp<GrRenderTargetProxy> asRenderTargetProxyRef() = 0;
+    GrRenderTargetProxy* asRenderTargetProxy() { return fReadView.asRenderTargetProxy(); }
+    const GrRenderTargetProxy* asRenderTargetProxy() const {
+        return fReadView.asRenderTargetProxy();
+    }
+    sk_sp<GrRenderTargetProxy> asRenderTargetProxyRef() {
+        return fReadView.asRenderTargetProxyRef();
+    }
 
     virtual GrRenderTargetContext* asRenderTargetContext() { return nullptr; }
 
@@ -90,38 +120,53 @@ public:
     const GrSurfaceContextPriv surfPriv() const;
 
 #if GR_TEST_UTILS
-    bool testCopy(GrSurfaceProxy* src, const SkIRect& srcRect, const SkIPoint& dstPoint) {
-        return this->copy(src, srcRect, dstPoint);
+    bool testCopy(GrSurfaceProxy* src, GrSurfaceOrigin origin, const SkIRect& srcRect,
+                  const SkIPoint& dstPoint) {
+        return this->copy(src, origin, srcRect, dstPoint);
     }
 
-    bool testCopy(GrSurfaceProxy* src) {
-        return this->copy(src);
+    bool testCopy(GrSurfaceProxy* src, GrSurfaceOrigin origin) {
+        return this->copy(src, origin, SkIRect::MakeSize(src->dimensions()),  SkIPoint::Make(0, 0));
     }
 #endif
-
 
 protected:
     friend class GrSurfaceContextPriv;
 
-    GrSurfaceContext(GrRecordingContext*, GrColorType, SkAlphaType, sk_sp<SkColorSpace>);
-
     GrDrawingManager* drawingManager();
     const GrDrawingManager* drawingManager() const;
 
-    virtual GrOpList* getOpList() = 0;
-    SkDEBUGCODE(virtual void validate() const = 0;)
+    SkDEBUGCODE(void validate() const;)
 
     SkDEBUGCODE(GrSingleOwner* singleOwner();)
 
     GrRecordingContext* fContext;
 
+    GrSurfaceProxyView fReadView;
+
     // The rescaling step of asyncRescaleAndReadPixels[YUV420]().
-    sk_sp<GrRenderTargetContext> rescale(const SkImageInfo& info, const SkIRect& srcRect,
-                                         SkSurface::RescaleGamma rescaleGamma,
-                                         SkFilterQuality rescaleQuality);
+    std::unique_ptr<GrRenderTargetContext> rescale(const SkImageInfo& info, const SkIRect& srcRect,
+                                                   SkSurface::RescaleGamma rescaleGamma,
+                                                   SkFilterQuality rescaleQuality);
+
+    // Inserts a transfer, part of the implementation of asyncReadPixels and
+    // asyncRescaleAndReadPixelsYUV420().
+    struct PixelTransferResult {
+        using ConversionFn = void(void* dst, const void* mappedBuffer);
+        // If null then the transfer could not be performed. Otherwise this buffer will contain
+        // the pixel data when the transfer is complete.
+        sk_sp<GrGpuBuffer> fTransferBuffer;
+        // If this is null then the transfer buffer will contain the data in the requested
+        // color type. Otherwise, when the transfer is done this must be called to convert
+        // from the transfer buffer's color type to the requested color type.
+        std::function<ConversionFn> fPixelConverter;
+    };
+    PixelTransferResult transferPixels(GrColorType colorType, const SkIRect& rect);
 
 private:
     friend class GrSurfaceProxy; // for copy
+
+    SkDEBUGCODE(virtual void onValidate() const {})
 
     /**
      * Copy 'src' into the proxy backing this context. This call will not do any draw fallback.
@@ -138,13 +183,10 @@ private:
      *       regions will not be shifted. The 'src' must have the same origin as the backing proxy
      *       of fSurfaceContext.
      */
-    bool copy(GrSurfaceProxy* src, const SkIRect& srcRect, const SkIPoint& dstPoint);
+    bool copy(GrSurfaceProxy* src, GrSurfaceOrigin origin, const SkIRect& srcRect,
+              const SkIPoint& dstPoint);
 
-    bool copy(GrSurfaceProxy* src) {
-        return this->copy(src, SkIRect::MakeWH(src->width(), src->height()), SkIPoint::Make(0, 0));
-    }
-
-    GrColorSpaceInfo    fColorSpaceInfo;
+    GrColorInfo fColorInfo;
 
     typedef SkRefCnt INHERITED;
 };

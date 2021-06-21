@@ -15,10 +15,15 @@
 #include "base/macros.h"
 #include "third_party/blink/public/common/common_export.h"
 #include "third_party/blink/public/common/feature_policy/policy_value.h"
-#include "third_party/blink/public/mojom/feature_policy/feature_policy.mojom.h"
+#include "third_party/blink/public/mojom/feature_policy/feature_policy.mojom-forward.h"
+#include "third_party/blink/public/mojom/feature_policy/feature_policy_feature.mojom-forward.h"
 #include "url/origin.h"
 
 namespace blink {
+
+namespace mojom {
+enum class WebSandboxFlags;
+}
 
 // Feature Policy is a mechanism for controlling the availability of web
 // platform features in a frame, including all embedded frames. It can be used
@@ -74,7 +79,7 @@ namespace blink {
 //
 // If the default policy  is in effect for a frame, then it controls how the
 // feature is inherited by any cross-origin iframes embedded by the frame. (See
-// the comments below in FeaturePolicy::DefaultPolicy for specifics)
+// the comments below in FeaturePolicy::FeatureDefault for specifics)
 //
 // Policy Inheritance
 // ------------------
@@ -83,7 +88,7 @@ namespace blink {
 // receive the same set of enables features as the parent frame. Whether or not
 // features are inherited by cross-origin iframes without an explicit policy is
 // determined by the feature's default policy. (Again, see the comments in
-// FeaturePolicy::DefaultPolicy for details)
+// FeaturePolicy::FeatureDefault for details)
 
 // ListValue (PolicyValue)
 // ----------------------
@@ -180,6 +185,8 @@ class BLINK_COMMON_EXPORT FeaturePolicy {
   // a feature when neither it nor any parent frame have declared an explicit
   // policy. The three possibilities map directly to Feature Policy Allowlist
   // semantics.
+  //
+  // The default values for each feature are set in GetDefaultFeatureList.
   enum class FeatureDefault {
     // Equivalent to []. If this default policy is in effect for a frame, then
     // the feature will not be enabled for that frame or any of its children.
@@ -228,6 +235,10 @@ class BLINK_COMMON_EXPORT FeaturePolicy {
   PolicyValue GetFeatureValueForOrigin(mojom::FeaturePolicyFeature feature,
                                        const url::Origin& origin) const;
 
+  PolicyValue GetProposedFeatureValueForOrigin(
+      mojom::FeaturePolicyFeature feature,
+      const url::Origin& origin) const;
+
   // Returns the allowlist of a given feature by this policy.
   const Allowlist GetAllowlistForFeature(
       mojom::FeaturePolicyFeature feature) const;
@@ -245,6 +256,9 @@ class BLINK_COMMON_EXPORT FeaturePolicy {
   // Returns the list of features which can be controlled by Feature Policy.
   const FeatureList& GetFeatureList() const;
   static const FeatureList& GetDefaultFeatureList();
+
+  static mojom::FeaturePolicyFeature FeatureForSandboxFlag(
+      mojom::WebSandboxFlags flag);
 
  private:
   friend class FeaturePolicyTest;
@@ -271,6 +285,11 @@ class BLINK_COMMON_EXPORT FeaturePolicy {
   // Records whether or not each feature was enabled for this frame by its
   // parent frame.
   FeatureState inherited_policies_;
+
+  // Temporary member to support metrics. These are the values which would be
+  // stored in |inherited_policies_| under the proposal in
+  // https://crbug.com/937131.
+  FeatureState proposed_inherited_policies_;
 
   const FeatureList& feature_list_;
 

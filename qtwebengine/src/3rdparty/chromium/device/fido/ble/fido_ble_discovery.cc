@@ -23,8 +23,7 @@
 namespace device {
 
 FidoBleDiscovery::FidoBleDiscovery()
-    : FidoBleDiscoveryBase(FidoTransportProtocol::kBluetoothLowEnergy),
-      weak_factory_(this) {}
+    : FidoBleDiscoveryBase(FidoTransportProtocol::kBluetoothLowEnergy) {}
 
 FidoBleDiscovery::~FidoBleDiscovery() = default;
 
@@ -43,24 +42,32 @@ void FidoBleDiscovery::OnSetPowered() {
         base::Contains(device->GetUUIDs(), FidoServiceUUID())) {
       const auto& device_address = device->GetAddress();
       FIDO_LOG(DEBUG) << "FIDO BLE device: " << device_address;
-      AddDevice(std::make_unique<FidoBleDevice>(adapter(), device_address));
+      AddDevice(std::make_unique<FidoBleDevice>(adapter(), device_address,
+                                                FidoBleDevice::Type::kBLE));
       CheckAndRecordDevicePairingModeOnDiscovery(
           FidoBleDevice::GetIdForAddress(device_address));
     }
   }
 
-  auto filter = std::make_unique<BluetoothDiscoveryFilter>(
+  auto discovery_filter = std::make_unique<BluetoothDiscoveryFilter>(
       BluetoothTransport::BLUETOOTH_TRANSPORT_LE);
-  filter->AddUUID(FidoServiceUUID());
+  device::BluetoothDiscoveryFilter::DeviceInfoFilter device_filter;
+  device_filter.uuids.insert(FidoServiceUUID());
+  discovery_filter->AddDeviceFilter(device_filter);
 
   adapter()->StartDiscoverySessionWithFilter(
-      std::move(filter),
+      std::move(discovery_filter),
       base::AdaptCallbackForRepeating(
           base::BindOnce(&FidoBleDiscovery::OnStartDiscoverySessionWithFilter,
                          weak_factory_.GetWeakPtr())),
-      base::AdaptCallbackForRepeating(
-          base::BindOnce(&FidoBleDiscovery::OnStartDiscoverySessionError,
-                         weak_factory_.GetWeakPtr())));
+      base::BindRepeating(
+          []() { FIDO_LOG(ERROR) << "Failed to start BLE discovery"; }));
+}
+
+void FidoBleDiscovery::OnStartDiscoverySessionWithFilter(
+    std::unique_ptr<BluetoothDiscoverySession> session) {
+  SetDiscoverySession(std::move(session));
+  FIDO_LOG(DEBUG) << "BLE discovery session started";
 }
 
 void FidoBleDiscovery::DeviceAdded(BluetoothAdapter* adapter,
@@ -69,7 +76,8 @@ void FidoBleDiscovery::DeviceAdded(BluetoothAdapter* adapter,
       base::Contains(device->GetUUIDs(), FidoServiceUUID())) {
     const auto& device_address = device->GetAddress();
     FIDO_LOG(DEBUG) << "Discovered FIDO BLE device: " << device_address;
-    AddDevice(std::make_unique<FidoBleDevice>(adapter, device_address));
+    AddDevice(std::make_unique<FidoBleDevice>(adapter, device_address,
+                                              FidoBleDevice::Type::kBLE));
     CheckAndRecordDevicePairingModeOnDiscovery(
         FidoBleDevice::GetIdForAddress(device_address));
   }
@@ -87,7 +95,8 @@ void FidoBleDiscovery::DeviceChanged(BluetoothAdapter* adapter,
   if (!authenticator) {
     FIDO_LOG(DEBUG) << "Discovered FIDO service on existing BLE device: "
                     << device->GetAddress();
-    AddDevice(std::make_unique<FidoBleDevice>(adapter, device->GetAddress()));
+    AddDevice(std::make_unique<FidoBleDevice>(adapter, device->GetAddress(),
+                                              FidoBleDevice::Type::kBLE));
     CheckAndRecordDevicePairingModeOnDiscovery(std::move(authenticator_id));
     return;
   }

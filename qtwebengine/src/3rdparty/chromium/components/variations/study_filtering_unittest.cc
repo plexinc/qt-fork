@@ -10,6 +10,8 @@
 
 #include <vector>
 
+#include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/macros.h"
 #include "base/stl_util.h"
 #include "base/strings/string_split.h"
@@ -211,13 +213,17 @@ TEST(VariationsStudyFilteringTest, CheckStudyLocale) {
 }
 
 TEST(VariationsStudyFilteringTest, CheckStudyPlatform) {
-  const Study::Platform platforms[] = {
-      Study::PLATFORM_WINDOWS,         Study::PLATFORM_MAC,
-      Study::PLATFORM_LINUX,           Study::PLATFORM_CHROMEOS,
-      Study::PLATFORM_ANDROID,         Study::PLATFORM_IOS,
-      Study::PLATFORM_ANDROID_WEBVIEW, Study::PLATFORM_FUCHSIA};
+  const Study::Platform platforms[] = {Study::PLATFORM_WINDOWS,
+                                       Study::PLATFORM_MAC,
+                                       Study::PLATFORM_LINUX,
+                                       Study::PLATFORM_CHROMEOS,
+                                       Study::PLATFORM_ANDROID,
+                                       Study::PLATFORM_IOS,
+                                       Study::PLATFORM_ANDROID_WEBLAYER,
+                                       Study::PLATFORM_FUCHSIA,
+                                       Study::PLATFORM_ANDROID_WEBVIEW};
   ASSERT_EQ(Study::Platform_ARRAYSIZE, static_cast<int>(base::size(platforms)));
-  bool platform_added[base::size(platforms)] = {0};
+  bool platform_added[base::size(platforms)] = {false};
 
   Study::Filter filter;
 
@@ -268,6 +274,69 @@ TEST(VariationsStudyFilteringTest, CheckStudyLowEndDevice) {
   filter.set_is_low_end_device(false);
   EXPECT_FALSE(internal::CheckStudyLowEndDevice(filter, true));
   EXPECT_TRUE(internal::CheckStudyLowEndDevice(filter, false));
+}
+
+TEST(VariationsStudyFilteringTest, CheckStudyEnterprise) {
+  Study::Filter filter;
+  ClientFilterableState client_non_enterprise(
+      base::BindOnce([] { return false; }));
+  ClientFilterableState client_enterprise(base::BindOnce([] { return true; }));
+
+  // Check that if the filter is not set, study applies to both enterprise and
+  // non-enterprise clients.
+  EXPECT_TRUE(internal::CheckStudyEnterprise(filter, client_enterprise));
+  EXPECT_TRUE(internal::CheckStudyEnterprise(filter, client_non_enterprise));
+
+  filter.set_is_enterprise(true);
+  EXPECT_TRUE(internal::CheckStudyEnterprise(filter, client_enterprise));
+  EXPECT_FALSE(internal::CheckStudyEnterprise(filter, client_non_enterprise));
+
+  filter.set_is_enterprise(false);
+  EXPECT_FALSE(internal::CheckStudyEnterprise(filter, client_enterprise));
+  EXPECT_TRUE(internal::CheckStudyEnterprise(filter, client_non_enterprise));
+}
+
+TEST(VariationsStudyFilteringTest, CheckStudyPolicyRestriction) {
+  Study::Filter filter;
+
+  // Check that if the filter is not set, study applies to clients with no
+  // restrictive policy.
+  EXPECT_TRUE(internal::CheckStudyPolicyRestriction(
+      filter, RestrictionPolicy::NO_RESTRICTIONS));
+  EXPECT_FALSE(internal::CheckStudyPolicyRestriction(
+      filter, RestrictionPolicy::CRITICAL_ONLY));
+  EXPECT_FALSE(
+      internal::CheckStudyPolicyRestriction(filter, RestrictionPolicy::ALL));
+
+  // Explicitly set to none filter should be the same as no filter.
+  filter.set_policy_restriction(Study::NONE);
+  EXPECT_TRUE(internal::CheckStudyPolicyRestriction(
+      filter, RestrictionPolicy::NO_RESTRICTIONS));
+  EXPECT_FALSE(internal::CheckStudyPolicyRestriction(
+      filter, RestrictionPolicy::CRITICAL_ONLY));
+  EXPECT_FALSE(
+      internal::CheckStudyPolicyRestriction(filter, RestrictionPolicy::ALL));
+
+  // If the filter is set to CRITICAL then apply it to all clients that do not
+  // disable all experiements.
+  filter.set_policy_restriction(Study::CRITICAL);
+  EXPECT_TRUE(internal::CheckStudyPolicyRestriction(
+      filter, RestrictionPolicy::NO_RESTRICTIONS));
+  EXPECT_TRUE(internal::CheckStudyPolicyRestriction(
+      filter, RestrictionPolicy::CRITICAL_ONLY));
+  EXPECT_FALSE(
+      internal::CheckStudyPolicyRestriction(filter, RestrictionPolicy::ALL));
+
+  // If the filter is set to CRITICAL_ONLY then apply it only to clients that
+  // have requested critical studies but not to clients with no or full
+  // restrictions.
+  filter.set_policy_restriction(Study::CRITICAL_ONLY);
+  EXPECT_FALSE(internal::CheckStudyPolicyRestriction(
+      filter, RestrictionPolicy::NO_RESTRICTIONS));
+  EXPECT_TRUE(internal::CheckStudyPolicyRestriction(
+      filter, RestrictionPolicy::CRITICAL_ONLY));
+  EXPECT_FALSE(
+      internal::CheckStudyPolicyRestriction(filter, RestrictionPolicy::ALL));
 }
 
 TEST(VariationsStudyFilteringTest, CheckStudyStartDate) {
@@ -620,7 +689,7 @@ TEST(VariationsStudyFilteringTest, FilterAndValidateStudies) {
   AddExperiment("A", 10, study3);
   AddExperiment("Default", 25, study3);
 
-  ClientFilterableState client_state;
+  ClientFilterableState client_state({});
   client_state.locale = "en-CA";
   client_state.reference_date = base::Time::Now();
   client_state.version = base::Version("20.0.0.0");
@@ -679,7 +748,7 @@ TEST(VariationsStudyFilteringTest, FilterAndValidateStudiesWithCountry) {
     if (test.filter_exclude_country)
       study->mutable_filter()->add_exclude_country(test.filter_exclude_country);
 
-    ClientFilterableState client_state;
+    ClientFilterableState client_state({});
     client_state.locale = "en-CA";
     client_state.reference_date = base::Time::Now();
     client_state.version = base::Version("20.0.0.0");
@@ -697,7 +766,7 @@ TEST(VariationsStudyFilteringTest, FilterAndValidateStudiesWithCountry) {
 }
 
 TEST(VariationsStudyFilteringTest, GetClientCountryForStudy_Session) {
-  ClientFilterableState client_state;
+  ClientFilterableState client_state({});
   client_state.session_consistency_country = "session_country";
   client_state.permanent_consistency_country = "permanent_country";
 
@@ -708,7 +777,7 @@ TEST(VariationsStudyFilteringTest, GetClientCountryForStudy_Session) {
 }
 
 TEST(VariationsStudyFilteringTest, GetClientCountryForStudy_Permanent) {
-  ClientFilterableState client_state;
+  ClientFilterableState client_state({});
   client_state.session_consistency_country = "session_country";
   client_state.permanent_consistency_country = "permanent_country";
 

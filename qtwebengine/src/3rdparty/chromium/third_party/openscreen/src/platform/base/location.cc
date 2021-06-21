@@ -4,15 +4,15 @@
 
 #include "platform/base/location.h"
 
-#include "absl/strings/str_cat.h"
-#include "platform/api/logging.h"
+#include <sstream>
+
 #include "platform/base/macros.h"
 
 namespace openscreen {
 
 Location::Location() = default;
 Location::Location(const Location&) = default;
-Location::Location(Location&&) = default;
+Location::Location(Location&&) noexcept = default;
 
 Location::Location(const void* program_counter)
     : program_counter_(program_counter) {}
@@ -25,7 +25,9 @@ std::string Location::ToString() const {
     return "pc:NULL";
   }
 
-  return absl::StrCat("pc:0x", absl::Hex(program_counter_));
+  std::ostringstream oss;
+  oss << "pc:" << program_counter_;
+  return oss.str();
 }
 
 #if defined(__GNUC__)

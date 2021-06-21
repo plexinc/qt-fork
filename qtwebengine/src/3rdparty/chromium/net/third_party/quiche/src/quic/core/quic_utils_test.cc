@@ -8,9 +8,10 @@
 
 #include "net/third_party/quiche/src/quic/core/crypto/crypto_protocol.h"
 #include "net/third_party/quiche/src/quic/core/quic_connection_id.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_arraysize.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
 #include "net/third_party/quiche/src/quic/test_tools/quic_test_utils.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_arraysize.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 namespace test {
@@ -99,7 +100,7 @@ TEST_F(QuicUtilsTest, ReferenceTest) {
     data[i] = i % 255;
   }
   EXPECT_EQ(IncrementalHashReference(data.data(), data.size()),
-            QuicUtils::FNV1a_128_Hash(QuicStringPiece(
+            QuicUtils::FNV1a_128_Hash(quiche::QuicheStringPiece(
                 reinterpret_cast<const char*>(data.data()), data.size())));
 }
 
@@ -131,6 +132,8 @@ TEST_F(QuicUtilsTest, RetransmissionTypeToPacketState) {
       EXPECT_EQ(TLP_RETRANSMITTED, state);
     } else if (i == RTO_RETRANSMISSION) {
       EXPECT_EQ(RTO_RETRANSMITTED, state);
+    } else if (i == PTO_RETRANSMISSION) {
+      EXPECT_EQ(PTO_RETRANSMITTED, state);
     } else if (i == PROBING_RETRANSMISSION) {
       EXPECT_EQ(PROBE_RETRANSMITTED, state);
     } else {
@@ -165,15 +168,56 @@ TEST_F(QuicUtilsTest, IsIetfPacketHeader) {
   EXPECT_FALSE(QuicUtils::IsIetfPacketShortHeader(first_byte));
 }
 
+TEST_F(QuicUtilsTest, ReplacementConnectionIdIsDeterministic) {
+  // Verify that two equal connection IDs get the same replacement.
+  QuicConnectionId connection_id64a = TestConnectionId(33);
+  QuicConnectionId connection_id64b = TestConnectionId(33);
+  EXPECT_EQ(connection_id64a, connection_id64b);
+  EXPECT_EQ(QuicUtils::CreateReplacementConnectionId(connection_id64a),
+            QuicUtils::CreateReplacementConnectionId(connection_id64b));
+  QuicConnectionId connection_id72a = TestConnectionIdNineBytesLong(42);
+  QuicConnectionId connection_id72b = TestConnectionIdNineBytesLong(42);
+  EXPECT_EQ(connection_id72a, connection_id72b);
+  EXPECT_EQ(QuicUtils::CreateReplacementConnectionId(connection_id72a),
+            QuicUtils::CreateReplacementConnectionId(connection_id72b));
+}
+
+TEST_F(QuicUtilsTest, ReplacementConnectionIdLengthIsCorrect) {
+  // Verify that all lengths get replaced by kQuicDefaultConnectionIdLength.
+  const char connection_id_bytes[255] = {};
+  for (uint8_t i = 0; i < sizeof(connection_id_bytes) - 1; ++i) {
+    QuicConnectionId connection_id(connection_id_bytes, i);
+    QuicConnectionId replacement_connection_id =
+        QuicUtils::CreateReplacementConnectionId(connection_id);
+    EXPECT_EQ(kQuicDefaultConnectionIdLength,
+              replacement_connection_id.length());
+  }
+}
+
+TEST_F(QuicUtilsTest, ReplacementConnectionIdHasEntropy) {
+  // Make sure all these test connection IDs have different replacements.
+  for (uint64_t i = 0; i < 256; ++i) {
+    QuicConnectionId connection_id_i = TestConnectionId(i);
+    EXPECT_NE(connection_id_i,
+              QuicUtils::CreateReplacementConnectionId(connection_id_i));
+    for (uint64_t j = i + 1; j <= 256; ++j) {
+      QuicConnectionId connection_id_j = TestConnectionId(j);
+      EXPECT_NE(connection_id_i, connection_id_j);
+      EXPECT_NE(QuicUtils::CreateReplacementConnectionId(connection_id_i),
+                QuicUtils::CreateReplacementConnectionId(connection_id_j));
+    }
+  }
+}
+
 TEST_F(QuicUtilsTest, RandomConnectionId) {
   MockRandom random(33);
   QuicConnectionId connection_id = QuicUtils::CreateRandomConnectionId(&random);
   EXPECT_EQ(connection_id.length(), sizeof(uint64_t));
   char connection_id_bytes[sizeof(uint64_t)];
-  random.RandBytes(connection_id_bytes, QUIC_ARRAYSIZE(connection_id_bytes));
+  random.RandBytes(connection_id_bytes, QUICHE_ARRAYSIZE(connection_id_bytes));
   EXPECT_EQ(connection_id,
             QuicConnectionId(static_cast<char*>(connection_id_bytes),
-                             QUIC_ARRAYSIZE(connection_id_bytes)));
+                             QUICHE_ARRAYSIZE(connection_id_bytes)));
   EXPECT_NE(connection_id, EmptyQuicConnectionId());
   EXPECT_NE(connection_id, TestConnectionId());
   EXPECT_NE(connection_id, TestConnectionId(1));
@@ -189,10 +233,10 @@ TEST_F(QuicUtilsTest, RandomConnectionIdVariableLength) {
       QuicUtils::CreateRandomConnectionId(connection_id_length, &random);
   EXPECT_EQ(connection_id.length(), connection_id_length);
   char connection_id_bytes[connection_id_length];
-  random.RandBytes(connection_id_bytes, QUIC_ARRAYSIZE(connection_id_bytes));
+  random.RandBytes(connection_id_bytes, QUICHE_ARRAYSIZE(connection_id_bytes));
   EXPECT_EQ(connection_id,
             QuicConnectionId(static_cast<char*>(connection_id_bytes),
-                             QUIC_ARRAYSIZE(connection_id_bytes)));
+                             QUICHE_ARRAYSIZE(connection_id_bytes)));
   EXPECT_NE(connection_id, EmptyQuicConnectionId());
   EXPECT_NE(connection_id, TestConnectionId());
   EXPECT_NE(connection_id, TestConnectionId(1));
@@ -202,18 +246,17 @@ TEST_F(QuicUtilsTest, RandomConnectionIdVariableLength) {
 }
 
 TEST_F(QuicUtilsTest, VariableLengthConnectionId) {
-  EXPECT_FALSE(
-      QuicUtils::VariableLengthConnectionIdAllowedForVersion(QUIC_VERSION_39));
+  EXPECT_FALSE(VersionAllowsVariableLengthConnectionIds(QUIC_VERSION_43));
   EXPECT_TRUE(QuicUtils::IsConnectionIdValidForVersion(
-      QuicUtils::CreateZeroConnectionId(QUIC_VERSION_39), QUIC_VERSION_39));
+      QuicUtils::CreateZeroConnectionId(QUIC_VERSION_43), QUIC_VERSION_43));
   EXPECT_TRUE(QuicUtils::IsConnectionIdValidForVersion(
-      QuicUtils::CreateZeroConnectionId(QUIC_VERSION_99), QUIC_VERSION_99));
-  EXPECT_NE(QuicUtils::CreateZeroConnectionId(QUIC_VERSION_39),
+      QuicUtils::CreateZeroConnectionId(QUIC_VERSION_50), QUIC_VERSION_50));
+  EXPECT_NE(QuicUtils::CreateZeroConnectionId(QUIC_VERSION_43),
             EmptyQuicConnectionId());
-  EXPECT_EQ(QuicUtils::CreateZeroConnectionId(QUIC_VERSION_99),
+  EXPECT_EQ(QuicUtils::CreateZeroConnectionId(QUIC_VERSION_50),
             EmptyQuicConnectionId());
   EXPECT_FALSE(QuicUtils::IsConnectionIdValidForVersion(EmptyQuicConnectionId(),
-                                                        QUIC_VERSION_39));
+                                                        QUIC_VERSION_43));
 }
 
 TEST_F(QuicUtilsTest, StatelessResetToken) {
@@ -225,7 +268,81 @@ TEST_F(QuicUtilsTest, StatelessResetToken) {
   QuicUint128 token2 = QuicUtils::GenerateStatelessResetToken(connection_id2);
   EXPECT_EQ(token1a, token1b);
   EXPECT_NE(token1a, token2);
-  EXPECT_EQ(token1a, MakeQuicUint128(0, 1));
+}
+
+enum class TestEnumClassBit : uint8_t {
+  BIT_ZERO = 0,
+  BIT_ONE,
+  BIT_TWO,
+};
+
+enum TestEnumBit {
+  TEST_BIT_0 = 0,
+  TEST_BIT_1,
+  TEST_BIT_2,
+};
+
+TEST(QuicBitMaskTest, EnumClass) {
+  BitMask64 mask(TestEnumClassBit::BIT_ZERO, TestEnumClassBit::BIT_TWO);
+  EXPECT_TRUE(mask.IsSet(TestEnumClassBit::BIT_ZERO));
+  EXPECT_FALSE(mask.IsSet(TestEnumClassBit::BIT_ONE));
+  EXPECT_TRUE(mask.IsSet(TestEnumClassBit::BIT_TWO));
+
+  mask.ClearAll();
+  EXPECT_FALSE(mask.IsSet(TestEnumClassBit::BIT_ZERO));
+  EXPECT_FALSE(mask.IsSet(TestEnumClassBit::BIT_ONE));
+  EXPECT_FALSE(mask.IsSet(TestEnumClassBit::BIT_TWO));
+}
+
+TEST(QuicBitMaskTest, Enum) {
+  BitMask64 mask(TEST_BIT_1, TEST_BIT_2);
+  EXPECT_FALSE(mask.IsSet(TEST_BIT_0));
+  EXPECT_TRUE(mask.IsSet(TEST_BIT_1));
+  EXPECT_TRUE(mask.IsSet(TEST_BIT_2));
+
+  mask.ClearAll();
+  EXPECT_FALSE(mask.IsSet(TEST_BIT_0));
+  EXPECT_FALSE(mask.IsSet(TEST_BIT_1));
+  EXPECT_FALSE(mask.IsSet(TEST_BIT_2));
+}
+
+TEST(QuicBitMaskTest, Integer) {
+  BitMask64 mask(1, 3);
+  mask.Set(3);
+  mask.Set(5, 7, 9);
+  EXPECT_FALSE(mask.IsSet(0));
+  EXPECT_TRUE(mask.IsSet(1));
+  EXPECT_FALSE(mask.IsSet(2));
+  EXPECT_TRUE(mask.IsSet(3));
+  EXPECT_FALSE(mask.IsSet(4));
+  EXPECT_TRUE(mask.IsSet(5));
+  EXPECT_FALSE(mask.IsSet(6));
+  EXPECT_TRUE(mask.IsSet(7));
+  EXPECT_FALSE(mask.IsSet(8));
+  EXPECT_TRUE(mask.IsSet(9));
+}
+
+TEST(QuicBitMaskTest, NumBits) {
+  EXPECT_EQ(64u, BitMask64::NumBits());
+  EXPECT_EQ(32u, BitMask<uint32_t>::NumBits());
+}
+
+TEST(QuicBitMaskTest, Constructor) {
+  BitMask64 empty_mask;
+  for (size_t bit = 0; bit < empty_mask.NumBits(); ++bit) {
+    EXPECT_FALSE(empty_mask.IsSet(bit));
+  }
+
+  BitMask64 mask(1, 3);
+  BitMask64 mask2 = mask;
+  BitMask64 mask3(mask2);
+
+  for (size_t bit = 0; bit < mask.NumBits(); ++bit) {
+    EXPECT_EQ(mask.IsSet(bit), mask2.IsSet(bit));
+    EXPECT_EQ(mask.IsSet(bit), mask3.IsSet(bit));
+  }
+
+  EXPECT_TRUE(std::is_trivially_copyable<BitMask64>::value);
 }
 
 }  // namespace

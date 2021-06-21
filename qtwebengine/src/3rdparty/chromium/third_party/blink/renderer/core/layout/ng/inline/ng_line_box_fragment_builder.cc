@@ -26,8 +26,8 @@ void NGLineBoxFragmentBuilder::Reset() {
   metrics_ = NGLineHeightMetrics();
   line_box_type_ = NGPhysicalLineBoxFragment::kNormalLineBox;
 
-  has_last_resort_break_ = false;
-  has_floating_descendants_ = false;
+  break_appeal_ = kBreakAppealPerfect;
+  has_floating_descendants_for_paint_ = false;
   has_orthogonal_flow_roots_ = false;
   has_descendant_that_depends_on_percentage_block_size_ = false;
   has_block_fragmentation_ = false;
@@ -57,14 +57,27 @@ NGLineBoxFragmentBuilder::ChildList::LastInFlowChild() {
   return nullptr;
 }
 
+void NGLineBoxFragmentBuilder::ChildList::WillInsertChild(
+    unsigned insert_before) {
+  unsigned index = 0;
+  for (Child& child : children_) {
+    if (index >= insert_before)
+      break;
+    if (child.children_count && index + child.children_count > insert_before)
+      ++child.children_count;
+    ++index;
+  }
+}
+
 void NGLineBoxFragmentBuilder::ChildList::InsertChild(unsigned index) {
+  WillInsertChild(index);
   children_.insert(index, Child());
 }
 
 void NGLineBoxFragmentBuilder::ChildList::MoveInInlineDirection(
     LayoutUnit delta) {
   for (auto& child : children_)
-    child.offset.inline_offset += delta;
+    child.rect.offset.inline_offset += delta;
 }
 
 void NGLineBoxFragmentBuilder::ChildList::MoveInInlineDirection(
@@ -72,20 +85,20 @@ void NGLineBoxFragmentBuilder::ChildList::MoveInInlineDirection(
     unsigned start,
     unsigned end) {
   for (unsigned index = start; index < end; index++)
-    children_[index].offset.inline_offset += delta;
+    children_[index].rect.offset.inline_offset += delta;
 }
 
 void NGLineBoxFragmentBuilder::ChildList::MoveInBlockDirection(
     LayoutUnit delta) {
   for (auto& child : children_)
-    child.offset.block_offset += delta;
+    child.rect.offset.block_offset += delta;
 }
 
 void NGLineBoxFragmentBuilder::ChildList::MoveInBlockDirection(LayoutUnit delta,
                                                                unsigned start,
                                                                unsigned end) {
   for (unsigned index = start; index < end; index++)
-    children_[index].offset.block_offset += delta;
+    children_[index].rect.offset.block_offset += delta;
 }
 
 void NGLineBoxFragmentBuilder::AddChildren(ChildList& children) {
@@ -94,18 +107,45 @@ void NGLineBoxFragmentBuilder::AddChildren(ChildList& children) {
   for (auto& child : children) {
     if (child.layout_result) {
       DCHECK(!child.fragment);
-      AddChild(child.layout_result->PhysicalFragment(), child.offset);
+      AddChild(child.layout_result->PhysicalFragment(), child.Offset());
       child.layout_result.reset();
     } else if (child.fragment) {
-      AddChild(std::move(child.fragment), child.offset);
+      AddChild(std::move(child.fragment), child.Offset());
       DCHECK(!child.fragment);
     } else if (child.out_of_flow_positioned_box) {
-      AddOutOfFlowChildCandidate(
+      AddOutOfFlowInlineChildCandidate(
           NGBlockNode(ToLayoutBox(child.out_of_flow_positioned_box)),
-          child.offset, child.container_direction);
+          child.Offset(), child.container_direction);
       child.out_of_flow_positioned_box = nullptr;
     }
   }
+}
+
+void NGLineBoxFragmentBuilder::PropagateChildrenData(ChildList& children) {
+  for (unsigned index = 0; index < children.size(); ++index) {
+    auto& child = children[index];
+    if (child.layout_result) {
+      DCHECK(!child.fragment);
+      PropagateChildData(child.layout_result->PhysicalFragment(),
+                         child.Offset());
+
+      // Skip over any children, the information should have already been
+      // propagated into this layout result.
+      if (child.children_count)
+        index += child.children_count - 1;
+
+      continue;
+    }
+    if (child.out_of_flow_positioned_box) {
+      AddOutOfFlowInlineChildCandidate(
+          NGBlockNode(ToLayoutBox(child.out_of_flow_positioned_box)),
+          child.Offset(), child.container_direction);
+      child.out_of_flow_positioned_box = nullptr;
+    }
+  }
+
+  DCHECK(oof_positioned_descendants_.IsEmpty());
+  MoveOutOfFlowDescendantCandidatesToDescendants();
 }
 
 scoped_refptr<const NGLayoutResult>
@@ -118,7 +158,9 @@ NGLineBoxFragmentBuilder::ToLineBoxFragment() {
   scoped_refptr<const NGPhysicalLineBoxFragment> fragment =
       NGPhysicalLineBoxFragment::Create(this);
 
-  return base::AdoptRef(new NGLayoutResult(std::move(fragment), this));
+  return base::AdoptRef(
+      new NGLayoutResult(NGLayoutResult::NGLineBoxFragmentBuilderPassKey(),
+                         std::move(fragment), this));
 }
 
 }  // namespace blink

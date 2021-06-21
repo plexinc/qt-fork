@@ -52,6 +52,9 @@ class CONTENT_EXPORT VirtualFidoDiscoveryFactory
   // authenticator matches the ID.
   VirtualAuthenticator* GetAuthenticator(const std::string& id);
 
+  // Returns all the authenticators attached to the factory.
+  std::vector<VirtualAuthenticator*> GetAuthenticators();
+
   // Removes the authenticator with the given |id|. Returns true if an
   // authenticator matched the |id|, false otherwise.
   bool RemoveAuthenticator(const std::string& id);
@@ -65,10 +68,7 @@ class CONTENT_EXPORT VirtualFidoDiscoveryFactory
 
   // device::FidoDiscoveryFactory:
   std::unique_ptr<::device::FidoDiscoveryBase> Create(
-      device::FidoTransportProtocol transport,
-      ::service_manager::Connector* connector) override;
-  std::unique_ptr<::device::FidoDiscoveryBase> CreateCable(
-      std::vector<device::CableDiscoveryData> cable_data) override;
+      device::FidoTransportProtocol transport) override;
 
  protected:
   // blink::test::mojom::VirtualAuthenticatorManager:

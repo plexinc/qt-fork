@@ -34,6 +34,7 @@
 #include "third_party/blink/renderer/core/editing/editing_utilities.h"
 #include "third_party/blink/renderer/core/editing/ephemeral_range.h"
 #include "third_party/blink/renderer/core/editing/iterators/text_iterator.h"
+#include "third_party/blink/renderer/core/html/html_document.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 
 namespace blink {
@@ -49,16 +50,14 @@ wtf_size_t TotalLength(const Vector<String>& strings) {
 
 }  // namespace
 
-using namespace html_names;
-
 StyledMarkupAccumulator::StyledMarkupAccumulator(
     const TextOffset& start,
     const TextOffset& end,
     Document* document,
     const CreateMarkupOptions& options)
     : formatter_(options.ShouldResolveURLs(),
-                 document->IsHTMLDocument() ? SerializationType::kHTML
-                                            : SerializationType::kXML),
+                 IsA<HTMLDocument>(document) ? SerializationType::kHTML
+                                             : SerializationType::kXML),
       start_(start),
       end_(end),
       document_(document),
@@ -109,14 +108,14 @@ void StyledMarkupAccumulator::AppendTextWithInlineStyle(
 
     result_.Append("<span style=\"");
     MarkupFormatter::AppendAttributeValue(
-        result_, inline_style->Style()->AsText(), document_->IsHTMLDocument());
+        result_, inline_style->Style()->AsText(), IsA<HTMLDocument>(document_));
     result_.Append("\">");
   }
   if (!ShouldAnnotate()) {
     AppendText(text);
   } else {
     const bool use_rendered_text = !EnclosingElementWithTag(
-        Position::FirstPositionInNode(text), kSelectTag);
+        Position::FirstPositionInNode(text), html_names::kSelectTag);
     String content =
         use_rendered_text ? RenderedText(text) : StringValueForRange(text);
     StringBuilder buffer;
@@ -143,12 +142,12 @@ void StyledMarkupAccumulator::AppendElementWithInlineStyle(
     StringBuilder& out,
     const Element& element,
     EditingStyle* style) {
-  const bool document_is_html = element.GetDocument().IsHTMLDocument();
+  const bool document_is_html = IsA<HTMLDocument>(element.GetDocument());
   formatter_.AppendStartTagOpen(out, element);
   AttributeCollection attributes = element.Attributes();
   for (const auto& attribute : attributes) {
     // We'll handle the style attribute separately, below.
-    if (attribute.GetName() == kStyleAttr)
+    if (attribute.GetName() == html_names::kStyleAttr)
       continue;
     AppendAttribute(out, element, attribute);
   }
@@ -196,7 +195,7 @@ void StyledMarkupAccumulator::WrapWithStyleNode(CSSPropertyValueSet* style) {
   StringBuilder open_tag;
   open_tag.Append("<div style=\"");
   MarkupFormatter::AppendAttributeValue(open_tag, style->AsText(),
-                                        document_->IsHTMLDocument());
+                                        IsA<HTMLDocument>(document_));
   open_tag.Append("\">");
   reversed_preceding_markup_.push_back(open_tag.ToString());
 

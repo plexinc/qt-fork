@@ -5,8 +5,10 @@
 
 goog.provide('mojo.internal');
 
+// "self" is always defined as opposed to "this", which isn't defined in
+// modules, or "window", which isn't defined in workers.
 /** @const {!Object} */
-mojo.internal.globalScope = this;
+mojo.internal.globalScope = self;
 
 /**
  * This is effectively the same as goog.provide, but it's made available under
@@ -507,20 +509,31 @@ mojo.internal.Encoder = class {
     this.encodeUint32(4, 0);  // TODO: Support versioning.
     for (const field of structSpec.fields) {
       const byteOffset = mojo.internal.kStructHeaderSize + field.packedOffset;
-      if (!value || !(value instanceof Object) ||
-          mojo.internal.isNullOrUndefined(value[field.name])) {
-        if (!field.nullable) {
-          throw new Error(
-              structSpec.name + ' missing value for non-nullable ' +
-              'field "' + field.name + '"');
-        }
+
+      const encodeStructField = (field_value) => {
+        field.type.$.encode(field_value, this, byteOffset,
+                            field.packedBitOffset, field.nullable);
+      };
+
+      if (value && (value instanceof Object) &&
+          !mojo.internal.isNullOrUndefined(value[field.name])) {
+        encodeStructField(value[field.name]);
+        continue;
+      }
+
+      if (field.defaultValue !== null) {
+        encodeStructField(field.defaultValue);
+        continue;
+      }
+
+      if (field.nullable) {
         field.type.$.encodeNull(this, byteOffset);
         continue;
       }
 
-      field.type.$.encode(
-          value[field.name], this, byteOffset, field.packedBitOffset,
-          field.nullable);
+      throw new Error(
+        structSpec.name + ' missing value for non-nullable ' +
+        'field "' + field.name + '"');
     }
   }
 
@@ -1325,6 +1338,22 @@ mojo.internal.Struct = function(objectToBlessAsType, name, packedSize, fields) {
     },
     arrayElementSize: nullable => 8,
     isValidObjectKeyType: false,
+  };
+};
+
+/**
+ * @param {!mojo.internal.MojomType} structMojomType
+ * @return {!Function}
+ * @export
+ */
+mojo.internal.createStructDeserializer = function(structMojomType) {
+  return function(dataView) {
+    if (structMojomType.$ == undefined ||
+        structMojomType.$.structSpec == undefined) {
+      throw new Error("Invalid struct mojom type!");
+    }
+    const decoder = new mojo.internal.Decoder(dataView, []);
+    return decoder.decodeStructInline(structMojomType.$.structSpec);
   };
 };
 

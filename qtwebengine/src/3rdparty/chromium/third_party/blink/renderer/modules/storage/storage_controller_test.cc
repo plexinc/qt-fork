@@ -7,7 +7,11 @@
 #include "base/bind.h"
 #include "base/run_loop.h"
 #include "base/task/post_task.h"
-#include "mojo/public/cpp/bindings/strong_binding.h"
+#include "base/task/thread_pool.h"
+#include "mojo/public/cpp/bindings/pending_receiver.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
+#include "mojo/public/cpp/bindings/remote.h"
+#include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/platform/scheduler/test/renderer_scheduler_test_support.h"
@@ -22,15 +26,20 @@ namespace blink {
 namespace {
 
 const size_t kTestCacheLimit = 100;
-class MockStoragePartitionService
-    : public mojom::blink::StoragePartitionService {
+class MockDomStorage : public mojom::blink::DomStorage {
  public:
-  void OpenLocalStorage(const scoped_refptr<const SecurityOrigin>& origin,
-                        mojom::blink::StorageAreaRequest request) override {}
-
-  void OpenSessionStorage(
+  // mojom::blink::DomStorage implementation:
+  void OpenLocalStorage(
+      const scoped_refptr<const SecurityOrigin>& origin,
+      mojo::PendingReceiver<mojom::blink::StorageArea> receiver) override {}
+  void BindSessionStorageNamespace(
       const String& namespace_id,
-      mojom::blink::SessionStorageNamespaceRequest request) override {
+      mojo::PendingReceiver<mojom::blink::SessionStorageNamespace> receiver)
+      override {}
+  void BindSessionStorageArea(
+      const scoped_refptr<const SecurityOrigin>& origin,
+      const String& namespace_id,
+      mojo::PendingReceiver<mojom::blink::StorageArea> receiver) override {
     session_storage_opens++;
   }
 
@@ -55,19 +64,19 @@ TEST(StorageControllerTest, CacheLimit) {
   Persistent<FakeAreaSource> source_area =
       MakeGarbageCollected<FakeAreaSource>(kPageUrl);
 
-  mojom::blink::StoragePartitionServicePtr storage_partition_service_ptr;
+  StorageController::DomStorageConnection connection;
   PostCrossThreadTask(
-      *base::CreateSequencedTaskRunnerWithTraits({}), FROM_HERE,
+      *base::ThreadPool::CreateSequencedTaskRunner({}), FROM_HERE,
       CrossThreadBindOnce(
-          [](mojom::blink::StoragePartitionServiceRequest request) {
-            mojo::MakeStrongBinding(
-                std::make_unique<MockStoragePartitionService>(),
-                std::move(request));
+          [](mojo::PendingReceiver<mojom::blink::DomStorage> receiver) {
+            mojo::MakeSelfOwnedReceiver(std::make_unique<MockDomStorage>(),
+                                        std::move(receiver));
           },
-          WTF::Passed(MakeRequest(&storage_partition_service_ptr))));
+          WTF::Passed(
+              connection.dom_storage_remote.BindNewPipeAndPassReceiver())));
 
-  StorageController controller(scheduler::GetSingleThreadTaskRunnerForTesting(),
-                               std::move(storage_partition_service_ptr),
+  StorageController controller(std::move(connection),
+                               scheduler::GetSingleThreadTaskRunnerForTesting(),
                                kTestCacheLimit);
 
   auto cached_area1 = controller.GetLocalStorageArea(kOrigin.get());
@@ -108,26 +117,25 @@ TEST(StorageControllerTest, CacheLimitSessionStorage) {
   Persistent<FakeAreaSource> source_area =
       MakeGarbageCollected<FakeAreaSource>(kPageUrl);
 
-  auto task_runner = base::CreateSequencedTaskRunnerWithTraits({});
+  auto task_runner = base::ThreadPool::CreateSequencedTaskRunner({});
 
-  auto mock_storage_partition_service =
-      std::make_unique<MockStoragePartitionService>();
-  MockStoragePartitionService* storage_partition_ptr =
-      mock_storage_partition_service.get();
+  auto mock_dom_storage = std::make_unique<MockDomStorage>();
+  MockDomStorage* dom_storage_ptr = mock_dom_storage.get();
 
-  mojom::blink::StoragePartitionServicePtr storage_partition_service_ptr;
+  StorageController::DomStorageConnection connection;
   PostCrossThreadTask(
       *task_runner, FROM_HERE,
       CrossThreadBindOnce(
-          [](std::unique_ptr<MockStoragePartitionService> storage_partition_ptr,
-             mojom::blink::StoragePartitionServiceRequest request) {
-            mojo::MakeStrongBinding(std::move(storage_partition_ptr),
-                                    std::move(request));
+          [](std::unique_ptr<MockDomStorage> dom_storage_ptr,
+             mojo::PendingReceiver<mojom::blink::DomStorage> receiver) {
+            mojo::MakeSelfOwnedReceiver(std::move(dom_storage_ptr),
+                                        std::move(receiver));
           },
-          WTF::Passed(std::move(mock_storage_partition_service)),
-          WTF::Passed(MakeRequest(&storage_partition_service_ptr))));
-  StorageController controller(
-      nullptr, std::move(storage_partition_service_ptr), kTestCacheLimit);
+          WTF::Passed(std::move(mock_dom_storage)),
+          WTF::Passed(
+              connection.dom_storage_remote.BindNewPipeAndPassReceiver())));
+
+  StorageController controller(std::move(connection), nullptr, kTestCacheLimit);
 
   StorageNamespace* ns1 = controller.CreateSessionStorageNamespace(kNamespace1);
   StorageNamespace* ns2 = controller.CreateSessionStorageNamespace(kNamespace2);
@@ -159,12 +167,12 @@ TEST(StorageControllerTest, CacheLimitSessionStorage) {
     base::RunLoop loop;
     task_runner->PostTaskAndReply(
         FROM_HERE,
-        base::BindOnce(&MockStoragePartitionService::GetSessionStorageUsage,
-                       base::Unretained(storage_partition_ptr), &opens),
+        base::BindOnce(&MockDomStorage::GetSessionStorageUsage,
+                       base::Unretained(dom_storage_ptr), &opens),
         loop.QuitClosure());
     loop.Run();
   }
-  EXPECT_EQ(opens, 2);
+  EXPECT_EQ(opens, 3);
 }
 
 }  // namespace blink

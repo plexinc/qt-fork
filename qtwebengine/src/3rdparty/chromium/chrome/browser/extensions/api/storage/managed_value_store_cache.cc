@@ -99,7 +99,7 @@ class ManagedValueStoreCache::ExtensionTracker
   Profile* profile_;
   policy::PolicyDomain policy_domain_;
   ScopedObserver<ExtensionRegistry, ExtensionRegistryObserver>
-      extension_registry_observer_;
+      extension_registry_observer_{this};
   policy::SchemaRegistry* schema_registry_;
   base::WeakPtrFactory<ExtensionTracker> weak_factory_{this};
 
@@ -111,14 +111,12 @@ ManagedValueStoreCache::ExtensionTracker::ExtensionTracker(
     policy::PolicyDomain policy_domain)
     : profile_(profile),
       policy_domain_(policy_domain),
-      extension_registry_observer_(this),
       schema_registry_(profile->GetPolicySchemaRegistryService()->registry()) {
   extension_registry_observer_.Add(ExtensionRegistry::Get(profile_));
   // Load schemas when the extension system is ready. It might be ready now.
   ExtensionSystem::Get(profile_)->ready().Post(
-      FROM_HERE,
-      base::Bind(&ExtensionTracker::OnExtensionsReady,
-                 weak_factory_.GetWeakPtr()));
+      FROM_HERE, base::BindOnce(&ExtensionTracker::OnExtensionsReady,
+                                weak_factory_.GetWeakPtr()));
 }
 
 void ManagedValueStoreCache::ExtensionTracker::OnExtensionWillBeInstalled(
@@ -205,9 +203,9 @@ void ManagedValueStoreCache::ExtensionTracker::LoadSchemasOnFileTaskRunner(
     (*components)[(*it)->id()] = schema;
   }
 
-  base::PostTaskWithTraits(FROM_HERE, {BrowserThread::UI},
-                           base::BindOnce(&ExtensionTracker::Register, self,
-                                          base::Owned(components.release())));
+  base::PostTask(FROM_HERE, {BrowserThread::UI},
+                 base::BindOnce(&ExtensionTracker::Register, self,
+                                base::Owned(components.release())));
 }
 
 void ManagedValueStoreCache::ExtensionTracker::Register(

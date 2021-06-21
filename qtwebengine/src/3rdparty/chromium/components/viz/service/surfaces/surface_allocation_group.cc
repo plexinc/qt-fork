@@ -150,8 +150,8 @@ void SurfaceAllocationGroup::TakeAggregatedLatencyInfoUpTo(
   surface->TakeActiveLatencyInfo(out);
   auto it = FindLatestSurfaceUpTo(surface->surface_id());
   DCHECK_EQ(*it, surface);
-  while (it > surfaces_.begin() && !(*it)->is_latency_info_taken())
-    (*--it)->TakeActiveAndPendingLatencyInfo(out);
+  while (it > surfaces_.begin() && !(*--it)->is_latency_info_taken())
+    (*it)->TakeActiveAndPendingLatencyInfo(out);
 }
 
 void SurfaceAllocationGroup::OnFirstSurfaceActivation(Surface* surface) {
@@ -188,7 +188,7 @@ SurfaceAllocationGroup::FindLatestSurfaceUpTo(
 
   // If even the first surface is newer than |surface_id|, we can't find a
   // surface that is older than or equal to |surface_id|.
-  if (surfaces_[0]->surface_id().IsNewerThan(surface_id))
+  if (!surface_id.IsSameOrNewerThan(surfaces_[0]->surface_id()))
     return surfaces_.end();
 
   // Perform a binary search the find the latest surface that is older than or
@@ -197,12 +197,13 @@ SurfaceAllocationGroup::FindLatestSurfaceUpTo(
   int end = surfaces_.size();
   while (end - begin > 1) {
     int avg = (begin + end) / 2;
-    if (surfaces_[avg]->surface_id().IsNewerThan(surface_id))
+    if (!surface_id.IsSameOrNewerThan(surfaces_[avg]->surface_id()))
       end = avg;
     else
       begin = avg;
   }
 
+  DCHECK(surface_id.IsSameOrNewerThan(surfaces_[begin]->surface_id()));
   return surfaces_.begin() + begin;
 }
 

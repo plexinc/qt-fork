@@ -6,13 +6,14 @@
 // capture_gles3_params.cpp:
 //   Pointer parameter capture functions for the OpenGL ES 3.0 entry points.
 
+#include "libANGLE/capture_gles_2_0_autogen.h"
 #include "libANGLE/capture_gles_3_0_autogen.h"
 
 using namespace angle;
 
 namespace gl
 {
-void CaptureClearBufferfv_value(const Context *context,
+void CaptureClearBufferfv_value(const State &glState,
                                 bool isCallValid,
                                 GLenum buffer,
                                 GLint drawbuffer,
@@ -22,7 +23,7 @@ void CaptureClearBufferfv_value(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureClearBufferiv_value(const Context *context,
+void CaptureClearBufferiv_value(const State &glState,
                                 bool isCallValid,
                                 GLenum buffer,
                                 GLint drawbuffer,
@@ -32,7 +33,7 @@ void CaptureClearBufferiv_value(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureClearBufferuiv_value(const Context *context,
+void CaptureClearBufferuiv_value(const State &glState,
                                  bool isCallValid,
                                  GLenum buffer,
                                  GLint drawbuffer,
@@ -42,7 +43,7 @@ void CaptureClearBufferuiv_value(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureCompressedTexImage3D_data(const Context *context,
+void CaptureCompressedTexImage3D_data(const State &glState,
                                       bool isCallValid,
                                       TextureTarget targetPacked,
                                       GLint level,
@@ -55,10 +56,20 @@ void CaptureCompressedTexImage3D_data(const Context *context,
                                       const void *data,
                                       ParamCapture *paramCapture)
 {
-    UNIMPLEMENTED();
+    if (glState.getTargetBuffer(gl::BufferBinding::PixelUnpack))
+    {
+        return;
+    }
+
+    if (!data)
+    {
+        return;
+    }
+
+    CaptureMemory(data, imageSize, paramCapture);
 }
 
-void CaptureCompressedTexSubImage3D_data(const Context *context,
+void CaptureCompressedTexSubImage3D_data(const State &glState,
                                          bool isCallValid,
                                          TextureTarget targetPacked,
                                          GLint level,
@@ -73,55 +84,56 @@ void CaptureCompressedTexSubImage3D_data(const Context *context,
                                          const void *data,
                                          ParamCapture *paramCapture)
 {
-    UNIMPLEMENTED();
+    CaptureCompressedTexImage3D_data(glState, isCallValid, targetPacked, level, 0, width, height,
+                                     depth, 0, imageSize, data, paramCapture);
 }
 
-void CaptureDeleteQueries_ids(const Context *context,
-                              bool isCallValid,
-                              GLsizei n,
-                              const GLuint *ids,
-                              ParamCapture *paramCapture)
-{
-    UNIMPLEMENTED();
-}
-
-void CaptureDeleteSamplers_samplers(const Context *context,
+void CaptureDeleteQueries_idsPacked(const State &glState,
                                     bool isCallValid,
-                                    GLsizei count,
-                                    const GLuint *samplers,
+                                    GLsizei n,
+                                    const QueryID *ids,
                                     ParamCapture *paramCapture)
 {
-    UNIMPLEMENTED();
+    CaptureMemory(ids, sizeof(QueryID) * n, paramCapture);
 }
 
-void CaptureDeleteTransformFeedbacks_ids(const Context *context,
-                                         bool isCallValid,
-                                         GLsizei n,
-                                         const GLuint *ids,
-                                         ParamCapture *paramCapture)
+void CaptureDeleteSamplers_samplersPacked(const State &glState,
+                                          bool isCallValid,
+                                          GLsizei count,
+                                          const SamplerID *samplers,
+                                          ParamCapture *paramCapture)
 {
-    UNIMPLEMENTED();
+    CaptureMemory(samplers, sizeof(SamplerID) * count, paramCapture);
 }
 
-void CaptureDeleteVertexArrays_arrays(const Context *context,
-                                      bool isCallValid,
-                                      GLsizei n,
-                                      const GLuint *arrays,
-                                      ParamCapture *paramCapture)
+void CaptureDeleteTransformFeedbacks_idsPacked(const State &glState,
+                                               bool isCallValid,
+                                               GLsizei n,
+                                               const TransformFeedbackID *ids,
+                                               ParamCapture *paramCapture)
 {
-    UNIMPLEMENTED();
+    CaptureMemory(ids, sizeof(TransformFeedbackID) * n, paramCapture);
 }
 
-void CaptureDrawBuffers_bufs(const Context *context,
+void CaptureDeleteVertexArrays_arraysPacked(const State &glState,
+                                            bool isCallValid,
+                                            GLsizei n,
+                                            const VertexArrayID *arrays,
+                                            ParamCapture *paramCapture)
+{
+    CaptureMemory(arrays, sizeof(VertexArrayID) * n, paramCapture);
+}
+
+void CaptureDrawBuffers_bufs(const State &glState,
                              bool isCallValid,
                              GLsizei n,
                              const GLenum *bufs,
                              ParamCapture *paramCapture)
 {
-    UNIMPLEMENTED();
+    CaptureMemory(bufs, sizeof(GLenum) * n, paramCapture);
 }
 
-void CaptureDrawElementsInstanced_indices(const Context *context,
+void CaptureDrawElementsInstanced_indices(const State &glState,
                                           bool isCallValid,
                                           PrimitiveMode modePacked,
                                           GLsizei count,
@@ -130,10 +142,11 @@ void CaptureDrawElementsInstanced_indices(const Context *context,
                                           GLsizei instancecount,
                                           ParamCapture *paramCapture)
 {
-    UNIMPLEMENTED();
+    CaptureDrawElements_indices(glState, isCallValid, modePacked, count, typePacked, indices,
+                                paramCapture);
 }
 
-void CaptureDrawRangeElements_indices(const Context *context,
+void CaptureDrawRangeElements_indices(const State &glState,
                                       bool isCallValid,
                                       PrimitiveMode modePacked,
                                       GLuint start,
@@ -143,48 +156,49 @@ void CaptureDrawRangeElements_indices(const Context *context,
                                       const void *indices,
                                       ParamCapture *paramCapture)
 {
-    UNIMPLEMENTED();
+    CaptureDrawElements_indices(glState, isCallValid, modePacked, count, typePacked, indices,
+                                paramCapture);
 }
 
-void CaptureGenQueries_ids(const Context *context,
-                           bool isCallValid,
-                           GLsizei n,
-                           GLuint *ids,
-                           ParamCapture *paramCapture)
-{
-    UNIMPLEMENTED();
-}
-
-void CaptureGenSamplers_samplers(const Context *context,
+void CaptureGenQueries_idsPacked(const State &glState,
                                  bool isCallValid,
-                                 GLsizei count,
-                                 GLuint *samplers,
+                                 GLsizei n,
+                                 QueryID *ids,
                                  ParamCapture *paramCapture)
 {
-    UNIMPLEMENTED();
+    CaptureGenHandles(n, ids, paramCapture);
 }
 
-void CaptureGenTransformFeedbacks_ids(const Context *context,
-                                      bool isCallValid,
-                                      GLsizei n,
-                                      GLuint *ids,
-                                      ParamCapture *paramCapture)
+void CaptureGenSamplers_samplersPacked(const State &glState,
+                                       bool isCallValid,
+                                       GLsizei count,
+                                       SamplerID *samplers,
+                                       ParamCapture *paramCapture)
 {
-    UNIMPLEMENTED();
+    CaptureGenHandles(count, samplers, paramCapture);
 }
 
-void CaptureGenVertexArrays_arrays(const Context *context,
-                                   bool isCallValid,
-                                   GLsizei n,
-                                   GLuint *arrays,
-                                   ParamCapture *paramCapture)
+void CaptureGenTransformFeedbacks_idsPacked(const State &glState,
+                                            bool isCallValid,
+                                            GLsizei n,
+                                            TransformFeedbackID *ids,
+                                            ParamCapture *paramCapture)
 {
-    UNIMPLEMENTED();
+    CaptureGenHandles(n, ids, paramCapture);
 }
 
-void CaptureGetActiveUniformBlockName_length(const Context *context,
+void CaptureGenVertexArrays_arraysPacked(const State &glState,
+                                         bool isCallValid,
+                                         GLsizei n,
+                                         VertexArrayID *arrays,
+                                         ParamCapture *paramCapture)
+{
+    CaptureGenHandles(n, arrays, paramCapture);
+}
+
+void CaptureGetActiveUniformBlockName_length(const State &glState,
                                              bool isCallValid,
-                                             GLuint program,
+                                             ShaderProgramID program,
                                              GLuint uniformBlockIndex,
                                              GLsizei bufSize,
                                              GLsizei *length,
@@ -194,9 +208,9 @@ void CaptureGetActiveUniformBlockName_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetActiveUniformBlockName_uniformBlockName(const Context *context,
+void CaptureGetActiveUniformBlockName_uniformBlockName(const State &glState,
                                                        bool isCallValid,
-                                                       GLuint program,
+                                                       ShaderProgramID program,
                                                        GLuint uniformBlockIndex,
                                                        GLsizei bufSize,
                                                        GLsizei *length,
@@ -206,9 +220,9 @@ void CaptureGetActiveUniformBlockName_uniformBlockName(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetActiveUniformBlockiv_params(const Context *context,
+void CaptureGetActiveUniformBlockiv_params(const State &glState,
                                            bool isCallValid,
-                                           GLuint program,
+                                           ShaderProgramID program,
                                            GLuint uniformBlockIndex,
                                            GLenum pname,
                                            GLint *params,
@@ -217,9 +231,9 @@ void CaptureGetActiveUniformBlockiv_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetActiveUniformsiv_uniformIndices(const Context *context,
+void CaptureGetActiveUniformsiv_uniformIndices(const State &glState,
                                                bool isCallValid,
-                                               GLuint program,
+                                               ShaderProgramID program,
                                                GLsizei uniformCount,
                                                const GLuint *uniformIndices,
                                                GLenum pname,
@@ -229,9 +243,9 @@ void CaptureGetActiveUniformsiv_uniformIndices(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetActiveUniformsiv_params(const Context *context,
+void CaptureGetActiveUniformsiv_params(const State &glState,
                                        bool isCallValid,
-                                       GLuint program,
+                                       ShaderProgramID program,
                                        GLsizei uniformCount,
                                        const GLuint *uniformIndices,
                                        GLenum pname,
@@ -241,7 +255,7 @@ void CaptureGetActiveUniformsiv_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetBufferParameteri64v_params(const Context *context,
+void CaptureGetBufferParameteri64v_params(const State &glState,
                                           bool isCallValid,
                                           BufferBinding targetPacked,
                                           GLenum pname,
@@ -251,7 +265,7 @@ void CaptureGetBufferParameteri64v_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetBufferPointerv_params(const Context *context,
+void CaptureGetBufferPointerv_params(const State &glState,
                                      bool isCallValid,
                                      BufferBinding targetPacked,
                                      GLenum pname,
@@ -261,16 +275,16 @@ void CaptureGetBufferPointerv_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetFragDataLocation_name(const Context *context,
+void CaptureGetFragDataLocation_name(const State &glState,
                                      bool isCallValid,
-                                     GLuint program,
+                                     ShaderProgramID program,
                                      const GLchar *name,
                                      ParamCapture *paramCapture)
 {
     UNIMPLEMENTED();
 }
 
-void CaptureGetInteger64i_v_data(const Context *context,
+void CaptureGetInteger64i_v_data(const State &glState,
                                  bool isCallValid,
                                  GLenum target,
                                  GLuint index,
@@ -280,7 +294,7 @@ void CaptureGetInteger64i_v_data(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetInteger64v_data(const Context *context,
+void CaptureGetInteger64v_data(const State &glState,
                                bool isCallValid,
                                GLenum pname,
                                GLint64 *data,
@@ -289,7 +303,7 @@ void CaptureGetInteger64v_data(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetIntegeri_v_data(const Context *context,
+void CaptureGetIntegeri_v_data(const State &glState,
                                bool isCallValid,
                                GLenum target,
                                GLuint index,
@@ -299,7 +313,7 @@ void CaptureGetIntegeri_v_data(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetInternalformativ_params(const Context *context,
+void CaptureGetInternalformativ_params(const State &glState,
                                        bool isCallValid,
                                        GLenum target,
                                        GLenum internalformat,
@@ -308,56 +322,101 @@ void CaptureGetInternalformativ_params(const Context *context,
                                        GLint *params,
                                        ParamCapture *paramCapture)
 {
-    UNIMPLEMENTED();
+    // From the OpenGL ES 3.0 spec:
+    //
+    // The information retrieved will be written to memory addressed by the pointer specified in
+    // params.
+    //
+    // No more than bufSize integers will be written to this memory.
+    //
+    // If pname is GL_NUM_SAMPLE_COUNTS, the number of sample counts that would be returned by
+    // querying GL_SAMPLES will be returned in params.
+    //
+    // If pname is GL_SAMPLES, the sample counts supported for internalformat and target are written
+    // into params in descending numeric order. Only positive values are returned.
+    //
+    // Querying GL_SAMPLES with bufSize of one will return just the maximum supported number of
+    // samples for this format.
+
+    if (bufSize == 0)
+        return;
+
+    if (params)
+    {
+        // For GL_NUM_SAMPLE_COUNTS, only one value is returned
+        // For GL_SAMPLES, two values will be returned, unless bufSize limits it to one
+        uint32_t paramCount = (pname == GL_SAMPLES && bufSize > 1) ? 2 : 1;
+
+        paramCapture->readBufferSizeBytes = sizeof(GLint) * paramCount;
+    }
 }
 
-void CaptureGetProgramBinary_length(const Context *context,
+void CaptureGetProgramBinary_length(const State &glState,
                                     bool isCallValid,
-                                    GLuint program,
+                                    ShaderProgramID program,
                                     GLsizei bufSize,
                                     GLsizei *length,
                                     GLenum *binaryFormat,
                                     void *binary,
                                     ParamCapture *paramCapture)
 {
-    UNIMPLEMENTED();
+    if (length)
+    {
+        paramCapture->readBufferSizeBytes = sizeof(GLsizei);
+    }
 }
 
-void CaptureGetProgramBinary_binaryFormat(const Context *context,
+void CaptureGetProgramBinary_binaryFormat(const State &glState,
                                           bool isCallValid,
-                                          GLuint program,
+                                          ShaderProgramID program,
                                           GLsizei bufSize,
                                           GLsizei *length,
                                           GLenum *binaryFormat,
                                           void *binary,
                                           ParamCapture *paramCapture)
 {
-    UNIMPLEMENTED();
+    paramCapture->readBufferSizeBytes = sizeof(GLenum);
 }
 
-void CaptureGetProgramBinary_binary(const Context *context,
+void CaptureGetProgramBinary_binary(const State &glState,
                                     bool isCallValid,
-                                    GLuint program,
+                                    ShaderProgramID program,
                                     GLsizei bufSize,
                                     GLsizei *length,
                                     GLenum *binaryFormat,
                                     void *binary,
                                     ParamCapture *paramCapture)
 {
-    UNIMPLEMENTED();
+    // If we have length, then actual binarySize was written there
+    // Otherwise, we don't know how many bytes were written
+    if (!length)
+    {
+        UNIMPLEMENTED();
+        return;
+    }
+
+    GLsizei binarySize = *length;
+    if (binarySize > bufSize)
+    {
+        // This is a GL error, but clamp it anyway
+        binarySize = bufSize;
+    }
+
+    paramCapture->readBufferSizeBytes = binarySize;
 }
 
-void CaptureGetQueryObjectuiv_params(const Context *context,
+void CaptureGetQueryObjectuiv_params(const State &glState,
                                      bool isCallValid,
-                                     GLuint id,
+                                     QueryID id,
                                      GLenum pname,
                                      GLuint *params,
                                      ParamCapture *paramCapture)
 {
-    UNIMPLEMENTED();
+    // This only returns one value
+    paramCapture->readBufferSizeBytes = sizeof(GLint);
 }
 
-void CaptureGetQueryiv_params(const Context *context,
+void CaptureGetQueryiv_params(const State &glState,
                               bool isCallValid,
                               QueryType targetPacked,
                               GLenum pname,
@@ -367,9 +426,9 @@ void CaptureGetQueryiv_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetSamplerParameterfv_params(const Context *context,
+void CaptureGetSamplerParameterfv_params(const State &glState,
                                          bool isCallValid,
-                                         GLuint sampler,
+                                         SamplerID sampler,
                                          GLenum pname,
                                          GLfloat *params,
                                          ParamCapture *paramCapture)
@@ -377,9 +436,9 @@ void CaptureGetSamplerParameterfv_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetSamplerParameteriv_params(const Context *context,
+void CaptureGetSamplerParameteriv_params(const State &glState,
                                          bool isCallValid,
-                                         GLuint sampler,
+                                         SamplerID sampler,
                                          GLenum pname,
                                          GLint *params,
                                          ParamCapture *paramCapture)
@@ -387,7 +446,7 @@ void CaptureGetSamplerParameteriv_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetSynciv_length(const Context *context,
+void CaptureGetSynciv_length(const State &glState,
                              bool isCallValid,
                              GLsync sync,
                              GLenum pname,
@@ -399,7 +458,7 @@ void CaptureGetSynciv_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetSynciv_values(const Context *context,
+void CaptureGetSynciv_values(const State &glState,
                              bool isCallValid,
                              GLsync sync,
                              GLenum pname,
@@ -411,9 +470,9 @@ void CaptureGetSynciv_values(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetTransformFeedbackVarying_length(const Context *context,
+void CaptureGetTransformFeedbackVarying_length(const State &glState,
                                                bool isCallValid,
-                                               GLuint program,
+                                               ShaderProgramID program,
                                                GLuint index,
                                                GLsizei bufSize,
                                                GLsizei *length,
@@ -425,9 +484,9 @@ void CaptureGetTransformFeedbackVarying_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetTransformFeedbackVarying_size(const Context *context,
+void CaptureGetTransformFeedbackVarying_size(const State &glState,
                                              bool isCallValid,
-                                             GLuint program,
+                                             ShaderProgramID program,
                                              GLuint index,
                                              GLsizei bufSize,
                                              GLsizei *length,
@@ -439,9 +498,9 @@ void CaptureGetTransformFeedbackVarying_size(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetTransformFeedbackVarying_type(const Context *context,
+void CaptureGetTransformFeedbackVarying_type(const State &glState,
                                              bool isCallValid,
-                                             GLuint program,
+                                             ShaderProgramID program,
                                              GLuint index,
                                              GLsizei bufSize,
                                              GLsizei *length,
@@ -453,9 +512,9 @@ void CaptureGetTransformFeedbackVarying_type(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetTransformFeedbackVarying_name(const Context *context,
+void CaptureGetTransformFeedbackVarying_name(const State &glState,
                                              bool isCallValid,
-                                             GLuint program,
+                                             ShaderProgramID program,
                                              GLuint index,
                                              GLsizei bufSize,
                                              GLsizei *length,
@@ -467,18 +526,18 @@ void CaptureGetTransformFeedbackVarying_name(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetUniformBlockIndex_uniformBlockName(const Context *context,
+void CaptureGetUniformBlockIndex_uniformBlockName(const State &glState,
                                                   bool isCallValid,
-                                                  GLuint program,
+                                                  ShaderProgramID program,
                                                   const GLchar *uniformBlockName,
                                                   ParamCapture *paramCapture)
 {
-    UNIMPLEMENTED();
+    CaptureString(uniformBlockName, paramCapture);
 }
 
-void CaptureGetUniformIndices_uniformNames(const Context *context,
+void CaptureGetUniformIndices_uniformNames(const State &glState,
                                            bool isCallValid,
-                                           GLuint program,
+                                           ShaderProgramID program,
                                            GLsizei uniformCount,
                                            const GLchar *const *uniformNames,
                                            GLuint *uniformIndices,
@@ -487,9 +546,9 @@ void CaptureGetUniformIndices_uniformNames(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetUniformIndices_uniformIndices(const Context *context,
+void CaptureGetUniformIndices_uniformIndices(const State &glState,
                                              bool isCallValid,
-                                             GLuint program,
+                                             ShaderProgramID program,
                                              GLsizei uniformCount,
                                              const GLchar *const *uniformNames,
                                              GLuint *uniformIndices,
@@ -498,17 +557,17 @@ void CaptureGetUniformIndices_uniformIndices(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetUniformuiv_params(const Context *context,
+void CaptureGetUniformuiv_params(const State &glState,
                                  bool isCallValid,
-                                 GLuint program,
-                                 GLint location,
+                                 ShaderProgramID program,
+                                 UniformLocation location,
                                  GLuint *params,
                                  ParamCapture *paramCapture)
 {
     UNIMPLEMENTED();
 }
 
-void CaptureGetVertexAttribIiv_params(const Context *context,
+void CaptureGetVertexAttribIiv_params(const State &glState,
                                       bool isCallValid,
                                       GLuint index,
                                       GLenum pname,
@@ -518,7 +577,7 @@ void CaptureGetVertexAttribIiv_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetVertexAttribIuiv_params(const Context *context,
+void CaptureGetVertexAttribIuiv_params(const State &glState,
                                        bool isCallValid,
                                        GLuint index,
                                        GLenum pname,
@@ -528,7 +587,7 @@ void CaptureGetVertexAttribIuiv_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureInvalidateFramebuffer_attachments(const Context *context,
+void CaptureInvalidateFramebuffer_attachments(const State &glState,
                                               bool isCallValid,
                                               GLenum target,
                                               GLsizei numAttachments,
@@ -538,7 +597,7 @@ void CaptureInvalidateFramebuffer_attachments(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureInvalidateSubFramebuffer_attachments(const Context *context,
+void CaptureInvalidateSubFramebuffer_attachments(const State &glState,
                                                  bool isCallValid,
                                                  GLenum target,
                                                  GLsizei numAttachments,
@@ -552,9 +611,9 @@ void CaptureInvalidateSubFramebuffer_attachments(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureProgramBinary_binary(const Context *context,
+void CaptureProgramBinary_binary(const State &glState,
                                  bool isCallValid,
-                                 GLuint program,
+                                 ShaderProgramID program,
                                  GLenum binaryFormat,
                                  const void *binary,
                                  GLsizei length,
@@ -563,9 +622,9 @@ void CaptureProgramBinary_binary(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureSamplerParameterfv_param(const Context *context,
+void CaptureSamplerParameterfv_param(const State &glState,
                                      bool isCallValid,
-                                     GLuint sampler,
+                                     SamplerID sampler,
                                      GLenum pname,
                                      const GLfloat *param,
                                      ParamCapture *paramCapture)
@@ -573,9 +632,9 @@ void CaptureSamplerParameterfv_param(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureSamplerParameteriv_param(const Context *context,
+void CaptureSamplerParameteriv_param(const State &glState,
                                      bool isCallValid,
-                                     GLuint sampler,
+                                     SamplerID sampler,
                                      GLenum pname,
                                      const GLint *param,
                                      ParamCapture *paramCapture)
@@ -583,7 +642,7 @@ void CaptureSamplerParameteriv_param(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureTexImage3D_pixels(const Context *context,
+void CaptureTexImage3D_pixels(const State &glState,
                               bool isCallValid,
                               TextureTarget targetPacked,
                               GLint level,
@@ -597,10 +656,30 @@ void CaptureTexImage3D_pixels(const Context *context,
                               const void *pixels,
                               ParamCapture *paramCapture)
 {
-    UNIMPLEMENTED();
+    if (glState.getTargetBuffer(gl::BufferBinding::PixelUnpack))
+    {
+        return;
+    }
+
+    if (!pixels)
+    {
+        return;
+    }
+
+    const gl::InternalFormat &internalFormatInfo = gl::GetInternalFormatInfo(format, type);
+    const gl::PixelUnpackState &unpack           = glState.getUnpackState();
+
+    const Extents size(width, height, depth);
+
+    GLuint endByte = 0;
+    bool unpackSize =
+        internalFormatInfo.computePackUnpackEndByte(type, size, unpack, true, &endByte);
+    ASSERT(unpackSize);
+
+    CaptureMemory(pixels, static_cast<size_t>(endByte), paramCapture);
 }
 
-void CaptureTexSubImage3D_pixels(const Context *context,
+void CaptureTexSubImage3D_pixels(const State &glState,
                                  bool isCallValid,
                                  TextureTarget targetPacked,
                                  GLint level,
@@ -615,23 +694,27 @@ void CaptureTexSubImage3D_pixels(const Context *context,
                                  const void *pixels,
                                  ParamCapture *paramCapture)
 {
-    UNIMPLEMENTED();
+    CaptureTexImage3D_pixels(glState, isCallValid, targetPacked, level, 0, width, height, depth, 0,
+                             format, type, pixels, paramCapture);
 }
 
-void CaptureTransformFeedbackVaryings_varyings(const Context *context,
+void CaptureTransformFeedbackVaryings_varyings(const State &glState,
                                                bool isCallValid,
-                                               GLuint program,
+                                               ShaderProgramID program,
                                                GLsizei count,
                                                const GLchar *const *varyings,
                                                GLenum bufferMode,
                                                ParamCapture *paramCapture)
 {
-    UNIMPLEMENTED();
+    for (GLsizei index = 0; index < count; ++index)
+    {
+        CaptureString(varyings[index], paramCapture);
+    }
 }
 
-void CaptureUniform1uiv_value(const Context *context,
+void CaptureUniform1uiv_value(const State &glState,
                               bool isCallValid,
-                              GLint location,
+                              UniformLocation location,
                               GLsizei count,
                               const GLuint *value,
                               ParamCapture *paramCapture)
@@ -639,9 +722,9 @@ void CaptureUniform1uiv_value(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureUniform2uiv_value(const Context *context,
+void CaptureUniform2uiv_value(const State &glState,
                               bool isCallValid,
-                              GLint location,
+                              UniformLocation location,
                               GLsizei count,
                               const GLuint *value,
                               ParamCapture *paramCapture)
@@ -649,9 +732,9 @@ void CaptureUniform2uiv_value(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureUniform3uiv_value(const Context *context,
+void CaptureUniform3uiv_value(const State &glState,
                               bool isCallValid,
-                              GLint location,
+                              UniformLocation location,
                               GLsizei count,
                               const GLuint *value,
                               ParamCapture *paramCapture)
@@ -659,9 +742,9 @@ void CaptureUniform3uiv_value(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureUniform4uiv_value(const Context *context,
+void CaptureUniform4uiv_value(const State &glState,
                               bool isCallValid,
-                              GLint location,
+                              UniformLocation location,
                               GLsizei count,
                               const GLuint *value,
                               ParamCapture *paramCapture)
@@ -669,9 +752,9 @@ void CaptureUniform4uiv_value(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureUniformMatrix2x3fv_value(const Context *context,
+void CaptureUniformMatrix2x3fv_value(const State &glState,
                                      bool isCallValid,
-                                     GLint location,
+                                     UniformLocation location,
                                      GLsizei count,
                                      GLboolean transpose,
                                      const GLfloat *value,
@@ -680,9 +763,9 @@ void CaptureUniformMatrix2x3fv_value(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureUniformMatrix2x4fv_value(const Context *context,
+void CaptureUniformMatrix2x4fv_value(const State &glState,
                                      bool isCallValid,
-                                     GLint location,
+                                     UniformLocation location,
                                      GLsizei count,
                                      GLboolean transpose,
                                      const GLfloat *value,
@@ -691,9 +774,9 @@ void CaptureUniformMatrix2x4fv_value(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureUniformMatrix3x2fv_value(const Context *context,
+void CaptureUniformMatrix3x2fv_value(const State &glState,
                                      bool isCallValid,
-                                     GLint location,
+                                     UniformLocation location,
                                      GLsizei count,
                                      GLboolean transpose,
                                      const GLfloat *value,
@@ -702,9 +785,9 @@ void CaptureUniformMatrix3x2fv_value(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureUniformMatrix3x4fv_value(const Context *context,
+void CaptureUniformMatrix3x4fv_value(const State &glState,
                                      bool isCallValid,
-                                     GLint location,
+                                     UniformLocation location,
                                      GLsizei count,
                                      GLboolean transpose,
                                      const GLfloat *value,
@@ -713,9 +796,9 @@ void CaptureUniformMatrix3x4fv_value(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureUniformMatrix4x2fv_value(const Context *context,
+void CaptureUniformMatrix4x2fv_value(const State &glState,
                                      bool isCallValid,
-                                     GLint location,
+                                     UniformLocation location,
                                      GLsizei count,
                                      GLboolean transpose,
                                      const GLfloat *value,
@@ -724,9 +807,9 @@ void CaptureUniformMatrix4x2fv_value(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureUniformMatrix4x3fv_value(const Context *context,
+void CaptureUniformMatrix4x3fv_value(const State &glState,
                                      bool isCallValid,
-                                     GLint location,
+                                     UniformLocation location,
                                      GLsizei count,
                                      GLboolean transpose,
                                      const GLfloat *value,
@@ -735,7 +818,7 @@ void CaptureUniformMatrix4x3fv_value(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureVertexAttribI4iv_v(const Context *context,
+void CaptureVertexAttribI4iv_v(const State &glState,
                                bool isCallValid,
                                GLuint index,
                                const GLint *v,
@@ -744,7 +827,7 @@ void CaptureVertexAttribI4iv_v(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureVertexAttribI4uiv_v(const Context *context,
+void CaptureVertexAttribI4uiv_v(const State &glState,
                                 bool isCallValid,
                                 GLuint index,
                                 const GLuint *v,
@@ -753,7 +836,7 @@ void CaptureVertexAttribI4uiv_v(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureVertexAttribIPointer_pointer(const Context *context,
+void CaptureVertexAttribIPointer_pointer(const State &glState,
                                          bool isCallValid,
                                          GLuint index,
                                          GLint size,

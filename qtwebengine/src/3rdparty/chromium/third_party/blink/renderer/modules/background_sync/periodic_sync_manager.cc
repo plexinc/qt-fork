@@ -4,14 +4,15 @@
 
 #include "third_party/blink/renderer/modules/background_sync/periodic_sync_manager.h"
 
-#include "third_party/blink/public/platform/interface_provider.h"
+#include "third_party/blink/public/common/thread_safe_browser_interface_broker_proxy.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_background_sync_options.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
-#include "third_party/blink/renderer/modules/background_sync/background_sync_options.h"
 #include "third_party/blink/renderer/modules/service_worker/service_worker_registration.h"
+#include "third_party/blink/renderer/platform/bindings/exception_state.h"
 
 namespace blink {
 
@@ -25,12 +26,13 @@ PeriodicSyncManager::PeriodicSyncManager(
 ScriptPromise PeriodicSyncManager::registerPeriodicSync(
     ScriptState* script_state,
     const String& tag,
-    const BackgroundSyncOptions* options) {
+    const BackgroundSyncOptions* options,
+    ExceptionState& exception_state) {
   if (!registration_->active()) {
-    return ScriptPromise::RejectWithDOMException(
-        script_state, MakeGarbageCollected<DOMException>(
-                          DOMExceptionCode::kInvalidStateError,
-                          "Registration failed - no active Service Worker"));
+    exception_state.ThrowDOMException(
+        DOMExceptionCode::kInvalidStateError,
+        "Registration failed - no active Service Worker");
+    return ScriptPromise();
   }
 
   auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
@@ -39,7 +41,7 @@ ScriptPromise PeriodicSyncManager::registerPeriodicSync(
   mojom::blink::SyncRegistrationOptionsPtr sync_registration =
       mojom::blink::SyncRegistrationOptions::New(tag, options->minInterval());
 
-  GetBackgroundSyncServicePtr()->Register(
+  GetBackgroundSyncServiceRemote()->Register(
       std::move(sync_registration), registration_->RegistrationId(),
       WTF::Bind(&PeriodicSyncManager::RegisterCallback, WrapPersistent(this),
                 WrapPersistent(resolver)));
@@ -61,7 +63,7 @@ ScriptPromise PeriodicSyncManager::getTags(ScriptState* script_state) {
 
   // TODO(crbug.com/932591): Optimize this to only get the tags from the browser
   // process instead of the registrations themselves.
-  GetBackgroundSyncServicePtr()->GetRegistrations(
+  GetBackgroundSyncServiceRemote()->GetRegistrations(
       registration_->RegistrationId(),
       WTF::Bind(&PeriodicSyncManager::GetRegistrationsCallback,
                 WrapPersistent(this), WrapPersistent(resolver)));
@@ -71,28 +73,27 @@ ScriptPromise PeriodicSyncManager::getTags(ScriptState* script_state) {
 
 ScriptPromise PeriodicSyncManager::unregister(ScriptState* script_state,
                                               const String& tag) {
-  if (!registration_->active()) {
-    return ScriptPromise::RejectWithDOMException(
-        script_state, MakeGarbageCollected<DOMException>(
-                          DOMExceptionCode::kInvalidStateError,
-                          "Unregister failed - no active Service Worker"));
-  }
-
   auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
   ScriptPromise promise = resolver->Promise();
 
-  GetBackgroundSyncServicePtr()->Unregister(
+  // Silently succeed if there's no active service worker registration.
+  if (!registration_->active()) {
+    resolver->Resolve();
+    return promise;
+  }
+
+  GetBackgroundSyncServiceRemote()->Unregister(
       registration_->RegistrationId(), tag,
       WTF::Bind(&PeriodicSyncManager::UnregisterCallback, WrapPersistent(this),
                 WrapPersistent(resolver)));
   return promise;
 }
 
-const mojom::blink::PeriodicBackgroundSyncServicePtr&
-PeriodicSyncManager::GetBackgroundSyncServicePtr() {
-  if (!background_sync_service_.get()) {
-    Platform::Current()->GetInterfaceProvider()->GetInterface(
-        mojo::MakeRequest(&background_sync_service_));
+const mojo::Remote<mojom::blink::PeriodicBackgroundSyncService>&
+PeriodicSyncManager::GetBackgroundSyncServiceRemote() {
+  if (!background_sync_service_.is_bound()) {
+    Platform::Current()->GetBrowserInterfaceBroker()->GetInterface(
+        background_sync_service_.BindNewPipeAndPassReceiver());
   }
   return background_sync_service_;
 }
@@ -124,7 +125,8 @@ void PeriodicSyncManager::RegisterCallback(
       break;
     case mojom::blink::BackgroundSyncError::NO_SERVICE_WORKER:
       resolver->Reject(MakeGarbageCollected<DOMException>(
-          DOMExceptionCode::kUnknownError, "No service worker is active."));
+          DOMExceptionCode::kInvalidStateError,
+          "Registration failed - no active Service Worker"));
       break;
   }
 }
@@ -182,7 +184,7 @@ void PeriodicSyncManager::UnregisterCallback(
   }
 }
 
-void PeriodicSyncManager::Trace(blink::Visitor* visitor) {
+void PeriodicSyncManager::Trace(Visitor* visitor) {
   visitor->Trace(registration_);
   ScriptWrappable::Trace(visitor);
 }

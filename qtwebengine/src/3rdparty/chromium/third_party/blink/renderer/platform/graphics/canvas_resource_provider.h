@@ -8,6 +8,8 @@
 #include "cc/paint/skia_paint_canvas.h"
 #include "cc/raster/playback_image_provider.h"
 #include "third_party/blink/renderer/platform/graphics/canvas_resource.h"
+#include "third_party/blink/renderer/platform/graphics/image_orientation.h"
+#include "third_party/blink/renderer/platform/graphics/paint/paint_recorder.h"
 #include "third_party/skia/include/core/SkSurface.h"
 
 class GrContext;
@@ -23,6 +25,12 @@ namespace gles2 {
 class GLES2Interface;
 
 }  // namespace gles2
+
+namespace raster {
+
+class RasterInterface;
+
+}  // namespace raster
 }  // namespace gpu
 
 namespace blink {
@@ -50,20 +58,26 @@ class PLATFORM_EXPORT CanvasResourceProvider
  public:
   // These values are persisted to logs. Entries should not be renumbered and
   // numeric values should never be reused.
+  // todo(juanmihd@) ResourceUsage will be removed soon, try avoiding using this
   enum class ResourceUsage {
-    kSoftwareResourceUsage = 0,
+    kSoftwareResourceUsage = 0,  // deprecated
     kSoftwareCompositedResourceUsage = 1,
     kAcceleratedResourceUsage = 2,
     kAcceleratedCompositedResourceUsage = 3,
     kAcceleratedDirect2DResourceUsage = 4,
     kAcceleratedDirect3DResourceUsage = 5,
-    kMaxValue = kAcceleratedDirect3DResourceUsage,
+    kSoftwareCompositedDirect2DResourceUsage = 6,  // deprecated
+    kMaxValue = kSoftwareCompositedDirect2DResourceUsage,
   };
 
-  enum PresentationMode {
-    kDefaultPresentationMode,             // GPU Texture or shared memory bitmap
-    kAllowImageChromiumPresentationMode,  // Use CHROMIUM_image gl extension
-    kAllowSwapChainPresentationMode       // Use swap chains (only on Windows)
+  // Bitmask of allowed presentation modes.
+  enum : uint8_t {
+    // GPU Texture or shared memory bitmap
+    kDefaultPresentationMode = 0,
+    // Allow CHROMIUM_image gl extension
+    kAllowImageChromiumPresentationMode = 1 << 0,
+    // Allow swap chains (only on Windows)
+    kAllowSwapChainPresentationMode = 1 << 1,
   };
 
   // These values are persisted to logs. Entries should not be renumbered and
@@ -77,57 +91,67 @@ class PLATFORM_EXPORT CanvasResourceProvider
     kSharedImage = 5,
     kDirectGpuMemoryBuffer = 6,
     kPassThrough = 7,
-    kMaxValue = kDirectGpuMemoryBuffer,
+    kSwapChain = 8,
+    kMaxValue = kSwapChain,
   };
 
-  void static RecordTypeToUMA(ResourceProviderType type);
+  using RestoreMatrixClipStackCb =
+      base::RepeatingCallback<void(cc::PaintCanvas*)>;
 
-  static std::unique_ptr<CanvasResourceProvider> CreateForCanvas(
+  // todo(juanmihd@) Check whether SkFilterQuality is needed in all of this, or
+  // just call setFilterQuality explicitly
+  static std::unique_ptr<CanvasResourceProvider> CreateBitmapProvider(
       const IntSize&,
-      ResourceUsage,
-      base::WeakPtr<WebGraphicsContext3DProviderWrapper>,
-      unsigned msaa_sample_count,
-      const CanvasColorParams&,
-      PresentationMode,
-      base::WeakPtr<CanvasResourceDispatcher>,
-      bool is_origin_top_left = true);
+      SkFilterQuality,
+      const CanvasColorParams&);
 
+  // Specifies whether the provider should rasterize paint commands on the CPU
+  // or GPU. This is used to support software raster with GPU compositing
+  enum class RasterMode {
+    kGPU,
+    kCPU,
+  };
+
+  static std::unique_ptr<CanvasResourceProvider> CreateSharedImageProvider(
+      const IntSize&,
+      base::WeakPtr<WebGraphicsContext3DProviderWrapper>,
+      SkFilterQuality,
+      const CanvasColorParams&,
+      bool is_origin_top_left,
+      RasterMode raster_mode,
+      uint32_t shared_image_usage_flags);
+
+  // TODO(juanmihd): Clean up creation methods/usage. See crbug.com/1035589.
   static std::unique_ptr<CanvasResourceProvider> Create(
       const IntSize&,
       ResourceUsage,
       base::WeakPtr<WebGraphicsContext3DProviderWrapper>,
       unsigned msaa_sample_count,
+      SkFilterQuality,
       const CanvasColorParams&,
-      PresentationMode,
-      base::WeakPtr<CanvasResourceDispatcher>,
-      bool is_origin_top_left = true);
-
-  static std::unique_ptr<CanvasResourceProvider> CreateForTesting(
-      const IntSize&,
-      ResourceProviderType,
-      base::WeakPtr<WebGraphicsContext3DProviderWrapper>,
-      unsigned msaa_sample_count,
-      const CanvasColorParams&,
-      PresentationMode,
+      uint8_t presentation_mode,
       base::WeakPtr<CanvasResourceDispatcher>,
       bool is_origin_top_left = true);
 
   // Use Snapshot() for capturing a frame that is intended to be displayed via
   // the compositor. Cases that are destined to be transferred via a
   // TransferableResource should call ProduceCanvasResource() instead.
+  // The ImageOrientationEnum conveys the desired orientation of the image, and
+  // should be derived from the source of the bitmap data.
   virtual scoped_refptr<CanvasResource> ProduceCanvasResource() = 0;
-  virtual scoped_refptr<StaticBitmapImage> Snapshot() = 0;
+  virtual scoped_refptr<StaticBitmapImage> Snapshot(
+      const ImageOrientation& = kDefaultImageOrientation) = 0;
 
   // WebGraphicsContext3DProvider::DestructionObserver implementation.
   void OnContextDestroyed() override;
 
   cc::PaintCanvas* Canvas();
-  void InitializePaintCanvas();
   void ReleaseLockedImages();
-  void FlushSkia() const;
+  sk_sp<cc::PaintRecord> FlushCanvas();
   const CanvasColorParams& ColorParams() const { return color_params_; }
   void SetFilterQuality(SkFilterQuality quality) { filter_quality_ = quality; }
   const IntSize& Size() const { return size_; }
+  bool IsOriginTopLeft() const { return is_origin_top_left_; }
   virtual bool IsValid() const = 0;
   virtual bool IsAccelerated() const = 0;
   // Returns true if the resource can be used by the display compositor.
@@ -145,7 +169,7 @@ class PLATFORM_EXPORT CanvasResourceProvider
   // queue, thus reducing latency, but with the possible side effects of tearing
   // (in cases where the resource is scanned out directly) and irregular frame
   // rate.
-  bool IsSingleBuffered() { return is_single_buffered_; }
+  bool IsSingleBuffered() const { return is_single_buffered_; }
 
   // Attempt to enable single buffering mode on this resource provider.  May
   // fail if the CanvasResourcePRovider subclass does not support this mode of
@@ -167,10 +191,13 @@ class PLATFORM_EXPORT CanvasResourceProvider
                    size_t row_bytes,
                    int x,
                    int y);
-  virtual GLuint GetBackingTextureHandleForOverwrite() {
+
+  virtual gpu::Mailbox GetBackingMailboxForOverwrite(
+      MailboxSyncMode sync_mode) {
     NOTREACHED();
-    return 0;
+    return gpu::Mailbox();
   }
+  virtual GLenum GetBackingTextureTarget() const { return GL_TEXTURE_2D; }
   virtual void* GetPixelBufferAddressForOverwrite() {
     NOTREACHED();
     return nullptr;
@@ -186,18 +213,44 @@ class PLATFORM_EXPORT CanvasResourceProvider
   // are modified externally from the provider's SkSurface.
   virtual void NotifyTexParamsModified(const CanvasResource* resource) {}
 
+  size_t cached_resources_count_for_testing() const {
+    return canvas_resources_.size();
+  }
+
+  void SkipQueuedDrawCommands();
+  void SetRestoreClipStackCallback(RestoreMatrixClipStackCb);
+  bool needs_flush() const { return needs_flush_; }
+  void RestoreBackBuffer(const cc::PaintImage&);
+
+  ResourceProviderType GetType() const { return type_; }
+  bool HasRecordedDrawOps() const;
+
+  void OnDestroyResource();
+
  protected:
+  class CanvasImageProvider;
+
   gpu::gles2::GLES2Interface* ContextGL() const;
+  gpu::raster::RasterInterface* RasterInterface() const;
   GrContext* GetGrContext() const;
   base::WeakPtr<WebGraphicsContext3DProviderWrapper> ContextProviderWrapper() {
     return context_provider_wrapper_;
   }
+  unsigned GetMSAASampleCount() const { return msaa_sample_count_; }
+  GrSurfaceOrigin GetGrSurfaceOrigin() const {
+    return is_origin_top_left_ ? kTopLeft_GrSurfaceOrigin
+                               : kBottomLeft_GrSurfaceOrigin;
+  }
   SkFilterQuality FilterQuality() const { return filter_quality_; }
-  scoped_refptr<StaticBitmapImage> SnapshotInternal();
+  scoped_refptr<StaticBitmapImage> SnapshotInternal(const ImageOrientation&);
+  scoped_refptr<CanvasResource> GetImportedResource() const;
 
   CanvasResourceProvider(const ResourceProviderType&,
                          const IntSize&,
+                         unsigned msaa_sample_count,
+                         SkFilterQuality,
                          const CanvasColorParams&,
+                         bool is_origin_top_left,
                          base::WeakPtr<WebGraphicsContext3DProviderWrapper>,
                          base::WeakPtr<CanvasResourceDispatcher>);
 
@@ -207,13 +260,14 @@ class PLATFORM_EXPORT CanvasResourceProvider
   // decodes/uploads in the cache is invalidated only when the canvas contents
   // change.
   cc::PaintImage MakeImageSnapshot();
+  virtual void RasterRecord(sk_sp<cc::PaintRecord>);
+  CanvasImageProvider* GetOrCreateCanvasImageProvider();
 
   ResourceProviderType type_;
   mutable sk_sp<SkSurface> surface_;  // mutable for lazy init
+  SkSurface::ContentChangeMode mode_ = SkSurface::kRetain_ContentChangeMode;
 
  private:
-  class CanvasImageProvider;
-
   virtual sk_sp<SkSurface> CreateSkSurface() const = 0;
   virtual scoped_refptr<CanvasResource> CreateResource();
   bool use_hardware_decode_cache() const {
@@ -225,14 +279,21 @@ class PLATFORM_EXPORT CanvasResourceProvider
 
   cc::ImageDecodeCache* ImageDecodeCacheRGBA8();
   cc::ImageDecodeCache* ImageDecodeCacheF16();
+  void EnsureSkiaCanvas();
+  void SetNeedsFlush() { needs_flush_ = true; }
 
   base::WeakPtr<WebGraphicsContext3DProviderWrapper> context_provider_wrapper_;
   base::WeakPtr<CanvasResourceDispatcher> resource_dispatcher_;
-  IntSize size_;
-  CanvasColorParams color_params_;
+  const IntSize size_;
+  const unsigned msaa_sample_count_;
+  SkFilterQuality filter_quality_;
+  const CanvasColorParams color_params_;
+  const bool is_origin_top_left_;
   std::unique_ptr<CanvasImageProvider> canvas_image_provider_;
-  std::unique_ptr<cc::SkiaPaintCanvas> canvas_;
-  SkFilterQuality filter_quality_ = kLow_SkFilterQuality;
+  std::unique_ptr<cc::SkiaPaintCanvas> skia_canvas_;
+  std::unique_ptr<PaintRecorder> recorder_;
+
+  bool needs_flush_ = false;
 
   const cc::PaintImage::Id snapshot_paint_image_id_;
   cc::PaintImage::ContentId snapshot_paint_image_content_id_ =
@@ -244,6 +305,17 @@ class PLATFORM_EXPORT CanvasResourceProvider
   WTF::Vector<scoped_refptr<CanvasResource>> canvas_resources_;
   bool resource_recycling_enabled_ = true;
   bool is_single_buffered_ = false;
+
+  // The maximum number of in-flight resources waiting to be used for recycling.
+  static constexpr int kMaxRecycledCanvasResources = 2;
+  // The maximum number of draw ops executed on the canvas, after which the
+  // underlying GrContext is flushed.
+  static constexpr int kMaxDrawsBeforeContextFlush = 50;
+
+  size_t num_inflight_resources_ = 0;
+  size_t max_inflight_resources_ = 0;
+
+  RestoreMatrixClipStackCb restore_clip_stack_callback_;
 
   base::WeakPtrFactory<CanvasResourceProvider> weak_ptr_factory_{this};
 

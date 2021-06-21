@@ -16,11 +16,11 @@
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_tab_util.h"
-#include "chrome/browser/sessions/session_tab_helper.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "components/bookmarks/browser/bookmark_model.h"
+#include "components/sessions/content/session_tab_helper.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/test/browser_test_utils.h"
 #include "extensions/browser/extension_registry.h"
@@ -508,7 +508,7 @@ void ParameterizedShowActionDeclarativeContentApiTest::TestShowAction(
       browser()->tab_strip_model()->GetWebContentsAt(0);
   NavigateInRenderer(tab, GURL("http://test/"));
 
-  const int tab_id = SessionTabHelper::IdForTab(tab).id();
+  const int tab_id = sessions::SessionTabHelper::IdForTab(tab).id();
   EXPECT_TRUE(action->GetIsVisible(tab_id));
 
   // If an extension had no action specified in the manifest, it will get a
@@ -967,16 +967,10 @@ IN_PROC_BROWSER_TEST_F(DeclarativeContentApiTest,
 }
 
 // https://crbug.com/517492
-#if defined(OS_WIN)
 // Fails on XP: http://crbug.com/515717
-#define MAYBE_RemoveAllRulesAfterExtensionUninstall \
-  DISABLED_RemoveAllRulesAfterExtensionUninstall
-#else
-#define MAYBE_RemoveAllRulesAfterExtensionUninstall \
-  RemoveAllRulesAfterExtensionUninstall
-#endif
+// Fails on other platfomrs: http://crbug.com/1013457
 IN_PROC_BROWSER_TEST_F(DeclarativeContentApiTest,
-                       MAYBE_RemoveAllRulesAfterExtensionUninstall) {
+                       DISABLED_RemoveAllRulesAfterExtensionUninstall) {
   ext_dir_.WriteManifest(kDeclarativeContentManifest);
   ext_dir_.WriteFile(FILE_PATH_LITERAL("background.js"), kBackgroundHelpers);
 
@@ -1014,7 +1008,6 @@ IN_PROC_BROWSER_TEST_F(DeclarativeContentApiTest,
   EXPECT_EQ("remove_rule1",
             ExecuteScriptInBackgroundPage(extension->id(), kRemoveTestRule1));
 }
-
 
 // TODO(wittman): Once ChromeContentRulesRegistry operates on condition and
 // action interfaces, add a test that checks that a navigation always evaluates

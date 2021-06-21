@@ -1,18 +1,6 @@
-//
-// Copyright (C) 2015 The Android Open Source Project
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-//
+// Copyright 2015 The Chromium OS Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
 
 // NOTE: All tpm_manager protobufs are in the same file because the Android
 // build system cannot handle import statements without using Android-specific
@@ -231,8 +219,7 @@ message GetSpaceInfoReply {
 // A series of request and reply messages for the ownership interface methods.
 ////////////////////////////////////////////////////////////////////////////////
 message GetTpmStatusRequest {
-  // Whether to include TPM version info in the reply.
-  optional bool include_version_info = 1;
+  reserved 1;
 }
 
 message GetTpmStatusReply {
@@ -244,26 +231,30 @@ message GetTpmStatusReply {
   // Local TPM management data (including the owner password if available).
   optional LocalData local_data = 4;
 
-  reserved 5 to 8;
+  reserved 5 to 9;
+}
 
-  // TPM version information.
-  message TpmVersionInfo {
-    // TPM family. We use the TPM 2.0 style encoding, e.g.:
-    //  * TPM 1.2: "1.2" -> 0x312e3200
-    //  * TPM 2.0: "2.0" -> 0x322e3000
-    optional uint32 family = 1;
-    // TPM spec level.
-    optional uint64 spec_level = 2;
-    // Manufacturer code.
-    optional uint32 manufacturer = 3;
-    // TPM model number.
-    optional uint32 tpm_model = 4;
-    // Firmware version.
-    optional uint64 firmware_version = 5;
-    // Vendor specific information.
-    optional bytes vendor_specific = 6;
-  }
-  optional TpmVersionInfo version_info = 9;
+message GetVersionInfoRequest {
+}
+
+message GetVersionInfoReply {
+  // The success or error code of the call GetVersionInfo.
+  optional TpmManagerStatus status = 1;
+
+  // TPM family. We use the TPM 2.0 style encoding, e.g.:
+  //  * TPM 1.2: "1.2" -> 0x312e3200
+  //  * TPM 2.0: "2.0" -> 0x322e3000
+  optional uint32 family = 2;
+  // TPM spec level.
+  optional uint64 spec_level = 3;
+  // Manufacturer code.
+  optional uint32 manufacturer = 4;
+  // TPM model number.
+  optional uint32 tpm_model = 5;
+  // Firmware version.
+  optional uint64 firmware_version = 6;
+  // Vendor specific information.
+  optional bytes vendor_specific = 7;
 }
 
 message GetDictionaryAttackInfoRequest {

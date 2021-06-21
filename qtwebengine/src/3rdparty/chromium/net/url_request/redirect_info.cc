@@ -117,8 +117,7 @@ RedirectInfo::~RedirectInfo() = default;
 RedirectInfo RedirectInfo::ComputeRedirectInfo(
     const std::string& original_method,
     const GURL& original_url,
-    const GURL& original_site_for_cookies,
-    const base::Optional<url::Origin>& original_top_frame_origin,
+    const SiteForCookies& original_site_for_cookies,
     URLRequest::FirstPartyURLPolicy original_first_party_url_policy,
     URLRequest::ReferrerPolicy original_referrer_policy,
     const std::string& original_referrer,
@@ -157,14 +156,10 @@ RedirectInfo RedirectInfo::ComputeRedirectInfo(
   // Update the first-party URL if appropriate.
   if (original_first_party_url_policy ==
       URLRequest::UPDATE_FIRST_PARTY_URL_ON_REDIRECT) {
-    redirect_info.new_site_for_cookies = redirect_info.new_url;
-    if (original_top_frame_origin) {
-      redirect_info.new_top_frame_origin =
-          url::Origin::Create(redirect_info.new_url);
-    }
+    redirect_info.new_site_for_cookies =
+        SiteForCookies::FromUrl(redirect_info.new_url);
   } else {
     redirect_info.new_site_for_cookies = original_site_for_cookies;
-    redirect_info.new_top_frame_origin = original_top_frame_origin;
   }
 
   redirect_info.new_referrer_policy = ProcessReferrerPolicyHeaderOnRedirect(

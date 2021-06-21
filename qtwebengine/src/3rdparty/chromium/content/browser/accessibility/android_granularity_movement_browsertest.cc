@@ -36,13 +36,13 @@ class AndroidGranularityMovementBrowserTest : public ContentBrowserTest {
   ~AndroidGranularityMovementBrowserTest() override {}
 
   BrowserAccessibility* LoadUrlAndGetAccessibilityRoot(const GURL& url) {
-    NavigateToURL(shell(), GURL(url::kAboutBlankURL));
+    EXPECT_TRUE(NavigateToURL(shell(), GURL(url::kAboutBlankURL)));
 
     // Load the page.
     AccessibilityNotificationWaiter waiter(shell()->web_contents(),
                                            ui::kAXModeComplete,
                                            ax::mojom::Event::kLoadComplete);
-    NavigateToURL(shell(), url);
+    EXPECT_TRUE(NavigateToURL(shell(), url));
     waiter.WaitForNotification();
 
     // Get the BrowserAccessibilityManager.
@@ -85,8 +85,7 @@ class AndroidGranularityMovementBrowserTest : public ContentBrowserTest {
     int previous_end_index = -1;
     while (manager->NextAtGranularity(granularity, end_index, android_node,
                                       &start_index, &end_index)) {
-      int len =
-          (granularity == GRANULARITY_CHARACTER) ? 1 : end_index - start_index;
+      int len = end_index - start_index;
       base::string16 selection = text.substr(start_index, len);
       if (base::EndsWith(selection, base::ASCIIToUTF16("\n"),
                          base::CompareCase::INSENSITIVE_ASCII))
@@ -111,8 +110,7 @@ class AndroidGranularityMovementBrowserTest : public ContentBrowserTest {
     start_index = end_index;
     while (manager->PreviousAtGranularity(
         granularity, start_index, android_node, &start_index, &end_index)) {
-      int len =
-          (granularity == GRANULARITY_CHARACTER) ? 1 : end_index - start_index;
+      int len = end_index - start_index;
       base::string16 selection = text.substr(start_index, len);
       if (base::EndsWith(selection, base::ASCIIToUTF16("\n"),
                          base::CompareCase::INSENSITIVE_ASCII))

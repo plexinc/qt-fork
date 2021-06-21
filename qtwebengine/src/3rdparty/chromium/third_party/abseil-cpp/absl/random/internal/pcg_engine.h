@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef ABSL_RANDOM_PCG_ENGINE_H_
-#define ABSL_RANDOM_PCG_ENGINE_H_
+#ifndef ABSL_RANDOM_INTERNAL_PCG_ENGINE_H_
+#define ABSL_RANDOM_INTERNAL_PCG_ENGINE_H_
 
 #include <type_traits>
 
@@ -24,6 +24,7 @@
 #include "absl/random/internal/iostream_state_saver.h"
 
 namespace absl {
+ABSL_NAMESPACE_BEGIN
 namespace random_internal {
 
 // pcg_engine is a simplified implementation of Melissa O'Neil's PCG engine in
@@ -300,6 +301,7 @@ using pcg32_2018_engine = pcg_engine<
     random_internal::pcg_xsh_rr_64_32>;
 
 }  // namespace random_internal
+ABSL_NAMESPACE_END
 }  // namespace absl
 
-#endif  // ABSL_RANDOM_PCG2018_ENGINE_H_
+#endif  // ABSL_RANDOM_INTERNAL_PCG_ENGINE_H_

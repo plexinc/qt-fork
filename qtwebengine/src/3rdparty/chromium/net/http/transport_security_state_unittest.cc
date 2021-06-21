@@ -35,6 +35,7 @@
 #include "net/cert/x509_cert_types.h"
 #include "net/cert/x509_certificate.h"
 #include "net/extras/preload_data/decoder.h"
+#include "net/http/hsts_info.h"
 #include "net/http/http_status_code.h"
 #include "net/http/http_util.h"
 #include "net/net_buildflags.h"
@@ -119,8 +120,8 @@ class MockCertificateReportSender
             const base::Callback<void(const GURL&, int, int)>& error_callback)
       override {
     latest_report_uri_ = report_uri;
-    report.CopyToString(&latest_report_);
-    content_type.CopyToString(&latest_content_type_);
+    latest_report_.assign(report.data(), report.size());
+    latest_content_type_.assign(content_type.data(), content_type.size());
   }
 
   void Clear() {
@@ -481,7 +482,8 @@ TEST_F(TransportSecurityStateTest, SubdomainMatches) {
 
 // Tests that a more-specific HSTS or HPKP rule overrides a less-specific rule
 // with it, regardless of the includeSubDomains bit. This is a regression test
-// for https://crbug.com/469957.
+// for https://crbug.com/469957. Note this behavior does not match the spec.
+// See https://crbug.com/821811.
 TEST_F(TransportSecurityStateTest, SubdomainCarveout) {
   const GURL report_uri(kReportUri);
   TransportSecurityState state;
@@ -665,7 +667,7 @@ TEST_F(TransportSecurityStateTest, DynamicDomainState) {
 
   TransportSecurityState::STSState sts_state;
   TransportSecurityState::PKPState pkp_state;
-  ASSERT_TRUE(state.GetDynamicSTSState("foo.example.com", &sts_state));
+  ASSERT_TRUE(state.GetDynamicSTSState("foo.example.com", &sts_state, nullptr));
   ASSERT_TRUE(state.GetDynamicPKPState("foo.example.com", &pkp_state));
   EXPECT_TRUE(sts_state.ShouldUpgradeToSSL());
   EXPECT_TRUE(pkp_state.HasPublicKeyPins());
@@ -788,7 +790,7 @@ TEST_F(TransportSecurityStateTest, LongNames) {
   TransportSecurityState::PKPState pkp_state;
   // Just checks that we don't hit a NOTREACHED.
   EXPECT_FALSE(state.GetStaticDomainState(kLongName, &sts_state, &pkp_state));
-  EXPECT_FALSE(state.GetDynamicSTSState(kLongName, &sts_state));
+  EXPECT_FALSE(state.GetDynamicSTSState(kLongName, &sts_state, nullptr));
   EXPECT_FALSE(state.GetDynamicPKPState(kLongName, &pkp_state));
 }
 
@@ -1432,6 +1434,31 @@ TEST_F(TransportSecurityStateTest, DecodePreloadedMultipleMix) {
   EXPECT_FALSE(GetExpectCTState(&state, "simple-entry.example.com", &ct_state));
 }
 
+TEST_F(TransportSecurityStateTest, HstsHostBypassList) {
+  SetTransportSecurityStateSourceForTesting(&test_default::kHSTSSource);
+
+  TransportSecurityState::STSState sts_state;
+  TransportSecurityState::PKPState pkp_state;
+
+  std::string preloaded_tld = "example";
+  std::string subdomain = "sub.example";
+
+  {
+    TransportSecurityState state;
+    // Check that "example" is preloaded with subdomains.
+    EXPECT_TRUE(state.ShouldUpgradeToSSL(preloaded_tld));
+    EXPECT_TRUE(state.ShouldUpgradeToSSL(subdomain));
+  }
+
+  {
+    // Add "example" to the bypass list.
+    TransportSecurityState state({preloaded_tld});
+    EXPECT_FALSE(state.ShouldUpgradeToSSL(preloaded_tld));
+    // The preloaded entry should still apply to the subdomain.
+    EXPECT_TRUE(state.ShouldUpgradeToSSL(subdomain));
+  }
+}
+
 // Tests that TransportSecurityState always consults the RequireCTDelegate,
 // if supplied.
 TEST_F(TransportSecurityStateTest, RequireCTConsultsDelegate) {
@@ -1580,7 +1607,7 @@ TEST_F(TransportSecurityStateTest, RequireCTConsultsDelegate) {
 
 // Tests that Certificate Transparency is required for Symantec-issued
 // certificates, unless the certificate was issued prior to 1 June 2016
-// or the issuing CA is whitelisted as independently operated.
+// or the issuing CA is permitted as independently operated.
 TEST_F(TransportSecurityStateTest, RequireCTForSymantec) {
   // Test certificates before and after the 1 June 2016 deadline.
   scoped_refptr<X509Certificate> before_cert =
@@ -1711,26 +1738,14 @@ TEST_F(TransportSecurityStateTest, RequireCTViaFieldTrial) {
   // However, simulating a Field Trial in which CT is required for certificates
   // after 2017-12-01 should cause CT to be required for this certificate, as
   // it was issued 2017-12-20.
-  const char kTrialName[] = "EnforceCTForNewCertsTrial";
-  const char kGroupName[] = "Unused";  // Value not used.
-  const char kFeatureName[] = "EnforceCTForNewCerts";
 
-  base::test::ScopedFeatureList scoped_feature_list;
-  base::FieldTrialList field_trial_list(
-      std::make_unique<base::MockEntropyProvider>());
-  scoped_refptr<base::FieldTrial> trial =
-      base::FieldTrialList::CreateFieldTrial(kTrialName, kGroupName);
-  std::map<std::string, std::string> params;
+  base::FieldTrialParams params;
   // Set the enforcement date to 2017-12-01 00:00:00;
   params["date"] = "1512086400";
-  base::FieldTrialParamAssociator::GetInstance()->AssociateFieldTrialParams(
-      kTrialName, kGroupName, params);
 
-  std::unique_ptr<base::FeatureList> feature_list(
-      std::make_unique<base::FeatureList>());
-  feature_list->RegisterFieldTrialOverride(
-      kFeatureName, base::FeatureList::OVERRIDE_ENABLE_FEATURE, trial.get());
-  scoped_feature_list.InitWithFeatureList(std::move(feature_list));
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeatureWithParameters(kEnforceCTForNewCerts,
+                                                         params);
 
   // It should fail if it doesn't comply with policy.
   EXPECT_EQ(TransportSecurityState::CT_REQUIREMENTS_NOT_MET,
@@ -2458,6 +2473,60 @@ TEST_F(TransportSecurityStateTest, DynamicExpectCTUMA) {
   }
 }
 
+// Tests the Net.HstsInfo histogram is recorded correctly. See
+// https://crbug.com/821811.
+TEST_F(TransportSecurityStateTest, HstsInfoHistogram) {
+  const base::Time current_time(base::Time::Now());
+  const base::Time expiry = current_time + base::TimeDelta::FromDays(1000);
+
+  TransportSecurityState state;
+  // a.test is not on the static list, so the dynamic set applies.
+  state.AddHSTS("a.test", expiry, /*include_subdomains=*/true);
+  state.AddHSTS("a.a.test", expiry, /*include_subdomains=*/false);
+  // Also test the interaction with the HSTS preload list.
+  state.AddHSTS("a.include-subdomains-hsts-preloaded.test", expiry,
+                /*include_subdomains=*/true);
+  state.AddHSTS("a.a.include-subdomains-hsts-preloaded.test", expiry,
+                /*include_subdomains=*/false);
+
+  const struct {
+    const char* host;
+    HstsInfo expected;
+  } kTests[] = {
+      // HSTS was not enabled.
+      {"b.test", HstsInfo::kDisabled},
+      // HSTS was enabled via the header.
+      {"a.test", HstsInfo::kEnabled},
+      {"a.a.test", HstsInfo::kEnabled},
+      // HSTS was enabled via the preload list.
+      {"b.include-subdomains-hsts-preloaded.test", HstsInfo::kEnabled},
+      // HSTS should have been enabled but was not due to spec non-compliance.
+      {"a.a.a.test", HstsInfo::kDynamicIncorrectlyMasked},
+      // Spec non-compliance was masked by the preload list.
+      {"a.a.a.include-subdomains-hsts-preloaded.test",
+       HstsInfo::kDynamicIncorrectlyMaskedButMatchedStatic},
+  };
+
+  for (const auto& test : kTests) {
+    SCOPED_TRACE(test.host);
+    bool enabled =
+        test.expected == HstsInfo::kEnabled ||
+        test.expected == HstsInfo::kDynamicIncorrectlyMaskedButMatchedStatic;
+    {
+      base::HistogramTester histograms;
+      EXPECT_EQ(enabled, state.ShouldUpgradeToSSL(test.host));
+      histograms.ExpectTotalCount("Net.HstsInfo", 1);
+      histograms.ExpectBucketCount("Net.HstsInfo", test.expected, 1);
+    }
+    {
+      base::HistogramTester histograms;
+      EXPECT_EQ(enabled, state.ShouldSSLErrorsBeFatal(test.host));
+      histograms.ExpectTotalCount("Net.HstsInfo", 1);
+      histograms.ExpectBucketCount("Net.HstsInfo", test.expected, 1);
+    }
+  }
+}
+
 #if BUILDFLAG(INCLUDE_TRANSPORT_SECURITY_STATE_PRELOAD_LIST)
 const char kSubdomain[] = "foo.example.test";
 
@@ -2622,6 +2691,8 @@ TEST_F(TransportSecurityStateStaticTest, Preloaded) {
   EXPECT_TRUE(StaticShouldRedirect("plus.google.com"));
   EXPECT_TRUE(StaticShouldRedirect("groups.google.com"));
   EXPECT_TRUE(StaticShouldRedirect("apis.google.com"));
+  EXPECT_TRUE(StaticShouldRedirect("oauthaccountmanager.googleapis.com"));
+  EXPECT_TRUE(StaticShouldRedirect("passwordsleakcheck-pa.googleapis.com"));
   EXPECT_TRUE(StaticShouldRedirect("ssl.google-analytics.com"));
   EXPECT_TRUE(StaticShouldRedirect("google"));
   EXPECT_TRUE(StaticShouldRedirect("foo.google"));
@@ -2645,6 +2716,10 @@ TEST_F(TransportSecurityStateStaticTest, Preloaded) {
       state.GetStaticDomainState("googlemail.com", &sts_state, &pkp_state));
   EXPECT_TRUE(
       state.GetStaticDomainState("www.googlemail.com", &sts_state, &pkp_state));
+
+  // fi.g.co should not force HTTPS because there are still HTTP-only services
+  // on it.
+  EXPECT_FALSE(StaticShouldRedirect("fi.g.co"));
 
   // Other hosts:
 
@@ -2718,9 +2793,6 @@ TEST_F(TransportSecurityStateStaticTest, Preloaded) {
 
   EXPECT_TRUE(StaticShouldRedirect("uprotect.it"));
   EXPECT_TRUE(StaticShouldRedirect("foo.uprotect.it"));
-
-  EXPECT_TRUE(StaticShouldRedirect("squareup.com"));
-  EXPECT_FALSE(HasStaticState("foo.squareup.com"));
 
   EXPECT_TRUE(StaticShouldRedirect("cert.se"));
   EXPECT_TRUE(StaticShouldRedirect("foo.cert.se"));

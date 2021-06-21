@@ -12,31 +12,98 @@ vars = {
   'chromium_git': 'https://chromium.googlesource.com',
   'pdfium_git': 'https://pdfium.googlesource.com',
 
-  'android_ndk_revision': '4e2cea441bfd43f0863d14f57b1e1844260b9884',
-  'binutils_revision': '92bfa0a5dcee9dc01173e39e5bff226b09af0254',
-  'build_revision': '95a2cff8feeab9d3ea06f7be01e29d8730c7d456',
-  'buildtools_revision': '95c72f350fed4d9bc1929c65d0ca0e5f28615322',
-  'catapult_revision': '123c46068daa0b5660f02168df9b76a2a255ef71',
-  'clang_revision': '7cefad2f8f24c452fc25a43360e97c84745406ef',
-  'code_coverage_revision': 'b53d904eb74afb18f4ddc27db4f75552b1237514',
-  'depot_tools_revision': '3b07526aec5572513374e26191e83d367a6e1f7b',
-  'freetype_revision': 'b110acba9e6f7e40314f0da5d249cb3cb3beeab8',
-  'gtest_revision': 'd7003576dd133856432e2e07340f45926242cc3a',
-  'icu_revision': 'fd97d4326fac6da84452b2d5fe75ff0949368dab',
-  'instrumented_lib_revision': 'a959e4f0cb643003f2d75d179cede449979e3e77',
-  'jinja2_revision': '45571de473282bd1d8b63a8dfcb1fd268d0635d2',
-  'jpeg_turbo_revision': 'e1669e3707c6448a01c8a0dc3e4b20976a4dacf3',
+  # Three lines of non-changing comments so that
+  # the commit queue can handle CLs rolling android_ndk
+  # and whatever else without interference from each other.
+  'android_ndk_revision': '27c0a8d090c666a50e40fceb4ee5b40b1a2d3f87',
+  # Three lines of non-changing comments so that
+  # the commit queue can handle CLs rolling binutils
+  # and whatever else without interference from each other.
+  'binutils_revision': 'ffd1fdb902d5ce2d28b6a18bebed2c42c863e22e',
+  # Three lines of non-changing comments so that
+  # the commit queue can handle CLs rolling build
+  # and whatever else without interference from each other.
+  'build_revision': '36cc563890d733d7aefa52bd27fcd49bcb37b030',
+  # Three lines of non-changing comments so that
+  # the commit queue can handle CLs rolling buildtools
+  # and whatever else without interference from each other.
+  'buildtools_revision': '4164a305626786b1912d467003acf4c4995bec7d',
+  # Three lines of non-changing comments so that
+  # the commit queue can handle CLs rolling catapult
+  # and whatever else without interference from each other.
+  'catapult_revision': 'df670f0bed9e3f58ab3061f54842e4606fd9ba29',
+  # Three lines of non-changing comments so that
+  # the commit queue can handle CLs rolling clang
+  # and whatever else without interference from each other.
+  'clang_revision': '6e39ba4a2cedc07e77e63fe39788370370fd98d9',
+  # Three lines of non-changing comments so that
+  # the commit queue can handle CLs rolling clang_dsymutil
+  # and whatever else without interference from each other.
+  'clang_dsymutil_revision': 'M56jPzDv1620Rnm__jTMYS62Zi8rxHVq7yw0qeBFEgkC',
+  # Three lines of non-changing comments so that
+  # the commit queue can handle CLs rolling code_coverage
+  # and whatever else without interference from each other.
+  'code_coverage_revision': 'a8f20a1dacc200010cd99f4eabdb0da7d94be112',
+  # Three lines of non-changing comments so that
+  # the commit queue can handle CLs rolling depot_tools
+  # and whatever else without interference from each other.
+  'depot_tools_revision': '464e9ff4f3682426b0cb3b68ee38e7be6fa4a2be',
+  # Three lines of non-changing comments so that
+  # the commit queue can handle CLs rolling freetype
+  # and whatever else without interference from each other.
+  'freetype_revision': '6a431038c9113d906d66836cd7d216a5c630be7c',
+  # Three lines of non-changing comments so that
+  # the commit queue can handle CLs rolling gtest
+  # and whatever else without interference from each other.
+  'gtest_revision': '10b1902d893ea8cc43c69541d70868f91af3646b',
+  # Three lines of non-changing comments so that
+  # the commit queue can handle CLs rolling icu
+  # and whatever else without interference from each other.
+  'icu_revision': 'd7aff76cf6bb0fbef3afa6c07718f78a80a70f8f',
+  # Three lines of non-changing comments so that
+  # the commit queue can handle CLs rolling instrumented_lib
+  # and whatever else without interference from each other.
+  'instrumented_lib_revision': 'bb3f1802c237dd19105dd0f7919f99e536a39d10',
+  # Three lines of non-changing comments so that
+  # the commit queue can handle CLs rolling jinja2
+  # and whatever else without interference from each other.
+  'jinja2_revision': 'b41863e42637544c2941b574c7877d3e1f663e25',
+  # Three lines of non-changing comments so that
+  # the commit queue can handle CLs rolling jpeg_turbo
+  # and whatever else without interference from each other.
+  'jpeg_turbo_revision': 'ce0e57e8e636f5132fe6f0590a4dba91f92fd935',
+  # Three lines of non-changing comments so that
+  # the commit queue can handle CLs rolling markupsafe
+  # and whatever else without interference from each other.
   'markupsafe_revision': '8f45f5cfa0009d2a70589bcda0349b8cb2b72783',
-  'pdfium_tests_revision': '02dd653ec62649b6f1aa4e4526071cc32d903f54',
-  'skia_revision': '8590026dbf0d22291c8c42ed0eddb73d66da446d',
-  'tools_memory_revision': 'f7b00daf4df7f6c469f5fbc68d7f40f6bd15d6e6',
-  'trace_event_revision': 'cfe8887fa6ac3170e23a68949930e28d4705a16f',
-  'v8_revision': 'b6dda94d79dd9d7e5fe7b07b3a9b2b83c655896d',
+  # Three lines of non-changing comments so that
+  # the commit queue can handle CLs rolling pdfium_tests
+  # and whatever else without interference from each other.
+  'pdfium_tests_revision': 'b4e9a126d289b49002d0f0acac71d1fdc26953b3',
+  # Three lines of non-changing comments so that
+  # the commit queue can handle CLs rolling skia
+  # and whatever else without interference from each other.
+  'skia_revision': '1171d314efc7e131b039c94126d26575cfb9e70c',
+  # Three lines of non-changing comments so that
+  # the commit queue can handle CLs rolling tools_memory
+  # and whatever else without interference from each other.
+  'tools_memory_revision': '89552acb6e60f528fe3c98eac7b445d4c34183ee',
+  # Three lines of non-changing comments so that
+  # the commit queue can handle CLs rolling trace_event
+  # and whatever else without interference from each other.
+  'trace_event_revision': 'dab187b372fc17e51f5b9fad8201813d0aed5129',
+  # Three lines of non-changing comments so that
+  # the commit queue can handle CLs rolling v8
+  # and whatever else without interference from each other.
+  'v8_revision': '633234050d9781560f814e4914c31954459aecd4',
+  # Three lines of non-changing comments so that
+  # the commit queue can handle CLs rolling yasm_source
+  # and whatever else without interference from each other.
   'yasm_source_revision': '720b70524a4424b15fc57e82263568c8ba0496ad',
-  'zlib_revision': 'abd51836c6dad6c460d236fff70f28cc578a1336',
-
-  # GN CIPD package version.
-  'gn_version': 'git_revision:0790d3043387c762a6bacb1ae0a9ebe883188ab2',
+  # Three lines of non-changing comments so that
+  # the commit queue can handle CLs rolling zlib
+  # and whatever else without interference from each other.
+  'zlib_revision': '156be8c52f80cde343088b4a69a80579101b6e67',
 }
 
 deps = {
@@ -50,39 +117,6 @@ deps = {
   "buildtools":
     Var('chromium_git') + "/chromium/src/buildtools.git@" +
         Var('buildtools_revision'),
-
-  'pdfium/buildtools/linux64': {
-    'packages': [
-      {
-        'package': 'gn/gn/linux-amd64',
-        'version': Var('gn_version'),
-      }
-    ],
-    'dep_type': 'cipd',
-    'condition': 'host_os == "linux"',
-  },
-
-  'pdfium/buildtools/mac': {
-    'packages': [
-      {
-        'package': 'gn/gn/mac-amd64',
-        'version': Var('gn_version'),
-      }
-    ],
-    'dep_type': 'cipd',
-    'condition': 'host_os == "mac"',
-  },
-
-  'pdfium/buildtools/win': {
-    'packages': [
-      {
-        'package': 'gn/gn/windows-amd64',
-        'version': Var('gn_version'),
-      }
-    ],
-    'dep_type': 'cipd',
-    'condition': 'host_os == "win"',
-  },
 
   "testing/corpus":
     Var('pdfium_git') + "/pdfium_tests@" + Var('pdfium_tests_revision'),
@@ -146,6 +180,17 @@ deps = {
 
   "tools/clang":
     Var('chromium_git') + "/chromium/src/tools/clang@" +  Var('clang_revision'),
+
+  'tools/clang/dsymutil': {
+    'packages': [
+      {
+        'package': 'chromium/llvm-build-tools/dsymutil',
+        'version': Var('clang_dsymutil_revision'),
+      }
+    ],
+    'condition': 'checkout_mac or checkout_ios',
+    'dep_type': 'cipd',
+  },
 
   "tools/code_coverage":
     Var('chromium_git') + "/chromium/src/tools/code_coverage.git@" +

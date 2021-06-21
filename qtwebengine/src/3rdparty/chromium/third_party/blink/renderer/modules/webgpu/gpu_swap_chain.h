@@ -19,18 +19,17 @@ class GPUDevice;
 class GPUSwapChainDescriptor;
 class GPUTexture;
 
-class GPUSwapChain : public DawnObjectBase,
+class GPUSwapChain : public ScriptWrappable,
+                     public DawnObjectBase,
                      public WebGPUSwapBufferProvider::Client {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-  static GPUSwapChain* Create(GPUCanvasContext* context,
-                              const GPUSwapChainDescriptor* descriptor);
   explicit GPUSwapChain(GPUCanvasContext* context,
                         const GPUSwapChainDescriptor* descriptor);
   ~GPUSwapChain() override;
 
-  void Trace(blink::Visitor* visitor) override;
+  void Trace(Visitor* visitor) override;
 
   void Neuter();
   cc::Layer* CcLayer();
@@ -48,7 +47,7 @@ class GPUSwapChain : public DawnObjectBase,
 
   Member<GPUDevice> device_;
   Member<GPUCanvasContext> context_;
-  DawnTextureUsageBit usage_;
+  WGPUTextureUsage usage_;
 
   Member<GPUTexture> texture_;
 };

@@ -12,6 +12,7 @@
 #include "platform/base/ip_address.h"
 
 namespace openscreen {
+namespace osp {
 
 struct ServerConfig {
   ServerConfig();
@@ -19,8 +20,8 @@ struct ServerConfig {
 
   // The indexes of network interfaces that should be used by the Open Screen
   // Library.  The indexes derive from the values of
-  // openscreen::platform::InterfaceInfo::index.
-  std::vector<platform::NetworkInterfaceIndex> interface_indexes;
+  // openscreen::InterfaceInfo::index.
+  std::vector<NetworkInterfaceIndex> interface_indexes;
 
   // The list of connection endpoints that are advertised for Open Screen
   // protocol connections.  These must be reachable via one interface in
@@ -28,6 +29,7 @@ struct ServerConfig {
   std::vector<IPEndpoint> connection_endpoints;
 };
 
+}  // namespace osp
 }  // namespace openscreen
 
 #endif  // OSP_PUBLIC_SERVER_CONFIG_H_

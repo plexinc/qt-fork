@@ -207,7 +207,7 @@ void VideoCaptureManager::Close(
 
     // StopSession() may have removed the last client, so we might need to
     // close the device.
-    DestroyControllerIfNoClients(existing_device);
+    DestroyControllerIfNoClients(capture_session_id, existing_device);
   }
 
   // Notify listeners asynchronously, and forget the session.
@@ -343,7 +343,7 @@ void VideoCaptureManager::OnDeviceLaunched(VideoCaptureController* controller) {
     VideoCaptureController* maybe_entry =
         LookupControllerBySessionId(request->first);
     if (maybe_entry && maybe_entry->IsDeviceAlive()) {
-      request->second.Run();
+      std::move(request->second).Run();
       photo_request_queue_.erase(request);
     }
   }
@@ -386,7 +386,7 @@ void VideoCaptureManager::ConnectClient(
     const media::VideoCaptureParams& params,
     VideoCaptureControllerID client_id,
     VideoCaptureControllerEventHandler* client_handler,
-    const DoneCB& done_cb) {
+    DoneCB done_cb) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   TRACE_EVENT_INSTANT0(TRACE_DISABLED_BY_DEFAULT("video_and_image_capture"),
                        "VideoCaptureManager::ConnectClient",
@@ -403,7 +403,7 @@ void VideoCaptureManager::ConnectClient(
   VideoCaptureController* controller =
       GetOrCreateController(session_id, params);
   if (!controller) {
-    done_cb.Run(base::WeakPtr<VideoCaptureController>());
+    std::move(done_cb).Run(nullptr);
     return;
   }
 
@@ -419,7 +419,7 @@ void VideoCaptureManager::ConnectClient(
     QueueStartDevice(session_id, controller, params);
   }
   // Run the callback first, as AddClient() may trigger OnFrameInfo().
-  done_cb.Run(controller->GetWeakPtrForIOThread());
+  std::move(done_cb).Run(controller->GetWeakPtrForIOThread());
   controller->AddClient(client_id, client_handler, session_id, params);
 }
 
@@ -478,7 +478,7 @@ void VideoCaptureManager::DisconnectClient(
   EmitLogMessage(string_stream.str(), 1);
 
   // If controller has no more clients, delete controller and device.
-  DestroyControllerIfNoClients(controller);
+  DestroyControllerIfNoClients(session_id, controller);
 }
 
 void VideoCaptureManager::PauseCaptureForClient(
@@ -656,8 +656,8 @@ void VideoCaptureManager::GetPhotoState(
   // Queue up a request for later.
   photo_request_queue_.emplace_back(
       session_id,
-      base::Bind(&VideoCaptureController::GetPhotoState,
-                 controller->GetWeakPtrForIOThread(), base::Passed(&callback)));
+      base::BindOnce(&VideoCaptureController::GetPhotoState,
+                     controller->GetWeakPtrForIOThread(), std::move(callback)));
 }
 
 void VideoCaptureManager::SetPhotoOptions(
@@ -675,9 +675,9 @@ void VideoCaptureManager::SetPhotoOptions(
   }
   // Queue up a request for later.
   photo_request_queue_.emplace_back(
-      session_id, base::Bind(&VideoCaptureController::SetPhotoOptions,
-                             controller->GetWeakPtrForIOThread(),
-                             base::Passed(&settings), base::Passed(&callback)));
+      session_id, base::BindOnce(&VideoCaptureController::SetPhotoOptions,
+                                 controller->GetWeakPtrForIOThread(),
+                                 std::move(settings), std::move(callback)));
 }
 
 void VideoCaptureManager::TakePhoto(
@@ -701,8 +701,8 @@ void VideoCaptureManager::TakePhoto(
                        TRACE_EVENT_SCOPE_PROCESS);
   photo_request_queue_.emplace_back(
       session_id,
-      base::Bind(&VideoCaptureController::TakePhoto,
-                 controller->GetWeakPtrForIOThread(), base::Passed(&callback)));
+      base::BindOnce(&VideoCaptureController::TakePhoto,
+                     controller->GetWeakPtrForIOThread(), std::move(callback)));
 }
 
 void VideoCaptureManager::OnOpened(
@@ -762,6 +762,7 @@ void VideoCaptureManager::OnDeviceInfosReceived(
 }
 
 void VideoCaptureManager::DestroyControllerIfNoClients(
+    const base::UnguessableToken& capture_session_id,
     VideoCaptureController* controller) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   // Removal of the last client stops the device.
@@ -786,6 +787,11 @@ void VideoCaptureManager::DestroyControllerIfNoClients(
           return device_entry.get() == controller;
         });
     controllers_.erase(controller_iter);
+    // Check if there are any associated pending callbacks and delete them.
+    base::EraseIf(photo_request_queue_,
+                  [capture_session_id](const auto& request) {
+                    return request.first == capture_session_id;
+                  });
   }
 }
 

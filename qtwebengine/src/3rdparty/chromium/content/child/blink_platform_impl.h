@@ -9,15 +9,14 @@
 #include <stdint.h>
 
 #include "base/compiler_specific.h"
-#include "base/files/file.h"
 #include "base/single_thread_task_runner.h"
 #include "base/timer/timer.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
 #include "components/webcrypto/webcrypto_impl.h"
 #include "content/common/content_export.h"
+#include "third_party/blink/public/common/input/web_gesture_device.h"
 #include "third_party/blink/public/platform/platform.h"
-#include "third_party/blink/public/platform/web_gesture_device.h"
 #include "third_party/blink/public/platform/web_url_error.h"
 #include "third_party/blink/public/public_buildflags.h"
 #include "ui/base/layout.h"
@@ -42,20 +41,22 @@ class CONTENT_EXPORT BlinkPlatformImpl : public blink::Platform {
   bool IsLowEndDevice() override;
   void RecordAction(const blink::UserMetricsAction&) override;
 
-  blink::WebData GetDataResource(const char* name) override;
-  blink::WebString QueryLocalizedString(
-      blink::WebLocalizedString::Name name) override;
-  blink::WebString QueryLocalizedString(blink::WebLocalizedString::Name name,
+  blink::WebData GetDataResource(int resource_id,
+                                 ui::ScaleFactor scale_factor) override;
+  blink::WebData UncompressDataResource(int resource_id) override;
+  blink::WebString QueryLocalizedString(int resource_id) override;
+  blink::WebString QueryLocalizedString(int resource_id,
                                         const blink::WebString& value) override;
   blink::WebString QueryLocalizedString(
-      blink::WebLocalizedString::Name name,
+      int resource_id,
       const blink::WebString& value1,
       const blink::WebString& value2) override;
   void SuddenTerminationChanged(bool enabled) override {}
   bool AllowScriptExtensionForServiceWorker(
       const blink::WebSecurityOrigin& script_origin) override;
   blink::WebCrypto* Crypto() override;
-  const char* GetBrowserServiceName() const override;
+  blink::ThreadSafeBrowserInterfaceBrokerProxy* GetBrowserInterfaceBroker()
+      override;
 
   scoped_refptr<base::SingleThreadTaskRunner> GetIOTaskRunner() const override;
   std::unique_ptr<NestedMessageLoopRunner> CreateNestedMessageLoopRunner()
@@ -64,6 +65,8 @@ class CONTENT_EXPORT BlinkPlatformImpl : public blink::Platform {
  private:
   scoped_refptr<base::SingleThreadTaskRunner> main_thread_task_runner_;
   scoped_refptr<base::SingleThreadTaskRunner> io_thread_task_runner_;
+  const scoped_refptr<blink::ThreadSafeBrowserInterfaceBrokerProxy>
+      browser_interface_broker_proxy_;
   std::unique_ptr<blink::WebThemeEngine> native_theme_engine_;
   webcrypto::WebCryptoImpl web_crypto_;
 };

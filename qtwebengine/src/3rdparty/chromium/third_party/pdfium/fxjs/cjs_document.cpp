@@ -8,7 +8,7 @@
 
 #include <utility>
 
-#include "core/fpdfapi/font/cpdf_font.h"
+#include "constants/access_permissions.h"
 #include "core/fpdfapi/page/cpdf_pageobject.h"
 #include "core/fpdfapi/page/cpdf_textobject.h"
 #include "core/fpdfapi/parser/cpdf_array.h"
@@ -28,75 +28,6 @@
 #include "fxjs/cjs_field.h"
 #include "fxjs/cjs_icon.h"
 #include "fxjs/js_resources.h"
-
-namespace {
-
-#define ISLATINWORD(u) (u != 0x20 && u <= 0x28FF)
-
-int CountWords(const CPDF_TextObject* pTextObj) {
-  CPDF_Font* pFont = pTextObj->GetFont();
-  if (!pFont)
-    return 0;
-
-  bool bInLatinWord = false;
-  int nWords = 0;
-  for (size_t i = 0, sz = pTextObj->CountChars(); i < sz; ++i) {
-    uint32_t charcode = CPDF_Font::kInvalidCharCode;
-    float unused_kerning;
-
-    pTextObj->GetCharInfo(i, &charcode, &unused_kerning);
-    WideString swUnicode = pFont->UnicodeFromCharCode(charcode);
-
-    uint16_t unicode = 0;
-    if (swUnicode.GetLength() > 0)
-      unicode = swUnicode[0];
-
-    bool bIsLatin = ISLATINWORD(unicode);
-    if (bIsLatin && bInLatinWord)
-      continue;
-
-    bInLatinWord = bIsLatin;
-    if (unicode != 0x20)
-      nWords++;
-  }
-
-  return nWords;
-}
-
-WideString GetObjWordStr(const CPDF_TextObject* pTextObj, int nWordIndex) {
-  CPDF_Font* pFont = pTextObj->GetFont();
-  if (!pFont)
-    return WideString();
-
-  WideString swRet;
-  int nWords = 0;
-  bool bInLatinWord = false;
-  for (size_t i = 0, sz = pTextObj->CountChars(); i < sz; ++i) {
-    uint32_t charcode = CPDF_Font::kInvalidCharCode;
-    float unused_kerning;
-
-    pTextObj->GetCharInfo(i, &charcode, &unused_kerning);
-    WideString swUnicode = pFont->UnicodeFromCharCode(charcode);
-
-    uint16_t unicode = 0;
-    if (swUnicode.GetLength() > 0)
-      unicode = swUnicode[0];
-
-    bool bIsLatin = ISLATINWORD(unicode);
-    if (!bIsLatin || !bInLatinWord) {
-      bInLatinWord = bIsLatin;
-      if (unicode != 0x20)
-        nWords++;
-    }
-
-    if (nWords - 1 == nWordIndex)
-      swRet += unicode;
-  }
-
-  return swRet;
-}
-
-}  // namespace
 
 const JSPropertySpec CJS_Document::PropertySpecs[] = {
     {"ADBE", get_ADBE_static, set_ADBE_static},
@@ -424,12 +355,14 @@ CJS_Result CJS_Document::mailForm(
     const std::vector<v8::Local<v8::Value>>& params) {
   if (!m_pFormFillEnv)
     return CJS_Result::Failure(JSMessage::kBadObjectError);
-  if (!m_pFormFillEnv->GetPermissions(FPDFPERM_EXTRACT_ACCESS))
+
+  using pdfium::access_permissions::kExtractForAccessibility;
+  if (!m_pFormFillEnv->HasPermissions(kExtractForAccessibility))
     return CJS_Result::Failure(JSMessage::kPermissionError);
 
   CPDFSDK_InteractiveForm* pInteractiveForm = GetSDKInteractiveForm();
   ByteString sTextBuf = pInteractiveForm->ExportFormToFDFTextBuf();
-  if (sTextBuf.GetLength() == 0)
+  if (sTextBuf.IsEmpty())
     return CJS_Result::Failure(L"Bad FDF format.");
 
   std::vector<v8::Local<v8::Value>> newParams = ExpandKeywordParams(
@@ -530,8 +463,9 @@ CJS_Result CJS_Document::removeField(
   if (!m_pFormFillEnv)
     return CJS_Result::Failure(JSMessage::kBadObjectError);
 
-  if (!(m_pFormFillEnv->GetPermissions(FPDFPERM_MODIFY) ||
-        m_pFormFillEnv->GetPermissions(FPDFPERM_ANNOT_FORM))) {
+  if (!m_pFormFillEnv->HasPermissions(
+          pdfium::access_permissions::kModifyContent |
+          pdfium::access_permissions::kModifyAnnotation)) {
     return CJS_Result::Failure(JSMessage::kPermissionError);
   }
 
@@ -576,9 +510,11 @@ CJS_Result CJS_Document::resetForm(
     const std::vector<v8::Local<v8::Value>>& params) {
   if (!m_pFormFillEnv)
     return CJS_Result::Failure(JSMessage::kBadObjectError);
-  if (!(m_pFormFillEnv->GetPermissions(FPDFPERM_MODIFY) ||
-        m_pFormFillEnv->GetPermissions(FPDFPERM_ANNOT_FORM) ||
-        m_pFormFillEnv->GetPermissions(FPDFPERM_FILL_FORM))) {
+
+  if (!m_pFormFillEnv->HasPermissions(
+          pdfium::access_permissions::kModifyContent |
+          pdfium::access_permissions::kModifyAnnotation |
+          pdfium::access_permissions::kFillForm)) {
     return CJS_Result::Failure(JSMessage::kPermissionError);
   }
 
@@ -803,7 +739,8 @@ CJS_Result CJS_Document::setPropertyInternal(CJS_Runtime* pRuntime,
   if (!pDictionary)
     return CJS_Result::Failure(JSMessage::kBadObjectError);
 
-  if (!m_pFormFillEnv->GetPermissions(FPDFPERM_MODIFY))
+  using pdfium::access_permissions::kModifyContent;
+  if (!m_pFormFillEnv->HasPermissions(kModifyContent))
     return CJS_Result::Failure(JSMessage::kPermissionError);
 
   pDictionary->SetNewFor<CPDF_String>(propName, pRuntime->ToWideString(vp));
@@ -839,7 +776,9 @@ CJS_Result CJS_Document::set_delay(CJS_Runtime* pRuntime,
                                    v8::Local<v8::Value> vp) {
   if (!m_pFormFillEnv)
     return CJS_Result::Failure(JSMessage::kBadObjectError);
-  if (!m_pFormFillEnv->GetPermissions(FPDFPERM_MODIFY))
+
+  using pdfium::access_permissions::kModifyContent;
+  if (!m_pFormFillEnv->HasPermissions(kModifyContent))
     return CJS_Result::Failure(JSMessage::kPermissionError);
 
   m_bDelay = pRuntime->ToBoolean(vp);
@@ -893,14 +832,14 @@ CJS_Result CJS_Document::set_subject(CJS_Runtime* pRuntime,
 }
 
 CJS_Result CJS_Document::get_title(CJS_Runtime* pRuntime) {
-  if (!m_pFormFillEnv || !m_pFormFillEnv->GetPDFDocument())
+  if (!m_pFormFillEnv)
     return CJS_Result::Failure(JSMessage::kBadObjectError);
   return getPropertyInternal(pRuntime, "Title");
 }
 
 CJS_Result CJS_Document::set_title(CJS_Runtime* pRuntime,
                                    v8::Local<v8::Value> vp) {
-  if (!m_pFormFillEnv || !m_pFormFillEnv->GetPDFDocument())
+  if (!m_pFormFillEnv)
     return CJS_Result::Failure(JSMessage::kBadObjectError);
   return setPropertyInternal(pRuntime, vp, "Title");
 }
@@ -1075,7 +1014,7 @@ CJS_Result CJS_Document::getAnnot(
 
   int nPageNo = pRuntime->ToInt32(params[0]);
   WideString swAnnotName = pRuntime->ToWideString(params[1]);
-  CPDFSDK_PageView* pPageView = m_pFormFillEnv->GetPageView(nPageNo);
+  CPDFSDK_PageView* pPageView = m_pFormFillEnv->GetPageViewAtIndex(nPageNo);
   if (!pPageView)
     return CJS_Result::Failure(JSMessage::kBadObjectError);
 
@@ -1117,7 +1056,7 @@ CJS_Result CJS_Document::getAnnots(
   int nPageNo = m_pFormFillEnv->GetPageCount();
   v8::Local<v8::Array> annots = pRuntime->NewArray();
   for (int i = 0; i < nPageNo; ++i) {
-    CPDFSDK_PageView* pPageView = m_pFormFillEnv->GetPageView(i);
+    CPDFSDK_PageView* pPageView = m_pFormFillEnv->GetPageViewAtIndex(i);
     if (!pPageView)
       return CJS_Result::Failure(JSMessage::kBadObjectError);
 
@@ -1186,6 +1125,8 @@ CJS_Result CJS_Document::addIcon(
 }
 
 CJS_Result CJS_Document::get_icons(CJS_Runtime* pRuntime) {
+  // TODO(tsepez): Maybe make consistent with Acrobat Reader behavior which
+  // is to throw an exception under the default security settings.
   if (m_IconNames.empty())
     return CJS_Result::Success(pRuntime->NewUndefined());
 
@@ -1266,9 +1207,10 @@ CJS_Result CJS_Document::calculateNow(
   if (!m_pFormFillEnv)
     return CJS_Result::Failure(JSMessage::kBadObjectError);
 
-  if (!(m_pFormFillEnv->GetPermissions(FPDFPERM_MODIFY) ||
-        m_pFormFillEnv->GetPermissions(FPDFPERM_ANNOT_FORM) ||
-        m_pFormFillEnv->GetPermissions(FPDFPERM_FILL_FORM))) {
+  if (!m_pFormFillEnv->HasPermissions(
+          pdfium::access_permissions::kModifyContent |
+          pdfium::access_permissions::kModifyAnnotation |
+          pdfium::access_permissions::kFillForm)) {
     return CJS_Result::Failure(JSMessage::kPermissionError);
   }
 
@@ -1290,7 +1232,9 @@ CJS_Result CJS_Document::getPageNthWord(
     const std::vector<v8::Local<v8::Value>>& params) {
   if (!m_pFormFillEnv)
     return CJS_Result::Failure(JSMessage::kBadObjectError);
-  if (!m_pFormFillEnv->GetPermissions(FPDFPERM_EXTRACT_ACCESS))
+
+  using pdfium::access_permissions::kExtractForAccessibility;
+  if (!m_pFormFillEnv->HasPermissions(kExtractForAccessibility))
     return CJS_Result::Failure(JSMessage::kPermissionError);
 
   // TODO(tsepez): check maximum allowable params.
@@ -1300,9 +1244,6 @@ CJS_Result CJS_Document::getPageNthWord(
   bool bStrip = params.size() > 2 ? pRuntime->ToBoolean(params[2]) : true;
 
   CPDF_Document* pDocument = m_pFormFillEnv->GetPDFDocument();
-  if (!pDocument)
-    return CJS_Result::Failure(JSMessage::kBadObjectError);
-
   if (nPageNo < 0 || nPageNo >= pDocument->GetPageCount())
     return CJS_Result::Failure(JSMessage::kValueError);
 
@@ -1319,9 +1260,9 @@ CJS_Result CJS_Document::getPageNthWord(
   for (auto& pPageObj : *page) {
     if (pPageObj->IsText()) {
       CPDF_TextObject* pTextObj = pPageObj->AsText();
-      int nObjWords = CountWords(pTextObj);
+      int nObjWords = pTextObj->CountWords();
       if (nWords + nObjWords >= nWordNo) {
-        swRet = GetObjWordStr(pTextObj, nWordNo - nWords);
+        swRet = pTextObj->GetWordString(nWordNo - nWords);
         break;
       }
       nWords += nObjWords;
@@ -1338,8 +1279,11 @@ CJS_Result CJS_Document::getPageNthWordQuads(
     const std::vector<v8::Local<v8::Value>>& params) {
   if (!m_pFormFillEnv)
     return CJS_Result::Failure(JSMessage::kBadObjectError);
-  if (!m_pFormFillEnv->GetPermissions(FPDFPERM_EXTRACT_ACCESS))
+
+  using pdfium::access_permissions::kExtractForAccessibility;
+  if (!m_pFormFillEnv->HasPermissions(kExtractForAccessibility))
     return CJS_Result::Failure(JSMessage::kBadObjectError);
+
   return CJS_Result::Failure(JSMessage::kNotSupportedError);
 }
 
@@ -1348,7 +1292,9 @@ CJS_Result CJS_Document::getPageNumWords(
     const std::vector<v8::Local<v8::Value>>& params) {
   if (!m_pFormFillEnv)
     return CJS_Result::Failure(JSMessage::kBadObjectError);
-  if (!m_pFormFillEnv->GetPermissions(FPDFPERM_EXTRACT_ACCESS))
+
+  using pdfium::access_permissions::kExtractForAccessibility;
+  if (!m_pFormFillEnv->HasPermissions(kExtractForAccessibility))
     return CJS_Result::Failure(JSMessage::kPermissionError);
 
   int nPageNo = params.size() > 0 ? pRuntime->ToInt32(params[0]) : 0;
@@ -1367,9 +1313,8 @@ CJS_Result CJS_Document::getPageNumWords(
   int nWords = 0;
   for (auto& pPageObj : *page) {
     if (pPageObj->IsText())
-      nWords += CountWords(pPageObj->AsText());
+      nWords += pPageObj->AsText()->CountWords();
   }
-
   return CJS_Result::Success(pRuntime->NewNumber(nWords));
 }
 
@@ -1442,12 +1387,9 @@ CJS_Result CJS_Document::gotoNamedDest(
     return CJS_Result::Failure(JSMessage::kBadObjectError);
 
   CPDF_Document* pDocument = m_pFormFillEnv->GetPDFDocument();
-  if (!pDocument)
-    return CJS_Result::Failure(JSMessage::kBadObjectError);
-
-  CPDF_NameTree nameTree(pDocument, "Dests");
+  CPDF_NameTree name_tree(pDocument, "Dests");
   CPDF_Array* destArray =
-      nameTree.LookupNamedDest(pDocument, pRuntime->ToWideString(params[0]));
+      name_tree.LookupNamedDest(pDocument, pRuntime->ToWideString(params[0]));
   if (!destArray)
     return CJS_Result::Failure(JSMessage::kBadObjectError);
 

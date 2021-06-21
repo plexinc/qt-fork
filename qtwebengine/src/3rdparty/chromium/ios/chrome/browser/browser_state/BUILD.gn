@@ -26,7 +26,9 @@ source_set("browser_state") {
     "//components/sync_preferences",
     "//components/variations/net",
     "//components/webdata_services",
+    "//ios/chrome/browser:chrome_url_constants",
     "//ios/chrome/browser/net:net_types",
+    "//ios/components/webui:url_constants",
     "//ios/web/public/webui",
   ]
 
@@ -74,6 +76,7 @@ source_set("browser_state_impl") {
     "//components/metrics",
     "//components/net_log",
     "//components/password_manager/core/browser",
+    "//components/policy/core/common",
     "//components/pref_registry",
     "//components/prefs",
     "//components/proxy_config",
@@ -90,6 +93,8 @@ source_set("browser_state_impl") {
     "//ios/chrome/browser/browser_state_metrics",
     "//ios/chrome/browser/browsing_data",
     "//ios/chrome/browser/content_settings",
+    "//ios/chrome/browser/crash_report/breadcrumbs",
+    "//ios/chrome/browser/device_sharing",
     "//ios/chrome/browser/dom_distiller",
     "//ios/chrome/browser/download",
     "//ios/chrome/browser/favicon",
@@ -104,6 +109,7 @@ source_set("browser_state_impl") {
     "//ios/chrome/browser/net",
     "//ios/chrome/browser/ntp_snippets",
     "//ios/chrome/browser/passwords",
+    "//ios/chrome/browser/policy",
     "//ios/chrome/browser/prefs",
     "//ios/chrome/browser/prefs:browser_prefs",
     "//ios/chrome/browser/reading_list",
@@ -128,7 +134,6 @@ source_set("browser_state_impl") {
     "//ios/web/net/cookies",
     "//net",
     "//net:extras",
-    "//services/identity/public/mojom",
   ]
   allow_circular_includes_from = [
     "//ios/chrome/browser",
@@ -204,25 +209,4 @@ source_set("test_support") {
   ]
 
   configs += [ "//build/config/compiler:enable_arc" ]
-}
-
-source_set("eg_tests") {
-  configs += [ "//build/config/compiler:enable_arc" ]
-  testonly = true
-  sources = [
-    "browser_state_services_egtest.mm",
-  ]
-  deps = [
-    ":browser_state",
-    "//base",
-    "//base/test:test_support",
-    "//ios/chrome/test/app:test_support",
-    "//ios/chrome/test/earl_grey:test_support",
-    "//ios/testing/earl_grey:earl_grey_support",
-    "//ios/third_party/earl_grey:earl_grey+link",
-    "//ios/web:earl_grey_test_support",
-    "//ios/web/public",
-    "//services/identity/public/mojom",
-    "//services/service_manager/public/cpp",
-  ]
 }

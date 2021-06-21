@@ -21,15 +21,17 @@
 #include "device/bluetooth/bluetooth_device_android.h"
 #include "device/bluetooth/bluetooth_discovery_session_outcome.h"
 #include "device/bluetooth/jni_headers/ChromeBluetoothAdapter_jni.h"
+#include "device/bluetooth/jni_headers/ChromeBluetoothScanFilterBuilder_jni.h"
+#include "device/bluetooth/jni_headers/ChromeBluetoothScanFilterList_jni.h"
 
+using base::android::AppendJavaStringArrayToStringVector;
 using base::android::AttachCurrentThread;
 using base::android::ConvertJavaStringToUTF8;
-using base::android::AppendJavaStringArrayToStringVector;
+using base::android::JavaArrayOfByteArrayToBytesVector;
+using base::android::JavaByteArrayToByteVector;
+using base::android::JavaIntArrayToIntVector;
 using base::android::JavaParamRef;
 using base::android::JavaRef;
-using base::android::JavaByteArrayToByteVector;
-using base::android::JavaArrayOfByteArrayToStringVector;
-using base::android::JavaIntArrayToIntVector;
 
 namespace {
 // The poll interval in ms when there is no active discovery. This
@@ -40,7 +42,7 @@ enum { kPassivePollInterval = 11000 };
 enum { kActivePollInterval = 1000 };
 // The delay in ms to wait before purging devices when a scan starts.
 enum { kPurgeDelay = 500 };
-}
+}  // namespace
 
 namespace device {
 
@@ -206,31 +208,28 @@ void BluetoothAdapterAndroid::CreateOrUpdateDeviceOnScan(
   }
 
   std::vector<std::string> service_data_keys_vector;
-  std::vector<std::string> service_data_values_vector;
+  std::vector<std::vector<uint8_t>> service_data_values_vector;
   AppendJavaStringArrayToStringVector(env, service_data_keys,
                                       &service_data_keys_vector);
-  JavaArrayOfByteArrayToStringVector(env, service_data_values,
-                                     &service_data_values_vector);
+  JavaArrayOfByteArrayToBytesVector(env, service_data_values,
+                                    &service_data_values_vector);
   BluetoothDeviceAndroid::ServiceDataMap service_data_map;
   for (size_t i = 0; i < service_data_keys_vector.size(); i++) {
-    service_data_map.insert(
-        {BluetoothUUID(service_data_keys_vector[i]),
-         std::vector<uint8_t>(service_data_values_vector[i].begin(),
-                              service_data_values_vector[i].end())});
+    service_data_map.insert({BluetoothUUID(service_data_keys_vector[i]),
+                             service_data_values_vector[i]});
   }
 
   std::vector<jint> manufacturer_data_keys_vector;
-  std::vector<std::string> manufacturer_data_values_vector;
+  std::vector<std::vector<uint8_t>> manufacturer_data_values_vector;
   JavaIntArrayToIntVector(env, manufacturer_data_keys,
                           &manufacturer_data_keys_vector);
-  JavaArrayOfByteArrayToStringVector(env, manufacturer_data_values,
-                                     &manufacturer_data_values_vector);
+  JavaArrayOfByteArrayToBytesVector(env, manufacturer_data_values,
+                                    &manufacturer_data_values_vector);
   BluetoothDeviceAndroid::ManufacturerDataMap manufacturer_data_map;
   for (size_t i = 0; i < manufacturer_data_keys_vector.size(); i++) {
     manufacturer_data_map.insert(
         {static_cast<uint16_t>(manufacturer_data_keys_vector[i]),
-         std::vector<uint8_t>(manufacturer_data_values_vector[i].begin(),
-                              manufacturer_data_values_vector[i].end())});
+         manufacturer_data_values_vector[i]});
   }
 
   int8_t clamped_tx_power = BluetoothDevice::ClampPower(tx_power);
@@ -271,8 +270,7 @@ void BluetoothAdapterAndroid::CreateOrUpdateDeviceOnScan(
   }
 }
 
-BluetoothAdapterAndroid::BluetoothAdapterAndroid() : weak_ptr_factory_(this) {
-}
+BluetoothAdapterAndroid::BluetoothAdapterAndroid() {}
 
 BluetoothAdapterAndroid::~BluetoothAdapterAndroid() {
   Java_ChromeBluetoothAdapter_onBluetoothAdapterAndroidDestruction(
@@ -296,6 +294,10 @@ void BluetoothAdapterAndroid::PurgeTimedOutDevices() {
   }
 }
 
+base::WeakPtr<BluetoothAdapter> BluetoothAdapterAndroid::GetWeakPtr() {
+  return weak_ptr_factory_.GetWeakPtr();
+}
+
 bool BluetoothAdapterAndroid::SetPoweredImpl(bool powered) {
   return Java_ChromeBluetoothAdapter_setPowered(AttachCurrentThread(),
                                                 j_adapter_, powered);
@@ -313,10 +315,47 @@ void BluetoothAdapterAndroid::UpdateFilter(
                             UMABluetoothDiscoverySessionOutcome::SUCCESS);
     return;
   } else {
-    VLOG(1) << "UpdateFilter: Fails: !isPowered";
+    DVLOG(1) << "UpdateFilter: Fails: !isPowered";
     std::move(callback).Run(/*is_error=*/true,
                             UMABluetoothDiscoverySessionOutcome::UNKNOWN);
   }
+}
+
+base::android::ScopedJavaLocalRef<jobject>
+BluetoothAdapterAndroid::CreateAndroidFilter(
+    const BluetoothDiscoveryFilter* discovery_filter) {
+  base::android::ScopedJavaLocalRef<jobject> android_filters =
+      Java_ChromeBluetoothScanFilterList_create(AttachCurrentThread());
+  const base::flat_set<device::BluetoothDiscoveryFilter::DeviceInfoFilter>*
+      device_filters = discovery_filter->GetDeviceFilters();
+  for (const auto& device_filter : *device_filters) {
+    base::android::ScopedJavaLocalRef<jobject> filter_builder =
+        Java_ChromeBluetoothScanFilterBuilder_create(AttachCurrentThread());
+    if (!device_filter.uuids.empty()) {
+      // Set the service UUID to the first UUID in the list because Android does
+      // not support filtering for multiple UUIDs. This will return a superset
+      // of the devices that advertise all UUIDs in the list and it will be
+      // filtered internally when returned.
+      Java_ChromeBluetoothScanFilterBuilder_setServiceUuid(
+          AttachCurrentThread(), filter_builder,
+          base::android::ConvertUTF8ToJavaString(
+              AttachCurrentThread(), device_filter.uuids.begin()->value()));
+    }
+    if (!device_filter.name.empty()) {
+      Java_ChromeBluetoothScanFilterBuilder_setDeviceName(
+          AttachCurrentThread(), filter_builder,
+          base::android::ConvertUTF8ToJavaString(AttachCurrentThread(),
+                                                 device_filter.name));
+    }
+    base::android::ScopedJavaLocalRef<jobject> scan_filter =
+        Java_ChromeBluetoothScanFilterBuilder_build(AttachCurrentThread(),
+                                                    filter_builder);
+    Java_ChromeBluetoothScanFilterList_addFilter(AttachCurrentThread(),
+                                                 android_filters, scan_filter);
+  }
+
+  return Java_ChromeBluetoothScanFilterList_getList(AttachCurrentThread(),
+                                                    android_filters);
 }
 
 void BluetoothAdapterAndroid::StartScanWithFilter(
@@ -327,10 +366,9 @@ void BluetoothAdapterAndroid::StartScanWithFilter(
   DCHECK_EQ(NumDiscoverySessions(), 1);
   bool session_added = false;
   if (IsPowered()) {
-    // TODO(jameshollyer): convert discovery filter into java scan filter and
-    // add to start scan call
-    if (Java_ChromeBluetoothAdapter_startScan(AttachCurrentThread(),
-                                              j_adapter_)) {
+    auto android_scan_filter = CreateAndroidFilter(discovery_filter.get());
+    if (Java_ChromeBluetoothAdapter_startScan(AttachCurrentThread(), j_adapter_,
+                                              android_scan_filter)) {
       session_added = true;
 
       // Using a delayed task in order to give the adapter some time
@@ -342,12 +380,12 @@ void BluetoothAdapterAndroid::StartScanWithFilter(
           base::TimeDelta::FromMilliseconds(kPurgeDelay));
     }
   } else {
-    VLOG(1) << "StartScanWithFilter: Fails: !isPowered";
+    DVLOG(1) << "StartScanWithFilter: Fails: !isPowered";
   }
 
   if (session_added) {
-    VLOG(1) << "StartScanWithFilter: Now " << unsigned(NumDiscoverySessions())
-            << " sessions.";
+    DVLOG(1) << "StartScanWithFilter: Now " << unsigned(NumDiscoverySessions())
+             << " sessions.";
     std::move(callback).Run(/*is_error=*/false,
                             UMABluetoothDiscoverySessionOutcome::SUCCESS);
   } else {
@@ -357,49 +395,24 @@ void BluetoothAdapterAndroid::StartScanWithFilter(
   }
 }
 
-void BluetoothAdapterAndroid::RemoveDiscoverySession(
-    BluetoothDiscoveryFilter* discovery_filter,
-    const base::Closure& callback,
-    DiscoverySessionErrorCallback error_callback) {
-  bool session_removed = false;
-  if (NumDiscoverySessions() == 0) {
-    VLOG(1) << "RemoveDiscoverySession: No scan in progress.";
-    NOTREACHED();
-  } else {
-    session_removed = true;
-    if (NumDiscoverySessions() == 1) {
-      VLOG(1) << "RemoveDiscoverySession: Now 0 sessions. Stopping scan.";
-      session_removed = Java_ChromeBluetoothAdapter_stopScan(
-          AttachCurrentThread(), j_adapter_);
-      for (const auto& device_id_object_pair : devices_) {
-        device_id_object_pair.second->ClearAdvertisementData();
-      }
-    } else {
-      VLOG(1) << "RemoveDiscoverySession: Now "
-              << unsigned(NumDiscoverySessions()) << " sessions.";
-    }
-  }
+void BluetoothAdapterAndroid::StopScan(
+    DiscoverySessionResultCallback callback) {
+  DCHECK(NumDiscoverySessions() == 0);
 
-  if (session_removed) {
-    callback.Run();
+  DVLOG(1) << "Stopping scan.";
+  if (Java_ChromeBluetoothAdapter_stopScan(AttachCurrentThread(), j_adapter_)) {
+    std::move(callback).Run(/*is_error=*/false,
+                            UMABluetoothDiscoverySessionOutcome::SUCCESS);
   } else {
     // TODO(scheib): Eventually wire the SCAN_FAILED result through to here.
-    std::move(error_callback).Run(UMABluetoothDiscoverySessionOutcome::UNKNOWN);
+    std::move(callback).Run(/*is_error=*/true,
+                            UMABluetoothDiscoverySessionOutcome::UNKNOWN);
   }
-}
-
-void BluetoothAdapterAndroid::SetDiscoveryFilter(
-    std::unique_ptr<BluetoothDiscoveryFilter> discovery_filter,
-    const base::Closure& callback,
-    DiscoverySessionErrorCallback error_callback) {
-  // TODO(scheib): Support filters crbug.com/490401
-  NOTIMPLEMENTED();
-  std::move(error_callback)
-      .Run(UMABluetoothDiscoverySessionOutcome::NOT_IMPLEMENTED);
+  for (const auto& device_id_object_pair : devices_)
+    device_id_object_pair.second->ClearAdvertisementData();
 }
 
 void BluetoothAdapterAndroid::RemovePairingDelegateInternal(
-    device::BluetoothDevice::PairingDelegate* pairing_delegate) {
-}
+    device::BluetoothDevice::PairingDelegate* pairing_delegate) {}
 
 }  // namespace device

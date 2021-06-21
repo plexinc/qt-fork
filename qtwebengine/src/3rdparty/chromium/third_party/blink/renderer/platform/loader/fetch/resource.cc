@@ -42,6 +42,7 @@
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
 #include "third_party/blink/renderer/platform/loader/cors/cors.h"
 #include "third_party/blink/renderer/platform/loader/fetch/cached_metadata.h"
+#include "third_party/blink/renderer/platform/loader/fetch/cached_metadata_handler.h"
 #include "third_party/blink/renderer/platform/loader/fetch/fetch_initiator_type_names.h"
 #include "third_party/blink/renderer/platform/loader/fetch/fetch_parameters.h"
 #include "third_party/blink/renderer/platform/loader/fetch/integrity_metadata.h"
@@ -49,12 +50,13 @@
 #include "third_party/blink/renderer/platform/loader/fetch/resource_client.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_client_walker.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_finish_observer.h"
+#include "third_party/blink/renderer/platform/loader/fetch/resource_load_timing.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_loader.h"
 #include "third_party/blink/renderer/platform/network/http_parsers.h"
 #include "third_party/blink/renderer/platform/scheduler/public/thread_scheduler.h"
-#include "third_party/blink/renderer/platform/shared_buffer.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
 #include "third_party/blink/renderer/platform/wtf/math_extras.h"
+#include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
 #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
@@ -120,8 +122,7 @@ const char* const kHeaderPrefixesToIgnoreAfterRevalidation[] = {
 static inline bool ShouldUpdateHeaderAfterRevalidation(
     const AtomicString& header) {
   for (size_t i = 0; i < base::size(kHeadersToIgnoreAfterRevalidation); i++) {
-    if (DeprecatedEqualIgnoringCase(header,
-                                    kHeadersToIgnoreAfterRevalidation[i]))
+    if (EqualIgnoringASCIICase(header, kHeadersToIgnoreAfterRevalidation[i]))
       return false;
   }
   for (size_t i = 0; i < base::size(kHeaderPrefixesToIgnoreAfterRevalidation);
@@ -137,14 +138,14 @@ namespace {
 const base::Clock* g_clock_for_testing = nullptr;
 }
 
-static inline double Now() {
+static inline base::Time Now() {
   const base::Clock* clock = g_clock_for_testing
                                  ? g_clock_for_testing
                                  : base::DefaultClock::GetInstance();
-  return clock->Now().ToDoubleT();
+  return clock->Now();
 }
 
-Resource::Resource(const ResourceRequest& request,
+Resource::Resource(const ResourceRequestHead& request,
                    ResourceType type,
                    const ResourceLoaderOptions& options)
     : type_(type),
@@ -172,7 +173,7 @@ Resource::~Resource() {
   InstanceCounters::DecrementCounter(InstanceCounters::kResourceCounter);
 }
 
-void Resource::Trace(blink::Visitor* visitor) {
+void Resource::Trace(Visitor* visitor) {
   visitor->Trace(loader_);
   visitor->Trace(cache_handler_);
   visitor->Trace(clients_);
@@ -392,56 +393,56 @@ const scoped_refptr<const SecurityOrigin>& Resource::GetOrigin() const {
   return LastResourceRequest().RequestorOrigin();
 }
 
-static double CurrentAge(const ResourceResponse& response,
-                         double response_timestamp) {
+void Resource::DidDownloadToBlob(scoped_refptr<BlobDataHandle>) {}
+
+static base::TimeDelta CurrentAge(const ResourceResponse& response,
+                                  base::Time response_timestamp) {
   // RFC2616 13.2.3
   // No compensation for latency as that is not terribly important in practice
-  double date_value = response.Date();
-  double apparent_age = std::isfinite(date_value)
-                            ? std::max(0., response_timestamp - date_value)
-                            : 0;
-  double age_value = response.Age();
-  double corrected_received_age = std::isfinite(age_value)
-                                      ? std::max(apparent_age, age_value)
-                                      : apparent_age;
-  double resident_time = Now() - response_timestamp;
+  base::Optional<base::Time> date_value = response.Date();
+  base::TimeDelta apparent_age;
+  if (date_value && response_timestamp >= date_value.value())
+    apparent_age = response_timestamp - date_value.value();
+  base::Optional<base::TimeDelta> age_value = response.Age();
+  base::TimeDelta corrected_received_age =
+      age_value ? std::max(apparent_age, age_value.value()) : apparent_age;
+  base::TimeDelta resident_time = Now() - response_timestamp;
   return corrected_received_age + resident_time;
 }
 
-static double FreshnessLifetime(const ResourceResponse& response,
-                                double response_timestamp) {
+static base::TimeDelta FreshnessLifetime(const ResourceResponse& response,
+                                         base::Time response_timestamp) {
 #if !defined(OS_ANDROID)
   // On desktop, local files should be reloaded in case they change.
   if (response.CurrentRequestUrl().IsLocalFile())
-    return 0;
+    return base::TimeDelta();
 #endif
 
   // Cache other non-http / non-filesystem resources liberally.
   if (!response.CurrentRequestUrl().ProtocolIsInHTTPFamily() &&
       !response.CurrentRequestUrl().ProtocolIs("filesystem"))
-    return std::numeric_limits<double>::max();
+    return base::TimeDelta::Max();
 
   // RFC2616 13.2.4
-  double max_age_value = response.CacheControlMaxAge();
-  if (std::isfinite(max_age_value))
-    return max_age_value;
-  double expires_value = response.Expires();
-  double date_value = response.Date();
-  double creation_time =
-      std::isfinite(date_value) ? date_value : response_timestamp;
-  if (std::isfinite(expires_value))
-    return expires_value - creation_time;
-  double last_modified_value = response.LastModified();
-  if (std::isfinite(last_modified_value))
-    return (creation_time - last_modified_value) * 0.1;
+  base::Optional<base::TimeDelta> max_age_value = response.CacheControlMaxAge();
+  if (max_age_value)
+    return max_age_value.value();
+  base::Optional<base::Time> expires = response.Expires();
+  base::Optional<base::Time> date = response.Date();
+  base::Time creation_time = date ? date.value() : response_timestamp;
+  if (expires)
+    return expires.value() - creation_time;
+  base::Optional<base::Time> last_modified = response.LastModified();
+  if (last_modified)
+    return (creation_time - last_modified.value()) * 0.1;
   // If no cache headers are present, the specification leaves the decision to
   // the UA. Other browsers seem to opt for 0.
-  return 0;
+  return base::TimeDelta();
 }
 
 static bool CanUseResponse(const ResourceResponse& response,
                            bool allow_stale,
-                           double response_timestamp) {
+                           base::Time response_timestamp) {
   if (response.IsNull())
     return false;
 
@@ -456,21 +457,21 @@ static bool CanUseResponse(const ResourceResponse& response,
 
   if (response.HttpStatusCode() == 302 || response.HttpStatusCode() == 307) {
     // Default to not cacheable unless explicitly allowed.
-    bool has_max_age = std::isfinite(response.CacheControlMaxAge());
-    bool has_expires = std::isfinite(response.Expires());
+    bool has_max_age = response.CacheControlMaxAge() != base::nullopt;
+    bool has_expires = response.Expires() != base::nullopt;
     // TODO: consider catching Cache-Control "private" and "public" here.
     if (!has_max_age && !has_expires)
       return false;
   }
 
-  double max_life = FreshnessLifetime(response, response_timestamp);
+  base::TimeDelta max_life = FreshnessLifetime(response, response_timestamp);
   if (allow_stale)
     max_life += response.CacheControlStaleWhileRevalidate();
 
   return CurrentAge(response, response_timestamp) <= max_life;
 }
 
-const ResourceRequest& Resource::LastResourceRequest() const {
+const ResourceRequestHead& Resource::LastResourceRequest() const {
   if (!redirect_chain_.size())
     return GetResourceRequest();
   return redirect_chain_.back().request_;
@@ -482,7 +483,7 @@ const ResourceResponse* Resource::LastResourceResponse() const {
   return &redirect_chain_.back().redirect_response_;
 }
 
-void Resource::SetRevalidatingRequest(const ResourceRequest& request) {
+void Resource::SetRevalidatingRequest(const ResourceRequestHead& request) {
   SECURITY_CHECK(redirect_chain_.IsEmpty());
   SECURITY_CHECK(!is_unused_preload_);
   DCHECK(!request.IsNull());
@@ -530,9 +531,11 @@ void Resource::ResponseReceived(const ResourceResponse& response) {
     SetEncoding(encoding);
 }
 
-void Resource::SetSerializedCachedMetadata(const uint8_t* data, size_t size) {
+void Resource::SetSerializedCachedMetadata(mojo_base::BigBuffer data) {
   DCHECK(!is_revalidating_);
   DCHECK(!GetResponse().IsNull());
+  // Actual metadata transferred here will be lost.
+  DCHECK(!data.size());
 }
 
 String Resource::ReasonNotDeletable() const {
@@ -563,22 +566,23 @@ String Resource::ReasonNotDeletable() const {
   return builder.ToString();
 }
 
-void Resource::DidAddClient(ResourceClient* c) {
+void Resource::DidAddClient(ResourceClient* client) {
   if (scoped_refptr<SharedBuffer> data = Data()) {
     for (const auto& span : *data) {
-      c->DataReceived(this, span.data(), span.size());
+      client->DataReceived(this, span.data(), span.size());
       // Stop pushing data if the client removed itself.
-      if (!HasClient(c))
+      if (!HasClient(client))
         break;
     }
   }
-  if (!HasClient(c))
+  if (!HasClient(client))
     return;
   if (IsFinishedInternal()) {
-    c->NotifyFinished(this);
-    if (clients_.Contains(c)) {
-      finished_clients_.insert(c);
-      clients_.erase(c);
+    client->SetHasFinishedFromMemoryCache();
+    client->NotifyFinished(this);
+    if (clients_.Contains(client)) {
+      finished_clients_.insert(client);
+      clients_.erase(client);
     }
   }
 }
@@ -819,15 +823,16 @@ Resource::MatchStatus Resource::CanReuse(const FetchParameters& params) const {
   if (resource_request_.GetKeepalive() || new_request.GetKeepalive())
     return MatchStatus::kKeepaliveSet;
 
-  if (GetResourceRequest().HttpMethod() != new_request.HttpMethod())
+  if (GetResourceRequest().HttpMethod() != http_names::kGET ||
+      new_request.HttpMethod() != http_names::kGET) {
     return MatchStatus::kRequestMethodDoesNotMatch;
+  }
 
-  if (GetResourceRequest().HttpBody() != new_request.HttpBody())
-    return MatchStatus::kUnknownFailure;
-
+  // A GET request doesn't have a request body.
+  DCHECK(!new_request.HttpBody());
 
   // Don't reuse an existing resource when the source origin is different.
-  if (!existing_origin->IsSameSchemeHostPort(new_origin.get()))
+  if (!existing_origin->IsSameOriginWith(new_origin.get()))
     return MatchStatus::kUnknownFailure;
 
   // securityOrigin has more complicated checks which callers are responsible
@@ -881,7 +886,7 @@ void Resource::OnPurgeMemory() {
   Prune();
   if (!cache_handler_)
     return;
-  cache_handler_->ClearCachedMetadata(CachedMetadataHandler::kCacheLocally);
+  cache_handler_->ClearCachedMetadata(CachedMetadataHandler::kClearLocally);
 }
 
 void Resource::OnMemoryDump(WebMemoryDumpLevelOfDetail level_of_detail,
@@ -1062,11 +1067,10 @@ bool Resource::MustRevalidateDueToCacheHeaders(bool allow_stale) const {
          GetResourceRequest().CacheControlContainsNoStore();
 }
 
-static bool ShouldRevalidateStaleResponse(const ResourceRequest& request,
-                                          const ResourceResponse& response,
-                                          double response_timestamp) {
-  double staleness = response.CacheControlStaleWhileRevalidate();
-  if (staleness == 0)
+static bool ShouldRevalidateStaleResponse(const ResourceResponse& response,
+                                          base::Time response_timestamp) {
+  base::TimeDelta staleness = response.CacheControlStaleWhileRevalidate();
+  if (staleness.is_zero())
     return false;
 
   return CurrentAge(response, response_timestamp) >
@@ -1077,15 +1081,14 @@ bool Resource::ShouldRevalidateStaleResponse() const {
   for (auto& redirect : redirect_chain_) {
     // Use |response_timestamp_| since we don't store the timestamp
     // of each redirect response.
-    if (blink::ShouldRevalidateStaleResponse(redirect.request_,
-                                             redirect.redirect_response_,
+    if (blink::ShouldRevalidateStaleResponse(redirect.redirect_response_,
                                              response_timestamp_)) {
       return true;
     }
   }
 
-  return blink::ShouldRevalidateStaleResponse(
-      GetResourceRequest(), GetResponse(), response_timestamp_);
+  return blink::ShouldRevalidateStaleResponse(GetResponse(),
+                                              response_timestamp_);
 }
 
 bool Resource::StaleRevalidationRequested() const {
@@ -1254,6 +1257,15 @@ bool Resource::IsLoadEventBlockingResourceType() const {
 // static
 void Resource::SetClockForTesting(const base::Clock* clock) {
   g_clock_for_testing = clock;
+}
+
+size_t Resource::CodeCacheSize() const {
+  return cache_handler_ ? cache_handler_->GetCodeCacheSize() : 0;
+}
+
+CachedMetadataHandler* Resource::CreateCachedMetadataHandler(
+    std::unique_ptr<CachedMetadataSender> send_callback) {
+  return nullptr;
 }
 
 }  // namespace blink

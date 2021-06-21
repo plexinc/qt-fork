@@ -17,7 +17,7 @@ class ScriptState;
 class ServiceWorkerRegistration;
 
 class PaymentAppServiceWorkerRegistration final
-    : public GarbageCollectedFinalized<PaymentAppServiceWorkerRegistration>,
+    : public GarbageCollected<PaymentAppServiceWorkerRegistration>,
       public Supplement<ServiceWorkerRegistration> {
   USING_GARBAGE_COLLECTED_MIXIN(PaymentAppServiceWorkerRegistration);
 
@@ -33,7 +33,7 @@ class PaymentAppServiceWorkerRegistration final
                                         ServiceWorkerRegistration&);
   PaymentManager* paymentManager(ScriptState*);
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
 
  private:
   Member<ServiceWorkerRegistration> registration_;

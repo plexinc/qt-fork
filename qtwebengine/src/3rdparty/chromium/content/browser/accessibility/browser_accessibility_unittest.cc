@@ -4,31 +4,13 @@
 
 #include "content/browser/accessibility/browser_accessibility.h"
 
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "build/build_config.h"
 #include "content/browser/accessibility/browser_accessibility_manager.h"
 #include "content/browser/accessibility/test_browser_accessibility_delegate.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace content {
-
-#define EXPECT_NATIVE_VIEW_ACCESSIBLE_VECTOR_EQ(descendants,                 \
-                                                expected_descendants)        \
-  {                                                                          \
-    size_t count = descendants.size();                                       \
-    EXPECT_EQ(count, expected_descendants.size());                           \
-    for (size_t i = 0; i < count; ++i) {                                     \
-      EXPECT_EQ(ui::AXPlatformNode::FromNativeViewAccessible(descendants[i]) \
-                    ->GetDelegate()                                          \
-                    ->GetData()                                              \
-                    .ToString(),                                             \
-                ui::AXPlatformNode::FromNativeViewAccessible(                \
-                    expected_descendants[i])                                 \
-                    ->GetDelegate()                                          \
-                    ->GetData()                                              \
-                    .ToString());                                            \
-    }                                                                        \
-  }
 
 class BrowserAccessibilityTest : public testing::Test {
  public:
@@ -42,15 +24,16 @@ class BrowserAccessibilityTest : public testing::Test {
  private:
   void SetUp() override;
 
-  base::test::ScopedTaskEnvironment task_environment_;
+  base::test::TaskEnvironment task_environment_;
   DISALLOW_COPY_AND_ASSIGN(BrowserAccessibilityTest);
 };
 
-BrowserAccessibilityTest::BrowserAccessibilityTest() {}
+BrowserAccessibilityTest::BrowserAccessibilityTest() = default;
 
-BrowserAccessibilityTest::~BrowserAccessibilityTest() {}
+BrowserAccessibilityTest::~BrowserAccessibilityTest() = default;
 
 void BrowserAccessibilityTest::SetUp() {
+  ui::AXPlatformNode::NotifyAddAXModeFlags(ui::kAXModeComplete);
   test_browser_accessibility_delegate_ =
       std::make_unique<TestBrowserAccessibilityDelegate>();
 }
@@ -97,212 +80,151 @@ TEST_F(BrowserAccessibilityTest, TestCanFireEvents) {
 }
 
 #if defined(OS_WIN) || BUILDFLAG(USE_ATK)
-TEST_F(BrowserAccessibilityTest, TestGetDescendants) {
-  // Set up ax tree with the following structure:
-  //
-  // root_____________________
-  // |               |       |
-  // para1____       text3   para2____ (hidden)
-  // |       |               |       |
-  // text1   text2           text4   text5 (visible)
-  ui::AXNodeData text1;
-  text1.id = 111;
-  text1.role = ax::mojom::Role::kStaticText;
-  text1.SetName("One two three.");
-
-  ui::AXNodeData text2;
-  text2.id = 112;
-  text2.role = ax::mojom::Role::kStaticText;
-  text2.SetName("Two three four.");
-
-  ui::AXNodeData text3;
-  text3.id = 113;
-  text3.role = ax::mojom::Role::kStaticText;
-  text3.SetName("Three four five.");
-
-  ui::AXNodeData text4;
-  text4.id = 114;
-  text4.role = ax::mojom::Role::kStaticText;
-  text4.SetName("four five six.");
-  text4.AddState(ax::mojom::State::kIgnored);
-
-  ui::AXNodeData text5;
-  text5.id = 115;
-  text5.role = ax::mojom::Role::kStaticText;
-  text5.SetName("five six seven.");
-
-  ui::AXNodeData para1;
-  para1.id = 11;
-  para1.role = ax::mojom::Role::kParagraph;
-  para1.child_ids.push_back(text1.id);
-  para1.child_ids.push_back(text2.id);
-
-  ui::AXNodeData para2;
-  para2.id = 12;
-  para2.role = ax::mojom::Role::kParagraph;
-  para2.child_ids.push_back(text4.id);
-  para2.child_ids.push_back(text5.id);
-  para2.AddState(ax::mojom::State::kIgnored);
-
-  ui::AXNodeData root;
-  root.id = 1;
-  root.role = ax::mojom::Role::kRootWebArea;
-  root.child_ids.push_back(para1.id);
-  root.child_ids.push_back(text3.id);
-  root.child_ids.push_back(para2.id);
-
-  std::unique_ptr<BrowserAccessibilityManager> manager(
-      BrowserAccessibilityManager::Create(
-          MakeAXTreeUpdate(root, para1, text1, text2, text3, para2, text4,
-                           text5),
-          test_browser_accessibility_delegate_.get(),
-          new BrowserAccessibilityFactory()));
-
-  BrowserAccessibility* root_obj = manager->GetRoot();
-  BrowserAccessibility* para_obj = root_obj->PlatformGetChild(0);
-  BrowserAccessibility* text1_obj = manager->GetFromID(111);
-  BrowserAccessibility* text2_obj = manager->GetFromID(112);
-  BrowserAccessibility* text3_obj = manager->GetFromID(113);
-  BrowserAccessibility* para2_obj = manager->GetFromID(12);
-  BrowserAccessibility* text4_obj = manager->GetFromID(114);
-  BrowserAccessibility* text5_obj = root_obj->PlatformGetChild(2);
-
-  // Leaf nodes should have no children.
-  std::vector<gfx::NativeViewAccessible> descendants =
-      text1_obj->GetDescendants();
-  std::vector<gfx::NativeViewAccessible> expected_descendants = {};
-  EXPECT_NATIVE_VIEW_ACCESSIBLE_VECTOR_EQ(descendants, expected_descendants);
-
-  descendants = text2_obj->GetDescendants();
-  EXPECT_NATIVE_VIEW_ACCESSIBLE_VECTOR_EQ(descendants, expected_descendants);
-
-  descendants = text3_obj->GetDescendants();
-  EXPECT_NATIVE_VIEW_ACCESSIBLE_VECTOR_EQ(descendants, expected_descendants);
-
-  descendants = text4_obj->GetDescendants();
-  EXPECT_NATIVE_VIEW_ACCESSIBLE_VECTOR_EQ(descendants, expected_descendants);
-
-  descendants = text5_obj->GetDescendants();
-  EXPECT_NATIVE_VIEW_ACCESSIBLE_VECTOR_EQ(descendants, expected_descendants);
-
-  descendants = para2_obj->GetDescendants();
-  EXPECT_NATIVE_VIEW_ACCESSIBLE_VECTOR_EQ(descendants, expected_descendants);
-
-  // Verify that para1 has two children (text1 and tex2).
-  descendants = para_obj->GetDescendants();
-  expected_descendants = {text1_obj->GetNativeViewAccessible(),
-                          text2_obj->GetNativeViewAccessible()};
-  EXPECT_NATIVE_VIEW_ACCESSIBLE_VECTOR_EQ(descendants, expected_descendants);
-
-  // Calling GetChildNodeIds on the root should encompass the entire
-  // right and left subtrees (para1, text1, text2, and text3).
-  // para2 and its subtree should be ignored, except for text5
-  descendants = root_obj->GetDescendants();
-  expected_descendants = {para_obj->GetNativeViewAccessible(),
-                          text1_obj->GetNativeViewAccessible(),
-                          text2_obj->GetNativeViewAccessible(),
-                          text3_obj->GetNativeViewAccessible(),
-                          text5_obj->GetNativeViewAccessible()};
-  EXPECT_NATIVE_VIEW_ACCESSIBLE_VECTOR_EQ(descendants, expected_descendants);
-
-  manager.reset();
-}
-
 TEST_F(BrowserAccessibilityTest, PlatformChildIterator) {
   // (i) => node is ignored
+  // Parent Tree
   // 1
   // |__________
   // |     |   |
   // 2(i)  3   4
-  // |_______________________
-  // |   |      |           |
-  // 5   6      7(i)        8(i)
-  // |   |      |________
-  // |   |      |       |
-  // 9   10(i)   11(i)   12
-  //     |      |____
-  //     |      |   |
-  //     13(i)  14  15
-  ui::AXTreeUpdate tree_update;
-  tree_update.root_id = 1;
-  tree_update.nodes.resize(15);
-  tree_update.nodes[0].id = 1;
-  tree_update.nodes[0].child_ids = {2, 3, 4};
+  // |__________________________________
+  // |              |      |           |
+  // 5              6      7(i)        8(i)
+  // |              |      |________
+  // |              |      |       |
+  // Child Tree     9(i)   10(i)   11
+  //                |      |____
+  //                |      |   |
+  //                12(i)  13  14
+  // Child Tree
+  // 1
+  // |_________
+  // |    |   |
+  // 2    3   4
+  //      |
+  //      5
+  ui::AXTreeID parent_tree_id = ui::AXTreeID::CreateNewAXTreeID();
+  ui::AXTreeID child_tree_id = ui::AXTreeID::CreateNewAXTreeID();
 
-  tree_update.nodes[1].id = 2;
-  tree_update.nodes[1].child_ids = {5, 6, 7, 8};
-  tree_update.nodes[1].AddState(ax::mojom::State::kIgnored);
+  ui::AXTreeUpdate parent_tree_update;
+  parent_tree_update.tree_data.tree_id = parent_tree_id;
+  parent_tree_update.has_tree_data = true;
+  parent_tree_update.root_id = 1;
+  parent_tree_update.nodes.resize(14);
+  parent_tree_update.nodes[0].id = 1;
+  parent_tree_update.nodes[0].child_ids = {2, 3, 4};
 
-  tree_update.nodes[2].id = 3;
-  tree_update.nodes[3].id = 4;
+  parent_tree_update.nodes[1].id = 2;
+  parent_tree_update.nodes[1].child_ids = {5, 6, 7, 8};
+  parent_tree_update.nodes[1].AddState(ax::mojom::State::kIgnored);
 
-  tree_update.nodes[4].id = 5;
-  tree_update.nodes[4].child_ids = {9};
+  parent_tree_update.nodes[2].id = 3;
+  parent_tree_update.nodes[3].id = 4;
 
-  tree_update.nodes[5].id = 6;
-  tree_update.nodes[5].child_ids = {10};
+  parent_tree_update.nodes[4].id = 5;
+  parent_tree_update.nodes[4].AddStringAttribute(
+      ax::mojom::StringAttribute::kChildTreeId, child_tree_id.ToString());
 
-  tree_update.nodes[6].id = 7;
-  tree_update.nodes[6].child_ids = {11, 12};
-  tree_update.nodes[6].AddState(ax::mojom::State::kIgnored);
+  parent_tree_update.nodes[5].id = 6;
+  parent_tree_update.nodes[5].child_ids = {9};
 
-  tree_update.nodes[7].id = 8;
-  tree_update.nodes[7].AddState(ax::mojom::State::kIgnored);
+  parent_tree_update.nodes[6].id = 7;
+  parent_tree_update.nodes[6].child_ids = {10, 11};
+  parent_tree_update.nodes[6].AddState(ax::mojom::State::kIgnored);
 
-  tree_update.nodes[8].id = 9;
+  parent_tree_update.nodes[7].id = 8;
+  parent_tree_update.nodes[7].AddState(ax::mojom::State::kIgnored);
 
-  tree_update.nodes[9].id = 10;
-  tree_update.nodes[9].child_ids = {13};
-  tree_update.nodes[9].AddState(ax::mojom::State::kIgnored);
+  parent_tree_update.nodes[8].id = 9;
+  parent_tree_update.nodes[8].child_ids = {12};
+  parent_tree_update.nodes[8].AddState(ax::mojom::State::kIgnored);
 
-  tree_update.nodes[10].id = 11;
-  tree_update.nodes[10].child_ids = {14, 15};
-  tree_update.nodes[10].AddState(ax::mojom::State::kIgnored);
+  parent_tree_update.nodes[9].id = 10;
+  parent_tree_update.nodes[9].child_ids = {13, 14};
+  parent_tree_update.nodes[9].AddState(ax::mojom::State::kIgnored);
 
-  tree_update.nodes[11].id = 12;
+  parent_tree_update.nodes[10].id = 11;
 
-  tree_update.nodes[12].id = 13;
-  tree_update.nodes[12].AddState(ax::mojom::State::kIgnored);
+  parent_tree_update.nodes[11].id = 12;
+  parent_tree_update.nodes[11].AddState(ax::mojom::State::kIgnored);
 
-  tree_update.nodes[13].id = 14;
+  parent_tree_update.nodes[12].id = 13;
 
-  tree_update.nodes[14].id = 15;
+  parent_tree_update.nodes[13].id = 14;
 
-  std::unique_ptr<BrowserAccessibilityManager> manager(
+  ui::AXTreeUpdate child_tree_update;
+  child_tree_update.tree_data.tree_id = child_tree_id;
+  child_tree_update.tree_data.parent_tree_id = parent_tree_id;
+  child_tree_update.has_tree_data = true;
+  child_tree_update.root_id = 1;
+  child_tree_update.nodes.resize(5);
+  child_tree_update.nodes[0].id = 1;
+  child_tree_update.nodes[0].child_ids = {2, 3, 4};
+
+  child_tree_update.nodes[1].id = 2;
+
+  child_tree_update.nodes[2].id = 3;
+  child_tree_update.nodes[2].child_ids = {5};
+
+  child_tree_update.nodes[3].id = 4;
+
+  child_tree_update.nodes[4].id = 5;
+
+  std::unique_ptr<BrowserAccessibilityManager> parent_manager(
       BrowserAccessibilityManager::Create(
-          tree_update, test_browser_accessibility_delegate_.get(),
+          parent_tree_update, test_browser_accessibility_delegate_.get(),
           new BrowserAccessibilityFactory()));
 
-  BrowserAccessibility* root_obj = manager->GetRoot();
+  std::unique_ptr<BrowserAccessibilityManager> child_manager(
+      BrowserAccessibilityManager::Create(
+          child_tree_update, test_browser_accessibility_delegate_.get(),
+          new BrowserAccessibilityFactory()));
+
+  BrowserAccessibility* root_obj = parent_manager->GetRoot();
   // Test traversal
-  // PlatformChildren(root_obj) = {5, 6, 14, 15, 12, 3, 4}
+  // PlatformChildren(root_obj) = {5, 6, 13, 15, 11, 3, 4}
   BrowserAccessibility::PlatformChildIterator platform_iterator =
       root_obj->PlatformChildrenBegin();
   EXPECT_EQ(5, platform_iterator->GetId());
+  EXPECT_EQ(nullptr, platform_iterator->PlatformGetPreviousSibling());
+  EXPECT_EQ(1u, platform_iterator->PlatformChildCount());
+
+  // Test Child-Tree Traversal
+  BrowserAccessibility* child_tree_root =
+      platform_iterator->PlatformGetFirstChild();
+  EXPECT_EQ(1, child_tree_root->GetId());
+  BrowserAccessibility::PlatformChildIterator child_tree_iterator =
+      child_tree_root->PlatformChildrenBegin();
+
+  EXPECT_EQ(2, child_tree_iterator->GetId());
+  ++child_tree_iterator;
+  EXPECT_EQ(3, child_tree_iterator->GetId());
+  ++child_tree_iterator;
+  EXPECT_EQ(4, child_tree_iterator->GetId());
 
   ++platform_iterator;
   EXPECT_EQ(6, platform_iterator->GetId());
 
   ++platform_iterator;
-  EXPECT_EQ(14, platform_iterator->GetId());
+  EXPECT_EQ(13, platform_iterator->GetId());
 
   ++platform_iterator;
-  EXPECT_EQ(15, platform_iterator->GetId());
+  EXPECT_EQ(14, platform_iterator->GetId());
 
   --platform_iterator;
-  EXPECT_EQ(14, platform_iterator->GetId());
+  EXPECT_EQ(13, platform_iterator->GetId());
 
   --platform_iterator;
   EXPECT_EQ(6, platform_iterator->GetId());
 
   ++platform_iterator;
+  EXPECT_EQ(13, platform_iterator->GetId());
+
+  ++platform_iterator;
   EXPECT_EQ(14, platform_iterator->GetId());
 
   ++platform_iterator;
-  EXPECT_EQ(15, platform_iterator->GetId());
-
-  ++platform_iterator;
-  EXPECT_EQ(12, platform_iterator->GetId());
+  EXPECT_EQ(11, platform_iterator->GetId());
 
   ++platform_iterator;
   EXPECT_EQ(3, platform_iterator->GetId());
@@ -314,22 +236,22 @@ TEST_F(BrowserAccessibilityTest, PlatformChildIterator) {
   EXPECT_EQ(root_obj->PlatformChildrenEnd(), platform_iterator);
 
   // test empty list
-  // PlatformChildren(2) = {}
-  BrowserAccessibility* node2 = manager->GetFromID(3);
+  // PlatformChildren(3) = {}
+  BrowserAccessibility* node2 = parent_manager->GetFromID(3);
   platform_iterator = node2->PlatformChildrenBegin();
   EXPECT_EQ(node2->PlatformChildrenEnd(), platform_iterator);
 
   // empty list from ignored node
-  // PlatformChildren(7) = {}
-  BrowserAccessibility* node7 = manager->GetFromID(8);
-  platform_iterator = node7->PlatformChildrenBegin();
-  EXPECT_EQ(node7->PlatformChildrenEnd(), platform_iterator);
+  // PlatformChildren(8) = {}
+  BrowserAccessibility* node8 = parent_manager->GetFromID(8);
+  platform_iterator = node8->PlatformChildrenBegin();
+  EXPECT_EQ(node8->PlatformChildrenEnd(), platform_iterator);
 
   // non-empty list from ignored node
-  // PlatformChildren(10) = {14, 15}
-  BrowserAccessibility* node10 = manager->GetFromID(11);
+  // PlatformChildren(10) = {13, 15}
+  BrowserAccessibility* node10 = parent_manager->GetFromID(10);
   platform_iterator = node10->PlatformChildrenBegin();
-  EXPECT_EQ(14, platform_iterator->GetId());
+  EXPECT_EQ(13, platform_iterator->GetId());
 
   // Two UnignoredChildIterators from the same parent at the same position
   // should be equivalent, even in end position.
@@ -730,6 +652,9 @@ TEST_F(BrowserAccessibilityTest, GetInnerTextRangeBoundsRectScrolledWindow) {
           test_browser_accessibility_delegate_.get(),
           new BrowserAccessibilityFactory()));
 
+  browser_accessibility_manager
+      ->SetUseRootScrollOffsetsWhenComputingBoundsForTesting(true);
+
   BrowserAccessibility* root_accessible =
       browser_accessibility_manager->GetRoot();
   ASSERT_NE(nullptr, root_accessible);
@@ -818,23 +743,123 @@ TEST_F(BrowserAccessibilityTest, NextWordPositionWithHypertext) {
   ASSERT_NE(nullptr, input_accessible);
 
   // Create a text position at offset 0 in the input control
-  auto position =
-      input_accessible
-          ->CreatePositionAt(0, ax::mojom::TextAffinity::kDownstream)
-          ->AsTextPosition();
+  auto position = input_accessible->CreatePositionAt(
+      0, ax::mojom::TextAffinity::kDownstream);
 
-  // On hypertext-based platforms (e.g., Windows IA2), the INPUT control will
-  // have a max-text-offset of zero, and so advancing to the next-word positions
-  // should return null positions.  On non-hypertext platforms, the next-word
-  // positions will be non-null.
-  bool is_hypertext_platform = position->MaxTextOffset() == 0;
+  // On platforms that expose IA2 or ATK hypertext, moving by word should work
+  // the same as if the value of the text field is equal to the placeholder
+  // text.
+  //
+  // This is because visually the placeholder text appears in the text field in
+  // the same location as its value, and the user should be able to read it
+  // using standard screen reader commands, such as "read current word" and
+  // "read current line". Only once the user starts typing should the
+  // placeholder disappear.
+
   auto next_word_start = position->CreateNextWordStartPosition(
       ui::AXBoundaryBehavior::CrossBoundary);
-  ASSERT_EQ(is_hypertext_platform, next_word_start->IsNullPosition());
+  if (position->MaxTextOffset() == 0) {
+    EXPECT_TRUE(next_word_start->IsNullPosition());
+  } else {
+    EXPECT_EQ(
+        "TextPosition anchor_id=2 text_offset=7 affinity=downstream "
+        "annotated_text=Search <t>he web",
+        next_word_start->ToString());
+  }
 
   auto next_word_end = position->CreateNextWordEndPosition(
       ui::AXBoundaryBehavior::CrossBoundary);
-  ASSERT_EQ(is_hypertext_platform, next_word_end->IsNullPosition());
+  if (position->MaxTextOffset() == 0) {
+    EXPECT_TRUE(next_word_end->IsNullPosition());
+  } else {
+    EXPECT_EQ(
+        "TextPosition anchor_id=2 text_offset=6 affinity=downstream "
+        "annotated_text=Search< >the web",
+        next_word_end->ToString());
+  }
+}
+
+// Tests that the browser manager retrieves the name from the root node of the
+// child subtree for portals.
+TEST_F(BrowserAccessibilityTest, PortalName) {
+  ui::AXTreeID parent_tree_id = ui::AXTreeID::CreateNewAXTreeID();
+  ui::AXTreeID child_tree_id = ui::AXTreeID::CreateNewAXTreeID();
+
+  ui::AXTreeUpdate parent_tree_update;
+  parent_tree_update.tree_data.tree_id = parent_tree_id;
+  parent_tree_update.has_tree_data = true;
+  parent_tree_update.root_id = 1;
+  parent_tree_update.nodes.resize(1);
+
+  parent_tree_update.nodes[0].id = 1;
+  parent_tree_update.nodes[0].role = ax::mojom::Role::kPortal;
+  parent_tree_update.nodes[0].AddStringAttribute(
+      ax::mojom::StringAttribute::kChildTreeId, child_tree_id.ToString());
+
+  ui::AXTreeUpdate child_tree_update;
+  child_tree_update.tree_data.tree_id = child_tree_id;
+  child_tree_update.tree_data.parent_tree_id = parent_tree_id;
+  child_tree_update.has_tree_data = true;
+  child_tree_update.root_id = 1;
+  child_tree_update.nodes.resize(1);
+
+  child_tree_update.nodes[0].id = 1;
+  child_tree_update.nodes[0].role = ax::mojom::Role::kRootWebArea;
+  child_tree_update.nodes[0].AddStringAttribute(
+      ax::mojom::StringAttribute::kName, "name");
+
+  std::unique_ptr<BrowserAccessibilityManager> parent_manager(
+      BrowserAccessibilityManager::Create(
+          parent_tree_update, test_browser_accessibility_delegate_.get(),
+          new BrowserAccessibilityFactory()));
+
+  std::unique_ptr<BrowserAccessibilityManager> child_manager(
+      BrowserAccessibilityManager::Create(
+          child_tree_update, test_browser_accessibility_delegate_.get(),
+          new BrowserAccessibilityFactory()));
+
+  // Portal node should use name from root of child tree.
+  EXPECT_EQ("name", child_manager->GetRoot()->GetName());
+  EXPECT_EQ("name", parent_manager->GetRoot()->GetName());
+
+  // Explicitly add name to portal node.
+  parent_tree_update.nodes[0].AddStringAttribute(
+      ax::mojom::StringAttribute::kName, "name2");
+  parent_tree_update.nodes[0].SetNameFrom(ax::mojom::NameFrom::kAttribute);
+  parent_manager->Initialize(parent_tree_update);
+
+  // Portal node should now use name from attribute.
+  EXPECT_EQ("name", child_manager->GetRoot()->GetName());
+  EXPECT_EQ("name2", parent_manager->GetRoot()->GetName());
+}
+
+TEST_F(BrowserAccessibilityTest, GetIndexInParent) {
+  ui::AXNodeData root;
+  root.id = 1;
+  root.role = ax::mojom::Role::kRootWebArea;
+  root.child_ids = {2};
+
+  ui::AXNodeData static_text;
+  static_text.id = 2;
+  static_text.SetName("ABC");
+  static_text.role = ax::mojom::Role::kStaticText;
+
+  std::unique_ptr<BrowserAccessibilityManager> browser_accessibility_manager(
+      BrowserAccessibilityManager::Create(
+          MakeAXTreeUpdate(root, static_text),
+          test_browser_accessibility_delegate_.get(),
+          new BrowserAccessibilityFactory()));
+  ASSERT_NE(nullptr, browser_accessibility_manager.get());
+
+  BrowserAccessibility* root_accessible =
+      browser_accessibility_manager->GetRoot();
+  ASSERT_NE(nullptr, root_accessible);
+  // Should be -1 for kRootWebArea since it doesn't have a calculated index.
+  EXPECT_EQ(-1, root_accessible->GetIndexInParent());
+  BrowserAccessibility* child_accessible = root_accessible->InternalGetChild(0);
+  ASSERT_NE(nullptr, child_accessible);
+  // Returns the index calculated in AXNode.
+  EXPECT_EQ(0, child_accessible->GetIndexInParent());
 }
 
 }  // namespace content

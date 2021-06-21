@@ -7,7 +7,7 @@
 #include <utility>
 #include <vector>
 
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "components/sync/base/model_type.h"
 #include "components/sync/driver/test_sync_service.h"
 #include "components/sync/model/mock_model_type_change_processor.h"
@@ -33,15 +33,15 @@ std::unique_ptr<UserEventSpecifics> AsTest(
   return specifics;
 }
 
-std::unique_ptr<UserEventSpecifics> AsDetection(
+std::unique_ptr<UserEventSpecifics> AsGaiaPasswordReuseEvent(
     std::unique_ptr<UserEventSpecifics> specifics) {
-  specifics->mutable_language_detection_event();
+  specifics->mutable_gaia_password_reuse_event();
   return specifics;
 }
 
-std::unique_ptr<UserEventSpecifics> AsTrial(
+std::unique_ptr<UserEventSpecifics> AsGaiaPasswordCaptured(
     std::unique_ptr<UserEventSpecifics> specifics) {
-  specifics->mutable_field_trial_event();
+  specifics->mutable_gaia_password_captured_event();
   return specifics;
 }
 
@@ -78,7 +78,7 @@ class UserEventServiceImplTest : public testing::Test {
   MockModelTypeChangeProcessor* mock_processor() { return &mock_processor_; }
 
  private:
-  base::test::ScopedTaskEnvironment task_environment_;
+  base::test::TaskEnvironment task_environment_;
   syncer::TestSyncService sync_service_;
   testing::NiceMock<MockModelTypeChangeProcessor> mock_processor_;
   TestGlobalIdMapper mapper_;
@@ -121,15 +121,15 @@ TEST_F(UserEventServiceImplTest, ShouldRecordHasNavigationId) {
 
   // Verify logic for types that must have a navigation id.
   EXPECT_CALL(*mock_processor(), Put(_, _, _)).Times(0);
-  service.RecordUserEvent(AsDetection(Event()));
+  service.RecordUserEvent(AsGaiaPasswordReuseEvent(Event()));
   EXPECT_CALL(*mock_processor(), Put(_, _, _));
-  service.RecordUserEvent(WithNav(AsDetection(Event())));
+  service.RecordUserEvent(WithNav(AsGaiaPasswordReuseEvent(Event())));
 
   // Verify logic for types that cannot have a navigation id.
   EXPECT_CALL(*mock_processor(), Put(_, _, _));
-  service.RecordUserEvent(AsTrial(Event()));
+  service.RecordUserEvent(AsGaiaPasswordCaptured(Event()));
   EXPECT_CALL(*mock_processor(), Put(_, _, _)).Times(0);
-  service.RecordUserEvent(WithNav(AsTrial(Event())));
+  service.RecordUserEvent(WithNav(AsGaiaPasswordCaptured(Event())));
 }
 
 TEST_F(UserEventServiceImplTest, SessionIdIsDifferent) {

@@ -20,6 +20,7 @@
 #include "components/cloud_devices/common/cloud_devices_urls.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/signin/public/identity_manager/primary_account_access_token_fetcher.h"
+#include "components/signin/public/identity_manager/scope_set.h"
 #include "google_apis/gaia/google_service_auth_error.h"
 #include "net/base/load_flags.h"
 #include "net/base/url_util.h"
@@ -28,6 +29,7 @@
 #include "services/network/public/cpp/resource_request.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/public/cpp/simple_url_loader.h"
+#include "services/network/public/mojom/url_response_head.mojom.h"
 
 using net::DefineNetworkTrafficAnnotation;
 
@@ -99,7 +101,7 @@ GCDApiFlowImpl::~GCDApiFlowImpl() {}
 
 void GCDApiFlowImpl::Start(std::unique_ptr<Request> request) {
   request_ = std::move(request);
-  identity::ScopeSet oauth_scopes;
+  signin::ScopeSet oauth_scopes;
   oauth_scopes.insert(request_->GetOAuthScope());
   DCHECK(identity_manager_);
   token_fetcher_ = std::make_unique<signin::PrimaryAccountAccessTokenFetcher>(
@@ -122,8 +124,7 @@ void GCDApiFlowImpl::OnAccessTokenFetchComplete(
   auto request = std::make_unique<network::ResourceRequest>();
   request->url = request_->GetURL();
 
-  request->load_flags =
-      net::LOAD_DO_NOT_SAVE_COOKIES | net::LOAD_DO_NOT_SEND_COOKIES;
+  request->credentials_mode = network::mojom::CredentialsMode::kOmit;
 
   request->headers.SetHeader(kCloudPrintOAuthHeaderKey,
                              GetOAuthHeaderValue(access_token_info.token));
@@ -147,7 +148,7 @@ void GCDApiFlowImpl::OnAccessTokenFetchComplete(
 
 void GCDApiFlowImpl::OnDownloadedToString(
     std::unique_ptr<std::string> response_body) {
-  const network::ResourceResponseHead* response_info =
+  const network::mojom::URLResponseHead* response_info =
       url_loader_->ResponseInfo();
 
   if (url_loader_->NetError() != net::OK || !response_info) {

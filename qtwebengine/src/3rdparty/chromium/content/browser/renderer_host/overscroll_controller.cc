@@ -8,6 +8,7 @@
 
 #include "base/command_line.h"
 #include "base/logging.h"
+#include "base/numerics/ranges.h"
 #include "content/browser/renderer_host/overscroll_controller_delegate.h"
 #include "content/public/browser/overscroll_configuration.h"
 #include "content/public/common/content_features.h"
@@ -45,7 +46,7 @@ bool IsGestureScrollUpdateInertialEvent(const blink::WebInputEvent& event) {
 
 float ClampAbsoluteValue(float value, float max_abs) {
   DCHECK_LT(0.f, max_abs);
-  return std::max(-max_abs, std::min(value, max_abs));
+  return base::ClampToRange(value, -max_abs, max_abs);
 }
 
 }  // namespace
@@ -63,20 +64,11 @@ bool OverscrollController::ShouldProcessEvent(
       const blink::WebGestureEvent& gesture =
           static_cast<const blink::WebGestureEvent&>(event);
 
-      // GestureScrollBegin and GestureScrollEnd events are created to wrap
-      // individual resent GestureScrollUpdates from a plugin. Hence these
-      // should not be used to indicate the beginning/end of the overscroll.
-      // TODO(mcnee): When we remove BrowserPlugin, delete this code.
-      // See crbug.com/533069
-      if (gesture.resending_plugin_id != -1 &&
-          event.GetType() != blink::WebInputEvent::kGestureScrollUpdate)
-        return false;
-
       // Gesture events with Autoscroll source don't cause overscrolling.
       if (IsGestureEventFromAutoscroll(gesture))
         return false;
 
-      ui::input_types::ScrollGranularity granularity;
+      ui::ScrollGranularity granularity;
       switch (event.GetType()) {
         case blink::WebInputEvent::kGestureScrollBegin:
           granularity = gesture.data.scroll_begin.delta_hint_units;
@@ -88,12 +80,11 @@ bool OverscrollController::ShouldProcessEvent(
           granularity = gesture.data.scroll_end.delta_units;
           break;
         default:
-          granularity = ui::input_types::ScrollGranularity::kScrollByPixel;
+          granularity = ui::ScrollGranularity::kScrollByPixel;
           break;
       }
 
-      return granularity ==
-             ui::input_types::ScrollGranularity::kScrollByPrecisePixel;
+      return granularity == ui::ScrollGranularity::kScrollByPrecisePixel;
     }
     default:
       break;

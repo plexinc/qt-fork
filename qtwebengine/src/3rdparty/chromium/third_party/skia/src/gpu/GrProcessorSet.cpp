@@ -171,10 +171,9 @@ GrProcessorSet::Analysis GrProcessorSet::finalize(
     GrProcessorSet::Analysis analysis;
     analysis.fCompatibleWithCoverageAsAlpha = GrProcessorAnalysisCoverage::kLCD != coverageInput;
 
-    const std::unique_ptr<const GrFragmentProcessor>* fps =
+    const std::unique_ptr<GrFragmentProcessor>* fps =
             fFragmentProcessors.get() + fFragmentProcessorOffset;
-    GrColorFragmentProcessorAnalysis colorAnalysis(
-            colorInput, unique_ptr_address_as_pointer_address(fps), fColorFragmentProcessorCnt);
+    GrColorFragmentProcessorAnalysis colorAnalysis(colorInput, fps, fColorFragmentProcessorCnt);
     fps += fColorFragmentProcessorCnt;
     int n = this->numCoverageFragmentProcessors();
     bool hasCoverageFP = n > 0;
@@ -250,4 +249,14 @@ GrProcessorSet::Analysis GrProcessorSet::finalize(
     SkASSERT(analysis.fRequiresNonOverlappingDraws == needsNonOverlappingDraws);
 #endif
     return analysis;
+}
+
+void GrProcessorSet::visitProxies(const GrOp::VisitProxyFunc& func) const {
+    const auto& rng = GrFragmentProcessor::ProcessorSetTextureSamplerRange(*this);
+    for (auto it = rng.begin(); it != rng.end(); ++it) {
+        auto t = *it;
+        const GrFragmentProcessor::TextureSampler& sampler = t.first;
+        bool mipped = (GrSamplerState::Filter::kMipMap == sampler.samplerState().filter());
+        func(sampler.view().proxy(), GrMipMapped(mipped));
+    }
 }

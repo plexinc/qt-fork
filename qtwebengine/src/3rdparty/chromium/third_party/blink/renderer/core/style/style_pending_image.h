@@ -53,7 +53,8 @@ class StylePendingImage final : public StyleImage {
 
   CSSValue* CssValue() const override { return value_; }
 
-  CSSValue* ComputedCSSValue() const override {
+  CSSValue* ComputedCSSValue(const ComputedStyle&,
+                             bool allow_visited_style) const override {
     NOTREACHED();
     return nullptr;
   }
@@ -73,7 +74,8 @@ class StylePendingImage final : public StyleImage {
 
   FloatSize ImageSize(const Document&,
                       float /*multiplier*/,
-                      const LayoutSize& /*defaultObjectSize*/) const override {
+                      const LayoutSize& /*defaultObjectSize*/,
+                      RespectImageOrientationEnum) const override {
     return FloatSize();
   }
   bool HasIntrinsicSize() const override { return true; }
@@ -90,7 +92,7 @@ class StylePendingImage final : public StyleImage {
     return false;
   }
 
-  void Trace(blink::Visitor* visitor) override {
+  void Trace(Visitor* visitor) override {
     visitor->Trace(value_);
     StyleImage::Trace(visitor);
   }

@@ -13,9 +13,11 @@
 #include "base/component_export.h"
 #include "base/containers/unique_ptr_adapters.h"
 #include "base/macros.h"
-#include "mojo/public/cpp/bindings/binding_set.h"
+#include "base/optional.h"
+#include "mojo/public/cpp/bindings/pending_receiver.h"
+#include "mojo/public/cpp/bindings/receiver_set.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "services/network/origin_policy/origin_policy_constants.h"
-#include "services/network/origin_policy/origin_policy_header_values.h"
 #include "services/network/public/mojom/origin_policy_manager.mojom.h"
 #include "services/network/public/mojom/url_loader_factory.mojom.h"
 
@@ -37,13 +39,13 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) OriginPolicyManager
   explicit OriginPolicyManager(NetworkContext* owner_network_context);
   ~OriginPolicyManager() override;
 
-  // Bind a request to this object.  Mojo messages coming through the associated
-  // pipe will be served by this object.
-  void AddBinding(mojom::OriginPolicyManagerRequest request);
+  // Bind a receiver to this object.  Mojo messages coming through the
+  // associated pipe will be served by this object.
+  void AddReceiver(mojo::PendingReceiver<mojom::OriginPolicyManager> receiver);
 
   // mojom::OriginPolicyManager
   void RetrieveOriginPolicy(const url::Origin& origin,
-                            const std::string& header_value,
+                            const base::Optional<std::string>& header,
                             RetrieveOriginPolicyCallback callback) override;
   void AddExceptionFor(const url::Origin& origin) override;
 
@@ -53,39 +55,13 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) OriginPolicyManager
                    const OriginPolicy& origin_policy,
                    RetrieveOriginPolicyCallback callback);
 
-  // Retrieves an origin's default origin policy by attempting to fetch it
-  // from "<origin>/.well-known/origin-policy".
-  void RetrieveDefaultOriginPolicy(const url::Origin& origin,
-                                   RetrieveOriginPolicyCallback callback);
-
-  // Attempts to report a policy retrieval failure. Does nothing if
-  // `header_info` has an empty `report_to` member.
-  void MaybeReport(OriginPolicyState state,
-                   const OriginPolicyHeaderValues& header_info,
-                   const GURL& policy_url);
-
   // ForTesting methods
-  mojo::BindingSet<mojom::OriginPolicyManager>& GetBindingsForTesting() {
-    return bindings_;
+  mojo::ReceiverSet<mojom::OriginPolicyManager>& GetReceiversForTesting() {
+    return receivers_;
   }
-
-  static OriginPolicyHeaderValues
-  GetRequestedPolicyAndReportGroupFromHeaderStringForTesting(
-      const std::string& header_value) {
-    return GetRequestedPolicyAndReportGroupFromHeaderString(header_value);
-  }
-
-  // Get the version used for exempted policies. For testing purposes only.
-  static const char* GetExemptedVersionForTesting();
 
  private:
-  using KnownVersionMap = std::map<url::Origin, std::string>;
-
-  // Parses a header and returns the result. If a parsed result does not contain
-  // a non-empty policy version it means the `header_value` is invalid.
-  static OriginPolicyHeaderValues
-  GetRequestedPolicyAndReportGroupFromHeaderString(
-      const std::string& header_value);
+  void CreateOrRecreateURLLoaderFactory();
 
   // Returns an origin policy with the specified state. The contents is empty
   // and the `policy_url` is the default policy url for the specified origin.
@@ -98,23 +74,22 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) OriginPolicyManager
   // Used for queueing reports and creating a URLLoaderFactory.
   NetworkContext* const owner_network_context_;
 
-  // In memory cache of current policy version per origin.
-  // TODO(andypaicu): clear this when the disk cache is cleaned.
-  KnownVersionMap latest_version_map_;
+  // Exempted origins are added using AddExceptionFor.
+  std::set<url::Origin> exempted_origins_;
 
   // A list of fetchers owned by this object
   std::set<std::unique_ptr<OriginPolicyFetcher>, base::UniquePtrComparator>
       origin_policy_fetchers_;
 
   // Used for fetching requests
-  mojom::URLLoaderFactoryPtr url_loader_factory_;
+  mojo::Remote<mojom::URLLoaderFactory> url_loader_factory_;
 
-  // This object's set of bindings.
+  // This object's set of receivers.
   // This MUST be below origin_policy_fetchers_ to ensure it is destroyed before
   // it. Otherwise it's possible that un-invoked OnceCallbacks owned by members
-  // of origin_policy_fetchers_ will be destroyed before the beinding they are
+  // of origin_policy_fetchers_ will be destroyed before the receiver they are
   // on is destroyed.
-  mojo::BindingSet<mojom::OriginPolicyManager> bindings_;
+  mojo::ReceiverSet<mojom::OriginPolicyManager> receivers_;
 
   DISALLOW_COPY_AND_ASSIGN(OriginPolicyManager);
 };

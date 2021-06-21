@@ -4,11 +4,13 @@
 
 """Contains common helpers for GN action()s."""
 
+import atexit
 import collections
 import contextlib
 import filecmp
 import fnmatch
 import json
+import logging
 import os
 import pipes
 import re
@@ -19,20 +21,23 @@ import sys
 import tempfile
 import zipfile
 
-# Any new non-system import must be added to:
-#     //build/config/android/internal_rules.gni
-
-from util import md5_check
-
 sys.path.append(os.path.join(os.path.dirname(__file__),
                              os.pardir, os.pardir, os.pardir))
 import gn_helpers
 
-# Definition copied from pylib/constants/__init__.py to avoid adding
-# a dependency on pylib.
-DIR_SOURCE_ROOT = os.environ.get('CHECKOUT_SOURCE_ROOT',
-    os.path.abspath(os.path.join(os.path.dirname(__file__),
-                                 os.pardir, os.pardir, os.pardir, os.pardir)))
+# Use relative paths to improved hermetic property of build scripts.
+DIR_SOURCE_ROOT = os.path.relpath(
+    os.environ.get(
+        'CHECKOUT_SOURCE_ROOT',
+        os.path.join(
+            os.path.dirname(__file__), os.pardir, os.pardir, os.pardir,
+            os.pardir)))
+JAVA_HOME = os.path.join(DIR_SOURCE_ROOT, 'third_party', 'jdk', 'current')
+JAVA_PATH = os.path.join(JAVA_HOME, 'bin', 'java')
+JAVAC_PATH = os.path.join(JAVA_HOME, 'bin', 'javac')
+JAVAP_PATH = os.path.join(JAVA_HOME, 'bin', 'javap')
+RT_JAR_PATH = os.path.join(DIR_SOURCE_ROOT, 'third_party', 'jdk', 'extras',
+                           'java_8', 'jre', 'lib', 'rt.jar')
 
 try:
   string_types = basestring
@@ -41,8 +46,8 @@ except NameError:
 
 
 @contextlib.contextmanager
-def TempDir():
-  dirname = tempfile.mkdtemp()
+def TempDir(**kwargs):
+  dirname = tempfile.mkdtemp(**kwargs)
   try:
     yield dirname
   finally:
@@ -70,7 +75,7 @@ def Touch(path, fail_if_missing=False):
     os.utime(path, None)
 
 
-def FindInDirectory(directory, filename_filter):
+def FindInDirectory(directory, filename_filter='*'):
   files = []
   for root, _dirnames, filenames in os.walk(directory):
     matched_files = fnmatch.filter(filenames, filename_filter)
@@ -203,7 +208,27 @@ def FilterLines(output, filter_string):
   """
   re_filter = re.compile(filter_string)
   return '\n'.join(
-      line for line in output.splitlines() if not re_filter.search(line))
+      line for line in output.split('\n') if not re_filter.search(line))
+
+
+def FilterReflectiveAccessJavaWarnings(output):
+  """Filters out warnings about illegal reflective access operation.
+
+  These warnings were introduced in Java 9, and generally mean that dependencies
+  need to be updated.
+  """
+  #  WARNING: An illegal reflective access operation has occurred
+  #  WARNING: Illegal reflective access by ...
+  #  WARNING: Please consider reporting this to the maintainers of ...
+  #  WARNING: Use --illegal-access=warn to enable warnings of further ...
+  #  WARNING: All illegal access operations will be denied in a future release
+  return FilterLines(
+      output, r'WARNING: ('
+      'An illegal reflective|'
+      'Illegal reflective access|'
+      'Please consider reporting this to|'
+      'Use --illegal-access=warn|'
+      'All illegal access operations)')
 
 
 # This can be used in most cases like subprocess.check_output(). The output,
@@ -394,6 +419,8 @@ def DoZip(inputs, output, base_dir=None, compress_fn=None,
   for tup in inputs:
     if isinstance(tup, string_types):
       tup = (os.path.relpath(tup, base_dir), tup)
+      if tup[0].startswith('..'):
+        raise Exception('Invalid zip_path: ' + tup[0])
     input_tuples.append(tup)
 
   # Sort by zip path to ensure stable zip ordering.
@@ -421,8 +448,20 @@ def ZipDir(output, base_dir, compress_fn=None, zip_prefix_path=None):
     for f in files:
       inputs.append(os.path.join(root, f))
 
-  with AtomicOutput(output) as f:
-    DoZip(inputs, f, base_dir, compress_fn=compress_fn,
+  if isinstance(output, zipfile.ZipFile):
+    DoZip(
+        inputs,
+        output,
+        base_dir,
+        compress_fn=compress_fn,
+        zip_prefix_path=zip_prefix_path)
+  else:
+    with AtomicOutput(output) as f:
+      DoZip(
+          inputs,
+          f,
+          base_dir,
+          compress_fn=compress_fn,
           zip_prefix_path=zip_prefix_path)
 
 
@@ -451,8 +490,6 @@ def MergeZips(output, input_zips, path_transform=None, compress=None):
   try:
     for in_file in input_zips:
       with zipfile.ZipFile(in_file, 'r') as in_zip:
-        # ijar creates zips with null CRCs.
-        in_zip._expected_crc = None
         for info in in_zip.infolist():
           # Ignore directories.
           if info.filename[-1] == '/':
@@ -504,20 +541,22 @@ def GetSortedTransitiveDependencies(top, deps_func):
   return list(deps_map)
 
 
-def _ComputePythonDependencies():
+def ComputePythonDependencies():
   """Gets the paths of imported non-system python modules.
 
   A path is assumed to be a "system" import if it is outside of chromium's
   src/. The paths will be relative to the current directory.
   """
   _ForceLazyModulesToLoad()
-  module_paths = (m.__file__ for m in sys.modules.itervalues()
+  module_paths = (m.__file__ for m in sys.modules.values()
                   if m is not None and hasattr(m, '__file__'))
   abs_module_paths = map(os.path.abspath, module_paths)
 
-  assert os.path.isabs(DIR_SOURCE_ROOT)
+  abs_dir_source_root = os.path.abspath(DIR_SOURCE_ROOT)
   non_system_module_paths = [
-      p for p in abs_module_paths if p.startswith(DIR_SOURCE_ROOT)]
+      p for p in abs_module_paths if p.startswith(abs_dir_source_root)
+  ]
+
   def ConvertPycToPy(s):
     if s.endswith('.pyc'):
       return s[:-1]
@@ -545,6 +584,23 @@ def _ForceLazyModulesToLoad():
       break
 
 
+def InitLogging(enabling_env):
+  logging.basicConfig(
+      level=logging.DEBUG if os.environ.get(enabling_env) else logging.WARNING,
+      format='%(levelname).1s %(process)d %(relativeCreated)6d %(message)s')
+  script_name = os.path.basename(sys.argv[0])
+  logging.info('Started (%s)', script_name)
+
+  my_pid = os.getpid()
+
+  def log_exit():
+    # Do not log for fork'ed processes.
+    if os.getpid() == my_pid:
+      logging.info("Job's done (%s)", script_name)
+
+  atexit.register(log_exit)
+
+
 def AddDepfileOption(parser):
   # TODO(agrieve): Get rid of this once we've moved to argparse.
   if hasattr(parser, 'add_option'):
@@ -560,7 +616,7 @@ def WriteDepfile(depfile_path, first_gn_output, inputs=None, add_pydeps=True):
   assert not isinstance(inputs, string_types)  # Easy mistake to make
   inputs = inputs or []
   if add_pydeps:
-    inputs = _ComputePythonDependencies() + inputs
+    inputs = ComputePythonDependencies() + inputs
   MakeDirectory(os.path.dirname(depfile_path))
   # Ninja does not support multiple outputs in depfiles.
   with open(depfile_path, 'w') as depfile:
@@ -577,7 +633,9 @@ def ExpandFileArgs(args):
     @FileArg(filename:key1:key2:...:keyn)
 
   The value of such a placeholder is calculated by reading 'filename' as json.
-  And then extracting the value at [key1][key2]...[keyn].
+  And then extracting the value at [key1][key2]...[keyn]. If a key has a '[]'
+  suffix the (intermediate) value will be interpreted as a single item list and
+  the single item will be returned or used for further traversal.
 
   Note: This intentionally does not return the list of files that appear in such
   placeholders. An action that uses file-args *must* know the paths of those
@@ -592,15 +650,25 @@ def ExpandFileArgs(args):
     if not match:
       continue
 
+    def get_key(key):
+      if key.endswith('[]'):
+        return key[:-2], True
+      return key, False
+
     lookup_path = match.group(1).split(':')
-    file_path = lookup_path[0]
+    file_path, _ = get_key(lookup_path[0])
     if not file_path in file_jsons:
       with open(file_path) as f:
         file_jsons[file_path] = json.load(f)
 
-    expansion = file_jsons[file_path]
-    for k in lookup_path[1:]:
+    expansion = file_jsons
+    for k in lookup_path:
+      k, flatten = get_key(k)
       expansion = expansion[k]
+      if flatten:
+        if not isinstance(expansion, list) or not len(expansion) == 1:
+          raise Exception('Expected single item list but got %s' % expansion)
+        expansion = expansion[0]
 
     # This should match ParseGnList. The output is either a GN-formatted list
     # or a literal (with no quotes).
@@ -620,51 +688,3 @@ def ReadSourcesList(sources_list_file_name):
   """
   with open(sources_list_file_name) as f:
     return [file_name.strip() for file_name in f]
-
-
-def CallAndWriteDepfileIfStale(function, options, record_path=None,
-                               input_paths=None, input_strings=None,
-                               output_paths=None, force=False,
-                               pass_changes=False, depfile_deps=None,
-                               add_pydeps=True):
-  """Wraps md5_check.CallAndRecordIfStale() and writes a depfile if applicable.
-
-  Depfiles are automatically added to output_paths when present in the |options|
-  argument. They are then created after |function| is called.
-
-  By default, only python dependencies are added to the depfile. If there are
-  other input paths that are not captured by GN deps, then they should be listed
-  in depfile_deps. It's important to write paths to the depfile that are already
-  captured by GN deps since GN args can cause GN deps to change, and such
-  changes are not immediately reflected in depfiles (http://crbug.com/589311).
-  """
-  if not output_paths:
-    raise Exception('At least one output_path must be specified.')
-  input_paths = list(input_paths or [])
-  input_strings = list(input_strings or [])
-  output_paths = list(output_paths or [])
-
-  python_deps = None
-  if hasattr(options, 'depfile') and options.depfile:
-    python_deps = _ComputePythonDependencies()
-    input_paths += python_deps
-    output_paths += [options.depfile]
-
-  def on_stale_md5(changes):
-    args = (changes,) if pass_changes else ()
-    function(*args)
-    if python_deps is not None:
-      all_depfile_deps = list(python_deps) if add_pydeps else []
-      if depfile_deps:
-        all_depfile_deps.extend(depfile_deps)
-      WriteDepfile(options.depfile, output_paths[0], all_depfile_deps,
-                   add_pydeps=False)
-
-  md5_check.CallAndRecordIfStale(
-      on_stale_md5,
-      record_path=record_path,
-      input_paths=input_paths,
-      input_strings=input_strings,
-      output_paths=output_paths,
-      force=force,
-      pass_changes=True)

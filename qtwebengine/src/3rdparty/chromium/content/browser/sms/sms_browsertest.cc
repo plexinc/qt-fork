@@ -2,12 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <memory>
+
+#include "base/test/metrics/histogram_tester.h"
+#include "components/ukm/test_ukm_recorder.h"
 #include "content/browser/browser_main_loop.h"
-#include "content/browser/sms/sms_provider.h"
+#include "content/browser/sms/sms_fetcher_impl.h"
 #include "content/browser/sms/sms_service.h"
+#include "content/browser/sms/test/mock_sms_provider.h"
+#include "content/browser/sms/test/mock_sms_web_contents_delegate.h"
 #include "content/browser/web_contents/web_contents_impl.h"
-#include "content/public/browser/sms_dialog.h"
-#include "content/public/browser/web_contents_delegate.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test.h"
@@ -16,72 +20,90 @@
 #include "content/shell/browser/shell.h"
 #include "net/cert/mock_cert_verifier.h"
 #include "net/dns/mock_host_resolver.h"
+#include "services/metrics/public/cpp/ukm_builders.h"
 #include "testing/gmock/include/gmock/gmock.h"
+#include "third_party/blink/public/common/sms/sms_receiver_outcome.h"
 
 using ::testing::_;
-using ::testing::ByMove;
 using ::testing::Invoke;
 using ::testing::NiceMock;
 using ::testing::Return;
-using ::testing::StrictMock;
 
 namespace content {
 
 namespace {
 
-class MockSmsDialog : public SmsDialog {
- public:
-  MockSmsDialog() : SmsDialog() {}
-  ~MockSmsDialog() override = default;
-
-  MOCK_METHOD3(Open,
-               void(RenderFrameHost*, base::OnceClosure, base::OnceClosure));
-  MOCK_METHOD0(Close, void());
-  MOCK_METHOD0(EnableContinueButton, void());
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MockSmsDialog);
-};
-
-class MockWebContentsDelegate : public WebContentsDelegate {
- public:
-  MockWebContentsDelegate() = default;
-  ~MockWebContentsDelegate() override = default;
-
-  MOCK_METHOD0(CreateSmsDialog, std::unique_ptr<SmsDialog>());
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MockWebContentsDelegate);
-};
-
-class MockSmsProvider : public SmsProvider {
- public:
-  MockSmsProvider() = default;
-  ~MockSmsProvider() override = default;
-
-  MOCK_METHOD0(Retrieve, void());
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MockSmsProvider);
-};
-
 class SmsBrowserTest : public ContentBrowserTest {
  public:
+  using Entry = ukm::builders::SMSReceiver;
+
   SmsBrowserTest() = default;
   ~SmsBrowserTest() override = default;
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
     ContentBrowserTest::SetUpCommandLine(command_line);
-    command_line->AppendSwitchASCII("enable-blink-features", "SmsReceiver");
+    command_line->AppendSwitchASCII(switches::kEnableBlinkFeatures,
+                                    "SmsReceiver");
     command_line->AppendSwitch(
         switches::kEnableExperimentalWebPlatformFeatures);
+    command_line->AppendSwitchASCII(switches::kWebOtpBackend,
+                                    switches::kWebOtpBackendSmsVerification);
     cert_verifier_.SetUpCommandLine(command_line);
+  }
+
+  void ExpectOutcomeUKM(const GURL& url, blink::SMSReceiverOutcome outcome) {
+    auto entries = ukm_recorder()->GetEntriesByName(Entry::kEntryName);
+
+    if (entries.empty())
+      FAIL() << "No SMSReceiverOutcome was recorded";
+
+    for (const auto* const entry : entries) {
+      const int64_t* metric = ukm_recorder()->GetEntryMetric(entry, "Outcome");
+      if (*metric == static_cast<int>(outcome)) {
+        SUCCEED();
+        return;
+      }
+    }
+    FAIL() << "Expected SMSReceiverOutcome was not recorded";
+  }
+
+  void ExpectNoOutcomeUKM() {
+    EXPECT_TRUE(ukm_recorder()->GetEntriesByName(Entry::kEntryName).empty());
+  }
+
+  void ExpectSmsPrompt() {
+    EXPECT_CALL(delegate_, CreateSmsPrompt(_, _, _, _, _))
+        .WillOnce(Invoke([&](RenderFrameHost*, const url::Origin&,
+                             const std::string&, base::OnceClosure on_confirm,
+                             base::OnceClosure on_cancel) {
+          confirm_callback_ = std::move(on_confirm);
+          dismiss_callback_ = std::move(on_cancel);
+        }));
+  }
+
+  void ConfirmPrompt() {
+    if (!confirm_callback_.is_null()) {
+      std::move(confirm_callback_).Run();
+      dismiss_callback_.Reset();
+      return;
+    }
+    FAIL() << "SmsInfobar not available";
+  }
+
+  void DismissPrompt() {
+    if (dismiss_callback_.is_null()) {
+      FAIL() << "SmsInfobar not available";
+      return;
+    }
+    std::move(dismiss_callback_).Run();
+    confirm_callback_.Reset();
   }
 
  protected:
   void SetUpOnMainThread() override {
     host_resolver()->AddRule("*", "127.0.0.1");
     cert_verifier_.mock_cert_verifier()->set_default_result(net::OK);
+    ukm_recorder_ = std::make_unique<ukm::TestAutoSetUkmRecorder>();
   }
 
   void SetUpInProcessBrowserTestFixture() override {
@@ -92,275 +114,376 @@ class SmsBrowserTest : public ContentBrowserTest {
     cert_verifier_.TearDownInProcessBrowserTestFixture();
   }
 
-  NiceMock<MockWebContentsDelegate> delegate_;
+  SmsFetcherImpl* GetSmsFetcher() {
+    return static_cast<SmsFetcherImpl*>(
+        SmsFetcher::Get(shell()->web_contents()->GetBrowserContext()));
+  }
+
+  ukm::TestAutoSetUkmRecorder* ukm_recorder() { return ukm_recorder_.get(); }
+
+  NiceMock<MockSmsWebContentsDelegate> delegate_;
   // Similar to net::MockCertVerifier, but also updates the CertVerifier
   // used by the NetworkService.
   ContentMockCertVerifier cert_verifier_;
+
+  std::unique_ptr<ukm::TestAutoSetUkmRecorder> ukm_recorder_;
+
+  base::OnceClosure confirm_callback_;
+  base::OnceClosure dismiss_callback_;
 };
 
 }  // namespace
 
 IN_PROC_BROWSER_TEST_F(SmsBrowserTest, Receive) {
+  base::HistogramTester histogram_tester;
   GURL url = GetTestUrl(nullptr, "simple_page.html");
-  NavigateToURL(shell(), url);
+  EXPECT_TRUE(NavigateToURL(shell(), url));
 
   shell()->web_contents()->SetDelegate(&delegate_);
 
-  auto* dialog = new NiceMock<MockSmsDialog>();
+  ExpectSmsPrompt();
 
-  base::OnceClosure on_continue_callback;
+  auto provider = std::make_unique<MockSmsProvider>();
+  MockSmsProvider* mock_provider_ptr = provider.get();
+  GetSmsFetcher()->SetSmsProviderForTesting(std::move(provider));
 
-  EXPECT_CALL(delegate_, CreateSmsDialog())
-      .WillOnce(Return(ByMove(base::WrapUnique(dialog))));
-
-  EXPECT_CALL(*dialog, Open(_, _, _))
-      .WillOnce(Invoke([&on_continue_callback](content::RenderFrameHost*,
-                                               base::OnceClosure on_continue,
-                                               base::OnceClosure on_cancel) {
-        on_continue_callback = std::move(on_continue);
-      }));
-
-  EXPECT_CALL(*dialog, EnableContinueButton())
-      .WillOnce(Invoke([&on_continue_callback]() {
-        std::move(on_continue_callback).Run();
-      }));
-
-  auto* provider = new NiceMock<MockSmsProvider>();
-  BrowserMainLoop::GetInstance()->SetSmsProviderForTesting(
-      base::WrapUnique(provider));
-
-  // Test that SMS content can be retrieved after navigator.sms.receive().
+  // Test that SMS content can be retrieved after navigator.credentials.get().
   std::string script = R"(
     (async () => {
-      let sms = await navigator.sms.receive({timeout: 60});
-      return sms.content;
+      let cred = await navigator.credentials.get({otp: {transport: ["sms"]}});
+      return cred.code;
     }) ();
   )";
 
-  EXPECT_CALL(*provider, Retrieve()).WillOnce(Invoke([&provider, &url]() {
-    provider->NotifyReceive(url::Origin::Create(url), "hello");
+  EXPECT_CALL(*mock_provider_ptr, Retrieve()).WillOnce(Invoke([&]() {
+    mock_provider_ptr->NotifyReceive(url::Origin::Create(url), "hello");
+    ConfirmPrompt();
   }));
+
+  // Wait for UKM to be recorded to avoid race condition between outcome
+  // capture and evaluation.
+  base::RunLoop ukm_loop;
+  ukm_recorder()->SetOnAddEntryCallback(Entry::kEntryName,
+                                        ukm_loop.QuitClosure());
 
   EXPECT_EQ("hello", EvalJs(shell(), script));
 
-  ASSERT_FALSE(provider->HasObservers());
+  ukm_loop.Run();
+
+  ASSERT_FALSE(GetSmsFetcher()->HasSubscribers());
+
+  content::FetchHistogramsFromChildProcesses();
+  ExpectOutcomeUKM(url, blink::SMSReceiverOutcome::kSuccess);
+  histogram_tester.ExpectTotalCount("Blink.Sms.Receive.TimeSuccess", 1);
 }
 
-IN_PROC_BROWSER_TEST_F(SmsBrowserTest, AtMostOnePendingSmsRequest) {
+IN_PROC_BROWSER_TEST_F(SmsBrowserTest, AtMostOneSmsRequestPerOrigin) {
   GURL url = GetTestUrl(nullptr, "simple_page.html");
-  NavigateToURL(shell(), url);
+  EXPECT_TRUE(NavigateToURL(shell(), url));
 
   shell()->web_contents()->SetDelegate(&delegate_);
 
-  auto* dialog = new NiceMock<MockSmsDialog>();
+  ExpectSmsPrompt();
 
-  base::OnceClosure on_continue_callback;
+  auto provider = std::make_unique<MockSmsProvider>();
+  MockSmsProvider* mock_provider_ptr = provider.get();
+  GetSmsFetcher()->SetSmsProviderForTesting(std::move(provider));
 
-  EXPECT_CALL(delegate_, CreateSmsDialog())
-      .WillOnce(Return(ByMove(base::WrapUnique(dialog))));
+  std::string script = R"(
+    (async () => {
+      let firstRequest = navigator.credentials.get({otp: {transport: ["sms"]}})
+        .catch(({name}) => {
+          return name;
+        });
+      let secondRequest = navigator.credentials.get({otp: {transport: ["sms"]}})
+        .then(({code}) => {
+          return code;
+        });
+      return Promise.all([firstRequest, secondRequest]);
+    }) ();
+  )";
 
-  EXPECT_CALL(*dialog, Open(_, _, _))
-      .WillOnce(Invoke([&on_continue_callback](content::RenderFrameHost*,
-                                               base::OnceClosure on_continue,
-                                               base::OnceClosure on_cancel) {
-        on_continue_callback = std::move(on_continue);
+  EXPECT_CALL(*mock_provider_ptr, Retrieve())
+      .WillOnce(Return())
+      .WillOnce(Invoke([&]() {
+        mock_provider_ptr->NotifyReceive(url::Origin::Create(url), "hello");
+        ConfirmPrompt();
       }));
 
-  EXPECT_CALL(*dialog, EnableContinueButton())
-      .WillOnce(Invoke([&on_continue_callback]() {
-        std::move(on_continue_callback).Run();
-      }));
+  // Wait for UKM to be recorded to avoid race condition between outcome
+  // capture and evaluation.
+  base::RunLoop ukm_loop1;
+  ukm_recorder()->SetOnAddEntryCallback(Entry::kEntryName,
+                                        ukm_loop1.QuitClosure());
 
-  auto* provider = new NiceMock<MockSmsProvider>();
-  BrowserMainLoop::GetInstance()->SetSmsProviderForTesting(
-      base::WrapUnique(provider));
+  EXPECT_EQ(ListValueOf("AbortError", "hello"), EvalJs(shell(), script));
 
-  std::string script = R"(
-    navigator.sms.receive().then(({content}) => { first = content; });
-    navigator.sms.receive().catch(e => e.name);
-  )";
+  ukm_loop1.Run();
 
-  base::RunLoop loop;
+  ASSERT_FALSE(GetSmsFetcher()->HasSubscribers());
 
-  EXPECT_CALL(*provider, Retrieve()).WillOnce(Invoke([&loop]() {
-    loop.Quit();
-  }));
-
-  EXPECT_EQ("AbortError", EvalJs(shell(), script));
-
-  loop.Run();
-
-  provider->NotifyReceive(url::Origin::Create(url), "hello");
-
-  EXPECT_EQ("hello", EvalJs(shell(), "first"));
-
-  ASSERT_FALSE(provider->HasObservers());
+  ExpectOutcomeUKM(url, blink::SMSReceiverOutcome::kSuccess);
 }
 
-IN_PROC_BROWSER_TEST_F(SmsBrowserTest, Reload) {
-  GURL url = GetTestUrl(nullptr, "simple_page.html");
-  NavigateToURL(shell(), url);
-
-  auto* provider = new NiceMock<MockSmsProvider>();
-  BrowserMainLoop::GetInstance()->SetSmsProviderForTesting(
-      base::WrapUnique(provider));
-
-  std::string script = R"(
-    // kicks off the sms receiver, adding the service
-    // to the observer's list.
-    navigator.sms.receive({timeout: 60});
-    true
-  )";
-
-  base::RunLoop loop;
-
-  EXPECT_CALL(*provider, Retrieve()).WillOnce(Invoke([&loop]() {
-    // deliberately avoid calling NotifyReceive() to simulate
-    // a request that has been received but not fulfilled.
-    loop.Quit();
-  }));
-
-  EXPECT_EQ(true, EvalJs(shell(), script));
-
-  loop.Run();
-
-  ASSERT_TRUE(provider->HasObservers());
-
-  // reload the page.
-  NavigateToURL(shell(), url);
-
-  ASSERT_FALSE(provider->HasObservers());
-}
-
-IN_PROC_BROWSER_TEST_F(SmsBrowserTest, Close) {
-  GURL url = GetTestUrl(nullptr, "simple_page.html");
-  NavigateToURL(shell(), url);
-
-  auto* provider = new NiceMock<MockSmsProvider>();
-  BrowserMainLoop::GetInstance()->SetSmsProviderForTesting(
-      base::WrapUnique(provider));
-
-  std::string script = R"(
-    navigator.sms.receive({timeout: 60});
-    true
-  )";
-
-  base::RunLoop loop;
-
-  EXPECT_CALL(*provider, Retrieve()).WillOnce(Invoke([&loop]() {
-    loop.Quit();
-  }));
-
-  EXPECT_EQ(true, EvalJs(shell(), script));
-
-  loop.Run();
-
-  ASSERT_TRUE(provider->HasObservers());
-
-  shell()->Close();
-
-  ASSERT_FALSE(provider->HasObservers());
-}
-
-IN_PROC_BROWSER_TEST_F(SmsBrowserTest, TwoTabsSameOrigin) {
-  auto* provider = new NiceMock<MockSmsProvider>();
-  BrowserMainLoop::GetInstance()->SetSmsProviderForTesting(
-      base::WrapUnique(provider));
+// Disabled test: https://crbug.com/1052385
+IN_PROC_BROWSER_TEST_F(SmsBrowserTest,
+                       DISABLED_AtMostOneSmsRequestPerOriginPerTab) {
+  auto provider = std::make_unique<MockSmsProvider>();
+  MockSmsProvider* mock_provider_ptr = provider.get();
+  GetSmsFetcher()->SetSmsProviderForTesting(std::move(provider));
 
   Shell* tab1 = CreateBrowser();
   Shell* tab2 = CreateBrowser();
 
   GURL url = GetTestUrl(nullptr, "simple_page.html");
 
-  NavigateToURL(tab1, url);
-  NavigateToURL(tab2, url);
+  EXPECT_TRUE(NavigateToURL(tab1, url));
+  EXPECT_TRUE(NavigateToURL(tab2, url));
 
-  std::string script = R"(
-    navigator.sms.receive({timeout: 60}).then(({content}) => {
-      sms = content;
-    });
-    true
-  )";
+  tab1->web_contents()->SetDelegate(&delegate_);
+  tab2->web_contents()->SetDelegate(&delegate_);
 
-  base::OnceClosure on_continue1, on_continue2;
+  EXPECT_CALL(*mock_provider_ptr, Retrieve()).Times(3);
+
+  // Make 1 request on tab1 that is expected to be cancelled when the 2nd
+  // request is made.
+  EXPECT_TRUE(ExecJs(tab1, R"(
+       var firstRequest = navigator.credentials.get({otp: {transport: ["sms"]}})
+         .catch(({name}) => {
+           return name;
+         });
+     )"));
+
+  // Make 1 request on tab2 to verify requests on tab1 have no affect on tab2.
+  EXPECT_TRUE(ExecJs(tab2, R"(
+        var request = navigator.credentials.get({otp: {transport: ["sms"]}})
+          .then(({code}) => {
+            return code;
+          });
+     )"));
+
+  // Make a 2nd request on tab1 to verify the 1st request gets cancelled when
+  // the 2nd request is made.
+  EXPECT_TRUE(ExecJs(tab1, R"(
+        var secondRequest = navigator.credentials
+          .get({otp: {transport: ["sms"]}})
+          .then(({code}) => {
+            return code;
+          });
+     )"));
+
+  EXPECT_EQ("AbortError", EvalJs(tab1, "firstRequest"));
+
+  ASSERT_TRUE(GetSmsFetcher()->HasSubscribers());
 
   {
-    base::RunLoop loop;
+    base::RunLoop ukm_loop;
 
-    auto* dialog = new NiceMock<MockSmsDialog>();
+    ExpectSmsPrompt();
 
-    tab1->web_contents()->SetDelegate(&delegate_);
+    // Wait for UKM to be recorded to avoid race condition between outcome
+    // capture and evaluation.
+    ukm_recorder()->SetOnAddEntryCallback(Entry::kEntryName,
+                                          ukm_loop.QuitClosure());
 
-    EXPECT_CALL(delegate_, CreateSmsDialog())
-        .WillOnce(Return(ByMove(base::WrapUnique(dialog))));
+    mock_provider_ptr->NotifyReceive(url::Origin::Create(url), "hello1");
+    ConfirmPrompt();
 
-    EXPECT_CALL(*provider, Retrieve()).WillOnce(Invoke([&loop]() {
-      loop.Quit();
-    }));
-
-    EXPECT_CALL(*dialog, Open(_, _, _))
-        .WillOnce(Invoke([&on_continue1](content::RenderFrameHost*,
-                                         base::OnceClosure on_continue,
-                                         base::OnceClosure on_cancel) {
-          on_continue1 = std::move(on_continue);
-        }));
-
-    // First tab registers an observer.
-    EXPECT_EQ(true, EvalJs(tab1, script));
-
-    loop.Run();
+    ukm_loop.Run();
   }
+
+  EXPECT_EQ("hello1", EvalJs(tab2, "request"));
+
+  ASSERT_TRUE(GetSmsFetcher()->HasSubscribers());
+
+  ExpectOutcomeUKM(url, blink::SMSReceiverOutcome::kSuccess);
+
+  ukm_recorder()->Purge();
 
   {
-    base::RunLoop loop;
+    base::RunLoop ukm_loop;
 
-    auto* dialog = new NiceMock<MockSmsDialog>();
+    ExpectSmsPrompt();
 
-    tab2->web_contents()->SetDelegate(&delegate_);
+    // Wait for UKM to be recorded to avoid race condition between outcome
+    // capture and evaluation.
+    ukm_recorder()->SetOnAddEntryCallback(Entry::kEntryName,
+                                          ukm_loop.QuitClosure());
 
-    EXPECT_CALL(delegate_, CreateSmsDialog())
-        .WillOnce(Return(ByMove(base::WrapUnique(dialog))));
+    mock_provider_ptr->NotifyReceive(url::Origin::Create(url), "hello2");
+    ConfirmPrompt();
 
-    EXPECT_CALL(*provider, Retrieve()).WillOnce(Invoke([&loop]() {
-      loop.Quit();
-    }));
-
-    EXPECT_CALL(*dialog, Open(_, _, _))
-        .WillOnce(Invoke([&on_continue2](content::RenderFrameHost*,
-                                         base::OnceClosure on_continue,
-                                         base::OnceClosure on_cancel) {
-          on_continue2 = std::move(on_continue);
-        }));
-
-    // Second tab registers an observer.
-    EXPECT_EQ(true, EvalJs(tab2, script));
-
-    loop.Run();
+    ukm_loop.Run();
   }
 
-  ASSERT_TRUE(provider->HasObservers());
+  EXPECT_EQ("hello2", EvalJs(tab1, "secondRequest"));
 
-  provider->NotifyReceive(url::Origin::Create(url), "hello1");
+  ASSERT_FALSE(GetSmsFetcher()->HasSubscribers());
 
-  std::move(on_continue1).Run();
-
-  EXPECT_EQ("hello1", EvalJs(tab1, "sms"));
-
-  ASSERT_TRUE(provider->HasObservers());
-
-  provider->NotifyReceive(url::Origin::Create(url), "hello2");
-
-  std::move(on_continue2).Run();
-
-  EXPECT_EQ("hello2", EvalJs(tab2, "sms"));
-
-  ASSERT_FALSE(provider->HasObservers());
+  ExpectOutcomeUKM(url, blink::SMSReceiverOutcome::kSuccess);
 }
 
-IN_PROC_BROWSER_TEST_F(SmsBrowserTest, TwoTabsDifferentOrigin) {
-  auto* provider = new NiceMock<MockSmsProvider>();
-  BrowserMainLoop::GetInstance()->SetSmsProviderForTesting(
-      base::WrapUnique(provider));
+IN_PROC_BROWSER_TEST_F(SmsBrowserTest, Reload) {
+  GURL url = GetTestUrl(nullptr, "simple_page.html");
+  EXPECT_TRUE(NavigateToURL(shell(), url));
+
+  auto provider = std::make_unique<MockSmsProvider>();
+  MockSmsProvider* mock_provider_ptr = provider.get();
+  GetSmsFetcher()->SetSmsProviderForTesting(std::move(provider));
+
+  std::string script = R"(
+    // kicks off the sms receiver, adding the service
+    // to the observer's list.
+    navigator.credentials.get({otp: {transport: ["sms"]}});
+  )";
+
+  base::RunLoop loop;
+
+  EXPECT_CALL(*mock_provider_ptr, Retrieve()).WillOnce(Invoke([&loop]() {
+    // Deliberately avoid calling NotifyReceive() to simulate
+    // a request that has been received but not fulfilled.
+    loop.Quit();
+  }));
+
+  EXPECT_TRUE(ExecJs(shell(), script));
+
+  loop.Run();
+
+  ASSERT_TRUE(GetSmsFetcher()->HasSubscribers());
+
+  // Wait for UKM to be recorded to avoid race condition between outcome
+  // capture and evaluation.
+  base::RunLoop ukm_loop;
+  ukm_recorder()->SetOnAddEntryCallback(Entry::kEntryName,
+                                        ukm_loop.QuitClosure());
+
+  // Reload the page.
+  EXPECT_TRUE(NavigateToURL(shell(), url));
+
+  ukm_loop.Run();
+
+  ASSERT_FALSE(GetSmsFetcher()->HasSubscribers());
+
+  ExpectOutcomeUKM(url, blink::SMSReceiverOutcome::kTimeout);
+}
+
+IN_PROC_BROWSER_TEST_F(SmsBrowserTest, Close) {
+  GURL url = GetTestUrl(nullptr, "simple_page.html");
+  EXPECT_TRUE(NavigateToURL(shell(), url));
+
+  auto provider = std::make_unique<MockSmsProvider>();
+  MockSmsProvider* mock_provider_ptr = provider.get();
+  GetSmsFetcher()->SetSmsProviderForTesting(std::move(provider));
+
+  base::RunLoop loop;
+
+  EXPECT_CALL(*mock_provider_ptr, Retrieve()).WillOnce(Invoke([&loop]() {
+    loop.Quit();
+  }));
+
+  EXPECT_TRUE(ExecJs(shell(), R"(
+    navigator.credentials.get({otp: {transport: ["sms"]}});
+  )"));
+
+  loop.Run();
+
+  ASSERT_TRUE(mock_provider_ptr->HasObservers());
+
+  auto* fetcher = GetSmsFetcher();
+
+  shell()->Close();
+
+  ASSERT_FALSE(fetcher->HasSubscribers());
+
+  ExpectNoOutcomeUKM();
+}
+
+// Disabled test: https://crbug.com/1052385
+IN_PROC_BROWSER_TEST_F(SmsBrowserTest, DISABLED_TwoTabsSameOrigin) {
+  auto provider = std::make_unique<MockSmsProvider>();
+  MockSmsProvider* mock_provider_ptr = provider.get();
+  GetSmsFetcher()->SetSmsProviderForTesting(std::move(provider));
+
+  Shell* tab1 = CreateBrowser();
+  Shell* tab2 = CreateBrowser();
+
+  GURL url = GetTestUrl(nullptr, "simple_page.html");
+
+  EXPECT_TRUE(NavigateToURL(tab1, url));
+  EXPECT_TRUE(NavigateToURL(tab2, url));
+
+  tab1->web_contents()->SetDelegate(&delegate_);
+  tab2->web_contents()->SetDelegate(&delegate_);
+
+  EXPECT_CALL(*mock_provider_ptr, Retrieve()).Times(2);
+
+  std::string script = R"(
+    var otp = navigator.credentials.get({otp: {transport: ["sms"]}})
+      .then(({code}) => {
+        return code;
+      });
+  )";
+
+  // First tab registers an observer.
+  EXPECT_TRUE(ExecJs(tab1, script));
+
+  // Second tab registers an observer.
+  EXPECT_TRUE(ExecJs(tab2, script));
+
+  ASSERT_TRUE(mock_provider_ptr->HasObservers());
+
+  {
+    base::RunLoop ukm_loop;
+
+    ExpectSmsPrompt();
+
+    // Wait for UKM to be recorded to avoid race condition between outcome
+    // capture and evaluation.
+    ukm_recorder()->SetOnAddEntryCallback(Entry::kEntryName,
+                                          ukm_loop.QuitClosure());
+
+    mock_provider_ptr->NotifyReceive(url::Origin::Create(url), "hello1");
+    ConfirmPrompt();
+
+    ukm_loop.Run();
+  }
+
+  EXPECT_EQ("hello1", EvalJs(tab1, "otp"));
+
+  ASSERT_TRUE(mock_provider_ptr->HasObservers());
+
+  ExpectOutcomeUKM(url, blink::SMSReceiverOutcome::kSuccess);
+
+  ukm_recorder()->Purge();
+
+  {
+    base::RunLoop ukm_loop;
+
+    ExpectSmsPrompt();
+
+    // Wait for UKM to be recorded to avoid race condition between outcome
+    // capture and evaluation.
+    ukm_recorder()->SetOnAddEntryCallback(Entry::kEntryName,
+                                          ukm_loop.QuitClosure());
+
+    mock_provider_ptr->NotifyReceive(url::Origin::Create(url), "hello2");
+    ConfirmPrompt();
+
+    ukm_loop.Run();
+  }
+
+  EXPECT_EQ("hello2", EvalJs(tab2, "otp"));
+
+  ASSERT_FALSE(GetSmsFetcher()->HasSubscribers());
+
+  ExpectOutcomeUKM(url, blink::SMSReceiverOutcome::kSuccess);
+}
+
+// Disabled test: https://crbug.com/1052385
+IN_PROC_BROWSER_TEST_F(SmsBrowserTest, DISABLED_TwoTabsDifferentOrigin) {
+  auto provider = std::make_unique<MockSmsProvider>();
+  MockSmsProvider* mock_provider_ptr = provider.get();
+  GetSmsFetcher()->SetSmsProviderForTesting(std::move(provider));
 
   Shell* tab1 = CreateBrowser();
   Shell* tab2 = CreateBrowser();
@@ -372,164 +495,174 @@ IN_PROC_BROWSER_TEST_F(SmsBrowserTest, TwoTabsDifferentOrigin) {
   GURL url1 = https_server.GetURL("a.com", "/simple_page.html");
   GURL url2 = https_server.GetURL("b.com", "/simple_page.html");
 
-  NavigateToURL(tab1, url1);
-  NavigateToURL(tab2, url2);
+  EXPECT_TRUE(NavigateToURL(tab1, url1));
+  EXPECT_TRUE(NavigateToURL(tab2, url2));
 
   std::string script = R"(
-    navigator.sms.receive({timeout: 60}).then(({content}) => {
-      sms = content;
-    });
-    true;
+    var otp = navigator.credentials.get({otp: {transport: ["sms"]}})
+      .then(({code}) => {
+        return code;
+      });
   )";
 
   base::RunLoop loop;
 
-  EXPECT_CALL(*provider, Retrieve())
-      .WillOnce(testing::Return())
-      .WillOnce(Invoke([&loop]() { loop.Quit(); }));
+  EXPECT_CALL(*mock_provider_ptr, Retrieve()).Times(2);
 
   tab1->web_contents()->SetDelegate(&delegate_);
   tab2->web_contents()->SetDelegate(&delegate_);
 
-  auto* dialog1 = new NiceMock<MockSmsDialog>();
-  auto* dialog2 = new NiceMock<MockSmsDialog>();
+  EXPECT_TRUE(ExecJs(tab1, script));
+  EXPECT_TRUE(ExecJs(tab2, script));
 
-  base::OnceClosure on_continue_callback1;
-  base::OnceClosure on_continue_callback2;
+  ASSERT_TRUE(mock_provider_ptr->HasObservers());
 
-  EXPECT_CALL(delegate_, CreateSmsDialog())
-      .WillOnce(Return(ByMove(base::WrapUnique(dialog1))))
-      .WillOnce(Return(ByMove(base::WrapUnique(dialog2))));
+  {
+    base::RunLoop ukm_loop;
+    ExpectSmsPrompt();
+    // Wait for UKM to be recorded to avoid race condition between outcome
+    // capture and evaluation.
+    ukm_recorder()->SetOnAddEntryCallback(Entry::kEntryName,
+                                          ukm_loop.QuitClosure());
+    mock_provider_ptr->NotifyReceive(url::Origin::Create(url1), "hello1");
+    ConfirmPrompt();
+    ukm_loop.Run();
+  }
 
-  EXPECT_CALL(*dialog1, Open(_, _, _))
-      .WillOnce(Invoke([&on_continue_callback1](content::RenderFrameHost*,
-                                                base::OnceClosure on_continue,
-                                                base::OnceClosure on_cancel) {
-        on_continue_callback1 = std::move(on_continue);
-      }));
+  EXPECT_EQ("hello1", EvalJs(tab1, "otp"));
 
-  EXPECT_CALL(*dialog2, Open(_, _, _))
-      .WillOnce(Invoke([&on_continue_callback2](content::RenderFrameHost*,
-                                                base::OnceClosure on_continue,
-                                                base::OnceClosure on_cancel) {
-        on_continue_callback2 = std::move(on_continue);
-      }));
+  ASSERT_TRUE(mock_provider_ptr->HasObservers());
 
-  EXPECT_EQ(true, EvalJs(tab1, script));
-  EXPECT_EQ(true, EvalJs(tab2, script));
+  {
+    base::RunLoop ukm_loop;
+    ExpectSmsPrompt();
+    // Wait for UKM to be recorded to avoid race condition between outcome
+    // capture and evaluation.
+    ukm_recorder()->SetOnAddEntryCallback(Entry::kEntryName,
+                                          ukm_loop.QuitClosure());
+    mock_provider_ptr->NotifyReceive(url::Origin::Create(url2), "hello2");
+    ConfirmPrompt();
+    ukm_loop.Run();
+  }
 
-  loop.Run();
+  EXPECT_EQ("hello2", EvalJs(tab2, "otp"));
 
-  ASSERT_TRUE(provider->HasObservers());
+  ASSERT_FALSE(GetSmsFetcher()->HasSubscribers());
 
-  provider->NotifyReceive(url::Origin::Create(url1), "hello1");
-
-  std::move(on_continue_callback1).Run();
-
-  EXPECT_EQ("hello1", EvalJs(tab1, "sms"));
-
-  ASSERT_TRUE(provider->HasObservers());
-
-  provider->NotifyReceive(url::Origin::Create(url2), "hello2");
-
-  std::move(on_continue_callback2).Run();
-
-  EXPECT_EQ("hello2", EvalJs(tab2, "sms"));
-
-  ASSERT_FALSE(provider->HasObservers());
+  ExpectOutcomeUKM(url1, blink::SMSReceiverOutcome::kSuccess);
+  ExpectOutcomeUKM(url2, blink::SMSReceiverOutcome::kSuccess);
 }
 
 IN_PROC_BROWSER_TEST_F(SmsBrowserTest, SmsReceivedAfterTabIsClosed) {
   GURL url = GetTestUrl(nullptr, "simple_page.html");
-  NavigateToURL(shell(), url);
+  EXPECT_TRUE(NavigateToURL(shell(), url));
 
-  auto* provider = new NiceMock<MockSmsProvider>();
-  BrowserMainLoop::GetInstance()->SetSmsProviderForTesting(
-      base::WrapUnique(provider));
-
-  std::string script = R"(
-    // kicks off an sms receiver call, but deliberately leaves it hanging.
-    navigator.sms.receive({timeout: 60});
-    true
-  )";
+  auto provider = std::make_unique<MockSmsProvider>();
+  MockSmsProvider* mock_provider_ptr = provider.get();
+  GetSmsFetcher()->SetSmsProviderForTesting(std::move(provider));
 
   base::RunLoop loop;
 
-  EXPECT_CALL(*provider, Retrieve()).WillOnce(Invoke([&loop]() {
+  EXPECT_CALL(*mock_provider_ptr, Retrieve()).WillOnce(Invoke([&loop]() {
     loop.Quit();
   }));
 
-  EXPECT_EQ(true, EvalJs(shell(), script));
+  EXPECT_TRUE(ExecJs(shell(), R"(
+      // kicks off an sms receiver call, but deliberately leaves it hanging.
+      navigator.credentials.get({otp: {transport: ["sms"]}});
+    )"));
 
   loop.Run();
 
   shell()->Close();
 
-  provider->NotifyReceive(url::Origin::Create(url), "hello");
+  mock_provider_ptr->NotifyReceive(url::Origin::Create(url), "hello");
+
+  ExpectNoOutcomeUKM();
 }
 
 IN_PROC_BROWSER_TEST_F(SmsBrowserTest, Cancels) {
+  base::HistogramTester histogram_tester;
   GURL url = GetTestUrl(nullptr, "simple_page.html");
-  NavigateToURL(shell(), url);
+  EXPECT_TRUE(NavigateToURL(shell(), url));
 
-  auto* provider = new NiceMock<MockSmsProvider>();
-  BrowserMainLoop::GetInstance()->SetSmsProviderForTesting(
-      base::WrapUnique(provider));
+  auto provider = std::make_unique<MockSmsProvider>();
+  MockSmsProvider* mock_provider_ptr = provider.get();
+  GetSmsFetcher()->SetSmsProviderForTesting(std::move(provider));
 
-  StrictMock<MockWebContentsDelegate> delegate;
-  shell()->web_contents()->SetDelegate(&delegate);
+  shell()->web_contents()->SetDelegate(&delegate_);
 
-  auto* dialog = new StrictMock<MockSmsDialog>();
+  base::RunLoop ukm_loop;
 
-  EXPECT_CALL(delegate, CreateSmsDialog())
-      .WillOnce(Return(ByMove(base::WrapUnique(dialog))));
+  ExpectSmsPrompt();
 
-  EXPECT_CALL(*dialog, Open(_, _, _))
-      .WillOnce(
-          Invoke([](content::RenderFrameHost*, base::OnceClosure on_continue,
-                    base::OnceClosure on_cancel) {
-            // Simulates the user pressing "cancel".
-            std::move(on_cancel).Run();
-          }));
+  EXPECT_CALL(*mock_provider_ptr, Retrieve()).WillOnce(Invoke([&]() {
+    mock_provider_ptr->NotifyReceive(url::Origin::Create(url), "hello");
+    DismissPrompt();
+  }));
 
-  EXPECT_CALL(*dialog, Close()).WillOnce(Return());
+  // Wait for UKM to be recorded to avoid race condition between outcome
+  // capture and evaluation.
+  ukm_recorder()->SetOnAddEntryCallback(Entry::kEntryName,
+                                        ukm_loop.QuitClosure());
 
-  std::string script = R"(
-    (async () => {
-      try {
-        await navigator.sms.receive({timeout: 10});
-        return false;
-      } catch (e) {
-        // Expects an exception to be thrown.
-        return e.name;
-      }
-    }) ();
-  )";
+  EXPECT_TRUE(ExecJs(shell(), R"(
+     var error = navigator.credentials.get({otp: {transport: ["sms"]}})
+       .catch(({name}) => {
+         return name;
+       });
+    )"));
 
-  EXPECT_EQ("AbortError", EvalJs(shell(), script));
+  ukm_loop.Run();
+
+  EXPECT_EQ("AbortError", EvalJs(shell(), "error"));
+
+  content::FetchHistogramsFromChildProcesses();
+  ExpectOutcomeUKM(url, blink::SMSReceiverOutcome::kCancelled);
+  histogram_tester.ExpectTotalCount("Blink.Sms.Receive.TimeCancel", 1);
 }
 
-IN_PROC_BROWSER_TEST_F(SmsBrowserTest, TimesOut) {
+IN_PROC_BROWSER_TEST_F(SmsBrowserTest, AbortAfterSmsRetrieval) {
   GURL url = GetTestUrl(nullptr, "simple_page.html");
-  NavigateToURL(shell(), url);
+  EXPECT_TRUE(NavigateToURL(shell(), url));
 
-  auto* provider = new NiceMock<MockSmsProvider>();
-  BrowserMainLoop::GetInstance()->SetSmsProviderForTesting(
-      base::WrapUnique(provider));
+  auto provider = std::make_unique<MockSmsProvider>();
+  MockSmsProvider* mock_provider_ptr = provider.get();
+  GetSmsFetcher()->SetSmsProviderForTesting(std::move(provider));
 
-  std::string script = R"(
-    (async () => {
-      try {
-        await navigator.sms.receive({timeout: 1});
-        return false;
-      } catch (e) {
-        // Expects an exception to be thrown.
-        return e.name;
-      }
-    }) ();
-  )";
+  shell()->web_contents()->SetDelegate(&delegate_);
 
-  EXPECT_EQ("TimeoutError", EvalJs(shell(), script));
+  ExpectSmsPrompt();
+
+  EXPECT_CALL(*mock_provider_ptr, Retrieve())
+      .WillOnce(Invoke([&mock_provider_ptr, &url]() {
+        mock_provider_ptr->NotifyReceive(url::Origin::Create(url), "hello");
+      }));
+
+  EXPECT_TRUE(ExecJs(shell(), R"(
+       var controller = new AbortController();
+       var signal = controller.signal;
+       var request = navigator.credentials
+         .get({otp: {transport: ["sms"]}, signal: signal})
+         .catch(({name}) => {
+           return name;
+         });
+     )"));
+
+  base::RunLoop ukm_loop;
+
+  // Wait for UKM to be recorded to avoid race condition between outcome
+  // capture and evaluation.
+  ukm_recorder()->SetOnAddEntryCallback(Entry::kEntryName,
+                                        ukm_loop.QuitClosure());
+
+  EXPECT_TRUE(ExecJs(shell(), R"( controller.abort(); )"));
+
+  ukm_loop.Run();
+
+  EXPECT_EQ("AbortError", EvalJs(shell(), "request"));
+
+  ExpectOutcomeUKM(url, blink::SMSReceiverOutcome::kAborted);
 }
 
 }  // namespace content

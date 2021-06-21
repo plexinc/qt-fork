@@ -45,8 +45,8 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadPathReservationTracker {
   // If |requested_target_path| was not writeable, then the parent directory of
   // |target_path| may be different from that of |requested_target_path|.
   using ReservedPathCallback =
-      base::Callback<void(PathValidationResult result,
-                          const base::FilePath& target_path)>;
+      base::OnceCallback<void(PathValidationResult result,
+                              const base::FilePath& target_path)>;
 
   // The largest index for the uniquification suffix that we will try while
   // attempting to come up with a unique path.
@@ -103,7 +103,7 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadPathReservationTracker {
                               const base::FilePath& fallback_directory,
                               bool create_directory,
                               FilenameConflictAction conflict_action,
-                              const ReservedPathCallback& callback);
+                              ReservedPathCallback callback);
 
   // Returns true if |path| is in use by an existing path reservation. Should
   // only be called on the task runner returned by
@@ -111,13 +111,17 @@ class COMPONENTS_DOWNLOAD_EXPORT DownloadPathReservationTracker {
   // tests.
   static bool IsPathInUseForTesting(const base::FilePath& path);
 
-  // Returns true if there is an existing path reservation, separate from the
-  // download_item. Called by
+  using CheckDownloadPathCallback =
+      base::OnceCallback<void(bool /* file_exists */)>;
+
+  // Checks to see if there is an existing path reservation that is separate
+  // from the |download_item|, and calls |callback| with the result. Called by
   // ChromeDownloadManagerDelegate::OnDownloadTargetDetermined to see if there
   // is a target collision.
-  static bool CheckDownloadPathForExistingDownload(
+  static void CheckDownloadPathForExistingDownload(
       const base::FilePath& target_path,
-      DownloadItem* download_item);
+      DownloadItem* download_item,
+      CheckDownloadPathCallback callback);
 
   static scoped_refptr<base::SequencedTaskRunner> GetTaskRunner();
 };

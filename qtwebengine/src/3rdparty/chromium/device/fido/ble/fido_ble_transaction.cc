@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "components/device_event_log/device_event_log.h"
@@ -17,9 +18,7 @@ namespace device {
 
 FidoBleTransaction::FidoBleTransaction(FidoBleConnection* connection,
                                        uint16_t control_point_length)
-    : connection_(connection),
-      control_point_length_(control_point_length),
-      weak_factory_(this) {
+    : connection_(connection), control_point_length_(control_point_length) {
   buffer_.reserve(control_point_length_);
 }
 

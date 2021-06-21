@@ -30,22 +30,24 @@
 #include <memory>
 
 #include "base/optional.h"
-#include "third_party/blink/public/platform/web_audio_source_provider_client.h"
+#include "base/timer/elapsed_timer.h"
 #include "third_party/blink/public/platform/web_media_player_client.h"
 #include "third_party/blink/public/platform/webaudiosourceprovider_impl.h"
 #include "third_party/blink/renderer/bindings/core/v8/active_script_wrappable.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/core/core_export.h"
-#include "third_party/blink/renderer/core/execution_context/context_lifecycle_state_observer.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_state_observer.h"
 #include "third_party/blink/renderer/core/html/html_element.h"
 #include "third_party/blink/renderer/core/html/media/media_controls.h"
 #include "third_party/blink/renderer/core/intersection_observer/intersection_observer.h"
 #include "third_party/blink/renderer/platform/audio/audio_source_provider.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
+#include "third_party/blink/renderer/platform/media/web_audio_source_provider_client.h"
 #include "third_party/blink/renderer/platform/network/mime/mime_type_registry.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cancellable_task.h"
 #include "third_party/blink/renderer/platform/supplementable.h"
 #include "third_party/blink/renderer/platform/timer.h"
+#include "third_party/blink/renderer/platform/weborigin/kurl.h"
 
 namespace cc {
 class Layer;
@@ -59,15 +61,13 @@ class AudioTrackList;
 class AutoplayPolicy;
 class ContentType;
 class CueTimeline;
-class EnumerationHistogram;
 class Event;
 class EventQueue;
 class ExceptionState;
 class HTMLMediaElementControlsList;
-class HTMLMediaSource;
+class MediaSource;
 class HTMLSourceElement;
 class HTMLTrackElement;
-class KURL;
 class MediaError;
 class MediaStreamDescriptor;
 class ScriptPromiseResolver;
@@ -85,16 +85,13 @@ class CORE_EXPORT HTMLMediaElement
     : public HTMLElement,
       public Supplementable<HTMLMediaElement>,
       public ActiveScriptWrappable<HTMLMediaElement>,
-      public ContextLifecycleStateObserver,
+      public ExecutionContextLifecycleStateObserver,
       private WebMediaPlayerClient {
   DEFINE_WRAPPERTYPEINFO();
   USING_GARBAGE_COLLECTED_MIXIN(HTMLMediaElement);
   USING_PRE_FINALIZER(HTMLMediaElement, Dispose);
 
  public:
-  // Returns attributes that should be checked against Trusted Types
-  const AttrNameToTrustedType& GetCheckedAttributeTypes() const override;
-
   bool IsMediaElement() const override { return true; }
 
   static MIMETypeRegistry::SupportsType GetSupportsType(const ContentType&);
@@ -141,7 +138,6 @@ class CORE_EXPORT HTMLMediaElement
 
   // network state
   void SetSrc(const AtomicString&);
-  void SetSrc(const USVStringOrTrustedURL&, ExceptionState&);
   const KURL& currentSrc() const { return current_src_; }
 
   // Return the URL to be used for downloading the media.
@@ -202,12 +198,13 @@ class CORE_EXPORT HTMLMediaElement
   TimeRanges* seekable() const;
   bool ended() const;
   bool Autoplay() const;
-  bool ShouldAutoplay();
   bool Loop() const;
   void SetLoop(bool);
   ScriptPromise playForBindings(ScriptState*);
   base::Optional<DOMExceptionCode> Play();
   void pause();
+  double latencyHint() const;
+  void setLatencyHint(double);
   void FlingingStarted();
   void FlingingStopped();
 
@@ -246,11 +243,6 @@ class CORE_EXPORT HTMLMediaElement
   TextTrackList* textTracks();
   CueTimeline& GetCueTimeline();
 
-  void addTextTrack(TextTrack*);
-  void RemoveTextTrack(TextTrack*);
-  void TextTracksChanged();
-  void NotifyMediaPlayerOfTextTrackChanges();
-
   // Implements the "forget the media element's media-resource-specific tracks"
   // algorithm in the HTML5 spec.
   void ForgetResourceSpecificTracks();
@@ -270,10 +262,10 @@ class CORE_EXPORT HTMLMediaElement
   void DisableAutomaticTextTrackSelection();
 
   // EventTarget function.
-  // Both Node (via HTMLElement) and ContextLifecycleStateObserver define this
-  // method, which causes an ambiguity error at compile time. This class's
-  // constructor ensures that both implementations return document, so return
-  // the result of one of them here.
+  // Both Node (via HTMLElement) and ExecutionContextLifecycleStateObserver
+  // define this method, which causes an ambiguity error at compile time. This
+  // class's constructor ensures that both implementations return document, so
+  // return the result of one of them here.
   using HTMLElement::GetExecutionContext;
 
   bool IsFullscreen() const;
@@ -312,9 +304,6 @@ class CORE_EXPORT HTMLMediaElement
   // Checks to see if current media data is CORS-same-origin.
   bool IsMediaDataCorsSameOrigin() const;
 
-  // Returns this media element is in a cross-origin frame.
-  bool IsInCrossOriginFrame() const;
-
   void ScheduleEvent(Event*);
 
   // Returns the "effective media volume" value as specified in the HTML5 spec.
@@ -344,6 +333,9 @@ class CORE_EXPORT HTMLMediaElement
   void SetCcLayerForTesting(cc::Layer* layer) { SetCcLayer(layer); }
 
  protected:
+  // Assert the correct order of the children in shadow dom when DCHECK is on.
+  static void AssertShadowRootChildren(ShadowRoot&);
+
   HTMLMediaElement(const QualifiedName&, Document&);
   ~HTMLMediaElement() override;
   void Dispose();
@@ -371,14 +363,16 @@ class CORE_EXPORT HTMLMediaElement
   DisplayMode GetDisplayMode() const { return display_mode_; }
   virtual void SetDisplayMode(DisplayMode mode) { display_mode_ = mode; }
 
-  // Assert the correct order of the children in shadow dom when DCHECK is on.
-  static void AssertShadowRootChildren(ShadowRoot&);
+  // Called after the creation of |web_media_player_|.
+  virtual void OnWebMediaPlayerCreated() {}
 
  private:
   // Friend class for testing.
   friend class ContextMenuControllerTest;
   friend class VideoWakeLockTest;
   friend class PictureInPictureControllerTest;
+
+  bool HasPendingActivityInternal() const;
 
   void ResetMediaPlayerAndMediaSource();
 
@@ -396,9 +390,9 @@ class CORE_EXPORT HTMLMediaElement
 
   bool IsInteractiveContent() const final;
 
-  // ContextLifecycleStateObserver functions.
+  // ExecutionContextLifecycleStateObserver functions.
   void ContextLifecycleStateChanged(mojom::FrameLifecycleState) override;
-  void ContextDestroyed(ExecutionContext*) override;
+  void ContextDestroyed() override;
 
   virtual void UpdateDisplayState() {}
   virtual void OnPlay() {}
@@ -451,6 +445,8 @@ class CORE_EXPORT HTMLMediaElement
   void RequestPlay() final;
   void RequestPause() final;
   void RequestMuted(bool muted) final;
+  void RequestEnterPictureInPicture() override {}
+  void RequestExitPictureInPicture() override {}
 
   void LoadTimerFired(TimerBase*);
   void ProgressEventTimerFired(TimerBase*);
@@ -462,7 +458,6 @@ class CORE_EXPORT HTMLMediaElement
 
   void Seek(double time);
   void FinishSeek();
-  void CheckIfSeekNeeded();
   void AddPlayedRange(double start, double end);
 
   // FIXME: Rename to scheduleNamedEvent for clarity.
@@ -509,7 +504,6 @@ class CORE_EXPORT HTMLMediaElement
   // This does not stop autoplay visibility observation.
   void PauseInternal();
 
-  void UpdateVolume();
   void UpdatePlayState();
   bool PotentiallyPlaying() const;
   bool StoppedDueToErrors() const;
@@ -562,11 +556,9 @@ class CORE_EXPORT HTMLMediaElement
   void RejectPlayPromises(DOMExceptionCode, const String&);
   void RejectPlayPromisesInternal(DOMExceptionCode, const String&);
 
-  EnumerationHistogram& ShowControlsHistogram() const;
-
   void OnRemovedFromDocumentTimerFired(TimerBase*);
 
-  void DefaultEventHandler(Event&) override;
+  Features GetFeatures() override;
 
   TaskRunnerTimer<HTMLMediaElement> load_timer_;
   TaskRunnerTimer<HTMLMediaElement> progress_event_timer_;
@@ -634,14 +626,7 @@ class CORE_EXPORT HTMLMediaElement
 
   DisplayMode display_mode_;
 
-  // If any portion of an attached HTMLMediaElement (HTMLME) and the MediaSource
-  // Extensions (MSE) API is alive (having pending activity or traceable from a
-  // GC root), the whole group is not GC'ed. Here, using Member,
-  // instead of Member, because |media_source_|'s wrapper needs to remain alive
-  // at least to successfully dispatch any events enqueued by behavior of the
-  // HTMLME+MSE API. It makes |media_source_|'s wrapper remain alive as long as
-  // this HTMLMediaElement's wrapper is alive.
-  Member<HTMLMediaSource> media_source_;
+  Member<MediaSource> media_source_;
 
   // Stores "official playback position", updated periodically from "current
   // playback position". Official playback position should not change while
@@ -697,9 +682,8 @@ class CORE_EXPORT HTMLMediaElement
 
   // AudioClientImpl wraps an AudioSourceProviderClient.
   // When the audio format is known, Chromium calls setFormat().
-  class AudioClientImpl final
-      : public GarbageCollectedFinalized<AudioClientImpl>,
-        public WebAudioSourceProviderClient {
+  class AudioClientImpl final : public GarbageCollected<AudioClientImpl>,
+                                public WebAudioSourceProviderClient {
    public:
     explicit AudioClientImpl(AudioSourceProviderClient* client)
         : client_(client) {}
@@ -746,7 +730,6 @@ class CORE_EXPORT HTMLMediaElement
   friend class Internals;
   friend class TrackDisplayUpdateScope;
   friend class MediaControlsImplTest;
-  friend class MediaControlsTouchlessImplTest;
   friend class HTMLMediaElementTest;
   friend class HTMLMediaElementEventListenersTest;
   friend class HTMLVideoElement;
@@ -767,11 +750,21 @@ class CORE_EXPORT HTMLMediaElement
   Member<IntersectionObserver> lazy_load_intersection_observer_;
 };
 
-inline bool IsHTMLMediaElement(const HTMLElement& element) {
-  return IsHTMLAudioElement(element) || IsHTMLVideoElement(element);
+template <>
+inline bool IsElementOfType<const HTMLMediaElement>(const Node& node) {
+  return IsA<HTMLMediaElement>(node);
 }
-
-DEFINE_HTMLELEMENT_TYPE_CASTS_WITH_FUNCTION(HTMLMediaElement);
+template <>
+struct DowncastTraits<HTMLMediaElement> {
+  static bool AllowFrom(const Node& node) {
+    auto* html_element = DynamicTo<HTMLElement>(node);
+    return html_element && AllowFrom(*html_element);
+  }
+  static bool AllowFrom(const HTMLElement& html_element) {
+    return IsA<HTMLAudioElement>(html_element) ||
+           IsA<HTMLVideoElement>(html_element);
+  }
+};
 
 }  // namespace blink
 

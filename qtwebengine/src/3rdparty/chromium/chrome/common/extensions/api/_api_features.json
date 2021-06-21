@@ -61,6 +61,9 @@
     "dependencies": ["manifest:action"],
     "contexts": ["blessed_extension"]
   },
+  "action.setIcon": {
+    "disallow_for_service_workers": true
+  },
   "activityLogPrivate": [{
     "dependencies": ["permission:activityLogPrivate"],
     "contexts": ["blessed_extension"]
@@ -104,9 +107,6 @@
     "channel": "stable",
     "contexts": ["webui"],
     "matches": [
-      // TODO(maybelle): Audit and remove chrome://settings or
-      // chrome://os-settings as appropriate
-      "chrome://os-settings/*",
       "chrome://settings/*"
     ]
   }],
@@ -158,8 +158,7 @@
   },
   "browserAction": {
     "dependencies": ["manifest:browser_action"],
-    "contexts": ["blessed_extension"],
-    "disallow_for_service_workers": false
+    "contexts": ["blessed_extension"]
   },
   // This API is whitelisted on stable and should not be enabled for a wider
   // audience without resolving security issues raised in API proposal and
@@ -235,6 +234,7 @@
     "channel": "stable",
     "contexts": ["webui"],
     "matches": [
+      "chrome://cellular-setup/*",
       "chrome://chrome-signin/*",
       "chrome://discards/*",
       "chrome://hats/*",
@@ -263,8 +263,7 @@
   },
   "contextMenus": {
     "dependencies": ["permission:contextMenus"],
-    "contexts": ["blessed_extension"],
-    "disallow_for_service_workers": false
+    "contexts": ["blessed_extension"]
   },
   "contextMenusInternal": {
     "internal": true,
@@ -319,11 +318,7 @@
   }, {
     "channel": "stable",
     "contexts": ["webui"],
-    "matches": [
-      "chrome://extensions/*",
-      "chrome://extensions-frame/*",
-      "chrome://chrome/extensions/*"
-    ]
+    "matches": ["chrome://extensions/*"]
   }],
   // All devtools APIs are implemented by hand, so don't compile them.
   "devtools.inspectedWindow": {
@@ -364,12 +359,14 @@
   },
   "enterprise.platformKeys": {
     "dependencies": ["permission:enterprise.platformKeys"],
-    "contexts": ["blessed_extension"]
+    "contexts": ["blessed_extension"],
+    "disallow_for_service_workers": true
   },
   "enterprise.platformKeysInternal": {
     "dependencies": ["permission:enterprise.platformKeys"],
     "internal": true,
-    "contexts": ["blessed_extension"]
+    "contexts": ["blessed_extension"],
+    "disallow_for_service_workers": true
   },
   "enterprise.platformKeysPrivate": {
     "dependencies": ["permission:enterprise.platformKeysPrivate"],
@@ -394,15 +391,23 @@
     "extension_types": ["extension", "legacy_packaged_app"],
     "contexts": ["blessed_extension"]
   },
+  "extension.getBackgroundPage": {
+    "contexts": ["blessed_extension"],
+    "disallow_for_service_workers": true
+  },
+  "extension.getExtensionTabs": {
+    "contexts": ["blessed_extension"],
+    "disallow_for_service_workers": true
+  },
   "extension.getURL": {
-    "contexts": ["blessed_extension", "unblessed_extension", "content_script"],
-    "disallow_for_service_workers": false
+    "contexts": ["blessed_extension", "unblessed_extension", "content_script"]
   },
   "extension.getViews": [
     {
       "channel": "stable",
       "contexts": ["blessed_extension"],
-      "extension_types": ["extension", "legacy_packaged_app"]
+      "extension_types": ["extension", "legacy_packaged_app"],
+      "disallow_for_service_workers": true
     },
     {
       // TODO(yoz): Eliminate this usage.
@@ -411,7 +416,8 @@
       "extension_types": ["platform_app"],
       "whitelist": [
         "A948368FC53BE437A55FEB414106E207925482F5"  // File manager
-      ]
+      ],
+      "disallow_for_service_workers": true
     }
   ],
   "extension.inIncognitoContext": {
@@ -426,16 +432,12 @@
   "extension.sendRequest": {
     "contexts": ["blessed_extension", "unblessed_extension", "content_script"]
   },
-  "extensionOptionsInternal": [{
-    "internal": true,
-    "contexts": ["blessed_extension"],
-    "dependencies": ["permission:embeddedExtensionOptions"]
-  }, {
+  "extensionOptionsInternal": {
     "internal": true,
     "channel": "stable",
     "contexts": ["webui"],
-    "matches": ["chrome://extensions-frame/*", "chrome://extensions/*"]
-  }],
+    "matches": ["chrome://extensions/*"]
+  },
   // This is not a real API, only here for documentation purposes.
   // See http://crbug.com/275944 for background.
   "extensionsManifestTypes": {
@@ -445,12 +447,14 @@
   },
   "fileBrowserHandler": {
     "dependencies": ["permission:fileBrowserHandler"],
-    "contexts": ["blessed_extension"]
+    "contexts": ["blessed_extension"],
+    "disallow_for_service_workers": true
   },
   "fileBrowserHandlerInternal": {
     "internal": true,
     "dependencies": ["permission:fileBrowserHandler"],
-    "contexts": ["blessed_extension"]
+    "contexts": ["blessed_extension"],
+    "disallow_for_service_workers": true
   },
   "fileManagerPrivate": {
     "dependencies": ["permission:fileManagerPrivate"],
@@ -463,12 +467,14 @@
   },
   "fileSystemProvider": {
     "dependencies": ["permission:fileSystemProvider"],
-    "contexts": ["blessed_extension"]
+    "contexts": ["blessed_extension"],
+    "disallow_for_service_workers": true
   },
   "fileSystemProviderInternal": {
     "internal": true,
     "dependencies": ["permission:fileSystemProvider"],
-    "contexts": ["blessed_extension"]
+    "contexts": ["blessed_extension"],
+    "disallow_for_service_workers": true
   },
   "fontSettings": {
     "dependencies": ["permission:fontSettings"],
@@ -484,9 +490,14 @@
   },
   "i18n": {
     "channel": "stable",
-    "extension_types": ["extension", "legacy_packaged_app", "platform_app"],
+    "extension_types": ["extension", "legacy_packaged_app", "platform_app",
+                        "login_screen_extension"],
     "contexts": ["blessed_extension", "unblessed_extension", "content_script",
-                 "lock_screen_extension"]
+                 "lock_screen_extension"],
+    "disallow_for_service_workers": true
+  },
+  "i18n.getAcceptLanguages": {
+    "disallow_for_service_workers": false
   },
   "identity": {
     "dependencies": ["permission:identity"],
@@ -545,10 +556,19 @@
   },
   "login": {
     "dependencies": ["permission:login"],
+    "contexts": ["blessed_extension"],
+    "disallow_for_service_workers": true
+  },
+  "loginScreenStorage": {
+    "dependencies": ["permission:loginScreenStorage"],
     "contexts": ["blessed_extension"]
   },
   "loginScreenUi": {
     "dependencies": ["permission:loginScreenUi"],
+    "contexts": ["blessed_extension"]
+  },
+  "loginState": {
+    "dependencies": ["permission:loginState"],
     "contexts": ["blessed_extension"]
   },
   "webcamPrivate": {
@@ -591,11 +611,13 @@
   },
   "pageAction": {
     "dependencies": ["manifest:page_action"],
-    "contexts": ["blessed_extension"]
+    "contexts": ["blessed_extension"],
+    "disallow_for_service_workers": true
   },
   "pageCapture": {
     "dependencies": ["permission:pageCapture"],
-    "contexts": ["blessed_extension"]
+    "contexts": ["blessed_extension"],
+    "disallow_for_service_workers": true
   },
   "passwordsPrivate": [{
     "dependencies": ["permission:passwordsPrivate"],
@@ -604,9 +626,6 @@
     "channel": "stable",
     "contexts": ["webui"],
     "matches": [
-      // TODO(maybelle): Audit and remove chrome://settings or
-      // chrome://os-settings as appropriate
-      "chrome://os-settings/*",
       "chrome://settings/*"
     ]
   }],
@@ -617,17 +636,28 @@
   },
   "platformKeys": {
     "dependencies": ["permission:platformKeys"],
-    "contexts": ["blessed_extension"]
+    "contexts": ["blessed_extension"],
+    "disallow_for_service_workers": true
   },
   "platformKeysInternal": [{
     "dependencies": ["permission:platformKeys"],
     "internal": true,
-    "contexts": ["blessed_extension"]
+    "contexts": ["blessed_extension"],
+    "disallow_for_service_workers": true
   },{
     "dependencies": ["permission:enterprise.platformKeys"],
     "internal": true,
-    "contexts": ["blessed_extension"]
+    "contexts": ["blessed_extension"],
+    "disallow_for_service_workers": true
   }],
+  "printing": {
+    "dependencies": ["permission:printing"],
+    "contexts": ["blessed_extension"]
+  },
+  "printingMetrics": {
+    "dependencies": ["permission:printingMetrics"],
+    "contexts": ["blessed_extension"]
+  },
   "privacy": {
     "dependencies": ["permission:privacy"],
     "contexts": ["blessed_extension"]
@@ -649,8 +679,6 @@
     "contexts": ["webui"],
     "matches": [
       "chrome://multidevice-setup/*",
-      // TODO(maybelle): Audit and remove chrome://settings or
-      // chrome://os-settings as appropriate
       "chrome://os-settings/*",
       "chrome://settings/*",
       "chrome://oobe/*"
@@ -686,12 +714,14 @@
     "channel": "stable",
     "contexts": ["webui"],
     "matches": [
-      // TODO(maybelle): Audit and remove chrome://settings or
-      // chrome://os-settings as appropriate
       "chrome://os-settings/*",
       "chrome://settings/*"
     ]
   }],
+  "autofillAssistantPrivate": {
+    "dependencies": ["permission:autofillAssistantPrivate"],
+    "contexts": ["blessed_extension"]
+  },
   "signedInDevices": {
     "dependencies": ["permission:signedInDevices"],
     "contexts": ["blessed_extension"]
@@ -706,33 +736,48 @@
   },
   "tabCapture": {
     "dependencies": ["permission:tabCapture"],
-    "contexts": ["blessed_extension"]
+    "contexts": ["blessed_extension"],
+    "disallow_for_service_workers": true
   },
   "tabs": [{
     "channel": "stable",
     "extension_types": ["extension", "legacy_packaged_app"],
-    "contexts": ["blessed_extension"],
-    "disallow_for_service_workers": false
+    "contexts": ["blessed_extension"]
   }, {
     "channel": "stable",
     "contexts": ["webui"],
     "matches": [
       "chrome://bookmarks/*",
-      "chrome://terminal/*"
+      "chrome://tab-strip/*"
     ]
-  }],
-  "terminalPrivate": [{
-    "dependencies": ["permission:terminalPrivate"],
-    "contexts": ["blessed_extension"],
-    "platforms": ["chromeos"]
   }, {
-    "channel": "dev",
-    "contexts": ["webui"],
+    "channel": "stable",
+    "contexts": ["webui_untrusted"],
     "matches": [
-      "chrome://terminal/*"
+      "chrome-untrusted://terminal/*"
     ],
     "platforms": ["chromeos"]
   }],
+  // chrome.terminalPrivate allowed for crosh/nassh extensions,
+  // and chrome-untrusted://terminal.
+  "terminalPrivate": [{
+    "dependencies": ["permission:terminalPrivate"],
+    "contexts": ["blessed_extension"],
+    "default_parent": true,
+    "platforms": ["chromeos"]
+  }, {
+    "channel": "stable",
+    "contexts": ["webui_untrusted"],
+    "matches": [
+      "chrome-untrusted://terminal/*"
+    ],
+    "platforms": ["chromeos"]
+  }],
+  // terminalPrivate.openTerminalProcess only allowed for
+  // crosh/nassh extensions.
+  "terminalPrivate.openTerminalProcess": {
+    "contexts": ["blessed_extension"]
+  },
   "topSites": {
     "dependencies": ["permission:topSites"],
     "contexts": ["blessed_extension"]
@@ -753,10 +798,7 @@
     "channel": "stable",
     "contexts": ["webui"],
     "matches": [
-      // TODO(maybelle): Audit and remove chrome://settings or
-      // chrome://os-settings as appropriate
-      "chrome://os-settings/*",
-      "chrome://settings/*"
+      "chrome://os-settings/*"
     ]
   }],
   "virtualKeyboardPrivate": {
@@ -773,8 +815,7 @@
   },
   "webNavigation": {
     "dependencies": ["permission:webNavigation"],
-    "contexts": ["blessed_extension"],
-    "disallow_for_service_workers": false
+    "contexts": ["blessed_extension"]
   },
   "webrtcAudioPrivate": {
     "dependencies": ["permission:webrtcAudioPrivate"],
@@ -820,7 +861,14 @@
     "contexts": ["webui"],
     "matches": [
       "chrome://bookmarks/*",
-      "chrome://terminal/*"
+      "chrome://tab-strip/*"
     ]
+  }, {
+    "channel": "stable",
+    "contexts": ["webui_untrusted"],
+    "matches": [
+      "chrome-untrusted://terminal/*"
+    ],
+    "platforms": ["chromeos"]
   }]
 }

@@ -23,8 +23,7 @@ class ExecutionContext;
 // BytesConsumer has four states: waiting, readable, closed and errored. Once
 // the state becomes closed or errored, it will never change. |readable| means
 // that the BytesConsumer is ready to read non-empty bytes synchronously.
-class PLATFORM_EXPORT BytesConsumer
-    : public GarbageCollectedFinalized<BytesConsumer> {
+class PLATFORM_EXPORT BytesConsumer : public GarbageCollected<BytesConsumer> {
  public:
   enum class Result {
     kOk,
@@ -178,7 +177,7 @@ class PLATFORM_EXPORT BytesConsumer
   // Returns a BytesConsumer whose state is Errored.
   static BytesConsumer* CreateErrored(const Error&);
 
-  virtual void Trace(blink::Visitor* visitor) {}
+  virtual void Trace(Visitor* visitor) {}
 
  protected:
   // This InternalState directly corresponds to the states in the class

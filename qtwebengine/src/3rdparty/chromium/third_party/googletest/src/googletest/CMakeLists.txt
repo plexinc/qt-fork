@@ -188,7 +188,7 @@ if (gtest_build_tests)
 "$project_bin = \"${CMAKE_BINARY_DIR}/bin/$<CONFIG>\"
 $env:Path = \"$project_bin;$env:Path\"
 & $args")
-  elseif (MINGW)
+  elseif (MINGW OR CYGWIN)
     file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/RunTest.ps1"
          CONTENT
 "$project_bin = (cygpath --windows ${CMAKE_BINARY_DIR}/bin)
@@ -266,6 +266,7 @@ $env:Path = \"$project_bin;$env:Path\"
   cxx_executable(googletest-break-on-failure-unittest_ test gtest)
   py_test(googletest-break-on-failure-unittest)
 
+  py_test(gtest_skip_check_output_test)
   py_test(gtest_skip_environment_check_output_test)
 
   # Visual Studio .NET 2003 does not support STL with exceptions disabled.

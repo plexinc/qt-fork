@@ -47,8 +47,8 @@
 #include "third_party/blink/renderer/platform/loader/subresource_integrity.h"
 #include "third_party/blink/renderer/platform/network/mime/mime_type_registry.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
-#include "third_party/blink/renderer/platform/shared_buffer.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
+#include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
 
 namespace blink {
 
@@ -58,13 +58,12 @@ namespace {
 // defined in the Fetch spec:
 // https://fetch.spec.whatwg.org/#request-destination-script-like
 bool IsRequestContextSupported(mojom::RequestContextType request_context) {
-  // TODO(nhiroki): Support |kRequestContextSharedWorker| for module loading for
-  // shared workers (https://crbug.com/824646).
   // TODO(nhiroki): Support "audioworklet" and "paintworklet" destinations.
   switch (request_context) {
     case mojom::RequestContextType::SCRIPT:
     case mojom::RequestContextType::WORKER:
     case mojom::RequestContextType::SERVICE_WORKER:
+    case mojom::RequestContextType::SHARED_WORKER:
       return true;
     default:
       break;
@@ -109,6 +108,18 @@ ScriptResource* ScriptResource::Fetch(FetchParameters& params,
   return resource;
 }
 
+ScriptResource* ScriptResource::CreateForTest(
+    const KURL& url,
+    const WTF::TextEncoding& encoding) {
+  ResourceRequest request(url);
+  request.SetCredentialsMode(network::mojom::CredentialsMode::kOmit);
+  ResourceLoaderOptions options;
+  TextResourceDecoderOptions decoder_options(
+      TextResourceDecoderOptions::kPlainTextContent, encoding);
+  return MakeGarbageCollected<ScriptResource>(request, options,
+                                              decoder_options);
+}
+
 ScriptResource::ScriptResource(
     const ResourceRequest& resource_request,
     const ResourceLoaderOptions& options,
@@ -128,7 +139,7 @@ void ScriptResource::Prefinalize() {
   watcher_.reset();
 }
 
-void ScriptResource::Trace(blink::Visitor* visitor) {
+void ScriptResource::Trace(Visitor* visitor) {
   visitor->Trace(streamer_);
   visitor->Trace(response_body_loader_client_);
   TextResource::Trace(visitor);
@@ -202,13 +213,13 @@ CachedMetadataHandler* ScriptResource::CreateCachedMetadataHandler(
       Encoding(), std::move(send_callback));
 }
 
-void ScriptResource::SetSerializedCachedMetadata(const uint8_t* data,
-                                                 size_t size) {
-  Resource::SetSerializedCachedMetadata(data, size);
+void ScriptResource::SetSerializedCachedMetadata(mojo_base::BigBuffer data) {
+  // Resource ignores the cached metadata.
+  Resource::SetSerializedCachedMetadata(mojo_base::BigBuffer());
   ScriptCachedMetadataHandler* cache_handler =
       static_cast<ScriptCachedMetadataHandler*>(Resource::CacheHandler());
   if (cache_handler) {
-    cache_handler->SetSerializedCachedMetadata(data, size);
+    cache_handler->SetSerializedCachedMetadata(std::move(data));
   }
 }
 
@@ -220,7 +231,8 @@ void ScriptResource::DestroyDecodedDataForFailedRevalidation() {
   SetDecodedSize(0);
 }
 
-void ScriptResource::SetRevalidatingRequest(const ResourceRequest& request) {
+void ScriptResource::SetRevalidatingRequest(
+    const ResourceRequestHead& request) {
   CHECK_EQ(streaming_state_, StreamingState::kFinishedNotificationSent);
   if (streamer_) {
     CHECK(streamer_->IsStreamingFinished());

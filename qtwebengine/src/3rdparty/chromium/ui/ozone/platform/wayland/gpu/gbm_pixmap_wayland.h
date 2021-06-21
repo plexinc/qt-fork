@@ -12,8 +12,8 @@
 #include "base/macros.h"
 #include "ui/gfx/buffer_types.h"
 #include "ui/gfx/geometry/size.h"
+#include "ui/gfx/linux/gbm_buffer.h"
 #include "ui/gfx/native_pixmap.h"
-#include "ui/ozone/common/linux/gbm_buffer.h"
 
 namespace ui {
 
@@ -21,13 +21,16 @@ class WaylandBufferManagerGpu;
 
 class GbmPixmapWayland : public gfx::NativePixmap {
  public:
-  GbmPixmapWayland(WaylandBufferManagerGpu* buffer_manager,
-                   gfx::AcceleratedWidget widget);
+  explicit GbmPixmapWayland(WaylandBufferManagerGpu* buffer_manager);
 
   // Creates a buffer object and initializes the pixmap buffer.
   bool InitializeBuffer(gfx::Size size,
                         gfx::BufferFormat format,
                         gfx::BufferUsage usage);
+
+  // The widget that this pixmap backs can be assigned later. Can be assigned
+  // only once.
+  void SetAcceleratedWiget(gfx::AcceleratedWidget widget);
 
   // gfx::NativePixmap overrides:
   bool AreDmaBufFdsValid() const override;
@@ -62,7 +65,10 @@ class GbmPixmapWayland : public gfx::NativePixmap {
   WaylandBufferManagerGpu* const buffer_manager_;
 
   // Represents widget this pixmap backs.
-  const gfx::AcceleratedWidget widget_;
+  gfx::AcceleratedWidget widget_ = gfx::kNullAcceleratedWidget;
+
+  // A unique ID to identify the buffer for this pixmap.
+  const uint32_t buffer_id_;
 
   DISALLOW_COPY_AND_ASSIGN(GbmPixmapWayland);
 };

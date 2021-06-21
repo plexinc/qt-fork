@@ -3,6 +3,8 @@
 // found in the LICENSE file.
 #include "ui/views/controls/button/image_button_factory.h"
 
+#include <memory>
+
 #include "ui/gfx/color_utils.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/gfx/vector_icon_types.h"
@@ -13,20 +15,38 @@
 #include "ui/views/layout/layout_provider.h"
 #include "ui/views/painter.h"
 
-namespace views {
-
 namespace {
 
-void ConfigureVectorImageButton(ImageButton* button) {
-  button->SetInkDropMode(Button::InkDropMode::ON);
-  button->set_has_ink_drop_action_on_click(true);
-  button->SetImageHorizontalAlignment(ImageButton::ALIGN_CENTER);
-  button->SetImageVerticalAlignment(ImageButton::ALIGN_MIDDLE);
-  button->SetBorder(CreateEmptyBorder(
-      LayoutProvider::Get()->GetInsetsMetric(INSETS_VECTOR_IMAGE_BUTTON)));
-}
+class ColorTrackingVectorImageButton : public views::ImageButton {
+ public:
+  ColorTrackingVectorImageButton(views::ButtonListener* listener,
+                                 const gfx::VectorIcon& icon)
+      : ImageButton(listener), icon_(icon) {}
+
+  // views::ImageButton:
+  void OnThemeChanged() override {
+    ImageButton::OnThemeChanged();
+    const SkColor color = GetNativeTheme()->GetSystemColor(
+        ui::NativeTheme::kColorId_DefaultIconColor);
+    views::SetImageFromVectorIconWithColor(this, icon_, color);
+  }
+
+ private:
+  const gfx::VectorIcon& icon_;
+};
 
 }  // namespace
+
+namespace views {
+
+std::unique_ptr<ImageButton> CreateVectorImageButtonWithNativeTheme(
+    ButtonListener* listener,
+    const gfx::VectorIcon& icon) {
+  auto button =
+      std::make_unique<ColorTrackingVectorImageButton>(listener, icon);
+  ConfigureVectorImageButton(button.get());
+  return button;
+}
 
 std::unique_ptr<ImageButton> CreateVectorImageButton(ButtonListener* listener) {
   auto button = std::make_unique<ImageButton>(listener);
@@ -41,11 +61,13 @@ std::unique_ptr<ToggleImageButton> CreateVectorToggleImageButton(
   return button;
 }
 
-void SetImageFromVectorIcon(ImageButton* button, const gfx::VectorIcon& icon) {
-  SetImageFromVectorIconWithColor(
-      button, icon,
-      ui::NativeTheme::GetInstanceForNativeUi()->GetSystemColor(
-          ui::NativeTheme::kColorId_DefaultIconColor));
+void ConfigureVectorImageButton(ImageButton* button) {
+  button->SetInkDropMode(Button::InkDropMode::ON);
+  button->set_has_ink_drop_action_on_click(true);
+  button->SetImageHorizontalAlignment(ImageButton::ALIGN_CENTER);
+  button->SetImageVerticalAlignment(ImageButton::ALIGN_MIDDLE);
+  button->SetBorder(CreateEmptyBorder(
+      LayoutProvider::Get()->GetInsetsMetric(INSETS_VECTOR_IMAGE_BUTTON)));
 }
 
 void SetImageFromVectorIcon(ImageButton* button,
@@ -93,6 +115,13 @@ void SetToggledImageFromVectorIcon(ToggleImageButton* button,
                                    SkColor related_text_color) {
   const SkColor icon_color =
       color_utils::DeriveDefaultIconColor(related_text_color);
+  SetToggledImageFromVectorIconWithColor(button, icon, dip_size, icon_color);
+}
+
+void SetToggledImageFromVectorIconWithColor(ToggleImageButton* button,
+                                            const gfx::VectorIcon& icon,
+                                            int dip_size,
+                                            SkColor icon_color) {
   const SkColor disabled_color =
       SkColorSetA(icon_color, gfx::kDisabledControlAlpha);
   const gfx::ImageSkia normal_image =

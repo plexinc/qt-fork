@@ -14,6 +14,7 @@
 #include "base/callback.h"
 #include "base/location.h"
 #include "base/memory/ptr_util.h"
+#include "base/run_loop.h"
 #include "base/sequenced_task_runner.h"
 #include "base/single_thread_task_runner.h"
 #include "base/synchronization/lock.h"
@@ -44,6 +45,7 @@
 #include "components/viz/common/resources/returned_resource.h"
 #include "components/viz/common/resources/shared_bitmap.h"
 #include "components/viz/common/resources/transferable_resource.h"
+#include "components/viz/common/surfaces/parent_local_surface_id_allocator.h"
 #include "components/viz/service/display/software_output_device.h"
 #include "components/viz/test/fake_output_surface.h"
 #include "gpu/GLES2/gl2extchromium.h"
@@ -175,7 +177,7 @@ class TextureLayerTest : public testing::Test {
     layer_tree_host_ = MockLayerTreeHost::Create(
         &fake_client_, &task_graph_runner_, animation_host_.get());
     EXPECT_CALL(*layer_tree_host_, SetNeedsCommit()).Times(AnyNumber());
-    layer_tree_host_->SetViewportSizeAndScale(gfx::Size(10, 10), 1.f,
+    layer_tree_host_->SetViewportRectAndScale(gfx::Rect(10, 10), 1.f,
                                               viz::LocalSurfaceIdAllocation());
     Mock::VerifyAndClearExpectations(layer_tree_host_.get());
   }
@@ -212,8 +214,6 @@ TEST_F(TextureLayerTest, CheckPropertyChangeCausesCorrectBehavior) {
   EXPECT_SET_NEEDS_COMMIT(1, test_layer->SetNearestNeighbor(true));
   EXPECT_SET_NEEDS_COMMIT(1, test_layer->SetUV(
       gfx::PointF(0.25f, 0.25f), gfx::PointF(0.75f, 0.75f)));
-  EXPECT_SET_NEEDS_COMMIT(1, test_layer->SetVertexOpacity(
-      0.5f, 0.5f, 0.5f, 0.5f));
   EXPECT_SET_NEEDS_COMMIT(1, test_layer->SetPremultipliedAlpha(false));
   EXPECT_SET_NEEDS_COMMIT(1, test_layer->SetBlendBackgroundColor(true));
 }
@@ -268,8 +268,10 @@ TEST_F(TextureLayerTest, ShutdownWithResource) {
           viz::SingleReleaseCallback::Create(test_data_.sw_release_callback_));
     }
 
-    host->SetViewportSizeAndScale(gfx::Size(10, 10), 1.f,
-                                  viz::LocalSurfaceIdAllocation());
+    viz::ParentLocalSurfaceIdAllocator allocator;
+    allocator.GenerateId();
+    host->SetViewportRectAndScale(
+        gfx::Rect(10, 10), 1.f, allocator.GetCurrentLocalSurfaceIdAllocation());
     host->SetVisible(true);
     host->SetRootLayer(layer);
 
@@ -712,7 +714,7 @@ class TextureLayerImplWithMailboxThreadedCallback : public LayerTreeTest {
 
     root_->AddChild(layer_);
     layer_tree_host()->SetRootLayer(root_);
-    layer_tree_host()->SetViewportSizeAndScale(bounds, 1.f,
+    layer_tree_host()->SetViewportRectAndScale(gfx::Rect(bounds), 1.f,
                                                viz::LocalSurfaceIdAllocation());
     SetMailbox('1');
     EXPECT_EQ(0, callback_count_);
@@ -726,8 +728,6 @@ class TextureLayerImplWithMailboxThreadedCallback : public LayerTreeTest {
     if (!pending_callback_)
       AdvanceTestCase();
   }
-
-  void AfterTest() override {}
 
  private:
   base::ThreadChecker main_thread_;
@@ -785,7 +785,7 @@ class TextureLayerMailboxIsActivatedDuringCommit : public LayerTreeTest {
 
     root_->AddChild(layer_);
     layer_tree_host()->SetRootLayer(root_);
-    layer_tree_host()->SetViewportSizeAndScale(bounds, 1.f,
+    layer_tree_host()->SetViewportRectAndScale(gfx::Rect(bounds), 1.f,
                                                viz::LocalSurfaceIdAllocation());
     SetMailbox('1');
 
@@ -833,8 +833,6 @@ class TextureLayerMailboxIsActivatedDuringCommit : public LayerTreeTest {
     // should happen before the main thread is done).
     EXPECT_EQ(activate_count_, host_impl->sync_tree()->source_frame_number());
   }
-
-  void AfterTest() override {}
 
   base::Lock activate_count_lock_;
   int activate_count_ = 0;
@@ -1076,8 +1074,6 @@ class TextureLayerNoExtraCommitForMailboxTest
     }
   }
 
-  void AfterTest() override {}
-
  private:
   scoped_refptr<TextureLayer> texture_layer_;
 };
@@ -1196,8 +1192,6 @@ class TextureLayerChangeInvisibleMailboxTest
         break;
     }
   }
-
-  void AfterTest() override {}
 
  private:
   scoped_refptr<SolidColorLayer> solid_layer_;
@@ -1323,7 +1317,7 @@ class TextureLayerWithResourceMainThreadDeleted : public LayerTreeTest {
 
     root_->AddChild(layer_);
     layer_tree_host()->SetRootLayer(root_);
-    layer_tree_host()->SetViewportSizeAndScale(bounds, 1.f,
+    layer_tree_host()->SetViewportRectAndScale(gfx::Rect(bounds), 1.f,
                                                viz::LocalSurfaceIdAllocation());
   }
 
@@ -1395,7 +1389,7 @@ class TextureLayerWithResourceImplThreadDeleted : public LayerTreeTest {
 
     root_->AddChild(layer_);
     layer_tree_host()->SetRootLayer(root_);
-    layer_tree_host()->SetViewportSizeAndScale(bounds, 1.f,
+    layer_tree_host()->SetViewportRectAndScale(gfx::Rect(bounds), 1.f,
                                                viz::LocalSurfaceIdAllocation());
   }
 

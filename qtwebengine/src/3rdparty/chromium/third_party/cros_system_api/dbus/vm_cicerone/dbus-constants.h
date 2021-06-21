@@ -30,11 +30,17 @@ const char kStartLxdContainerMethod[] = "StartLxdContainer";
 const char kSetTimezoneMethod[] = "SetTimezone";
 const char kGetLxdContainerUsernameMethod[] = "GetLxdContainerUsername";
 const char kSetUpLxdContainerUserMethod[] = "SetUpLxdContainerUser";
-const char kAppSearchMethod[] = "AppSearch";
 const char kExportLxdContainerMethod[] = "ExportLxdContainer";
 const char kImportLxdContainerMethod[] = "ImportLxdContainer";
 const char kCancelExportLxdContainerMethod[] = "CancelExportLxdContainer";
 const char kCancelImportLxdContainerMethod[] = "CancelImportLxdContainer";
+const char kApplyAnsiblePlaybookMethod[] = "ApplyAnsiblePlaybook";
+const char kUpgradeContainerMethod[] = "UpgradeContainer";
+const char kCancelUpgradeContainerMethod[] = "CancelUpgradeContainer";
+const char kConfigureForArcSideloadMethod[] = "ConfigureForArcSideload";
+
+// Methods to be called from chunneld.
+const char kConnectChunnelMethod[] = "ConnectChunnel";
 
 // Methods to be called from debugd.
 const char kGetDebugInformationMethod[] = "GetDebugInformation";
@@ -42,8 +48,7 @@ const char kGetDebugInformationMethod[] = "GetDebugInformation";
 // Signals.
 const char kContainerStartedSignal[] = "ContainerStarted";
 const char kContainerShutdownSignal[] = "ContainerShutdown";
-const char kInstallLinuxPackageProgressSignal[] =
-    "InstallLinuxPackageProgress";
+const char kInstallLinuxPackageProgressSignal[] = "InstallLinuxPackageProgress";
 const char kUninstallPackageProgressSignal[] = "UninstallPackageProgress";
 const char kLxdContainerCreatedSignal[] = "LxdContainerCreated";
 const char kLxdContainerDeletedSignal[] = "LxdContainerDeleted";
@@ -53,9 +58,11 @@ const char kTremplinStartedSignal[] = "TremplinStarted";
 const char kExportLxdContainerProgressSignal[] = "ExportLxdContainerProgress";
 const char kImportLxdContainerProgressSignal[] = "ImportLxdContainerProgress";
 const char kPendingAppListUpdatesSignal[] = "PendingAppListUpdates";
+const char kApplyAnsiblePlaybookProgressSignal[] =
+    "ApplyAnsiblePlaybookProgress";
+const char kUpgradeContainerProgressSignal[] = "UpgradeContainerProgress";
 
 }  // namespace cicerone
 }  // namespace vm_tools
-
 
 #endif  // SYSTEM_API_DBUS_VM_CICERONE_DBUS_CONSTANTS_H_

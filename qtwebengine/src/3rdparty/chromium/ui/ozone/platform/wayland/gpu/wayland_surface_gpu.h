@@ -7,8 +7,6 @@
 
 #include <memory>
 
-#include "base/macros.h"
-
 namespace gfx {
 enum class SwapResult;
 struct PresentationFeedback;
@@ -22,13 +20,19 @@ namespace ui {
 // the buffer.
 class WaylandSurfaceGpu {
  public:
+  virtual ~WaylandSurfaceGpu() {}
+
   // Tells the surface the result of the last swap of buffer with the
-  // |buffer_id|.
+  // |buffer_id|. After this callback, the previously (before |buffer_id|)
+  // submitted buffer may be reused. This is guaranteed to be called
+  // in the same order that buffers were submitted.
   virtual void OnSubmission(uint32_t buffer_id,
                             const gfx::SwapResult& swap_result) = 0;
 
   // Tells the surface the result of the last presentation of buffer with the
-  // |buffer_id|.
+  // |buffer_id|. This is guaranteed to be called in the same order that
+  // buffers were submitted, and is guaranteed to be called after the
+  // corresponding call to |OnSubmission| for this buffer.
   virtual void OnPresentation(uint32_t buffer_id,
                               const gfx::PresentationFeedback& feedback) = 0;
 };

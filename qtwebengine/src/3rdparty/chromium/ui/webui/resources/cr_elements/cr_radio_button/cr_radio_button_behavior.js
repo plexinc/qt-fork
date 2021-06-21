@@ -6,6 +6,10 @@
  * @fileoverview Behavior for cr-radio-button-like elements.
  */
 
+// clang-format off
+// #import {PaperRippleBehavior} from 'chrome://resources/polymer/v3_0/paper-behaviors/paper-ripple-behavior.js'
+// clang-format on
+
 /** @polymerBehavior */
 const CrRadioButtonBehaviorImpl = {
   properties: {
@@ -22,6 +26,17 @@ const CrRadioButtonBehaviorImpl = {
       notify: true,
     },
 
+    /**
+     * Whether the radio button should be focusable or not. Toggling this
+     * property sets the corresponding tabindex of the button itself as well
+     * as any links in the button description.
+     */
+    focusable: {
+      type: Boolean,
+      value: false,
+      observer: 'onFocusableChanged_',
+    },
+
     label: {
       type: String,
       value: '',  // Allows the hidden$= binding to run without being set.
@@ -32,6 +47,15 @@ const CrRadioButtonBehaviorImpl = {
       notify: true,
       reflectToAttribute: true,
     },
+
+    /**
+     * Holds the tabIndex for the radio button.
+     * @private {number}
+     */
+    buttonTabIndex_: {
+      type: Number,
+      computed: 'getTabIndex_(focusable)',
+    },
   },
 
   listeners: {
@@ -40,25 +64,52 @@ const CrRadioButtonBehaviorImpl = {
     up: 'hideRipple_',
   },
 
-  /** @private */
-  onFocus_: function() {
-    this.getRipple().showAndHoldDown();
+  focus() {
     this.$.button.focus();
   },
 
   /** @private */
-  hideRipple_: function() {
+  onFocusableChanged_() {
+    const links = this.querySelectorAll('a');
+    links.forEach((link) => {
+      // Remove the tab stop on any links when the row is unchecked. Since the
+      // row is not tabbable, any links within the row should not be either.
+      link.tabIndex = this.checked ? 0 : -1;
+    });
+  },
+
+  /** @private */
+  onFocus_() {
+    this.getRipple().showAndHoldDown();
+  },
+
+  /** @private */
+  hideRipple_() {
     this.getRipple().clear();
   },
 
-  /** @private */
-  getAriaChecked_: function() {
+  /**
+   * @return {string}
+   * @private
+   */
+  getAriaChecked_() {
     return this.checked ? 'true' : 'false';
   },
 
-  /** @private */
-  getAriaDisabled_: function() {
+  /**
+   * @return {string}
+   * @private
+   */
+  getAriaDisabled_() {
     return this.disabled ? 'true' : 'false';
+  },
+
+  /**
+   * @return {number}
+   * @private
+   */
+  getTabIndex_() {
+    return this.focusable ? 0 : -1;
   },
 
   /**
@@ -70,14 +121,14 @@ const CrRadioButtonBehaviorImpl = {
    * @param {!Event} e
    * @private
    */
-  onInputKeydown_: function(e) {
+  onInputKeydown_(e) {
     if (e.shiftKey && e.key === 'Tab') {
       this.focus();
     }
   },
 
   // customize the element's ripple
-  _createRipple: function() {
+  _createRipple() {
     this._rippleContainer = this.$$('.disc-wrapper');
     const ripple = Polymer.PaperRippleBehavior._createRipple();
     ripple.id = 'ink';
@@ -89,7 +140,7 @@ const CrRadioButtonBehaviorImpl = {
 
 
 /** @polymerBehavior */
-const CrRadioButtonBehavior = [
+/* #export */ const CrRadioButtonBehavior = [
   Polymer.PaperRippleBehavior,
   CrRadioButtonBehaviorImpl,
 ];

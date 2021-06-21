@@ -27,29 +27,37 @@ class QUIC_EXPORT_PRIVATE QuicVersionManager {
   const ParsedQuicVersionVector& GetSupportedVersions();
 
  protected:
-  // Maybe refilter filtered_supported_versions_ based on flags.
+  // If the value of any reloadable flag is different from the cached value,
+  // re-filter |filtered_supported_versions_| and update the cached flag values.
+  // Otherwise, does nothing.
   void MaybeRefilterSupportedVersions();
 
   // Refilters filtered_supported_versions_.
   virtual void RefilterSupportedVersions();
 
-  const QuicTransportVersionVector& filtered_supported_versions() const {
+  const QuicTransportVersionVector& filtered_transport_versions() const {
     return filtered_transport_versions_;
   }
 
  private:
-  // quic_enable_version_99 flag
-  bool enable_version_99_;
-  // quic_enable_version_48 flag
-  bool enable_version_48_;
-  // quic_enable_version_47 flag
-  bool enable_version_47_;
-  // quic_disable_version_44 flag
-  bool disable_version_44_;
-  // quic_disable_version_39 flag
-  bool disable_version_39_;
-  // quic_supports_tls_handshake flag
-  bool enable_tls_;
+  // Cached value of reloadable flags.
+  // quic_enable_version_draft_27 flag
+  bool enable_version_draft_27_;
+  // quic_enable_version_draft_25_v3 flag
+  bool enable_version_draft_25_;
+  // quic_disable_version_q050 flag
+  bool disable_version_q050_;
+  // quic_enable_version_t050 flag
+  bool enable_version_t050_;
+  // quic_disable_version_q049 flag
+  bool disable_version_q049_;
+  // quic_disable_version_q048 flag
+  bool disable_version_q048_;
+  // quic_disable_version_q046 flag
+  bool disable_version_q046_;
+  // quic_disable_version_q043 flag
+  bool disable_version_q043_;
+
   // The list of versions that may be supported.
   ParsedQuicVersionVector allowed_supported_versions_;
   // This vector contains QUIC versions which are currently supported based on

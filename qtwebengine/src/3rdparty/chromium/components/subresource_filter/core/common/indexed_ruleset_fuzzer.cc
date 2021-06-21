@@ -7,6 +7,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <fuzzer/FuzzedDataProvider.h>
+
 #include <string>
 #include <vector>
 
@@ -16,7 +18,6 @@
 #include "components/subresource_filter/core/common/first_party_origin.h"
 #include "components/subresource_filter/core/common/unindexed_ruleset.h"
 #include "components/url_pattern_index/url_pattern_index.h"
-#include "third_party/libFuzzer/src/utils/FuzzedDataProvider.h"
 #include "third_party/protobuf/src/google/protobuf/io/zero_copy_stream_impl_lite.h"
 #include "url/gurl.h"
 #include "url/origin.h"
@@ -74,7 +75,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   matcher.ShouldDisableFilteringForDocument(
       url_to_check, url::Origin(),
       url_pattern_index::proto::ACTIVATION_TYPE_DOCUMENT);
-  matcher.ShouldDisallowResourceLoad(
+  matcher.GetLoadPolicyForResourceLoad(
       url_to_check, subresource_filter::FirstPartyOrigin(url::Origin()),
       url_pattern_index::proto::ELEMENT_TYPE_SCRIPT,
       false /* disable_generic_rules */);

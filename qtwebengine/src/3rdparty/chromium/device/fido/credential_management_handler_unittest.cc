@@ -8,8 +8,7 @@
 
 #include "base/bind.h"
 #include "base/strings/strcat.h"
-#include "base/test/scoped_task_environment.h"
-#include "build/build_config.h"
+#include "base/test/task_environment.h"
 #include "device/fido/credential_management.h"
 #include "device/fido/fido_constants.h"
 #include "device/fido/fido_request_handler_base.h"
@@ -18,10 +17,6 @@
 #include "device/fido/test_callback_receiver.h"
 #include "device/fido/virtual_fido_device_factory.h"
 #include "testing/gtest/include/gtest/gtest.h"
-
-#if defined(OS_WIN)
-#include "device/fido/win/fake_webauthn_api.h"
-#endif  // defined(OS_WIN)
 
 namespace device {
 namespace {
@@ -40,7 +35,7 @@ class CredentialManagementHandlerTest : public ::testing::Test {
  protected:
   std::unique_ptr<CredentialManagementHandler> MakeHandler() {
     auto handler = std::make_unique<CredentialManagementHandler>(
-        /*connector=*/nullptr, &virtual_device_factory_,
+        &virtual_device_factory_,
         base::flat_set<FidoTransportProtocol>{
             FidoTransportProtocol::kUsbHumanInterfaceDevice},
         ready_callback_.callback(),
@@ -55,7 +50,7 @@ class CredentialManagementHandlerTest : public ::testing::Test {
     std::move(provide_pin).Run(kPIN);
   }
 
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::TaskEnvironment task_environment_;
 
   test::TestCallbackReceiver<> ready_callback_;
   test::StatusAndValuesCallbackReceiver<
@@ -64,13 +59,8 @@ class CredentialManagementHandlerTest : public ::testing::Test {
       base::Optional<size_t>>
       get_credentials_callback_;
   test::ValueCallbackReceiver<CtapDeviceResponseCode> delete_callback_;
-  test::ValueCallbackReceiver<FidoReturnCode> finished_callback_;
+  test::ValueCallbackReceiver<CredentialManagementStatus> finished_callback_;
   test::VirtualFidoDeviceFactory virtual_device_factory_;
-
-#if defined(OS_WIN)
-  device::ScopedFakeWinWebAuthnApi win_webauthn_api_ =
-      device::ScopedFakeWinWebAuthnApi::MakeUnavailable();
-#endif  // defined(OS_WIN)
 };
 
 TEST_F(CredentialManagementHandlerTest, Test) {
@@ -82,7 +72,7 @@ TEST_F(CredentialManagementHandlerTest, Test) {
   virtual_device_factory_.SetCtap2Config(ctap_config);
   virtual_device_factory_.SetSupportedProtocol(device::ProtocolVersion::kCtap2);
   virtual_device_factory_.mutable_state()->pin = kPIN;
-  virtual_device_factory_.mutable_state()->retries = 8;
+  virtual_device_factory_.mutable_state()->pin_retries = device::kMaxPinRetries;
 
   PublicKeyCredentialRpEntity rp(kRPID, kRPName,
                                  /*icon_url=*/base::nullopt);
@@ -140,7 +130,7 @@ TEST_F(CredentialManagementHandlerTest,
   virtual_device_factory_.SetCtap2Config(ctap_config);
   virtual_device_factory_.SetSupportedProtocol(device::ProtocolVersion::kCtap2);
   virtual_device_factory_.mutable_state()->pin = kPIN;
-  virtual_device_factory_.mutable_state()->retries = 8;
+  virtual_device_factory_.mutable_state()->pin_retries = device::kMaxPinRetries;
 
   const std::string rp_name = base::StrCat({std::string(57, 'a'), "💣"});
   const std::string user_name = base::StrCat({std::string(57, 'b'), "💣"});

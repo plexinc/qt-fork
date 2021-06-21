@@ -86,14 +86,14 @@ class FixedArrayBase : public HeapObject {
 
   V8_EXPORT_PRIVATE bool IsCowArray() const;
 
-// Maximal allowed size, in bytes, of a single FixedArrayBase.
-// Prevents overflowing size computations, as well as extreme memory
-// consumption.
-#ifdef V8_HOST_ARCH_32_BIT
-  static const int kMaxSize = 512 * MB;
-#else
-  static const int kMaxSize = 1024 * MB;
-#endif  // V8_HOST_ARCH_32_BIT
+  // Maximal allowed size, in bytes, of a single FixedArrayBase.
+  // Prevents overflowing size computations, as well as extreme memory
+  // consumption. It's either (512Mb - kTaggedSize) or (1024Mb - kTaggedSize).
+  // -kTaggedSize is here to ensure that this max size always fits into Smi
+  // which is necessary for being able to create a free space filler for the
+  // whole array of kMaxSize.
+  static const int kMaxSize = 128 * kTaggedSize * MB - kTaggedSize;
+  STATIC_ASSERT(Smi::IsValid(kMaxSize));
 
   // Layout description.
   DEFINE_FIELD_OFFSET_CONSTANTS(HeapObject::kHeaderSize,
@@ -112,7 +112,7 @@ class FixedArray : public FixedArrayBase {
  public:
   // Setter and getter for elements.
   inline Object get(int index) const;
-  inline Object get(Isolate* isolate, int index) const;
+  inline Object get(const Isolate* isolate, int index) const;
 
   static inline Handle<Object> get(FixedArray array, int index,
                                    Isolate* isolate);
@@ -120,7 +120,7 @@ class FixedArray : public FixedArrayBase {
   // Return a grown copy if the index is bigger than the array's length.
   V8_EXPORT_PRIVATE static Handle<FixedArray> SetAndGrow(
       Isolate* isolate, Handle<FixedArray> array, int index,
-      Handle<Object> value, AllocationType allocation = AllocationType::kYoung);
+      Handle<Object> value);
 
   // Setter that uses write barrier.
   inline void set(int index, Object value);
@@ -247,7 +247,10 @@ class FixedDoubleArray : public FixedArrayBase {
 
   DECL_CAST(FixedDoubleArray)
 
-  // Maximally allowed length of a FixedArray.
+  // Start offset of elements.
+  static constexpr int kFloatsOffset = kHeaderSize;
+
+  // Maximally allowed length of a FixedDoubleArray.
   static const int kMaxLength = (kMaxSize - kHeaderSize) / kDoubleSize;
   static_assert(Internals::IsValidSmi(kMaxLength),
                 "FixedDoubleArray maxLength not a Smi");
@@ -268,7 +271,7 @@ class WeakFixedArray : public HeapObject {
   DECL_CAST(WeakFixedArray)
 
   inline MaybeObject Get(int index) const;
-  inline MaybeObject Get(Isolate* isolate, int index) const;
+  inline MaybeObject Get(const Isolate* isolate, int index) const;
 
   // Setter that uses write barrier.
   inline void Set(int index, MaybeObject value);
@@ -300,7 +303,6 @@ class WeakFixedArray : public HeapObject {
 
   DEFINE_FIELD_OFFSET_CONSTANTS(HeapObject::kHeaderSize,
                                 TORQUE_GENERATED_WEAK_FIXED_ARRAY_FIELDS)
-  static constexpr int kHeaderSize = kSize;
 
   static const int kMaxLength =
       (FixedArray::kMaxSize - kHeaderSize) / kTaggedSize;
@@ -342,8 +344,19 @@ class WeakArrayList : public HeapObject {
       Isolate* isolate, Handle<WeakArrayList> array,
       const MaybeObjectHandle& value1, const MaybeObjectHandle& value2);
 
+  // Appends an element to the array and possibly compacts and shrinks live weak
+  // references to the start of the collection. Only use this method when
+  // indices to elements can change.
+  static Handle<WeakArrayList> Append(
+      Isolate* isolate, Handle<WeakArrayList> array,
+      const MaybeObjectHandle& value,
+      AllocationType allocation = AllocationType::kYoung);
+
+  // Compact weak references to the beginning of the array.
+  V8_EXPORT_PRIVATE void Compact(Isolate* isolate);
+
   inline MaybeObject Get(int index) const;
-  inline MaybeObject Get(Isolate* isolate, int index) const;
+  inline MaybeObject Get(const Isolate* isolate, int index) const;
 
   // Set the element at index to obj. The underlying array must be large enough.
   // If you need to grow the WeakArrayList, use the static AddToEnd() method
@@ -353,6 +366,10 @@ class WeakArrayList : public HeapObject {
 
   static constexpr int SizeForCapacity(int capacity) {
     return kHeaderSize + capacity * kTaggedSize;
+  }
+
+  static constexpr int CapacityForLength(int length) {
+    return length + Max(length / 2, 2);
   }
 
   // Gives access to raw memory which stores the array's data.
@@ -372,7 +389,6 @@ class WeakArrayList : public HeapObject {
   // Layout description.
   DEFINE_FIELD_OFFSET_CONSTANTS(HeapObject::kHeaderSize,
                                 TORQUE_GENERATED_WEAK_ARRAY_LIST_FIELDS)
-  static constexpr int kHeaderSize = kSize;
 
   using BodyDescriptor = WeakArrayBodyDescriptor;
 
@@ -385,6 +401,9 @@ class WeakArrayList : public HeapObject {
 
   // Returns the number of non-cleaned weak references in the array.
   int CountLiveWeakReferences() const;
+
+  // Returns the number of non-cleaned elements in the array.
+  int CountLiveElements() const;
 
   // Returns whether an entry was found and removed. Will move the elements
   // around in the array - this method can only be used in cases where the user
@@ -443,7 +462,7 @@ class ArrayList : public FixedArray {
   // storage capacity, i.e., length().
   inline void SetLength(int length);
   inline Object Get(int index) const;
-  inline Object Get(Isolate* isolate, int index) const;
+  inline Object Get(const Isolate* isolate, int index) const;
   inline ObjectSlot Slot(int index);
 
   // Set the element at index to obj. The underlying array must be large enough.
@@ -591,7 +610,7 @@ class TemplateList : public FixedArray {
   static Handle<TemplateList> New(Isolate* isolate, int size);
   inline int length() const;
   inline Object get(int index) const;
-  inline Object get(Isolate* isolate, int index) const;
+  inline Object get(const Isolate* isolate, int index) const;
   inline void set(int index, Object value);
   static Handle<TemplateList> Add(Isolate* isolate, Handle<TemplateList> list,
                                   Handle<Object> value);

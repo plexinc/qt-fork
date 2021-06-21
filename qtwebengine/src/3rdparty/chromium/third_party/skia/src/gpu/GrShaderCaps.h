@@ -70,12 +70,9 @@ public:
 
     bool noperspectiveInterpolationSupport() const { return fNoPerspectiveInterpolationSupport; }
 
-    // Can we use sample variables everywhere?
-    bool sampleVariablesSupport() const { return fSampleVariablesSupport; }
+    bool sampleMaskSupport() const { return fSampleMaskSupport; }
 
-    // Can we use sample variables when rendering to stencil? (This is a workaround for platforms
-    // where sample variables are broken in general, but seem to work when rendering to stencil.)
-    bool sampleVariablesStencilSupport() const { return fSampleVariablesStencilSupport; }
+    bool tessellationSupport() const { return fTessellationSupport; }
 
     bool externalTextureSupport() const { return fExternalTextureSupport; }
 
@@ -131,6 +128,8 @@ public:
     // required by the spec. SKSL will always emit full ints.
     bool incompleteShortIntPrecision() const { return fIncompleteShortIntPrecision; }
 
+    bool colorSpaceMathNeedsFloat() const { return fColorSpaceMathNeedsFloat; }
+
     // If true, then conditions in for loops need "&& true" to work around driver bugs.
     bool addAndTrueToLoopCondition() const { return fAddAndTrueToLoopCondition; }
 
@@ -154,9 +153,27 @@ public:
         return fMustGuardDivisionEvenAfterExplicitZeroCheck;
     }
 
+    // On Pixel 3, 3a, and 4 devices we've noticed that the simple function:
+    // half4 blend(half4 a, half4 b) { return a.a * b; }
+    // may return (0, 0, 0, 1) when b is (0, 0, 0, 0).
+    bool inBlendModesFailRandomlyForAllZeroVec() const {
+        return fInBlendModesFailRandomlyForAllZeroVec;
+    }
+
     // On Nexus 6, the GL context can get lost if a shader does not write a value to gl_FragColor.
     // https://bugs.chromium.org/p/chromium/issues/detail?id=445377
     bool mustWriteToFragColor() const { return fMustWriteToFragColor; }
+
+    // The Android emulator claims samplerExternalOES is an unknown type if a default precision
+    // statement is made for the type.
+    bool noDefaultPrecisionForExternalSamplers() const {
+        return fNoDefaultPrecisionForExternalSamplers;
+    }
+
+    // The sample mask round rect op draws nothing on several Adreno and Radeon bots. Other ops that
+    // use sample mask while rendering to stencil seem to work fine.
+    // http://skbug.com/8921
+    bool canOnlyUseSampleMaskWithStencil() const { return fCanOnlyUseSampleMaskWithStencil; }
 
     // Returns the string of an extension that must be enabled in the shader to support
     // derivatives. If nullptr is returned then no extension needs to be enabled. Before calling
@@ -216,8 +233,13 @@ public:
     }
 
     const char* sampleVariablesExtensionString() const {
-        SkASSERT(this->sampleVariablesSupport() || this->sampleVariablesStencilSupport());
+        SkASSERT(this->sampleMaskSupport());
         return fSampleVariablesExtensionString;
+    }
+
+    const char* tessellationExtensionString() const {
+        SkASSERT(this->tessellationSupport());
+        return fTessellationExtensionString;
     }
 
     int maxFragmentSamplers() const { return fMaxFragmentSamplers; }
@@ -244,8 +266,8 @@ private:
     bool fFlatInterpolationSupport          : 1;
     bool fPreferFlatInterpolation           : 1;
     bool fNoPerspectiveInterpolationSupport : 1;
-    bool fSampleVariablesSupport            : 1;
-    bool fSampleVariablesStencilSupport     : 1;
+    bool fSampleMaskSupport                 : 1;
+    bool fTessellationSupport               : 1;
     bool fExternalTextureSupport            : 1;
     bool fVertexIDSupport                   : 1;
     bool fFPManipulationSupport             : 1;
@@ -267,6 +289,7 @@ private:
     bool fRequiresLocalOutputColorForFBFetch          : 1;
     bool fMustObfuscateUniformColor                   : 1;
     bool fMustGuardDivisionEvenAfterExplicitZeroCheck : 1;
+    bool fInBlendModesFailRandomlyForAllZeroVec       : 1;
     bool fCanUseFragCoord                             : 1;
     bool fIncompleteShortIntPrecision                 : 1;
     bool fAddAndTrueToLoopCondition                   : 1;
@@ -275,6 +298,9 @@ private:
     bool fRewriteDoWhileLoops                         : 1;
     bool fRemovePowWithConstantExponent               : 1;
     bool fMustWriteToFragColor                        : 1;
+    bool fNoDefaultPrecisionForExternalSamplers       : 1;
+    bool fCanOnlyUseSampleMaskWithStencil             : 1;
+    bool fColorSpaceMathNeedsFloat                    : 1;
 
     const char* fVersionDeclString;
 
@@ -287,6 +313,7 @@ private:
     const char* fSecondExternalTextureExtensionString;
     const char* fNoPerspectiveInterpolationExtensionString;
     const char* fSampleVariablesExtensionString;
+    const char* fTessellationExtensionString;
 
     const char* fFBFetchColorName;
     const char* fFBFetchExtensionString;
@@ -296,6 +323,8 @@ private:
     AdvBlendEqInteraction fAdvBlendEqInteraction;
 
     friend class GrCaps;  // For initialization.
+    friend class GrDawnCaps;
+    friend class GrD3DCaps;
     friend class GrGLCaps;
     friend class GrMockCaps;
     friend class GrMtlCaps;

@@ -26,7 +26,8 @@ RecordInfo::RecordInfo(CXXRecordDecl* record, RecordCache* cache)
       trace_method_(0),
       trace_dispatch_method_(0),
       finalize_dispatch_method_(0),
-      is_gc_derived_(false) {}
+      is_gc_derived_(false),
+      directly_derived_gc_base_(nullptr) {}
 
 RecordInfo::~RecordInfo() {
   delete fields_;
@@ -121,6 +122,33 @@ bool RecordInfo::IsGCDerived() {
   return is_gc_derived_;
 }
 
+// Test if a record is directly derived from a garbage collected base.
+bool RecordInfo::IsGCDirectlyDerived() {
+  // If already computed, return the known result.
+  if (directly_derived_gc_base_)
+    return true;
+
+  if (!record_->hasDefinition())
+    return false;
+
+  // The base classes are not themselves considered garbage collected objects.
+  if (Config::IsGCBase(name_))
+    return false;
+
+  for (const auto& it : record()->bases()) {
+    const CXXRecordDecl* base = it.getType()->getAsCXXRecordDecl();
+    if (!base)
+      continue;
+
+    if (Config::IsGCSimpleBase(base->getName())) {
+      directly_derived_gc_base_ = &it;
+      break;
+    }
+  }
+
+  return directly_derived_gc_base_;
+}
+
 CXXRecordDecl* RecordInfo::GetDependentTemplatedDecl(const Type& type) {
   const TemplateSpecializationType* tmpl_type =
       type.getAs<TemplateSpecializationType>();
@@ -155,9 +183,9 @@ void RecordInfo::walkBases() {
       if (!base)
         continue;
 
-      const std::string& name = base->getName();
+      llvm::StringRef name = base->getName();
       if (Config::IsGCBase(name)) {
-        gc_base_names_.push_back(name);
+        gc_base_names_.push_back(std::string(name));
         is_gc_derived_ = true;
       }
     }
@@ -166,16 +194,6 @@ void RecordInfo::walkBases() {
       break;
     base_record = queue.pop_back_val(); // not actually a queue.
   }
-}
-
-bool RecordInfo::IsGCFinalized() {
-  if (!IsGCDerived())
-    return false;
-  for (const auto& gc_base : gc_base_names_) {
-    if (Config::IsGCFinalizedBase(gc_base))
-      return true;
-  }
-  return false;
 }
 
 // A GC mixin is a class that inherits from a GC mixin base and has
@@ -316,6 +334,12 @@ CXXMethodDecl* RecordInfo::GetTraceDispatchMethod() {
 CXXMethodDecl* RecordInfo::GetFinalizeDispatchMethod() {
   DetermineTracingMethods();
   return finalize_dispatch_method_;
+}
+
+const CXXBaseSpecifier* RecordInfo::GetDirectGCBase() {
+  if (!IsGCDirectlyDerived())
+    return nullptr;
+  return directly_derived_gc_base_;
 }
 
 RecordInfo::Bases& RecordInfo::GetBases() {
@@ -632,9 +656,10 @@ Edge* RecordInfo::CreateEdge(const Type* type) {
 
   TemplateArgs args;
 
-  if (Config::IsRefPtr(info->name()) && info->GetTemplateArgs(1, &args)) {
+  if (Config::IsRefOrWeakPtr(info->name()) && info->GetTemplateArgs(1, &args)) {
     if (Edge* ptr = CreateEdge(args[0]))
-      return new RefPtr(ptr);
+      return new RefPtr(
+          ptr, Config::IsRefPtr(info->name()) ? Edge::kStrong : Edge::kWeak);
     return 0;
   }
 

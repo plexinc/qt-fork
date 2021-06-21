@@ -13,6 +13,7 @@
 #include "build/build_config.h"
 #include "content/common/content_export.h"
 #include "device/fido/authenticator_get_assertion_response.h"
+#include "device/fido/cable/cable_discovery_data.h"
 #include "device/fido/fido_request_handler_base.h"
 #include "device/fido/fido_transport_protocol.h"
 
@@ -22,6 +23,10 @@
 
 namespace device {
 class FidoAuthenticator;
+}
+
+namespace url {
+class Origin;
 }
 
 namespace content {
@@ -49,14 +54,34 @@ class CONTENT_EXPORT AuthenticatorRequestClientDelegate
     // because the authenticator has insufficient storage.
     kStorageFull,
     kUserConsentDenied,
+    // kWinUserCancelled means that the user clicked "Cancel" in the native
+    // Windows UI.
+    kWinUserCancelled,
   };
 
   AuthenticatorRequestClientDelegate();
   ~AuthenticatorRequestClientDelegate() override;
 
-  // Called when the request fails for the given |reason|.  |authenticator|
-  // points to the FidoAuthenticator used in the request that resulted in the
-  // error. It may be nullptr if |reason| is kTimeout.
+  // Permits the embedder to override normal relying party ID processing. Is
+  // given the untrusted, claimed relying party ID from the WebAuthn call, as
+  // well as the origin of the caller, and may return a relying party ID to
+  // override normal validation.
+  //
+  // This is an access-control decision: RP IDs are used to control access to
+  // credentials so thought is required before allowing an origin to assert an
+  // RP ID. RP ID strings may be stored on authenticators and may later appear
+  // in management UI.
+  virtual base::Optional<std::string> MaybeGetRelyingPartyIdOverride(
+      const std::string& claimed_relying_party_id,
+      const url::Origin& caller_origin);
+
+  // SetRelyingPartyId sets the RP ID for this request. This is called after
+  // |MaybeGetRelyingPartyIdOverride| is given the opportunity to affect this
+  // value. For typical origins, the RP ID is just a domain name, but
+  // |MaybeGetRelyingPartyIdOverride| may return other forms of strings.
+  virtual void SetRelyingPartyId(const std::string& rp_id);
+
+  // Called when the request fails for the given |reason|.
   //
   // Embedders may return true if they want AuthenticatorImpl to hold off from
   // resolving the WebAuthn request with an error, e.g. because they want the
@@ -64,9 +89,7 @@ class CONTENT_EXPORT AuthenticatorRequestClientDelegate
   // eventually invoke the FidoRequestHandlerBase::CancelCallback in order to
   // resolve the request. Returning false causes AuthenticatorImpl to resolve
   // the request with the error right away.
-  virtual bool DoesBlockRequestOnFailure(
-      const ::device::FidoAuthenticator* authenticator,
-      InterestingFailureReason reason);
+  virtual bool DoesBlockRequestOnFailure(InterestingFailureReason reason);
 
   // Supplies callbacks that the embedder can invoke to initiate certain
   // actions, namely: cancel the request, start the request over, initiate BLE
@@ -74,7 +97,7 @@ class CONTENT_EXPORT AuthenticatorRequestClientDelegate
   // authenticators.
   virtual void RegisterActionCallbacks(
       base::OnceClosure cancel_callback,
-      base::Closure start_over_callback,
+      base::RepeatingClosure start_over_callback,
       device::FidoRequestHandlerBase::RequestCallback request_callback,
       base::RepeatingClosure bluetooth_adapter_power_on_callback,
       device::FidoRequestHandlerBase::BlePairingCallback ble_pairing_callback);
@@ -111,6 +134,44 @@ class CONTENT_EXPORT AuthenticatorRequestClientDelegate
   // authenticator and thus has privacy implications.
   void SetMightCreateResidentCredential(bool v) override;
 
+  // ShouldPermitCableExtension returns true if the given |origin| may set a
+  // caBLE extension. This extension contains website-chosen BLE pairing
+  // information that will be broadcast by the device and so should not be
+  // accepted if the embedder UI does not indicate that this is happening.
+  virtual bool ShouldPermitCableExtension(const url::Origin& origin);
+
+  // SetCableTransportInfo configures the embedder for handling Cloud-assisted
+  // Bluetooth Low Energy transports (i.e. using a phone as an authenticator).
+  // The |cable_extension_provided| argument is true if the site provided
+  // explicit caBLE discovery information. This is a hint that the UI may wish
+  // to advance to directly to guiding the user to check their phone as the site
+  // is strongly indicating that it will work.
+  //
+  // have_paired_phones is true if a previous call to |GetCablePairings|
+  // returned one or more caBLE pairings.
+  //
+  // |qr_generator_key| is a random AES-256 key that can be used to
+  // encrypt a coarse timestamp with |CableDiscoveryData::DeriveQRKeyMaterial|.
+  // The UI may display a QR code with the resulting secret which, if
+  // decoded and transmitted over BLE by an authenticator, will be accepted for
+  // caBLE pairing.
+  //
+  // This function returns true if the embedder will provide UI support for
+  // caBLE. If it returns false, all caBLE will be disabled because BLE
+  // broadcasting should not occur without user notification and accepting QR
+  // handshakes is irrelevant if the UI is not displaying the QR codes.
+  virtual bool SetCableTransportInfo(
+      bool cable_extension_provided,
+      bool have_paired_phones,
+      base::Optional<device::QRGeneratorKey> qr_generator_key);
+
+  // GetCablePairings returns any known caBLE pairing data. For example, the
+  // embedder may know of pairings because it configured the
+  // |FidoDiscoveryFactory| (using |CustomizeDiscoveryFactory|) to make a
+  // callback when a phone offered long-term pairing data. Additionally, it may
+  // know of pairings via some cloud-based service or sync feature.
+  virtual std::vector<device::CableDiscoveryData> GetCablePairings();
+
   // SelectAccount is called to allow the embedder to select between one or more
   // accounts. This is triggered when the web page requests an unspecified
   // credential (by passing an empty allow-list). In this case, any accounts
@@ -137,15 +198,17 @@ class CONTENT_EXPORT AuthenticatorRequestClientDelegate
   using TouchIdAuthenticatorConfig = device::fido::mac::AuthenticatorConfig;
 
   // Returns configuration data for the built-in Touch ID platform
-  // authenticator. May return nullopt if the authenticator is not used or not
-  // available.
+  // authenticator. May return nullopt if the authenticator is not available in
+  // the current context, in which case the Touch ID authenticator will be
+  // unavailable.
   virtual base::Optional<TouchIdAuthenticatorConfig>
   GetTouchIdAuthenticatorConfig();
 #endif  // defined(OS_MACOSX)
 
-  // Returns true if a user verifying platform authenticator is available and
-  // configured.
-  virtual bool IsUserVerifyingPlatformAuthenticatorAvailable();
+  // Returns a bool if the result of the isUserVerifyingPlatformAuthenticator
+  // API call should be overridden with that value, or base::nullopt otherwise.
+  virtual base::Optional<bool>
+  IsUserVerifyingPlatformAuthenticatorAvailableOverride();
 
   // Returns a FidoDiscoveryFactory that has been configured for the current
   // environment.
@@ -189,7 +252,15 @@ class CONTENT_EXPORT AuthenticatorRequestClientDelegate
   void CollectPIN(
       base::Optional<int> attempts,
       base::OnceCallback<void(std::string)> provide_pin_cb) override;
-  void FinishCollectPIN() override;
+  void FinishCollectToken() override;
+  void OnRetryUserVerification(int attempts) override;
+  void OnInternalUserVerificationLocked() override;
+
+ protected:
+  // CustomizeDiscoveryFactory may be overridden in order to configure
+  // |discovery_factory|.
+  virtual void CustomizeDiscoveryFactory(
+      device::FidoDiscoveryFactory* discovery_factory);
 
  private:
 #if !defined(OS_ANDROID)

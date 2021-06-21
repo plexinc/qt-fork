@@ -12,28 +12,31 @@
 
 #include "include/gpu/vk/GrVkTypes.h"
 #include "src/gpu/GrResourceProvider.h"
-#include "src/gpu/vk/GrVkResource.h"
+#include "src/gpu/vk/GrVkManagedResource.h"
 
 class GrBackendSemaphore;
 class GrVkGpu;
 
 class GrVkSemaphore : public GrSemaphore {
 public:
-    static sk_sp<GrVkSemaphore> Make(GrVkGpu* gpu, bool isOwned);
+    static std::unique_ptr<GrVkSemaphore> Make(GrVkGpu* gpu, bool isOwned);
 
     using WrapType = GrResourceProvider::SemaphoreWrapType;
 
-    static sk_sp<GrVkSemaphore> MakeWrapped(GrVkGpu* gpu,
-                                            VkSemaphore semaphore,
-                                            WrapType wrapType,
-                                            GrWrapOwnership);
+    static std::unique_ptr<GrVkSemaphore> MakeWrapped(GrVkGpu* gpu,
+                                                      VkSemaphore semaphore,
+                                                      WrapType wrapType,
+                                                      GrWrapOwnership);
+
+    ~GrVkSemaphore() override;
 
     GrBackendSemaphore backendSemaphore() const override;
 
-    class Resource : public GrVkResource {
+    class Resource : public GrVkManagedResource {
     public:
-        Resource(VkSemaphore semaphore, bool prohibitSignal, bool prohibitWait, bool isOwned)
-                : INHERITED()
+        Resource(const GrVkGpu* gpu, VkSemaphore semaphore,
+                 bool prohibitSignal, bool prohibitWait, bool isOwned)
+                : INHERITED(gpu)
                 , fSemaphore(semaphore)
                 , fHasBeenSubmittedToQueueForSignal(prohibitSignal)
                 , fHasBeenSubmittedToQueueForWait(prohibitWait)
@@ -57,20 +60,24 @@ public:
             fHasBeenSubmittedToQueueForWait = true;
         }
 
-#ifdef SK_TRACE_VK_RESOURCES
+        void setIsOwned() {
+            fIsOwned = true;
+        }
+
+#ifdef SK_TRACE_MANAGED_RESOURCES
         void dumpInfo() const override {
             SkDebugf("GrVkSemaphore: %d (%d refs)\n", fSemaphore, this->getRefCnt());
         }
 #endif
     private:
-        void freeGPUData(GrVkGpu* gpu) const override;
+        void freeGPUData() const override;
 
         VkSemaphore fSemaphore;
         bool        fHasBeenSubmittedToQueueForSignal;
         bool        fHasBeenSubmittedToQueueForWait;
         bool        fIsOwned;
 
-        typedef GrVkResource INHERITED;
+        typedef GrVkManagedResource INHERITED;
     };
 
     Resource* getResource() { return fResource; }
@@ -79,8 +86,9 @@ private:
     GrVkSemaphore(GrVkGpu* gpu, VkSemaphore semaphore, bool prohibitSignal, bool prohibitWait,
                   bool isOwned);
 
-    void onRelease() override;
-    void onAbandon() override;
+    void setIsOwned() override {
+        fResource->setIsOwned();
+    }
 
     Resource* fResource;
 

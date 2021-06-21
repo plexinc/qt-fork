@@ -23,6 +23,12 @@ ProxyList::ProxyList() = default;
 
 ProxyList::ProxyList(const ProxyList& other) = default;
 
+ProxyList::ProxyList(ProxyList&& other) = default;
+
+ProxyList& ProxyList::operator=(const ProxyList& other) = default;
+
+ProxyList& ProxyList::operator=(ProxyList&& other) = default;
+
 ProxyList::~ProxyList() = default;
 
 void ProxyList::Set(const std::string& proxy_uri_list) {
@@ -145,7 +151,7 @@ std::string ProxyList::ToPacString() const {
 base::Value ProxyList::ToValue() const {
   base::Value list(base::Value::Type::LIST);
   for (const auto& proxy : proxies_)
-    list.GetList().emplace_back(proxy.ToURI());
+    list.Append(proxy.ToURI());
   return list;
 }
 

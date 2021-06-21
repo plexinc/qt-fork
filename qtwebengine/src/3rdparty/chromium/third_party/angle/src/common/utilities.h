@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2002-2013 The ANGLE Project Authors. All rights reserved.
+// Copyright 2002 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -38,6 +38,7 @@ size_t VariableExternalSize(GLenum type);
 int VariableRowCount(GLenum type);
 int VariableColumnCount(GLenum type);
 bool IsSamplerType(GLenum type);
+bool IsSamplerCubeType(GLenum type);
 bool IsImageType(GLenum type);
 bool IsImage2DType(GLenum type);
 bool IsAtomicCounterType(GLenum type);
@@ -49,6 +50,7 @@ int MatrixRegisterCount(GLenum type, bool isRowMajorMatrix);
 int MatrixComponentCount(GLenum type, bool isRowMajorMatrix);
 int VariableSortOrder(GLenum type);
 GLenum VariableBoolVectorType(GLenum type);
+std::string GetGLSLTypeString(GLenum type);
 
 int AllocateFirstFreeBits(unsigned int *bits, unsigned int allocationSize, unsigned int bitsSize);
 
@@ -58,6 +60,11 @@ int AllocateFirstFreeBits(unsigned int *bits, unsigned int allocationSize, unsig
 // outermost array indices in the back. If an array index is invalid, GL_INVALID_INDEX is added to
 // outSubscripts.
 std::string ParseResourceName(const std::string &name, std::vector<unsigned int> *outSubscripts);
+
+// Strips only the last array index from a resource name.
+std::string StripLastArrayIndex(const std::string &name);
+
+bool SamplerNameContainsNonZeroArrayElement(const std::string &name);
 
 // Find the child field which matches 'fullName' == var.name + "." + field.name.
 // Return nullptr if not found.
@@ -90,6 +97,7 @@ static_assert(GetPrimitiveRestartIndexFromType<uint32_t>() == 0xFFFFFFFF,
               "verify restart index for uint8_t values");
 
 bool IsTriangleMode(PrimitiveMode drawMode);
+bool IsPolygonMode(PrimitiveMode mode);
 
 namespace priv
 {
@@ -214,6 +222,12 @@ enum class PipelineType
 };
 
 PipelineType GetPipelineType(ShaderType shaderType);
+
+// For use with KHR_debug.
+const char *GetDebugMessageSourceString(GLenum source);
+const char *GetDebugMessageTypeString(GLenum type);
+const char *GetDebugMessageSeverityString(GLenum severity);
+
 }  // namespace gl
 
 namespace egl
@@ -241,7 +255,7 @@ EGLenum GLComponentTypeToEGLColorComponentType(GLenum glComponentType);
 EGLClientBuffer GLObjectHandleToEGLClientBuffer(GLuint handle);
 }  // namespace gl_egl
 
-#if !defined(ANGLE_ENABLE_WINDOWS_STORE)
+#if !defined(ANGLE_ENABLE_WINDOWS_UWP)
 std::string getTempPath();
 void writeFile(const char *path, const void *data, size_t size);
 #endif

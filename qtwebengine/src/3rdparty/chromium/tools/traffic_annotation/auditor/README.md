@@ -1,7 +1,7 @@
 # Network Traffic Annotation Auditor
-This binary runs the clang tool for extraction of Network Traffic Annotations
+This binary runs extractor.py for extraction of Network Traffic Annotations
 from chromium source code, collects and summarizes its outputs, and performs
-tests and maintanance.
+tests and maintenance.
 Please see `docs/network_traffic_annotations.md` for an introduction to network
 traffic annotations.
 
@@ -16,7 +16,7 @@ Run `traffic_annotation_auditor --help` for options.
 Example:
   `traffic_annotation_auditor --build-path=out/Debug`
 
-The binaries of this file and the clang tool are checked out into
+The binary for this file is checked out into
 `tools/traffic_annotation/bin/[platform]`. This is only done for Linux and
 Windows platforms now and will be extended to other platforms later.
 
@@ -33,7 +33,7 @@ separated, specifying the safe lists based on
 Use * as wildcard for zero or more characters when specifying file paths.
 
 Here are the exception types:
-* `all`: Files and paths in this category are excempted from all tests.
+* `all`: Files and paths in this category are exempted from all tests.
 * `missing`: Files and paths in this category can use the
   MISSING_TRAFFIC_ANNOTATION tag.
 * `mutable_tag`: Files and paths in this category can use the
@@ -41,3 +41,5 @@ Here are the exception types:
 * `direct_assignment`: The functions in this category can assign a value
   directly to a MutableNetworkTrafficAnnotationTag. This is controlled to
   avoid assigning arbitrary values to mutable annotations.
+* `test_annotation`: Files and paths in this category can use the
+  TRAFFIC_ANNOTATION_FOR_TESTS tag.

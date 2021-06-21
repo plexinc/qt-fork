@@ -27,7 +27,7 @@ class KURL;
 // PreviewsResourceLoadingHints stores the resource loading hints that apply to
 // a single document.
 class CORE_EXPORT PreviewsResourceLoadingHints final
-    : public GarbageCollectedFinalized<PreviewsResourceLoadingHints> {
+    : public GarbageCollected<PreviewsResourceLoadingHints> {
  public:
   static PreviewsResourceLoadingHints* Create(
       ExecutionContext& execution_context,
@@ -51,7 +51,7 @@ class CORE_EXPORT PreviewsResourceLoadingHints final
                  const KURL& resource_url,
                  ResourceLoadPriority resource_load_priority) const;
 
-  virtual void Trace(blink::Visitor*);
+  virtual void Trace(Visitor*);
 
   // Records UKM on the utilization of patterns to block during the document
   // load. This is expected to be called once after the document finishes

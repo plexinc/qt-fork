@@ -9,14 +9,19 @@
 #include "mojo/public/cpp/system/message_pipe.h"
 #include "services/network/public/mojom/fetch_api.mojom-shared.h"
 #include "services/network/public/mojom/referrer_policy.mojom-shared.h"
+#include "third_party/blink/public/mojom/frame/lifecycle.mojom-shared.h"
+#include "third_party/blink/public/platform/web_fetch_client_settings_object.h"
 
 namespace base {
 class SingleThreadTaskRunner;
 }
 
+namespace network {
+struct CrossOriginEmbedderPolicy;
+}
+
 namespace blink {
 
-class WebSecurityOrigin;
 class WebURL;
 class WebWorkerFetchContext;
 
@@ -30,23 +35,23 @@ class WebDedicatedWorkerHostFactoryClient {
   // For non-PlzDedicatedWorker. This will be removed once PlzDedicatedWorker is
   // enabled by default.
   virtual void CreateWorkerHostDeprecated(
-      const blink::WebSecurityOrigin& script_origin) = 0;
+      base::OnceCallback<void(const network::CrossOriginEmbedderPolicy&)>
+          callback) = 0;
   // For PlzDedicatedWorker.
-  // TODO(nhiroki): Pack |fetch_client_*| into some struct like
-  // WebFetchClientSettingsObject.
   virtual void CreateWorkerHost(
       const blink::WebURL& script_url,
-      const blink::WebSecurityOrigin& script_origin,
       network::mojom::CredentialsMode credentials_mode,
-      const blink::WebSecurityOrigin& fetch_client_security_origin,
-      network::mojom::ReferrerPolicy fetch_client_referrer_policy,
-      const blink::WebURL& fetch_client_outgoing_referrer,
+      const blink::WebFetchClientSettingsObject& fetch_client_settings_object,
       mojo::ScopedMessagePipeHandle blob_url_token) = 0;
 
   // Clones the given WebWorkerFetchContext for nested workers.
   virtual scoped_refptr<WebWorkerFetchContext> CloneWorkerFetchContext(
       WebWorkerFetchContext*,
       scoped_refptr<base::SingleThreadTaskRunner>) = 0;
+
+  // Called when a dedicated worker's lifecycle will change.
+  virtual void LifecycleStateChanged(
+      blink::mojom::FrameLifecycleState state) = 0;
 };
 
 }  // namespace blink

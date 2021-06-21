@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2014 The ANGLE Project Authors. All rights reserved.
+// Copyright 2014 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -30,8 +30,7 @@ ShShaderSpec SelectShaderSpec(GLint majorVersion,
     // For Desktop GL
     if (clientType == EGL_OPENGL_API)
     {
-        ASSERT(majorVersion == 3 && minorVersion == 3);
-        return SH_GL3_3_SPEC;
+        return SH_GL_COMPATIBILITY_SPEC;
     }
 
     if (majorVersion >= 3)
@@ -66,8 +65,9 @@ Compiler::Compiler(rx::GLImplFactory *implFactory, const State &state)
       mOutputType(mImplementation->getTranslatorOutputType()),
       mResources()
 {
+    // TODO(http://anglebug.com/3819): Update for GL version specific validation
     ASSERT(state.getClientMajorVersion() == 1 || state.getClientMajorVersion() == 2 ||
-           state.getClientMajorVersion() == 3);
+           state.getClientMajorVersion() == 3 || state.getClientMajorVersion() == 4);
 
     const gl::Caps &caps             = state.getCaps();
     const gl::Extensions &extensions = state.getExtensions();
@@ -87,15 +87,18 @@ Compiler::Compiler(rx::GLImplFactory *implFactory, const State &state)
     mResources.MaxTextureImageUnits         = caps.maxShaderTextureImageUnits[ShaderType::Fragment];
     mResources.MaxFragmentUniformVectors    = caps.maxFragmentUniformVectors;
     mResources.MaxDrawBuffers               = caps.maxDrawBuffers;
-    mResources.OES_standard_derivatives     = extensions.standardDerivatives;
+    mResources.OES_standard_derivatives     = extensions.standardDerivativesOES;
     mResources.EXT_draw_buffers             = extensions.drawBuffers;
     mResources.EXT_shader_texture_lod       = extensions.shaderTextureLOD;
-    mResources.OES_EGL_image_external       = extensions.eglImageExternal;
-    mResources.OES_EGL_image_external_essl3 = extensions.eglImageExternalEssl3;
-    mResources.NV_EGL_stream_consumer_external = extensions.eglStreamConsumerExternal;
+    mResources.EXT_shader_non_constant_global_initializers =
+        extensions.shaderNonConstGlobalInitializersEXT;
+    mResources.OES_EGL_image_external          = extensions.eglImageExternalOES;
+    mResources.OES_EGL_image_external_essl3    = extensions.eglImageExternalEssl3OES;
+    mResources.NV_EGL_stream_consumer_external = extensions.eglStreamConsumerExternalNV;
     mResources.ARB_texture_rectangle           = extensions.textureRectangle;
+    mResources.EXT_gpu_shader5                 = extensions.gpuShader5EXT;
     mResources.OES_texture_storage_multisample_2d_array =
-        extensions.textureStorageMultisample2DArray;
+        extensions.textureStorageMultisample2DArrayOES;
     mResources.OES_texture_3D                  = extensions.texture3DOES;
     mResources.ANGLE_texture_multisample       = extensions.textureMultisample;
     mResources.ANGLE_multi_draw                = extensions.multiDraw;
@@ -111,6 +114,12 @@ Compiler::Compiler(rx::GLImplFactory *implFactory, const State &state)
     // OVR_multiview2 state
     mResources.OVR_multiview2 = extensions.multiview2;
     mResources.MaxViewsOVR    = extensions.maxViews;
+
+    // EXT_multisampled_render_to_texture
+    mResources.EXT_multisampled_render_to_texture = extensions.multisampledRenderToTexture;
+
+    // WEBGL_video_texture
+    mResources.WEBGL_video_texture = extensions.webglVideoTexture;
 
     // GLSL ES 3.0 constants
     mResources.MaxVertexOutputVectors  = caps.maxVertexOutputComponents / 4;
@@ -184,6 +193,9 @@ Compiler::Compiler(rx::GLImplFactory *implFactory, const State &state)
     mResources.MaxGeometryShaderStorageBlocks = caps.maxShaderStorageBlocks[ShaderType::Geometry];
     mResources.MaxGeometryShaderInvocations   = caps.maxGeometryShaderInvocations;
     mResources.MaxGeometryImageUniforms       = caps.maxShaderImageUniforms[ShaderType::Geometry];
+
+    // Subpixel bits.
+    mResources.SubPixelBits = static_cast<int>(caps.subPixelBits);
 }
 
 Compiler::~Compiler()

@@ -17,7 +17,7 @@ class DeviceSensorEntry;
 class PlatformEventController;
 
 class MODULES_EXPORT DeviceMotionEventPump
-    : public GarbageCollectedFinalized<DeviceMotionEventPump>,
+    : public GarbageCollected<DeviceMotionEventPump>,
       public DeviceSensorEventPump {
   USING_GARBAGE_COLLECTED_MIXIN(DeviceMotionEventPump);
 
@@ -31,7 +31,7 @@ class MODULES_EXPORT DeviceMotionEventPump
   // Note that the returned object is owned by this class.
   DeviceMotionData* LatestDeviceMotionData();
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
 
   // DeviceSensorEventPump:
   void SendStartMessage(LocalFrame* frame) override;

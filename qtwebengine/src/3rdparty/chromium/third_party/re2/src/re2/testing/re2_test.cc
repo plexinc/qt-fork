@@ -479,22 +479,21 @@ TEST(ProgramFanout, BigProgram) {
   ASSERT_EQ(3, re1.ProgramFanout(&histogram));
   ASSERT_EQ(1, histogram[3]);
 
-  // 7 is the largest non-empty bucket and has 10 elements.
-  ASSERT_EQ(7, re10.ProgramFanout(&histogram));
-  ASSERT_EQ(10, histogram[7]);
+  // 6 is the largest non-empty bucket and has 10 elements.
+  ASSERT_EQ(6, re10.ProgramFanout(&histogram));
+  ASSERT_EQ(10, histogram[6]);
 
-  // 10 is the largest non-empty bucket and has 100 elements.
-  ASSERT_EQ(10, re100.ProgramFanout(&histogram));
-  ASSERT_EQ(100, histogram[10]);
+  // 9 is the largest non-empty bucket and has 100 elements.
+  ASSERT_EQ(9, re100.ProgramFanout(&histogram));
+  ASSERT_EQ(100, histogram[9]);
 
   // 13 is the largest non-empty bucket and has 1000 elements.
   ASSERT_EQ(13, re1000.ProgramFanout(&histogram));
   ASSERT_EQ(1000, histogram[13]);
 
-  // 2 is the largest non-empty bucket and has 3 elements.
-  // This differs from the others due to how reverse `.' works.
+  // 2 is the largest non-empty bucket and has 1 element.
   ASSERT_EQ(2, re1.ReverseProgramFanout(&histogram));
-  ASSERT_EQ(3, histogram[2]);
+  ASSERT_EQ(1, histogram[2]);
 
   // 5 is the largest non-empty bucket and has 10 elements.
   ASSERT_EQ(5, re10.ReverseProgramFanout(&histogram));
@@ -519,7 +518,7 @@ TEST(EmptyCharset, Fuzz) {
     "[^\\D\\d]",
     "[^\\D[:digit:]]"
   };
-  for (int i = 0; i < arraysize(empties); i++)
+  for (size_t i = 0; i < arraysize(empties); i++)
     ASSERT_FALSE(RE2(empties[i]).Match("abc", 0, 3, RE2::UNANCHORED, NULL, 0));
 }
 
@@ -534,7 +533,7 @@ TEST(EmptyCharset, BitstateAssumptions) {
     "((((()))))" "(([^\\S\\s]|[^\\S\\s])|)"
   };
   StringPiece group[6];
-  for (int i = 0; i < arraysize(nop_empties); i++)
+  for (size_t i = 0; i < arraysize(nop_empties); i++)
     ASSERT_TRUE(RE2(nop_empties[i]).Match("", 0, 0, RE2::UNANCHORED, group, 6));
 }
 
@@ -1232,11 +1231,10 @@ TEST(RE2, DeepRecursion) {
 // Suggested by Josh Hyman.  Failed when SearchOnePass was
 // not implementing case-folding.
 TEST(CaseInsensitive, MatchAndConsume) {
-  std::string result;
   std::string text = "A fish named *Wanda*";
   StringPiece sp(text);
-
-  EXPECT_TRUE(RE2::PartialMatch(sp, "(?i)([wand]{5})", &result));
+  StringPiece result;
+  EXPECT_TRUE(RE2::PartialMatch(text, "(?i)([wand]{5})", &result));
   EXPECT_TRUE(RE2::FindAndConsume(&sp, "(?i)([wand]{5})", &result));
 }
 
@@ -1297,7 +1295,7 @@ static struct ErrorTest {
   { "zz(?P<name\377>abc)", "" },
 };
 TEST(RE2, ErrorArgs) {
-  for (int i = 0; i < arraysize(error_tests); i++) {
+  for (size_t i = 0; i < arraysize(error_tests); i++) {
     RE2 re(error_tests[i].regexp, RE2::Quiet);
     EXPECT_FALSE(re.ok());
     EXPECT_EQ(re.error_arg(), error_tests[i].error) << re.error();
@@ -1319,7 +1317,7 @@ static struct NeverTest {
 TEST(RE2, NeverNewline) {
   RE2::Options opt;
   opt.set_never_nl(true);
-  for (int i = 0; i < arraysize(never_tests); i++) {
+  for (size_t i = 0; i < arraysize(never_tests); i++) {
     const NeverTest& t = never_tests[i];
     RE2 re(t.regexp, opt);
     if (t.match == NULL) {
@@ -1454,18 +1452,18 @@ TEST(RE2, NullVsEmptyStringSubmatches) {
   // matches[0] is overall match, [1] is (), [2] is (foo), [3] is nonexistent.
   StringPiece matches[4];
 
-  for (int i = 0; i < arraysize(matches); i++)
+  for (size_t i = 0; i < arraysize(matches); i++)
     matches[i] = "bar";
 
   StringPiece null;
   EXPECT_TRUE(re.Match(null, 0, null.size(), RE2::UNANCHORED,
                        matches, arraysize(matches)));
-  for (int i = 0; i < arraysize(matches); i++) {
+  for (size_t i = 0; i < arraysize(matches); i++) {
     EXPECT_TRUE(matches[i].data() == NULL);  // always null
     EXPECT_TRUE(matches[i].empty());
   }
 
-  for (int i = 0; i < arraysize(matches); i++)
+  for (size_t i = 0; i < arraysize(matches); i++)
     matches[i] = "bar";
 
   StringPiece empty("");

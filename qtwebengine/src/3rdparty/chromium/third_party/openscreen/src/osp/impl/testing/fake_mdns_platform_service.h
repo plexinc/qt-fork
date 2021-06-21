@@ -10,6 +10,7 @@
 #include "osp/impl/mdns_platform_service.h"
 
 namespace openscreen {
+namespace osp {
 
 class FakeMdnsPlatformService final : public MdnsPlatformService {
  public:
@@ -22,8 +23,8 @@ class FakeMdnsPlatformService final : public MdnsPlatformService {
 
   // PlatformService overrides.
   std::vector<BoundInterface> RegisterInterfaces(
-      const std::vector<platform::NetworkInterfaceIndex>&
-          interface_index_whitelist) override;
+      const std::vector<NetworkInterfaceIndex>& interface_index_whitelist)
+      override;
   void DeregisterInterfaces(
       const std::vector<BoundInterface>& registered_interfaces) override;
 
@@ -32,6 +33,7 @@ class FakeMdnsPlatformService final : public MdnsPlatformService {
   std::vector<BoundInterface> interfaces_;
 };
 
+}  // namespace osp
 }  // namespace openscreen
 
 #endif  // OSP_IMPL_TESTING_FAKE_MDNS_PLATFORM_SERVICE_H_

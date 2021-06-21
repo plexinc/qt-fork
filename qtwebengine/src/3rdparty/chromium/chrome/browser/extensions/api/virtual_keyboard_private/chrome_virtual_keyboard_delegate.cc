@@ -25,14 +25,12 @@
 #include "chrome/common/url_constants.h"
 #include "chromeos/constants/chromeos_features.h"
 #include "components/user_manager/user_manager.h"
+#include "content/public/browser/audio_service.h"
 #include "content/public/browser/browser_thread.h"
-#include "content/public/browser/system_connector.h"
 #include "extensions/browser/event_router.h"
 #include "extensions/common/api/virtual_keyboard.h"
 #include "extensions/common/api/virtual_keyboard_private.h"
 #include "media/audio/audio_system.h"
-#include "services/audio/public/cpp/audio_system_factory.h"
-#include "services/service_manager/public/cpp/connector.h"
 #include "ui/aura/event_injector.h"
 #include "ui/aura/window_tree_host.h"
 #include "ui/base/ime/constants.h"
@@ -163,7 +161,7 @@ namespace extensions {
 
 ChromeVirtualKeyboardDelegate::ChromeVirtualKeyboardDelegate(
     content::BrowserContext* browser_context)
-    : browser_context_(browser_context), weak_factory_(this) {
+    : browser_context_(browser_context) {
   weak_this_ = weak_factory_.GetWeakPtr();
 }
 
@@ -172,10 +170,8 @@ ChromeVirtualKeyboardDelegate::~ChromeVirtualKeyboardDelegate() {}
 void ChromeVirtualKeyboardDelegate::GetKeyboardConfig(
     OnKeyboardSettingsCallback on_settings_callback) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  if (!audio_system_) {
-    audio_system_ =
-        audio::CreateAudioSystem(content::GetSystemConnector()->Clone());
-  }
+  if (!audio_system_)
+    audio_system_ = content::CreateAudioSystemForAudioService();
   audio_system_->HasInputDevices(
       base::BindOnce(&ChromeVirtualKeyboardDelegate::OnHasInputDevices,
                      weak_this_, std::move(on_settings_callback)));
@@ -257,7 +253,7 @@ bool ChromeVirtualKeyboardDelegate::ShowLanguageSettings() {
 
   base::RecordAction(base::UserMetricsAction("OpenLanguageOptionsDialog"));
   chrome::ShowSettingsSubPageForProfile(ProfileManager::GetActiveUserProfile(),
-                                        chrome::kLanguageOptionsSubPage);
+                                        chrome::kLanguageSubPage);
   return true;
 }
 
@@ -295,11 +291,20 @@ bool ChromeVirtualKeyboardDelegate::SetHitTestBounds(
   return true;
 }
 
+bool ChromeVirtualKeyboardDelegate::SetAreaToRemainOnScreen(
+    const gfx::Rect& bounds) {
+  auto* keyboard_client = ChromeKeyboardControllerClient::Get();
+  if (!keyboard_client->is_keyboard_enabled())
+    return false;
+
+  return keyboard_client->SetAreaToRemainOnScreen(bounds);
+}
+
 bool ChromeVirtualKeyboardDelegate::SetDraggableArea(
     const api::virtual_keyboard_private::Bounds& rect) {
   auto* keyboard_client = ChromeKeyboardControllerClient::Get();
   // Since controller will be destroyed when system switch from VK to
-  // physical keyboard, return true to avoid unneccessary exception.
+  // physical keyboard, return true to avoid unnecessary exception.
   if (!keyboard_client->is_keyboard_enabled())
     return true;
 
@@ -361,7 +366,6 @@ void ChromeVirtualKeyboardDelegate::OnHasInputDevices(
   features->AppendString(GenerateFeatureFlag("gestureediting", false));
   features->AppendString(GenerateFeatureFlag("fullscreenhandwriting", false));
   features->AppendString(GenerateFeatureFlag("virtualkeyboardmdui", true));
-  features->AppendString(GenerateFeatureFlag("imeservice", true));
 
   keyboard::KeyboardConfig config = keyboard_client->GetKeyboardConfig();
   // TODO(oka): Change this to use config.voice_input.
@@ -378,8 +382,39 @@ void ChromeVirtualKeyboardDelegate::OnHasInputDevices(
       "handwritinggesture",
       base::FeatureList::IsEnabled(features::kHandwritingGesture)));
   features->AppendString(GenerateFeatureFlag(
+      "floatingkeyboarddefault",
+      base::FeatureList::IsEnabled(
+          chromeos::features::kVirtualKeyboardFloatingDefault)));
+  features->AppendString(GenerateFeatureFlag(
+      "imemozcproto",
+      base::FeatureList::IsEnabled(chromeos::features::kImeMozcProto)));
+  // 3 flags below are used to enable IME new APIs on each decoder.
+  features->AppendString(GenerateFeatureFlag(
       "fstinputlogic",
       base::FeatureList::IsEnabled(chromeos::features::kImeInputLogicFst)));
+  features->AppendString(GenerateFeatureFlag(
+      "hmminputlogic",
+      base::FeatureList::IsEnabled(chromeos::features::kImeInputLogicHmm)));
+  features->AppendString(GenerateFeatureFlag(
+      "mozcinputlogic",
+      base::FeatureList::IsEnabled(chromeos::features::kImeInputLogicMozc)));
+  // Flag used to enable decoder Mojo APIs instead of NaCl APIs.
+  features->AppendString(GenerateFeatureFlag(
+      "usemojodecoder", base::FeatureList::IsEnabled(
+                            chromeos::features::kImeDecoderWithSandbox)));
+  features->AppendString(GenerateFeatureFlag(
+      "borderedkey", base::FeatureList::IsEnabled(
+                         chromeos::features::kVirtualKeyboardBorderedKey)));
+  features->AppendString(GenerateFeatureFlag(
+      "resizablefloatingkeyboard",
+      base::FeatureList::IsEnabled(
+          chromeos::features::kVirtualKeyboardFloatingResizable)));
+  features->AppendString(GenerateFeatureFlag(
+      "assistiveAutoCorrect",
+      base::FeatureList::IsEnabled(chromeos::features::kAssistAutoCorrect)));
+  features->AppendString(GenerateFeatureFlag(
+      "nativerulebased", base::FeatureList::IsEnabled(
+                             chromeos::features::kNativeRuleBasedTyping)));
 
   results->Set("features", std::move(features));
 

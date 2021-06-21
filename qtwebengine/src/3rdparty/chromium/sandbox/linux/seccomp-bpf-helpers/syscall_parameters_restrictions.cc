@@ -372,11 +372,10 @@ ResultExpr RestrictClockID() {
   return
     If((clockid & kIsPidBit) == 0,
       Switch(clockid).CASES((
-#if defined(OS_ANDROID)
               CLOCK_BOOTTIME,
-#endif
               CLOCK_MONOTONIC,
               CLOCK_MONOTONIC_COARSE,
+              CLOCK_MONOTONIC_RAW,
               CLOCK_PROCESS_CPUTIME_ID,
               CLOCK_REALTIME,
               CLOCK_REALTIME_COARSE,
@@ -406,6 +405,15 @@ ResultExpr RestrictPrlimit(pid_t target_pid) {
   return If(AnyOf(pid == 0, pid == target_pid), Allow()).Else(Error(EPERM));
 }
 
+ResultExpr RestrictPrlimitToGetrlimit(pid_t target_pid) {
+  const Arg<pid_t> pid(0);
+  const Arg<uintptr_t> new_limit(2);
+  // Only allow operations for the current process, and only with |new_limit|
+  // set to null.
+  return If(AllOf(new_limit == 0, AnyOf(pid == 0, pid == target_pid)), Allow())
+      .Else(Error(EPERM));
+}
+
 #if !defined(OS_NACL_NONSFI)
 ResultExpr RestrictPtrace() {
   const Arg<int> request(0);
@@ -413,9 +421,11 @@ ResultExpr RestrictPtrace() {
 #if !defined(__aarch64__)
         PTRACE_GETREGS,
         PTRACE_GETFPREGS,
+#if defined(TRACE_GET_THREAD_AREA)
         PTRACE_GET_THREAD_AREA,
 #endif
-#if defined(__arm__)
+#endif
+#if defined(__arm__) && defined (PTRACE_GETVFPREGS)
         PTRACE_GETVFPREGS,
 #endif
         PTRACE_GETREGSET,

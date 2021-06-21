@@ -66,6 +66,7 @@ bool QTgaHandler::canRead() const
         setFormat("tga");
         return true;
     }
+    qWarning("QTgaHandler::canRead(): %s", qPrintable(tga->errorMessage()));
     return false;
 }
 
@@ -97,13 +98,6 @@ bool QTgaHandler::read(QImage *image)
     *image = tga->readImage();
     return !image->isNull();
 }
-
-#if QT_DEPRECATED_SINCE(5, 13)
-QByteArray QTgaHandler::name() const
-{
-    return "tga";
-}
-#endif
 
 QVariant QTgaHandler::option(ImageOption option) const
 {

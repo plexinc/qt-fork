@@ -16,14 +16,9 @@ namespace storage_monitor {
 MtpManagerClientChromeOS::MtpManagerClientChromeOS(
     StorageMonitor::Receiver* receiver,
     device::mojom::MtpManager* mtp_manager)
-    : mtp_manager_(mtp_manager),
-      binding_(this),
-      notifications_(receiver),
-      weak_ptr_factory_(this) {
-  device::mojom::MtpManagerClientAssociatedPtrInfo client;
-  binding_.Bind(mojo::MakeRequest(&client));
+    : mtp_manager_(mtp_manager), notifications_(receiver) {
   mtp_manager_->EnumerateStoragesAndSetClient(
-      std::move(client),
+      receiver_.BindNewEndpointAndPassRemote(),
       base::BindOnce(&MtpManagerClientChromeOS::OnReceivedStorages,
                      weak_ptr_factory_.GetWeakPtr()));
 }
@@ -57,17 +52,17 @@ bool MtpManagerClientChromeOS::GetStorageInfoForPath(
 
 void MtpManagerClientChromeOS::EjectDevice(
     const std::string& device_id,
-    base::Callback<void(StorageMonitor::EjectStatus)> callback) {
+    base::OnceCallback<void(StorageMonitor::EjectStatus)> callback) {
   std::string location;
   if (!GetLocationForDeviceId(device_id, &location)) {
-    callback.Run(StorageMonitor::EJECT_NO_SUCH_DEVICE);
+    std::move(callback).Run(StorageMonitor::EJECT_NO_SUCH_DEVICE);
     return;
   }
 
   // TODO(thestig): Change this to tell the MTP manager to eject the device.
 
   StorageDetached(location);
-  callback.Run(StorageMonitor::EJECT_OK);
+  std::move(callback).Run(StorageMonitor::EJECT_OK);
 }
 
 // device::mojom::MtpManagerClient override.

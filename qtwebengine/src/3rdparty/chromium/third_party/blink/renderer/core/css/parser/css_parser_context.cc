@@ -13,7 +13,9 @@
 #include "third_party/blink/renderer/core/feature_policy/layout_animations_policy.h"
 #include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
 #include "third_party/blink/renderer/core/frame/deprecation.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
+#include "third_party/blink/renderer/core/html/html_document.h"
 #include "third_party/blink/renderer/core/html/imports/html_imports_controller.h"
 #include "third_party/blink/renderer/core/loader/document_loader.h"
 #include "third_party/blink/renderer/core/page/page.h"
@@ -46,7 +48,8 @@ CSSParserContext::CSSParserContext(const CSSParserContext* other,
                        other->use_legacy_background_size_shorthand_behavior_,
                        other->secure_context_mode_,
                        other->should_check_content_security_policy_,
-                       use_counter_document) {}
+                       use_counter_document,
+                       other->resource_fetch_restriction_) {}
 
 CSSParserContext::CSSParserContext(
     const CSSParserContext* other,
@@ -67,7 +70,8 @@ CSSParserContext::CSSParserContext(
           other->use_legacy_background_size_shorthand_behavior_,
           other->secure_context_mode_,
           other->should_check_content_security_policy_,
-          use_counter_document) {}
+          use_counter_document,
+          other->resource_fetch_restriction_) {}
 
 CSSParserContext::CSSParserContext(CSSParserMode mode,
                                    SecureContextMode secure_context_mode,
@@ -83,8 +87,9 @@ CSSParserContext::CSSParserContext(CSSParserMode mode,
                        false,
                        false,
                        secure_context_mode,
-                       kDoNotCheckContentSecurityPolicy,
-                       use_counter_document) {}
+                       network::mojom::CSPDisposition::DO_NOT_CHECK,
+                       use_counter_document,
+                       blink::ResourceFetchRestriction::kNone) {}
 
 CSSParserContext::CSSParserContext(const Document& document)
     : CSSParserContext(document,
@@ -100,7 +105,8 @@ CSSParserContext::CSSParserContext(
     bool origin_clean,
     network::mojom::ReferrerPolicy referrer_policy_override,
     const WTF::TextEncoding& charset,
-    SelectorProfile profile)
+    SelectorProfile profile,
+    enum ResourceFetchRestriction resource_fetch_restriction)
     : CSSParserContext(
           base_url_override,
           origin_clean,
@@ -114,16 +120,18 @@ CSSParserContext::CSSParserContext(
           profile,
           Referrer(base_url_override.StrippedForUseAsReferrer(),
                    referrer_policy_override),
-          document.IsHTMLDocument(),
+          IsA<HTMLDocument>(document),
           document.GetSettings()
               ? document.GetSettings()
                     ->GetUseLegacyBackgroundSizeShorthandBehavior()
               : false,
           document.GetSecureContextMode(),
-          ContentSecurityPolicy::ShouldBypassMainWorld(&document)
-              ? kDoNotCheckContentSecurityPolicy
-              : kCheckContentSecurityPolicy,
-          &document) {}
+          ContentSecurityPolicy::ShouldBypassMainWorld(
+              document.GetExecutionContext())
+              ? network::mojom::CSPDisposition::DO_NOT_CHECK
+              : network::mojom::CSPDisposition::CHECK,
+          &document,
+          resource_fetch_restriction) {}
 
 CSSParserContext::CSSParserContext(const ExecutionContext& context)
     : CSSParserContext(context.Url(),
@@ -138,9 +146,12 @@ CSSParserContext::CSSParserContext(const ExecutionContext& context)
                        false,
                        context.GetSecureContextMode(),
                        ContentSecurityPolicy::ShouldBypassMainWorld(&context)
-                           ? kDoNotCheckContentSecurityPolicy
-                           : kCheckContentSecurityPolicy,
-                       DynamicTo<Document>(context)) {}
+                           ? network::mojom::CSPDisposition::DO_NOT_CHECK
+                           : network::mojom::CSPDisposition::CHECK,
+                       IsA<LocalDOMWindow>(&context)
+                           ? To<LocalDOMWindow>(context).document()
+                           : nullptr,
+                       blink::ResourceFetchRestriction::kNone) {}
 
 CSSParserContext::CSSParserContext(
     const KURL& base_url,
@@ -153,8 +164,9 @@ CSSParserContext::CSSParserContext(
     bool is_html_document,
     bool use_legacy_background_size_shorthand_behavior,
     SecureContextMode secure_context_mode,
-    ContentSecurityPolicyDisposition policy_disposition,
-    const Document* use_counter_document)
+    network::mojom::CSPDisposition policy_disposition,
+    const Document* use_counter_document,
+    enum ResourceFetchRestriction resource_fetch_restriction)
     : base_url_(base_url),
       should_check_content_security_policy_(policy_disposition),
       origin_clean_(origin_clean),
@@ -167,7 +179,8 @@ CSSParserContext::CSSParserContext(
           use_legacy_background_size_shorthand_behavior),
       secure_context_mode_(secure_context_mode),
       charset_(charset),
-      document_(use_counter_document) {}
+      document_(use_counter_document),
+      resource_fetch_restriction_(resource_fetch_restriction) {}
 
 bool CSSParserContext::operator==(const CSSParserContext& other) const {
   return base_url_ == other.base_url_ && origin_clean_ == other.origin_clean_ &&
@@ -176,9 +189,12 @@ bool CSSParserContext::operator==(const CSSParserContext& other) const {
          is_html_document_ == other.is_html_document_ &&
          use_legacy_background_size_shorthand_behavior_ ==
              other.use_legacy_background_size_shorthand_behavior_ &&
-         secure_context_mode_ == other.secure_context_mode_;
+         secure_context_mode_ == other.secure_context_mode_ &&
+         resource_fetch_restriction_ == other.resource_fetch_restriction_;
 }
 
+// TODO(xiaochengh): This function never returns null. Change it to return a
+// const reference to avoid confusion.
 const CSSParserContext* StrictCSSParserContext(
     SecureContextMode secure_context_mode) {
   DEFINE_THREAD_SAFE_STATIC_LOCAL(ThreadSpecific<Persistent<CSSParserContext>>,
@@ -227,12 +243,22 @@ void CSSParserContext::CountDeprecation(WebFeature feature) const {
 
 void CSSParserContext::Count(CSSParserMode mode, CSSPropertyID property) const {
   if (IsUseCounterRecordingEnabled() && IsUseCounterEnabledForMode(mode)) {
-    document_->CountUse(property, UseCounterHelper::CSSPropertyType::kDefault);
+    document_->CountProperty(property);
   }
 }
 
 bool CSSParserContext::IsDocumentHandleEqual(const Document* other) const {
   return document_.Get() == other;
+}
+
+const Document* CSSParserContext::GetDocument() const {
+  return document_.Get();
+}
+
+// Fuzzers may execution CSS parsing code without a Document being available,
+// thus this method can return null.
+const ExecutionContext* CSSParserContext::GetExecutionContext() const {
+  return (document_.Get()) ? document_.Get()->GetExecutionContext() : nullptr;
 }
 
 void CSSParserContext::ReportLayoutAnimationsViolationIfNeeded(
@@ -243,7 +269,8 @@ void CSSParserContext::ReportLayoutAnimationsViolationIfNeeded(
     const CSSProperty& property = rule.Properties().PropertyAt(i).Property();
     if (!LayoutAnimationsPolicy::AffectedCSSProperties().Contains(&property))
       continue;
-    LayoutAnimationsPolicy::ReportViolation(property, *document_);
+    LayoutAnimationsPolicy::ReportViolation(property,
+                                            *document_->GetExecutionContext());
   }
 }
 
@@ -258,7 +285,7 @@ bool CSSParserContext::IsForMarkupSanitization() const {
   return document_ && document_->IsForMarkupSanitization();
 }
 
-void CSSParserContext::Trace(blink::Visitor* visitor) {
+void CSSParserContext::Trace(Visitor* visitor) {
   visitor->Trace(document_);
 }
 

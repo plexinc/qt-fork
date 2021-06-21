@@ -31,11 +31,14 @@
 #include <utility>
 
 #include "base/stl_util.h"
+#include "third_party/blink/renderer/core/css/css_color_value.h"
 #include "third_party/blink/renderer/core/css/css_identifier_value.h"
 #include "third_party/blink/renderer/core/css/css_math_expression_node.h"
 #include "third_party/blink/renderer/core/css/css_math_function_value.h"
+#include "third_party/blink/renderer/core/css/css_numeric_literal_value.h"
 #include "third_party/blink/renderer/core/css/css_to_length_conversion_data.h"
 #include "third_party/blink/renderer/core/css/css_value_pair.h"
+#include "third_party/blink/renderer/core/css/properties/computed_style_utils.h"
 #include "third_party/blink/renderer/core/css_value_keywords.h"
 #include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/dom/text_link_colors.h"
@@ -45,6 +48,7 @@
 #include "third_party/blink/renderer/platform/graphics/gradient_generated_image.h"
 #include "third_party/blink/renderer/platform/graphics/image.h"
 #include "third_party/blink/renderer/platform/graphics/skia/skia_utils.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
@@ -98,10 +102,13 @@ bool CSSGradientColorStop::IsCacheable() const {
       return false;
   }
 
-  return !offset_ || !offset_->IsFontRelativeLength();
+  // TODO(crbug.com/979895): This is the result of a refactoring, which might
+  // have revealed an existing bug with calculated lengths. Investigate.
+  return !offset_ || offset_->IsMathFunctionValue() ||
+         !To<CSSNumericLiteralValue>(*offset_).IsFontRelativeLength();
 }
 
-void CSSGradientColorStop::Trace(blink::Visitor* visitor) {
+void CSSGradientColorStop::Trace(Visitor* visitor) {
   visitor->Trace(offset_);
   visitor->Trace(color_);
 }
@@ -319,6 +326,42 @@ void CSSGradientValue::AddDeprecatedStops(GradientDesc& desc,
   }
 }
 
+void CSSGradientValue::AddComputedStops(
+    const ComputedStyle& style,
+    bool allow_visited_style,
+    const HeapVector<CSSGradientColorStop, 2>& stops) {
+  for (unsigned index = 0; index < stops.size(); ++index) {
+    CSSGradientColorStop stop = stops[index];
+    CSSValueID value_id = CSSValueID::kInvalid;
+    if (stop.color_ && stop.color_->IsIdentifierValue())
+      value_id = To<CSSIdentifierValue>(*stop.color_).GetValueID();
+
+    switch (value_id) {
+      case CSSValueID::kInvalid:
+      case CSSValueID::kInternalQuirkInherit:
+      case CSSValueID::kWebkitLink:
+      case CSSValueID::kWebkitActivelink:
+      case CSSValueID::kWebkitFocusRingColor:
+        break;
+      case CSSValueID::kCurrentcolor:
+        if (allow_visited_style) {
+          stop.color_ = CSSColorValue::Create(
+              style.VisitedDependentColor(GetCSSPropertyColor()).Rgb());
+        } else {
+          stop.color_ =
+              ComputedStyleUtils::CurrentColorOrValidColor(style, StyleColor());
+        }
+        break;
+      default:
+        stop.color_ = CSSColorValue::Create(
+            StyleColor::ColorFromKeyword(
+                value_id, ComputedStyle::InitialStyle().UsedColorScheme())
+                .Rgb());
+    }
+    AddStop(stop);
+  }
+}
+
 namespace {
 
 bool RequiresStopsNormalization(const Vector<GradientStop>& stops,
@@ -347,7 +390,8 @@ bool NormalizeAndAddStops(const Vector<GradientStop>& stops,
 
   const float first_offset = stops.front().offset;
   const float last_offset = stops.back().offset;
-  const float span = last_offset - first_offset;
+  const float span =
+      std::min(last_offset - first_offset, std::numeric_limits<float>::max());
 
   if (fabs(span) < std::numeric_limits<float>::epsilon()) {
     // All stops are coincident -> use a single clamped offset value.
@@ -367,7 +411,9 @@ bool NormalizeAndAddStops(const Vector<GradientStop>& stops,
   DCHECK_GT(span, 0);
 
   for (wtf_size_t i = 0; i < stops.size(); ++i) {
-    const float normalized_offset = (stops[i].offset - first_offset) / span;
+    const auto relative_offset = std::min(stops[i].offset - first_offset,
+                                          std::numeric_limits<float>::max()),
+               normalized_offset = relative_offset / span;
 
     // stop offsets should be monotonically increasing in [0 , 1]
     DCHECK_GE(normalized_offset, 0);
@@ -729,7 +775,7 @@ Vector<Color> CSSGradientValue::GetStopColors(
   return stop_colors;
 }
 
-void CSSGradientValue::TraceAfterDispatch(blink::Visitor* visitor) {
+void CSSGradientValue::TraceAfterDispatch(blink::Visitor* visitor) const {
   visitor->Trace(stops_);
   CSSImageGeneratorValue::TraceAfterDispatch(visitor);
 }
@@ -961,12 +1007,15 @@ scoped_refptr<Gradient> CSSLinearGradientValue::CreateGradient(
 }
 
 bool CSSLinearGradientValue::Equals(const CSSLinearGradientValue& other) const {
-  if (gradient_type_ == kCSSDeprecatedLinearGradient)
-    return other.gradient_type_ == gradient_type_ &&
-           DataEquivalent(first_x_, other.first_x_) &&
+  if (gradient_type_ != other.gradient_type_)
+    return false;
+
+  if (gradient_type_ == kCSSDeprecatedLinearGradient) {
+    return DataEquivalent(first_x_, other.first_x_) &&
            DataEquivalent(first_y_, other.first_y_) &&
            DataEquivalent(second_x_, other.second_x_) &&
            DataEquivalent(second_y_, other.second_y_) && stops_ == other.stops_;
+  }
 
   if (repeating_ != other.repeating_)
     return false;
@@ -992,7 +1041,17 @@ bool CSSLinearGradientValue::Equals(const CSSLinearGradientValue& other) const {
   return equal_xand_y && stops_ == other.stops_;
 }
 
-void CSSLinearGradientValue::TraceAfterDispatch(blink::Visitor* visitor) {
+CSSLinearGradientValue* CSSLinearGradientValue::ComputedCSSValue(
+    const ComputedStyle& style,
+    bool allow_visited_style) {
+  CSSLinearGradientValue* result = MakeGarbageCollected<CSSLinearGradientValue>(
+      first_x_, first_y_, second_x_, second_y_, angle_,
+      repeating_ ? kRepeating : kNonRepeating, GradientType());
+  result->AddComputedStops(style, allow_visited_style, stops_);
+  return result;
+}
+
+void CSSLinearGradientValue::TraceAfterDispatch(blink::Visitor* visitor) const {
   visitor->Trace(first_x_);
   visitor->Trace(first_y_);
   visitor->Trace(second_x_);
@@ -1218,8 +1277,10 @@ FloatSize RadiusToCorner(const FloatPoint& point,
     }
   }
 
-  if (shape == kCircleEndShape)
+  if (shape == kCircleEndShape) {
+    distance = clampTo<float>(distance);
     return FloatSize(distance, distance);
+  }
 
   DCHECK_EQ(shape, kEllipseEndShape);
   // If the end shape is an ellipse, the gradient-shape has the same ratio of
@@ -1376,7 +1437,18 @@ bool CSSRadialGradientValue::Equals(const CSSRadialGradientValue& other) const {
   return stops_ == other.stops_;
 }
 
-void CSSRadialGradientValue::TraceAfterDispatch(blink::Visitor* visitor) {
+CSSRadialGradientValue* CSSRadialGradientValue::ComputedCSSValue(
+    const ComputedStyle& style,
+    bool allow_visited_style) {
+  CSSRadialGradientValue* result = MakeGarbageCollected<CSSRadialGradientValue>(
+      first_x_, first_y_, first_radius_, second_x_, second_y_, second_radius_,
+      shape_, sizing_behavior_, end_horizontal_size_, end_vertical_size_,
+      repeating_ ? kRepeating : kNonRepeating, GradientType());
+  result->AddComputedStops(style, allow_visited_style, stops_);
+  return result;
+}
+
+void CSSRadialGradientValue::TraceAfterDispatch(blink::Visitor* visitor) const {
   visitor->Trace(first_x_);
   visitor->Trace(first_y_);
   visitor->Trace(second_x_);
@@ -1447,7 +1519,16 @@ bool CSSConicGradientValue::Equals(const CSSConicGradientValue& other) const {
          stops_ == other.stops_;
 }
 
-void CSSConicGradientValue::TraceAfterDispatch(blink::Visitor* visitor) {
+CSSConicGradientValue* CSSConicGradientValue::ComputedCSSValue(
+    const ComputedStyle& style,
+    bool allow_visited_style) {
+  auto* result = MakeGarbageCollected<CSSConicGradientValue>(
+      x_, y_, from_angle_, repeating_ ? kRepeating : kNonRepeating);
+  result->AddComputedStops(style, allow_visited_style, stops_);
+  return result;
+}
+
+void CSSConicGradientValue::TraceAfterDispatch(blink::Visitor* visitor) const {
   visitor->Trace(x_);
   visitor->Trace(y_);
   visitor->Trace(from_angle_);

@@ -7,10 +7,10 @@
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "third_party/blink/renderer/bindings/core/v8/profiler_trace_builder.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_profiler_init_options.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_profiler_trace.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/timing/profiler.h"
-#include "third_party/blink/renderer/core/timing/profiler_init_options.h"
-#include "third_party/blink/renderer/core/timing/profiler_trace.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
@@ -55,13 +55,14 @@ ProfilerGroup::ProfilerGroup(v8::Isolate* isolate)
       cpu_profiler_(nullptr),
       next_profiler_id_(0),
       num_active_profilers_(0) {
-  DCHECK(RuntimeEnabledFeatures::ExperimentalJSProfilerEnabled());
 }
 
 Profiler* ProfilerGroup::CreateProfiler(ScriptState* script_state,
                                         const ProfilerInitOptions& init_options,
                                         base::TimeTicks time_origin,
                                         ExceptionState& exception_state) {
+  DCHECK(RuntimeEnabledFeatures::ExperimentalJSProfilerEnabled(
+      ExecutionContext::From(script_state)));
   DCHECK_EQ(script_state->GetIsolate(), isolate_);
   DCHECK(init_options.hasSampleInterval());
 
@@ -80,11 +81,11 @@ Profiler* ProfilerGroup::CreateProfiler(ScriptState* script_state,
   DCHECK(cpu_profiler_);
 
   String profiler_id = NextProfilerId();
-  v8::CpuProfilingOptions options(v8::kLeafNodeLineNumbers,
-                                  init_options.hasMaxBufferSize()
-                                      ? init_options.maxBufferSize()
+  v8::CpuProfilingOptions options(
+      v8::kLeafNodeLineNumbers,
+      init_options.hasMaxBufferSize() ? init_options.maxBufferSize()
                                       : v8::CpuProfilingOptions::kNoSampleLimit,
-                                  static_cast<int>(sample_interval_us));
+      static_cast<int>(sample_interval_us), script_state->GetContext());
 
   cpu_profiler_->StartProfiling(V8String(isolate_, profiler_id), options);
 
@@ -132,7 +133,7 @@ void ProfilerGroup::WillBeDestroyed() {
     TeardownV8Profiler();
 }
 
-void ProfilerGroup::Trace(blink::Visitor* visitor) {
+void ProfilerGroup::Trace(Visitor* visitor) {
   visitor->Trace(profilers_);
   V8PerIsolateData::GarbageCollectedData::Trace(visitor);
 }
@@ -172,7 +173,8 @@ void ProfilerGroup::StopProfiler(ScriptState* script_state,
       script_state, profile, profiler->SourceOrigin(), profiler->TimeOrigin());
   resolver->Resolve(trace);
 
-  profile->Delete();
+  if (profile)
+    profile->Delete();
 
   if (--num_active_profilers_ == 0)
     TeardownV8Profiler();

@@ -45,12 +45,11 @@ class CORE_EXPORT CustomProperty : public Variable {
       const ComputedStyle&,
       const SVGComputedStyle&,
       const LayoutObject*,
-      const Node* styled_node,
       bool allow_visited_style) const override;
 
   bool IsRegistered() const { return registration_; }
 
-  void Trace(blink::Visitor* visitor) { visitor->Trace(registration_); }
+  void Trace(Visitor* visitor) { visitor->Trace(registration_); }
 
  private:
   CustomProperty(const AtomicString& name,

@@ -4,6 +4,7 @@
 
 #include "components/ui_devtools/views/window_element.h"
 
+#include "base/strings/string_number_conversions.h"
 #include "components/ui_devtools/Protocol.h"
 #include "components/ui_devtools/ui_element_delegate.h"
 #include "components/ui_devtools/views/element_utility.h"
@@ -153,6 +154,13 @@ int UIElement::FindUIElementIdForBackendElement<aura::Window>(
       return ui_element_id;
   }
   return 0;
+}
+
+void WindowElement::InitSources() {
+  if (window_->layer()) {
+    AddSource("ui/compositor/layer.h", 0);
+  }
+  AddSource("ui/aura/window.h", 0);
 }
 
 }  // namespace ui_devtools

@@ -525,7 +525,6 @@ GrReducedClip::ClipResult GrReducedClip::clipInsideElement(const Element* elemen
     }
 
     SK_ABORT("Unexpected DeviceSpaceType");
-    return ClipResult::kNotClipped;
 }
 
 GrReducedClip::ClipResult GrReducedClip::clipOutsideElement(const Element* element) {
@@ -562,10 +561,10 @@ GrReducedClip::ClipResult GrReducedClip::clipOutsideElement(const Element* eleme
             if (SkRRect::kComplex_Type == clipRRect.getType()) {
                 const SkVector& insetTR = clipRRect.radii(SkRRect::kUpperRight_Corner);
                 const SkVector& insetBL = clipRRect.radii(SkRRect::kLowerLeft_Corner);
-                insetTL.fX = SkTMax(insetTL.x(), insetBL.x());
-                insetTL.fY = SkTMax(insetTL.y(), insetTR.y());
-                insetBR.fX = SkTMax(insetBR.x(), insetTR.x());
-                insetBR.fY = SkTMax(insetBR.y(), insetBL.y());
+                insetTL.fX = std::max(insetTL.x(), insetBL.x());
+                insetTL.fY = std::max(insetTL.y(), insetTR.y());
+                insetBR.fX = std::max(insetBR.x(), insetTR.x());
+                insetBR.fY = std::max(insetBR.y(), insetBL.y());
             }
             const SkRect& bounds = clipRRect.getBounds();
             if (insetTL.x() + insetBR.x() >= bounds.width() ||
@@ -592,7 +591,6 @@ GrReducedClip::ClipResult GrReducedClip::clipOutsideElement(const Element* eleme
     }
 
     SK_ABORT("Unexpected DeviceSpaceType");
-    return ClipResult::kNotClipped;
 }
 
 inline void GrReducedClip::addWindowRectangle(const SkRect& elementInteriorRect, bool elementIsAA) {
@@ -658,7 +656,7 @@ GrReducedClip::ClipResult GrReducedClip::addAnalyticFP(const SkPath& deviceSpace
 
     if (fCCPRClipPaths.count() < fMaxCCPRClipPaths && GrAA::kYes == aa) {
         // Set aside CCPR paths for later. We will create their clip FPs once we know the ID of the
-        // opList they will operate in.
+        // opsTask they will operate in.
         SkPath& ccprClipPath = fCCPRClipPaths.push_back(deviceSpacePath);
         if (Invert::kYes == invert) {
             ccprClipPath.toggleInverseFillType();
@@ -866,7 +864,7 @@ bool GrReducedClip::drawStencilClipMask(GrRecordingContext* context,
             GrShape shape(clipPath, GrStyle::SimpleFill());
             GrPathRenderer::CanDrawPathArgs canDrawArgs;
             canDrawArgs.fCaps = context->priv().caps();
-            canDrawArgs.fProxy = renderTargetContext->proxy();
+            canDrawArgs.fProxy = renderTargetContext->asRenderTargetProxy();
             canDrawArgs.fClipConservativeBounds = &stencilClip.fixedClip().scissorRect();
             canDrawArgs.fViewMatrix = &SkMatrix::I();
             canDrawArgs.fShape = &shape;
@@ -974,7 +972,7 @@ bool GrReducedClip::drawStencilClipMask(GrRecordingContext* context,
 }
 
 std::unique_ptr<GrFragmentProcessor> GrReducedClip::finishAndDetachAnalyticFPs(
-        GrCoverageCountingPathRenderer* ccpr, uint32_t opListID) {
+        GrCoverageCountingPathRenderer* ccpr, uint32_t opsTaskID) {
     // Make sure finishAndDetachAnalyticFPs hasn't been called already.
     SkDEBUGCODE(for (const auto& fp : fAnalyticFPs) { SkASSERT(fp); })
 
@@ -983,7 +981,7 @@ std::unique_ptr<GrFragmentProcessor> GrReducedClip::finishAndDetachAnalyticFPs(
         for (const SkPath& ccprClipPath : fCCPRClipPaths) {
             SkASSERT(ccpr);
             SkASSERT(fHasScissor);
-            auto fp = ccpr->makeClipProcessor(opListID, ccprClipPath, fScissor, *fCaps);
+            auto fp = ccpr->makeClipProcessor(opsTaskID, ccprClipPath, fScissor, *fCaps);
             fAnalyticFPs.push_back(std::move(fp));
         }
         fCCPRClipPaths.reset();

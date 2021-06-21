@@ -8,6 +8,7 @@
 #ifndef skiagm_DEFINED
 #define skiagm_DEFINED
 
+#include "gm/verifiers/gmverifier.h"
 #include "include/core/SkColor.h"
 #include "include/core/SkScalar.h"
 #include "include/core/SkSize.h"
@@ -16,15 +17,17 @@
 #include "include/private/SkMacros.h"
 #include "tools/Registry.h"
 
+#include <memory>
+
 class GrContext;
 class GrRenderTargetContext;
 class SkCanvas;
 class SkMetaData;
 struct GrContextOptions;
 
-#define DEF_GM(code) \
-    static skiagm::GM*          SK_MACRO_APPEND_LINE(F_)(void*) { code; } \
-    static skiagm::GMRegistry   SK_MACRO_APPEND_LINE(R_)(SK_MACRO_APPEND_LINE(F_));
+#define DEF_GM(CODE) \
+    static skiagm::GMRegistry SK_MACRO_APPEND_LINE(REG_)(\
+            [](){return std::unique_ptr<skiagm::GM>([](){ CODE ; }());});
 
 // A Simple GM is a rendering test that does not store state between rendering calls or make use of
 // the onOnceBeforeDraw() virtual; it consists of:
@@ -138,11 +141,6 @@ namespace skiagm {
         // helper: fill a rect in the specified color based on the GM's getISize bounds.
         void drawSizeBounds(SkCanvas*, SkColor);
 
-        bool isCanvasDeferred() const { return fCanvasIsDeferred; }
-        void setCanvasIsDeferred(bool isDeferred) {
-            fCanvasIsDeferred = isDeferred;
-        }
-
         bool animate(double /*nanos*/);
         virtual bool onChar(SkUnichar);
 
@@ -150,6 +148,8 @@ namespace skiagm {
         void setControls(const SkMetaData& controls) { this->onSetControls(controls); }
 
         virtual void modifyGrContextOptions(GrContextOptions*);
+
+        virtual std::unique_ptr<verifiers::VerifierList> getVerifiers() const;
 
     protected:
         virtual void onOnceBeforeDraw();
@@ -167,12 +167,11 @@ namespace skiagm {
         Mode     fMode;
         SkString fShortName;
         SkColor  fBGColor;
-        bool     fCanvasIsDeferred; // work-around problem in srcmode.cpp
         bool     fHaveCalledOnceBeforeDraw;
     };
 
-    typedef GM*(*GMFactory)(void*) ;
-    typedef sk_tools::Registry<GMFactory> GMRegistry;
+    using GMFactory = std::unique_ptr<skiagm::GM> (*)();
+    using GMRegistry = sk_tools::Registry<GMFactory>;
 
     // A GpuGM replaces the onDraw method with one that also accepts GPU objects alongside the
     // SkCanvas. Its onDraw is only invoked on GPU configs; on non-GPU configs it will automatically
@@ -180,6 +179,12 @@ namespace skiagm {
     class GpuGM : public GM {
     public:
         GpuGM(SkColor backgroundColor = SK_ColorWHITE) : GM(backgroundColor) {}
+
+        // TODO(tdenniston): Currently GpuGMs don't have verifiers (because they do not render on
+        //   CPU), but we may want to be able to verify the output images standalone, without
+        //   requiring a gold image for comparison.
+        std::unique_ptr<verifiers::VerifierList> getVerifiers() const override { return nullptr; }
+
     private:
         using GM::onDraw;
         DrawResult onDraw(SkCanvas*, SkString* errorMsg) final;
@@ -223,7 +228,6 @@ namespace skiagm {
         const SkISize fSize;
         const DrawProc fDrawProc;
     };
-
 }
 
 void MarkGMGood(SkCanvas*, SkScalar x, SkScalar y);

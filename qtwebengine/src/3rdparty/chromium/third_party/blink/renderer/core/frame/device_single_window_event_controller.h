@@ -16,7 +16,7 @@ class Document;
 class Event;
 
 class CORE_EXPORT DeviceSingleWindowEventController
-    : public GarbageCollectedFinalized<DeviceSingleWindowEventController>,
+    : public GarbageCollected<DeviceSingleWindowEventController>,
       public PlatformEventController,
       public LocalDOMWindow::EventListenerObserver {
  public:
@@ -24,7 +24,7 @@ class CORE_EXPORT DeviceSingleWindowEventController
 
   // Inherited from PlatformEventController.
   void DidUpdateData() override;
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
 
   // Inherited from LocalDOMWindow::EventListenerObserver.
   void DidAddEventListener(LocalDOMWindow*, const AtomicString&) override;
@@ -37,7 +37,7 @@ class CORE_EXPORT DeviceSingleWindowEventController
   Document& GetDocument() const { return *document_; }
   bool IsSameSecurityOriginAsMainFrame() const;
   bool CheckPolicyFeatures(
-      const Vector<mojom::FeaturePolicyFeature>& features) const;
+      const Vector<mojom::blink::FeaturePolicyFeature>& features) const;
 
   void DispatchDeviceEvent(Event*);
 

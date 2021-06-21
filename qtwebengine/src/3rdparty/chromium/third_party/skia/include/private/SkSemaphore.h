@@ -10,6 +10,8 @@
 
 #include "include/core/SkTypes.h"
 #include "include/private/SkOnce.h"
+#include "include/private/SkThreadAnnotations.h"
+#include <algorithm>
 #include <atomic>
 
 class SkSemaphore {
@@ -58,11 +60,11 @@ inline void SkSemaphore::signal(int n) {
     //
     // This is easiest to think about with specific examples of prev and n.
     // If n == 5 and prev == -3, there are 3 threads sleeping and we signal
-    // SkTMin(-(-3), 5) == 3 times on the OS semaphore, leaving the count at 2.
+    // std::min(-(-3), 5) == 3 times on the OS semaphore, leaving the count at 2.
     //
-    // If prev >= 0, no threads are waiting, SkTMin(-prev, n) is always <= 0,
+    // If prev >= 0, no threads are waiting, std::min(-prev, n) is always <= 0,
     // so we don't call the OS semaphore, leaving the count at (prev + n).
-    int toSignal = SkTMin(-prev, n);
+    int toSignal = std::min(-prev, n);
     if (toSignal > 0) {
         this->osSignal(toSignal);
     }
@@ -72,7 +74,9 @@ inline void SkSemaphore::wait() {
     // Since this fetches the value before the subtract, zero and below means that there are no
     // resources left, so the thread needs to wait.
     if (fCount.fetch_sub(1, std::memory_order_acquire) <= 0) {
+        SK_POTENTIALLY_BLOCKING_REGION_BEGIN;
         this->osWait();
+        SK_POTENTIALLY_BLOCKING_REGION_END;
     }
 }
 

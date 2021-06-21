@@ -21,6 +21,7 @@
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/common/bindings_policy.h"
+#include "content/public/common/content_client.h"
 #include "content/public/common/drop_data.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/test/mock_render_process_host.h"
@@ -30,6 +31,7 @@
 #include "content/test/test_content_browser_client.h"
 #include "content/test/test_render_view_host.h"
 #include "content/test/test_web_contents.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
 #include "net/base/filename_util.h"
 #include "third_party/blink/public/platform/web_drag_operation.h"
 #include "ui/base/page_transition_types.h"
@@ -80,41 +82,56 @@ TEST_F(RenderViewHostTest, FilterAbout) {
   EXPECT_EQ(GURL(kBlockedURL), controller().GetVisibleEntry()->GetURL());
 }
 
-// Create a full screen popup RenderWidgetHost and View.
-TEST_F(RenderViewHostTest, CreateFullscreenWidget) {
-  int32_t routing_id = process()->GetNextRoutingID();
-
-  mojom::WidgetPtr widget;
-  std::unique_ptr<MockWidgetImpl> widget_impl =
-      std::make_unique<MockWidgetImpl>(mojo::MakeRequest(&widget));
-  test_rvh()->CreateNewFullscreenWidget(routing_id, std::move(widget));
-}
-
 // The RenderViewHost tells the renderer process about SetBackgroundOpaque()
 // changes.
+
+class FakeFrameWidget : public blink::mojom::FrameWidget {
+ public:
+  explicit FakeFrameWidget(
+      mojo::PendingAssociatedReceiver<blink::mojom::FrameWidget> frame_widget)
+      : receiver_(this, std::move(frame_widget)) {}
+  FakeFrameWidget(const FakeFrameWidget&) = delete;
+  void operator=(const FakeFrameWidget&) = delete;
+
+  bool GetBackgroundOpaque() const {
+    DCHECK_NE(value_, -1);
+    return value_;
+  }
+  void Reset() { value_ = -1; }
+
+ private:
+  void DragSourceSystemDragEnded() override {}
+  void SetBackgroundOpaque(bool value) override { value_ = value; }
+
+  mojo::AssociatedReceiver<blink::mojom::FrameWidget> receiver_;
+  int value_ = -1;
+};
+
 TEST_F(RenderViewHostTest, SetBackgroundOpaque) {
+  mojo::AssociatedRemote<blink::mojom::FrameWidgetHost> blink_frame_widget_host;
+  auto blink_frame_widget_host_receiver =
+      blink_frame_widget_host
+          .BindNewEndpointAndPassDedicatedReceiverForTesting();
+  mojo::AssociatedRemote<blink::mojom::FrameWidget> blink_frame_widget;
+  auto blink_frame_widget_receiver =
+      blink_frame_widget.BindNewEndpointAndPassDedicatedReceiverForTesting();
+
+  test_rvh()->GetWidget()->BindFrameWidgetInterfaces(
+      std::move(blink_frame_widget_host_receiver), blink_frame_widget.Unbind());
+
+  FakeFrameWidget fake_frame_widget(std::move(blink_frame_widget_receiver));
+
   for (bool value : {true, false}) {
     SCOPED_TRACE(value);
     // This method is part of RenderWidgetHostOwnerDelegate, provided to the
     // main frame RenderWidgetHost, which uses it to inform the RenderView
     // in the renderer process of the background opaque state.
-    auto* as_owner_delegate =
-        static_cast<RenderWidgetHostOwnerDelegate*>(test_rvh());
-    as_owner_delegate->SetBackgroundOpaque(value);
+    test_rvh()->GetWidget()->GetAssociatedFrameWidget()->SetBackgroundOpaque(
+        value);
+    base::RunLoop().RunUntilIdle();
 
-    // This RenderWidget(View) was a main frame, so it passes along
-    // transparent background color to the RenderView.
-    const IPC::Message* set_background =
-        process()->sink().GetUniqueMessageMatching(
-            ViewMsg_SetBackgroundOpaque::ID);
-    ASSERT_TRUE(set_background);
-    std::tuple<bool> sent_background;
-    ViewMsg_SetBackgroundOpaque::Read(set_background, &sent_background);
-    EXPECT_EQ(std::get<0>(sent_background), value);
-
-    // GetUniqueMessageMatching() on the next trip through the loop should
-    // not find the message from the current loop, so remove that one.
-    process()->sink().ClearMessages();
+    EXPECT_EQ(fake_frame_widget.GetBackgroundOpaque(), value);
+    fake_frame_widget.Reset();
   }
 }
 
@@ -271,74 +288,6 @@ TEST_F(RenderViewHostTest, RoutingIdSane) {
   EXPECT_EQ(contents()->GetMainFrame(), root_rfh);
   EXPECT_EQ(test_rvh()->GetProcess(), root_rfh->GetProcess());
   EXPECT_NE(test_rvh()->GetRoutingID(), root_rfh->routing_id());
-}
-
-class TestSaveImageFromDataURL : public RenderFrameMessageFilter {
- public:
-  TestSaveImageFromDataURL(BrowserContext* context)
-      : RenderFrameMessageFilter(
-            0,
-            nullptr,
-            context,
-            BrowserContext::GetDefaultStoragePartition(context),
-            nullptr) {
-    Reset();
-  }
-
-  void Reset() {
-    url_string_ = std::string();
-    is_downloaded_ = false;
-  }
-
-  std::string& UrlString() const {
-    return url_string_;
-  }
-
-  bool IsDownloaded() const {
-    return is_downloaded_;
-  }
-
-  void Test(const std::string& url) {
-    OnMessageReceived(FrameHostMsg_SaveImageFromDataURL(0, 0, url));
-  }
-
- protected:
-  ~TestSaveImageFromDataURL() override {}
-  void DownloadUrl(
-      int render_view_id,
-      int render_frame_id,
-      const GURL& url,
-      const Referrer& referrer,
-      const url::Origin& initiator,
-      const base::string16& suggested_name,
-      const bool use_prompt,
-      const bool follow_cross_origin_redirects,
-      blink::mojom::BlobURLTokenPtrInfo blob_url_token) const override {
-    url_string_ = url.spec();
-    is_downloaded_ = true;
-  }
-
- private:
-  mutable std::string url_string_;
-  mutable bool is_downloaded_;
-};
-
-TEST_F(RenderViewHostTest, SaveImageFromDataURL) {
-  scoped_refptr<TestSaveImageFromDataURL> tester(
-      new TestSaveImageFromDataURL(browser_context()));
-
-  tester->Reset();
-  tester->Test("http://non-data-url.com");
-  EXPECT_EQ(tester->UrlString(), "");
-  EXPECT_FALSE(tester->IsDownloaded());
-
-  const std::string data_url = "data:image/gif;base64,"
-      "R0lGODlhAQABAIAAAAUEBAAAACwAAAAAAQABAAACAkQBADs=";
-
-  tester->Reset();
-  tester->Test(data_url);
-  EXPECT_EQ(tester->UrlString(), data_url);
-  EXPECT_TRUE(tester->IsDownloaded());
 }
 
 }  // namespace content

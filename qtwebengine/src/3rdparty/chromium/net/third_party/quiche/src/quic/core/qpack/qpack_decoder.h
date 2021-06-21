@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <set>
 
 #include "net/third_party/quiche/src/quic/core/qpack/qpack_decoder_stream_sender.h"
 #include "net/third_party/quiche/src/quic/core/qpack/qpack_encoder_stream_receiver.h"
@@ -14,7 +15,7 @@
 #include "net/third_party/quiche/src/quic/core/qpack/qpack_progressive_decoder.h"
 #include "net/third_party/quiche/src/quic/core/quic_types.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_string_piece.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 
@@ -22,7 +23,9 @@ namespace quic {
 // This class vends a new QpackProgressiveDecoder instance for each new header
 // list to be encoded.
 class QUIC_EXPORT_PRIVATE QpackDecoder
-    : public QpackEncoderStreamReceiver::Delegate {
+    : public QpackEncoderStreamReceiver::Delegate,
+      public QpackProgressiveDecoder::BlockedStreamLimitEnforcer,
+      public QpackProgressiveDecoder::DecodingCompletedVisitor {
  public:
   // Interface for receiving notification that an error has occurred on the
   // encoder stream.  This MUST be treated as a connection error of type
@@ -31,16 +34,14 @@ class QUIC_EXPORT_PRIVATE QpackDecoder
    public:
     virtual ~EncoderStreamErrorDelegate() {}
 
-    virtual void OnEncoderStreamError(QuicStringPiece error_message) = 0;
+    virtual void OnEncoderStreamError(
+        quiche::QuicheStringPiece error_message) = 0;
   };
 
-  QpackDecoder(EncoderStreamErrorDelegate* encoder_stream_error_delegate,
-               QpackStreamSenderDelegate* decoder_stream_sender_delegate);
+  QpackDecoder(uint64_t maximum_dynamic_table_capacity,
+               uint64_t maximum_blocked_streams,
+               EncoderStreamErrorDelegate* encoder_stream_error_delegate);
   ~QpackDecoder() override;
-
-  // Set maximum capacity of dynamic table.
-  // This method must only be called at most once.
-  void SetMaximumDynamicTableCapacity(uint64_t maximum_dynamic_table_capacity);
 
   // Signal to the peer's encoder that a stream is reset.  This lets the peer's
   // encoder know that no more header blocks will be processed on this stream,
@@ -60,6 +61,14 @@ class QUIC_EXPORT_PRIVATE QpackDecoder
   // using the FIN bit.
   void OnStreamReset(QuicStreamId stream_id);
 
+  // QpackProgressiveDecoder::BlockedStreamLimitEnforcer implementation.
+  bool OnStreamBlocked(QuicStreamId stream_id) override;
+  void OnStreamUnblocked(QuicStreamId stream_id) override;
+
+  // QpackProgressiveDecoder::DecodingCompletedVisitor implementation.
+  void OnDecodingCompleted(QuicStreamId stream_id,
+                           uint64_t required_insert_count) override;
+
   // Factory method to create a QpackProgressiveDecoder for decoding a header
   // block.  |handler| must remain valid until the returned
   // QpackProgressiveDecoder instance is destroyed or the decoder calls
@@ -68,32 +77,44 @@ class QUIC_EXPORT_PRIVATE QpackDecoder
       QuicStreamId stream_id,
       QpackProgressiveDecoder::HeadersHandlerInterface* handler);
 
-  // Decode data received on the encoder stream.
-  void DecodeEncoderStreamData(QuicStringPiece data);
-
   // QpackEncoderStreamReceiver::Delegate implementation
   void OnInsertWithNameReference(bool is_static,
                                  uint64_t name_index,
-                                 QuicStringPiece value) override;
-  void OnInsertWithoutNameReference(QuicStringPiece name,
-                                    QuicStringPiece value) override;
+                                 quiche::QuicheStringPiece value) override;
+  void OnInsertWithoutNameReference(quiche::QuicheStringPiece name,
+                                    quiche::QuicheStringPiece value) override;
   void OnDuplicate(uint64_t index) override;
   void OnSetDynamicTableCapacity(uint64_t capacity) override;
-  void OnErrorDetected(QuicStringPiece error_message) override;
+  void OnErrorDetected(quiche::QuicheStringPiece error_message) override;
+
+  // delegate must be set if dynamic table capacity is not zero.
+  void set_qpack_stream_sender_delegate(QpackStreamSenderDelegate* delegate) {
+    decoder_stream_sender_.set_qpack_stream_sender_delegate(delegate);
+  }
+
+  QpackStreamReceiver* encoder_stream_receiver() {
+    return &encoder_stream_receiver_;
+  }
+
+  // True if any dynamic table entries have been referenced from a header block.
+  bool dynamic_table_entry_referenced() const {
+    return header_table_.dynamic_table_entry_referenced();
+  }
 
  private:
-  // The encoder stream uses relative index (but different from the kind of
-  // relative index used on a request stream).  This method converts relative
-  // index to absolute index (zero based).  It returns true on success, or false
-  // if conversion fails due to overflow/underflow.
-  bool EncoderStreamRelativeIndexToAbsoluteIndex(
-      uint64_t relative_index,
-      uint64_t* absolute_index) const;
-
   EncoderStreamErrorDelegate* const encoder_stream_error_delegate_;
   QpackEncoderStreamReceiver encoder_stream_receiver_;
   QpackDecoderStreamSender decoder_stream_sender_;
   QpackHeaderTable header_table_;
+  std::set<QuicStreamId> blocked_streams_;
+  const uint64_t maximum_blocked_streams_;
+
+  // Known Received Count is the number of insertions the encoder has received
+  // acknowledgement for (through Header Acknowledgement and Insert Count
+  // Increment instructions).  The encoder must keep track of it in order to be
+  // able to send Insert Count Increment instructions.  See
+  // https://quicwg.org/base-drafts/draft-ietf-quic-qpack.html#known-received-count.
+  uint64_t known_received_count_;
 };
 
 }  // namespace quic

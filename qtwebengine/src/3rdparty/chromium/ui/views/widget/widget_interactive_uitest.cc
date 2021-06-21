@@ -169,11 +169,13 @@ class NestedLoopCaptureView : public View {
 ui::WindowShowState GetWidgetShowState(const Widget* widget) {
   // Use IsMaximized/IsMinimized/IsFullScreen instead of GetWindowPlacement
   // because the former is implemented on all platforms but the latter is not.
-  return widget->IsFullscreen() ? ui::SHOW_STATE_FULLSCREEN :
-      widget->IsMaximized() ? ui::SHOW_STATE_MAXIMIZED :
-      widget->IsMinimized() ? ui::SHOW_STATE_MINIMIZED :
-      widget->IsActive() ? ui::SHOW_STATE_NORMAL :
-                           ui::SHOW_STATE_INACTIVE;
+  if (widget->IsFullscreen())
+    return ui::SHOW_STATE_FULLSCREEN;
+  if (widget->IsMaximized())
+    return ui::SHOW_STATE_MAXIMIZED;
+  if (widget->IsMinimized())
+    return ui::SHOW_STATE_MINIMIZED;
+  return widget->IsActive() ? ui::SHOW_STATE_NORMAL : ui::SHOW_STATE_INACTIVE;
 }
 
 // Give the OS an opportunity to process messages for an activation change, when
@@ -759,7 +761,7 @@ TEST_F(WidgetTestInteractive, ChildStackedRelativeToParent) {
   // Showing the parent again should raise it and its child above the popover.
   ShowSync(parent.get());
   EXPECT_TRUE(IsWindowStackedAbove(child, parent.get()));
-    EXPECT_TRUE(IsWindowStackedAbove(parent.get(), popover.get()));
+  EXPECT_TRUE(IsWindowStackedAbove(parent.get(), popover.get()));
 
   // Test grandchildren.
   Widget* grandchild = CreateChildPlatformWidget(child->GetNativeView());
@@ -767,15 +769,15 @@ TEST_F(WidgetTestInteractive, ChildStackedRelativeToParent) {
   grandchild->ShowInactive();
   EXPECT_TRUE(IsWindowStackedAbove(grandchild, child));
   EXPECT_TRUE(IsWindowStackedAbove(child, parent.get()));
-    EXPECT_TRUE(IsWindowStackedAbove(parent.get(), popover.get()));
+  EXPECT_TRUE(IsWindowStackedAbove(parent.get(), popover.get()));
 
   ShowSync(popover.get());
-    EXPECT_TRUE(IsWindowStackedAbove(popover.get(), grandchild));
+  EXPECT_TRUE(IsWindowStackedAbove(popover.get(), grandchild));
   EXPECT_TRUE(IsWindowStackedAbove(grandchild, child));
 
   ShowSync(parent.get());
   EXPECT_TRUE(IsWindowStackedAbove(grandchild, child));
-    EXPECT_TRUE(IsWindowStackedAbove(child, popover.get()));
+  EXPECT_TRUE(IsWindowStackedAbove(child, popover.get()));
 
   // Test hiding and reshowing.
   parent->Hide();
@@ -784,7 +786,7 @@ TEST_F(WidgetTestInteractive, ChildStackedRelativeToParent) {
 
   EXPECT_TRUE(IsWindowStackedAbove(grandchild, child));
   EXPECT_TRUE(IsWindowStackedAbove(child, parent.get()));
-    EXPECT_TRUE(IsWindowStackedAbove(parent.get(), popover.get()));
+  EXPECT_TRUE(IsWindowStackedAbove(parent.get(), popover.get()));
 
   grandchild->Hide();
   EXPECT_FALSE(grandchild->IsVisible());
@@ -792,7 +794,7 @@ TEST_F(WidgetTestInteractive, ChildStackedRelativeToParent) {
 
   EXPECT_TRUE(IsWindowStackedAbove(grandchild, child));
   EXPECT_TRUE(IsWindowStackedAbove(child, parent.get()));
-    EXPECT_TRUE(IsWindowStackedAbove(parent.get(), popover.get()));
+  EXPECT_TRUE(IsWindowStackedAbove(parent.get(), popover.get()));
 }
 
 #if defined(OS_WIN)
@@ -873,13 +875,13 @@ TEST_F(WidgetTestInteractive, WidgetNotActivatedOnFakeActivationMessages) {
   init_params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
   init_params.native_widget = new DesktopNativeWidgetAura(&widget1);
   init_params.bounds = gfx::Rect(0, 0, 200, 200);
-  widget1.Init(init_params);
+  widget1.Init(std::move(init_params));
   widget1.Show();
   EXPECT_EQ(true, widget1.active());
 
   WidgetActivationTest widget2;
   init_params.native_widget = new DesktopNativeWidgetAura(&widget2);
-  widget2.Init(init_params);
+  widget2.Init(std::move(init_params));
   widget2.Show();
   EXPECT_EQ(true, widget2.active());
   EXPECT_EQ(false, widget1.active());
@@ -902,11 +904,10 @@ TEST_F(WidgetTestInteractive, WidgetNotActivatedOnFakeActivationMessages) {
 // activation. This test verifies the same.
 TEST_F(WidgetTestInteractive, FullscreenBoundsReducedOnActivationLoss) {
   Widget widget1;
-  Widget::InitParams params =
-      CreateParams(Widget::InitParams::TYPE_WINDOW);
+  Widget::InitParams params = CreateParams(Widget::InitParams::TYPE_WINDOW);
   params.native_widget = new DesktopNativeWidgetAura(&widget1);
   params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  widget1.Init(params);
+  widget1.Init(std::move(params));
   widget1.SetBounds(gfx::Rect(0, 0, 200, 200));
   widget1.Show();
 
@@ -927,7 +928,7 @@ TEST_F(WidgetTestInteractive, FullscreenBoundsReducedOnActivationLoss) {
   Widget widget2;
   params.native_widget = new DesktopNativeWidgetAura(&widget2);
   params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  widget2.Init(params);
+  widget2.Init(std::move(params));
   widget2.SetBounds(gfx::Rect(0, 0, 200, 200));
   widget2.Show();
 
@@ -942,7 +943,8 @@ TEST_F(WidgetTestInteractive, FullscreenBoundsReducedOnActivationLoss) {
   // After deactivation loss the bounds of the fullscreen widget should be
   // reduced by 1px.
   EXPECT_EQ(fullscreen_bounds.height() -
-            fullscreen_bounds_after_activation_loss.height(), 1);
+                fullscreen_bounds_after_activation_loss.height(),
+            1);
 
   widget1.Activate();
   RunPendingMessages();
@@ -966,8 +968,8 @@ TEST_F(WidgetTestInteractive, FullscreenMaximizedWindowBounds) {
   Widget::InitParams params = CreateParams(Widget::InitParams::TYPE_WINDOW);
   params.native_widget = new DesktopNativeWidgetAura(&widget);
   params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  widget.set_frame_type(Widget::FRAME_TYPE_FORCE_CUSTOM);
-  widget.Init(params);
+  widget.set_frame_type(Widget::FrameType::kForceCustom);
+  widget.Init(std::move(params));
   widget.SetBounds(gfx::Rect(0, 0, 200, 200));
   widget.Show();
 
@@ -1025,7 +1027,7 @@ class ModalDialogDelegate : public DialogDelegateView {
   DISALLOW_COPY_AND_ASSIGN(ModalDialogDelegate);
 };
 
-#if !defined(OS_CHROMEOS)
+#if BUILDFLAG(ENABLE_DESKTOP_AURA) || defined(OS_MACOSX)
 // Tests whether the focused window is set correctly when a modal window is
 // created and destroyed. When it is destroyed it should focus the owner window.
 TEST_F(DesktopWidgetTestInteractive, WindowModalWindowDestroyedActivationTest) {
@@ -1042,7 +1044,7 @@ TEST_F(DesktopWidgetTestInteractive, WindowModalWindowDestroyedActivationTest) {
   gfx::Rect initial_bounds(0, 0, 500, 500);
   init_params.bounds = initial_bounds;
   init_params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  top_level_widget.Init(init_params);
+  top_level_widget.Init(std::move(init_params));
   ShowSync(&top_level_widget);
 
   gfx::NativeView top_level_native_view = top_level_widget.GetNativeView();
@@ -1097,7 +1099,7 @@ TEST_F(DesktopWidgetTestInteractive, WindowModalWindowDestroyedActivationTest) {
 // Investigate enabling for Chrome OS. It probably requires help from the window
 // service.
 #define MAYBE_SystemModalWindowReleasesCapture \
-    DISABLED_SystemModalWindowReleasesCapture
+  DISABLED_SystemModalWindowReleasesCapture
 #else
 #define MAYBE_SystemModalWindowReleasesCapture SystemModalWindowReleasesCapture
 #endif
@@ -1115,7 +1117,7 @@ TEST_F(DesktopWidgetTestInteractive, MAYBE_SystemModalWindowReleasesCapture) {
   gfx::Rect initial_bounds(0, 0, 500, 500);
   init_params.bounds = initial_bounds;
   init_params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  top_level_widget.Init(init_params);
+  top_level_widget.Init(std::move(init_params));
   ShowSync(&top_level_widget);
 
   ASSERT_FALSE(focus_listener.focus_changes().empty());
@@ -1149,7 +1151,7 @@ TEST_F(DesktopWidgetTestInteractive, CanActivateFlagIsHonored) {
   init_params.bounds = gfx::Rect(0, 0, 200, 200);
   init_params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
   init_params.activatable = Widget::InitParams::ACTIVATABLE_NO;
-  widget.Init(init_params);
+  widget.Init(std::move(init_params));
 
   widget.Show();
   EXPECT_FALSE(widget.IsActive());
@@ -1207,7 +1209,7 @@ TEST_F(WidgetTestInteractive, DisableViewDoesNotActivateWidget) {
   Widget::InitParams params1 = CreateParams(Widget::InitParams::TYPE_POPUP);
   params1.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
   params1.activatable = Widget::InitParams::ACTIVATABLE_YES;
-  widget1.Init(params1);
+  widget1.Init(std::move(params1));
 
   View* view1 = new View();
   view1->SetFocusBehavior(View::FocusBehavior::ALWAYS);
@@ -1226,7 +1228,7 @@ TEST_F(WidgetTestInteractive, DisableViewDoesNotActivateWidget) {
   Widget::InitParams params2 = CreateParams(Widget::InitParams::TYPE_POPUP);
   params2.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
   params2.activatable = Widget::InitParams::ACTIVATABLE_YES;
-  widget2.Init(params2);
+  widget2.Init(std::move(params2));
 
   View* view2 = new View();
   view2->SetFocusBehavior(View::FocusBehavior::ALWAYS);
@@ -1248,7 +1250,7 @@ TEST_F(WidgetTestInteractive, DisableViewDoesNotActivateWidget) {
   EXPECT_NE(view1, focus_manager1->GetFocusedView());
   EXPECT_FALSE(widget1.IsActive());
   EXPECT_TRUE(widget2.IsActive());
-}
+}  // namespace test
 
 TEST_F(WidgetTestInteractive, ShowCreatesActiveWindow) {
   Widget* widget = CreateTopLevelPlatformWidget();
@@ -1260,6 +1262,7 @@ TEST_F(WidgetTestInteractive, ShowCreatesActiveWindow) {
 }
 
 TEST_F(WidgetTestInteractive, ShowInactive) {
+  WidgetTest::WaitForSystemAppActivation();
   Widget* widget = CreateTopLevelPlatformWidget();
 
   ShowInactiveSync(widget);
@@ -1316,7 +1319,7 @@ TEST_F(WidgetTestInteractive, ShowAfterShowInactive) {
   widget->CloseNow();
 }
 
-#if !defined(OS_CHROMEOS)
+#if BUILDFLAG(ENABLE_DESKTOP_AURA) || defined(OS_MACOSX)
 TEST_F(WidgetTestInteractive, InactiveWidgetDoesNotGrabActivation) {
   Widget* widget = CreateTopLevelPlatformWidget();
   ShowSync(widget);
@@ -1325,7 +1328,7 @@ TEST_F(WidgetTestInteractive, InactiveWidgetDoesNotGrabActivation) {
   Widget widget2;
   Widget::InitParams params = CreateParams(Widget::InitParams::TYPE_POPUP);
   params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  widget2.Init(params);
+  widget2.Init(std::move(params));
   widget2.Show();
   RunPendingMessagesForActiveStatusChange();
 
@@ -1335,7 +1338,7 @@ TEST_F(WidgetTestInteractive, InactiveWidgetDoesNotGrabActivation) {
   widget->CloseNow();
   widget2.CloseNow();
 }
-#endif  // !defined(OS_CHROMEOS)
+#endif  // BUILDFLAG(ENABLE_DESKTOP_AURA) || defined(OS_MACOSX)
 
 // ExitFullscreenRestoreState doesn't use DesktopAura widgets. On Mac, there are
 // currently only Desktop widgets and fullscreen changes have to coordinate with
@@ -1457,9 +1460,45 @@ TEST_F(DesktopWidgetTestInteractive, RestoreAndMinimizeVisibility) {
   EXPECT_TRUE(root_window->IsVisible());
   widget->CloseNow();
 }
+
+// Test that focus is restored to the widget after a minimized window
+// is activated.
+TEST_F(DesktopWidgetTestInteractive, MinimizeAndActivateFocus) {
+  Widget* widget = CreateWidget();
+  aura::Window* root_window = GetRootWindow(widget);
+  auto* widget_window = widget->GetNativeWindow();
+  ShowSync(widget);
+  ASSERT_FALSE(widget->IsMinimized());
+  EXPECT_TRUE(root_window->IsVisible());
+  widget_window->Focus();
+  EXPECT_TRUE(widget_window->HasFocus());
+  widget->GetContentsView()->SetFocusBehavior(View::FocusBehavior::ALWAYS);
+  widget->GetContentsView()->RequestFocus();
+  EXPECT_TRUE(widget->GetContentsView()->HasFocus());
+
+  PropertyWaiter minimize_widget_waiter(
+      base::BindRepeating(&Widget::IsMinimized, base::Unretained(widget)),
+      true);
+  widget->Minimize();
+  EXPECT_TRUE(minimize_widget_waiter.Wait());
+  EXPECT_TRUE(widget->IsVisible());
+  EXPECT_FALSE(root_window->IsVisible());
+
+  PropertyWaiter restore_widget_waiter(
+      base::BindRepeating(&Widget::IsMinimized, base::Unretained(widget)),
+      false);
+  widget->Activate();
+  EXPECT_TRUE(widget->GetContentsView()->HasFocus());
+  EXPECT_TRUE(restore_widget_waiter.Wait());
+  EXPECT_TRUE(widget->IsVisible());
+  EXPECT_TRUE(root_window->IsVisible());
+  EXPECT_TRUE(widget_window->CanFocus());
+  widget->CloseNow();
+}
+
 #endif  // defined(OS_WIN)
 
-#if !defined(OS_CHROMEOS)
+#if BUILDFLAG(ENABLE_DESKTOP_AURA) || defined(OS_MACOSX)
 // Tests that minimizing a widget causes the gesture_handler
 // to be cleared when the widget is minimized.
 TEST_F(DesktopWidgetTestInteractive, EventHandlersClearedOnWidgetMinimize) {
@@ -1481,7 +1520,7 @@ TEST_F(DesktopWidgetTestInteractive, EventHandlersClearedOnWidgetMinimize) {
 }
 #endif
 
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+#if defined(OS_LINUX) && BUILDFLAG(ENABLE_DESKTOP_AURA)
 // Tests that when a desktop native widget has modal transient child, it should
 // avoid restore focused view itself as the modal transient child window will do
 // that, thus avoids having multiple focused view visually (crbug.com/727641).
@@ -1531,7 +1570,7 @@ TEST_F(DesktopWidgetTestInteractive,
   top_level->CloseNow();
   deactivate_widget->CloseNow();
 }
-#endif  // defined(OS_LINUX) && !defined(OS_CHROMEOS)
+#endif  // defined(OS_LINUX) && BUILDFLAG(ENABLE_DESKTOP_AURA)
 
 namespace {
 
@@ -1591,7 +1630,7 @@ class WidgetCaptureTest : public ViewsInteractiveUITestBase {
     params1.native_widget =
         CreateNativeWidget(params1, use_desktop_native_widget, &widget1);
     params1.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-    widget1.Init(params1);
+    widget1.Init(std::move(params1));
     widget1.Show();
 
     CaptureLostState capture_state2;
@@ -1601,7 +1640,7 @@ class WidgetCaptureTest : public ViewsInteractiveUITestBase {
     params2.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
     params2.native_widget =
         CreateNativeWidget(params2, use_desktop_native_widget, &widget2);
-    widget2.Init(params2);
+    widget2.Init(std::move(params2));
     widget2.Show();
 
     // Set capture to widget2 and verity it gets it.
@@ -1644,7 +1683,7 @@ TEST_F(WidgetCaptureTest, Capture) {
   TestCapture(false);
 }
 
-#if !defined(OS_CHROMEOS)
+#if BUILDFLAG(ENABLE_DESKTOP_AURA) || defined(OS_MACOSX)
 // See description in TestCapture(). Creates DesktopNativeWidget.
 TEST_F(WidgetCaptureTest, CaptureDesktopNativeWidget) {
   TestCapture(true);
@@ -1658,7 +1697,7 @@ TEST_F(WidgetCaptureTest, DestroyWithCapture_CloseNow) {
   CaptureLostTrackingWidget* widget =
       new CaptureLostTrackingWidget(&capture_state);
   Widget::InitParams params = CreateParams(Widget::InitParams::TYPE_WINDOW);
-  widget->Init(params);
+  widget->Init(std::move(params));
   widget->Show();
 
   widget->SetCapture(widget->GetRootView());
@@ -1674,7 +1713,7 @@ TEST_F(WidgetCaptureTest, DestroyWithCapture_Close) {
   CaptureLostTrackingWidget* widget =
       new CaptureLostTrackingWidget(&capture_state);
   Widget::InitParams params = CreateParams(Widget::InitParams::TYPE_WINDOW);
-  widget->Init(params);
+  widget->Init(std::move(params));
   widget->Show();
 
   widget->SetCapture(widget->GetRootView());
@@ -1688,7 +1727,7 @@ TEST_F(WidgetCaptureTest, DestroyWithCapture_WidgetOwnsNativeWidget) {
   Widget widget;
   Widget::InitParams params = CreateParams(Widget::InitParams::TYPE_WINDOW);
   params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  widget.Init(params);
+  widget.Init(std::move(params));
   widget.Show();
 
   widget.SetCapture(widget.GetRootView());
@@ -1702,7 +1741,7 @@ TEST_F(WidgetCaptureTest, FailedCaptureRequestIsNoop) {
       CreateParams(Widget::InitParams::TYPE_WINDOW_FRAMELESS);
   params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
   params.bounds = gfx::Rect(400, 400);
-  widget.Init(params);
+  widget.Init(std::move(params));
 
   MouseView* mouse_view1 = new MouseView;
   MouseView* mouse_view2 = new MouseView;
@@ -1744,7 +1783,7 @@ TEST_F(WidgetCaptureTest, MAYBE_MouseExitOnCaptureGrab) {
   Widget::InitParams params1 =
       CreateParams(Widget::InitParams::TYPE_WINDOW_FRAMELESS);
   params1.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  widget1.Init(params1);
+  widget1.Init(std::move(params1));
   MouseView* mouse_view1 = new MouseView;
   widget1.SetContentsView(mouse_view1);
   widget1.Show();
@@ -1754,7 +1793,7 @@ TEST_F(WidgetCaptureTest, MAYBE_MouseExitOnCaptureGrab) {
   Widget::InitParams params2 =
       CreateParams(Widget::InitParams::TYPE_WINDOW_FRAMELESS);
   params2.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  widget2.Init(params2);
+  widget2.Init(std::move(params2));
   widget2.Show();
   widget2.SetBounds(gfx::Rect(400, 0, 300, 300));
 
@@ -1805,7 +1844,7 @@ TEST_F(WidgetCaptureTest, SetCaptureToNonToplevel) {
   Widget::InitParams toplevel_params =
       CreateParams(Widget::InitParams::TYPE_WINDOW_FRAMELESS);
   toplevel_params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  toplevel.Init(toplevel_params);
+  toplevel.Init(std::move(toplevel_params));
   toplevel.Show();
 
   Widget* child = new Widget;
@@ -1813,7 +1852,7 @@ TEST_F(WidgetCaptureTest, SetCaptureToNonToplevel) {
       CreateParams(Widget::InitParams::TYPE_WINDOW_FRAMELESS);
   child_params.parent = toplevel.GetNativeView();
   child_params.context = toplevel.GetNativeWindow();
-  child->Init(child_params);
+  child->Init(std::move(child_params));
 
   CaptureOnActivationObserver observer;
   child->AddObserver(&observer);
@@ -1832,7 +1871,6 @@ TEST_F(WidgetCaptureTest, SetCaptureToNonToplevel) {
 
   child->RemoveObserver(&observer);
 }
-
 
 #if defined(OS_WIN)
 namespace {
@@ -1872,7 +1910,7 @@ TEST_F(WidgetCaptureTest, MouseEventDispatchedToRightWindow) {
       CreateParams(views::Widget::InitParams::TYPE_WINDOW);
   params1.native_widget = new DesktopNativeWidgetAura(&widget1);
   params1.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  widget1.Init(params1);
+  widget1.Init(std::move(params1));
   widget1.Show();
 
   MouseEventTrackingWidget widget2;
@@ -1880,7 +1918,7 @@ TEST_F(WidgetCaptureTest, MouseEventDispatchedToRightWindow) {
       CreateParams(views::Widget::InitParams::TYPE_WINDOW);
   params2.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
   params2.native_widget = new DesktopNativeWidgetAura(&widget2);
-  widget2.Init(params2);
+  widget2.Init(std::move(params2));
   widget2.Show();
 
   // Set capture to widget2 and verity it gets it.
@@ -1977,7 +2015,7 @@ TEST_F(WidgetInputMethodInteractiveTest, OneWindow) {
 // Widget::Deactivate() doesn't work for CrOS, because it uses NWA instead of
 // DNWA (which just activates the last active window) and involves the
 // AuraTestHelper which sets the input method as DummyInputMethod.
-#if !defined(OS_CHROMEOS)
+#if BUILDFLAG(ENABLE_DESKTOP_AURA) || defined(OS_MACOSX)
   DeactivateSync(widget);
   EXPECT_EQ(ui::TEXT_INPUT_TYPE_NONE,
             widget->GetInputMethod()->GetTextInputType());
@@ -2026,7 +2064,7 @@ TEST_F(WidgetInputMethodInteractiveTest, TwoWindows) {
 // Widget::Deactivate() doesn't work for CrOS, because it uses NWA instead of
 // DNWA (which just activates the last active window) and involves the
 // AuraTestHelper which sets the input method as DummyInputMethod.
-#if !defined(OS_CHROMEOS)
+#if BUILDFLAG(ENABLE_DESKTOP_AURA) || defined(OS_MACOSX)
   DeactivateSync(parent);
   EXPECT_EQ(ui::TEXT_INPUT_TYPE_NONE,
             parent->GetInputMethod()->GetTextInputType());
@@ -2084,12 +2122,10 @@ TEST_F(WidgetInputMethodInteractiveTest, AcceleratorInTextfield) {
   textfield->SetTextInputType(ui::TEXT_INPUT_TYPE_TEXT);
   textfield->RequestFocus();
 
-  ui::KeyEvent key_event(ui::ET_KEY_PRESSED,
-                         ui::VKEY_F, ui::EF_ALT_DOWN);
+  ui::KeyEvent key_event(ui::ET_KEY_PRESSED, ui::VKEY_F, ui::EF_ALT_DOWN);
   ui::Accelerator accelerator(key_event);
   widget->GetFocusManager()->RegisterAccelerator(
-      accelerator, ui::AcceleratorManager::kNormalPriority,
-      textfield);
+      accelerator, ui::AcceleratorManager::kNormalPriority, textfield);
 
   widget->OnKeyEvent(&key_event);
   EXPECT_TRUE(key_event.stopped_propagation());

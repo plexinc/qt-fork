@@ -11,9 +11,9 @@
 #include "base/run_loop.h"
 #include "base/test/gmock_callback_support.h"
 #include "components/autofill_assistant/browser/batch_element_checker.h"
-#include "components/autofill_assistant/browser/mock_web_controller.h"
 #include "components/autofill_assistant/browser/service.pb.h"
 #include "components/autofill_assistant/browser/trigger_context.h"
+#include "components/autofill_assistant/browser/web/mock_web_controller.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "third_party/re2/src/re2/re2.h"
 
@@ -58,10 +58,10 @@ class ScriptPreconditionTest : public testing::Test {
  public:
   void SetUp() override {
     ON_CALL(mock_web_controller_, OnElementCheck(Eq(Selector({"exists"})), _))
-        .WillByDefault(RunOnceCallback<1>(true));
+        .WillByDefault(RunOnceCallback<1>(OkClientStatus()));
     ON_CALL(mock_web_controller_,
             OnElementCheck(Eq(Selector({"does_not_exist"})), _))
-        .WillByDefault(RunOnceCallback<1>(false));
+        .WillByDefault(RunOnceCallback<1>(ClientStatus()));
 
     SetUrl("http://www.example.com/path");
 
@@ -173,17 +173,6 @@ TEST_F(ScriptPreconditionTest, BadPathPattern) {
   proto.add_path_pattern("invalid[");
 
   EXPECT_EQ(nullptr, ScriptPrecondition::FromProto("unused", proto));
-}
-
-TEST_F(ScriptPreconditionTest, IgnoreEmptyElementsExist) {
-  EXPECT_CALL(mock_web_controller_, OnElementCheck(Eq(Selector({"exists"})), _))
-      .WillOnce(RunOnceCallback<1>(true));
-
-  ScriptPreconditionProto proto;
-  proto.add_elements_exist()->add_selectors("exists");
-  proto.add_elements_exist();
-
-  EXPECT_TRUE(Check(proto));
 }
 
 TEST_F(ScriptPreconditionTest, WrongScriptStatusEqualComparator) {
@@ -306,7 +295,7 @@ TEST_F(ScriptPreconditionTest, MultipleConditions) {
   ScriptPreconditionProto proto;
   proto.add_domain("http://match.example.com");
   proto.add_path_pattern("/path");
-  proto.add_elements_exist()->add_selectors("exists");
+  proto.mutable_element_condition()->mutable_match()->add_selectors("exists");
 
   // Domain and path don't match.
   EXPECT_FALSE(Check(proto));
@@ -314,7 +303,8 @@ TEST_F(ScriptPreconditionTest, MultipleConditions) {
   SetUrl("http://match.example.com/path");
   EXPECT_TRUE(Check(proto)) << "Domain, path and selector must match.";
 
-  proto.mutable_elements_exist(0)->set_selectors(0, "does_not_exist");
+  proto.mutable_element_condition()->mutable_match()->set_selectors(
+      0, "does_not_exist");
   EXPECT_FALSE(Check(proto)) << "Element can not match.";
 }
 

@@ -2,12 +2,13 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+# Nothing outside //chrome/chrome_cleaner can depend on these targets.
+visibility = [ "//chrome/chrome_cleaner/*" ]
+
 # Targets used by tests.
 
 shared_library("empty_dll") {
-  sources = [
-    "empty_dll.cc",
-  ]
+  sources = [ "empty_dll.cc" ]
 
   configs += [
     # This is required to prevent this target from having to be rebuilt every
@@ -22,17 +23,13 @@ source_set("scoped_file") {
     "scoped_file.h",
   ]
 
-  deps = [
-    "//base",
-  ]
+  deps = [ "//base" ]
 }
 
 source_set("test_branding_header") {
   testonly = true
 
-  sources = [
-    "test_branding.h",
-  ]
+  sources = [ "test_branding.h" ]
 }
 
 source_set("test_component") {
@@ -145,6 +142,8 @@ source_set("test_util") {
   testonly = true
 
   sources = [
+    "child_process_logger.cc",
+    "child_process_logger.h",
     "file_remover_test_util.cc",
     "file_remover_test_util.h",
     "reboot_deletion_helper.cc",
@@ -174,7 +173,11 @@ source_set("test_util") {
     ":test_uws_catalog",
     "//base",
     "//base/test:test_support",
+    "//chrome/chrome_cleaner:buildflags",
     "//chrome/chrome_cleaner/constants:common_strings",
+    "//chrome/chrome_cleaner/crash:crashpad_lib",
+    "//chrome/chrome_cleaner/ipc:sandbox",
+    "//chrome/chrome_cleaner/logging:common",
     "//chrome/chrome_cleaner/os:cleaner_os",
     "//chrome/chrome_cleaner/os:common_os",
     "//chrome/chrome_cleaner/os:file_remover_api",
@@ -182,6 +185,7 @@ source_set("test_util") {
     "//chrome/chrome_cleaner/scanner:matcher_util",
     "//chrome/chrome_cleaner/scanner:signature_matcher_api",
     "//chrome/chrome_cleaner/settings",
+    "//chrome/chrome_cleaner/settings:settings_types",
     "//chrome/chrome_cleaner/strings",
     "//components/chrome_cleaner/public/constants:constants",
     "//sandbox/win:sandbox",
@@ -210,6 +214,7 @@ source_set("integration_test_sources") {
 
   sources = [
     "cleaner_test.cc",
+    "generate_test_uws_test.cc",
     "secure_dll_loading_test.cc",
   ]
 
@@ -225,6 +230,7 @@ source_set("integration_test_sources") {
     "//chrome/chrome_cleaner/os:common_os",
     "//chrome/chrome_cleaner/pup_data:pup_data_base",
     "//chrome/chrome_cleaner/pup_data:test_uws",
+    "//chrome/chrome_cleaner/test:test_util",
     "//chrome/chrome_cleaner/zip_archiver:common",
     "//components/chrome_cleaner/public/constants",
     "//components/chrome_cleaner/test:test_name_helper",
@@ -236,6 +242,7 @@ source_set("integration_test_sources") {
     ":empty_dll",
     "//chrome/chrome_cleaner/executables:chrome_cleanup_tool",
     "//chrome/chrome_cleaner/executables:software_reporter_tool",
+    "//chrome/chrome_cleaner/tools:generate_test_uws",
   ]
 }
 
@@ -262,9 +269,7 @@ source_set("unittest_sources") {
 executable("test_process") {
   testonly = true
 
-  sources = [
-    "test_process_main.cc",
-  ]
+  sources = [ "test_process_main.cc" ]
 
   deps = [
     ":test_strings",
@@ -281,9 +286,7 @@ executable("test_process") {
 executable("test_service") {
   testonly = true
 
-  sources = [
-    "test_service_main.cc",
-  ]
+  sources = [ "test_service_main.cc" ]
 
   deps = [
     ":test_strings",

@@ -20,13 +20,13 @@
 /** @const */ var SCREEN_OOBE_DEMO_PREFERENCES = 'demo-preferences';
 /** @const */ var SCREEN_OOBE_KIOSK_ENABLE = 'kiosk-enable';
 /** @const */ var SCREEN_OOBE_AUTO_ENROLLMENT_CHECK = 'auto-enrollment-check';
+/** @const */ var SCREEN_PACKAGED_LICENSE = 'packaged-license';
 /** @const */ var SCREEN_GAIA_SIGNIN = 'gaia-signin';
 /** @const */ var SCREEN_ACCOUNT_PICKER = 'account-picker';
 /** @const */ var SCREEN_ERROR_MESSAGE = 'error-message';
 /** @const */ var SCREEN_TPM_ERROR = 'tpm-error-message';
 /** @const */ var SCREEN_PASSWORD_CHANGED = 'password-changed';
 /** @const */ var SCREEN_APP_LAUNCH_SPLASH = 'app-launch-splash';
-/** @const */ var SCREEN_ARC_KIOSK_SPLASH = 'arc-kiosk-splash';
 /** @const */ var SCREEN_CONFIRM_PASSWORD = 'confirm-password';
 /** @const */ var SCREEN_FATAL_ERROR = 'fatal-error';
 /** @const */ var SCREEN_KIOSK_ENABLE = 'kiosk-enable';
@@ -60,21 +60,6 @@
 /** @const */ var ACCELERATOR_DEMO_MODE = "demo_mode";
 /** @const */ var ACCELERATOR_SEND_FEEDBACK = "send_feedback";
 
-/* Signin UI state constants. Used to control header bar UI. */
-/* TODO(https://crbug.com/981544): Sync with login_types.h */
-/** @const */ var SIGNIN_UI_STATE = {
-  HIDDEN: 0,
-  GAIA_SIGNIN: 1,
-  ACCOUNT_PICKER: 2,
-  WRONG_HWID_WARNING: 3,
-  DEPRECATED_SUPERVISED_USER_CREATION_FLOW: 4,
-  SAML_PASSWORD_CONFIRM: 5,
-  PASSWORD_CHANGED: 6,
-  ENROLLMENT: 7,
-  ERROR: 8,
-  SYNC_CONSENT: 9,
-};
-
 /* Possible UI states of the error screen. */
 /** @const */ var ERROR_SCREEN_UI_STATE = {
   UNKNOWN: 'ui-state-unknown',
@@ -102,17 +87,9 @@ cr.define('cr.ui.login', function() {
   var MAX_SCREEN_TRANSITION_DURATION = 250;
 
   /**
-   * Groups of screens (screen IDs) that should have the same dimensions.
-   * @type Array<Array<string>>
-   * @const
-   */
-  var SCREEN_GROUPS = [[
-    SCREEN_OOBE_NETWORK, SCREEN_OOBE_EULA, SCREEN_OOBE_UPDATE,
-    SCREEN_OOBE_AUTO_ENROLLMENT_CHECK
-  ]];
-  /**
    * Group of screens (screen IDs) where factory-reset screen invocation is
-   * available.
+   * available. Newer screens using Polymer use the attribute
+   * `resetAllowed` in their `ready()` method.
    * @type Array<string>
    * @const
    */
@@ -128,7 +105,6 @@ cr.define('cr.ui.login', function() {
     SCREEN_ERROR_MESSAGE,
     SCREEN_TPM_ERROR,
     SCREEN_PASSWORD_CHANGED,
-    SCREEN_TERMS_OF_SERVICE,
     SCREEN_ARC_TERMS_OF_SERVICE,
     SCREEN_WRONG_HWID,
     SCREEN_CONFIRM_PASSWORD,
@@ -143,16 +119,15 @@ cr.define('cr.ui.login', function() {
 
   /**
    * Group of screens (screen IDs) where enable debuggingscreen invocation is
-   * available.
+   * available. Newer screens using Polymer use the attribute
+   * `enableDebuggingAllowed` in their `ready()` method.
    * @type Array<string>
    * @const
    */
   var ENABLE_DEBUGGING_AVAILABLE_SCREEN_GROUP = [
-    SCREEN_OOBE_HID_DETECTION,
     SCREEN_OOBE_NETWORK,
     SCREEN_OOBE_EULA,
-    SCREEN_OOBE_UPDATE,
-    SCREEN_TERMS_OF_SERVICE
+    SCREEN_OOBE_UPDATE
   ];
 
   /**
@@ -165,11 +140,6 @@ cr.define('cr.ui.login', function() {
     SCREEN_OOBE_ENABLE_DEBUGGING,
     SCREEN_OOBE_RESET,
   ];
-
-  /**
-   * OOBE screens group index.
-   */
-  var SCREEN_GROUP_OOBE = 0;
 
   /**
    * Constructor a display manager that manages initialization of screens,
@@ -214,7 +184,16 @@ cr.define('cr.ui.login', function() {
      * Whether the virtual keyboard is displayed.
      * @type {boolean}
      */
-    virtualKeyboardShown: false,
+    virtualKeyboardShown_: false,
+
+    get virtualKeyboardShown() {
+      return this.virtualKeyboardShown_;
+    },
+
+    set virtualKeyboardShown(shown) {
+      this.virtualKeyboardShown_ = shown;
+      document.documentElement.setAttribute('virtual-keyboard', shown);
+    },
 
     /**
      * Type of UI.
@@ -265,7 +244,7 @@ cr.define('cr.ui.login', function() {
     },
 
     /**
-     * Returns dimensions of screen exluding header bar.
+     * Returns dimensions of screen excluding header bar.
      * @type {Object}
      */
     get clientAreaSize() {
@@ -307,9 +286,28 @@ cr.define('cr.ui.login', function() {
      * @param {number} height client area height
      */
     setClientAreaSize: function(width, height) {
-      var clientArea = $('outer-container');
-      var bottom = parseInt(window.getComputedStyle(clientArea).bottom);
-      clientArea.style.minHeight = cr.ui.toCssPx(height - bottom);
+      if (!cr.isChromeOS) {
+        var clientArea = $('outer-container');
+        var bottom = parseInt(window.getComputedStyle(clientArea).bottom);
+        clientArea.style.minHeight = cr.ui.toCssPx(height - bottom);
+      }
+    },
+
+    /**
+     * Sets the current height of the shelf area.
+     * @param {number} height current shelf height
+     */
+    setShelfHeight: function(height) {
+      document.documentElement.style.setProperty(
+          '--shelf-area-height-base', height + 'px');
+    },
+
+    /**
+     * Sets the hint for calculating OOBE dialog inner padding.
+     * @param {OobeTypes.DialogPaddingMode} mode.
+     */
+    setDialogPaddingMode: function(mode) {
+      document.documentElement.setAttribute('dialog-padding', mode);
     },
 
     /**
@@ -396,6 +394,7 @@ cr.define('cr.ui.login', function() {
       } else if (name == ACCELERATOR_ENROLLMENT) {
         if (attributes.startEnrollmentAllowed ||
             currentStepId == SCREEN_GAIA_SIGNIN ||
+            currentStepId == SCREEN_PACKAGED_LICENSE ||
             currentStepId == SCREEN_ACCOUNT_PICKER) {
           chrome.send('toggleEnrollmentScreen');
         } else if (attributes.postponeEnrollmentAllowed ||
@@ -418,8 +417,7 @@ cr.define('cr.ui.login', function() {
           $('version-labels').hidden = !$('version-labels').hidden;
       } else if (name == ACCELERATOR_RESET) {
         if (currentStepId == SCREEN_OOBE_RESET) {
-          $('reset').send(
-              login.Screen.CALLBACK_USER_ACTED, USER_ACTION_ROLLBACK_TOGGLED);
+          $('reset').userActed(USER_ACTION_ROLLBACK_TOGGLED);
         } else if (attributes.resetAllowed ||
             RESET_AVAILABLE_SCREEN_GROUP.indexOf(currentStepId) != -1) {
           chrome.send('toggleResetScreen');
@@ -428,14 +426,12 @@ cr.define('cr.ui.login', function() {
         if (this.isOobeUI())
           this.showDeviceRequisitionPrompt_();
       } else if (name == ACCELERATOR_DEVICE_REQUISITION_REMORA) {
-        if (this.isOobeUI())
+        if (this.isOobeUI() && !attributes.changeRequisitonProhibited)
           this.showDeviceRequisitionRemoraPrompt_(
               'deviceRequisitionRemoraPromptText', 'remora');
       } else if (name == ACCELERATOR_APP_LAUNCH_BAILOUT) {
         if (currentStepId == SCREEN_APP_LAUNCH_SPLASH)
           chrome.send('cancelAppLaunch');
-        if (currentStepId == SCREEN_ARC_KIOSK_SPLASH)
-          chrome.send('cancelArcKioskLaunch');
       } else if (name == ACCELERATOR_APP_LAUNCH_NETWORK_CONFIG) {
         if (currentStepId == SCREEN_APP_LAUNCH_SPLASH)
           chrome.send('networkConfigRequest');
@@ -531,6 +527,12 @@ cr.define('cr.ui.login', function() {
       // is back in DOM tree and has correct offsetHeight / offsetWidth.
       newStep.hidden = false;
 
+      if (newStep.getOobeUIInitialState) {
+        this.setOobeUIState(newStep.getOobeUIInitialState());
+      } else {
+        this.setOobeUIState(OOBE_UI_STATE.HIDDEN);
+      }
+
       if (newStep.onBeforeShow)
         newStep.onBeforeShow(screenData);
 
@@ -617,7 +619,6 @@ cr.define('cr.ui.login', function() {
           innerContainer.classList.remove('down');
           innerContainer.addEventListener('transitionend', function f(e) {
             innerContainer.removeEventListener('transitionend', f);
-            outerContainer.classList.remove('down');
             chrome.send('loginVisible', ['oobe']);
             // Refresh defaultControl. It could have changed.
             var defaultControl = newStep.defaultControl;
@@ -674,8 +675,7 @@ cr.define('cr.ui.login', function() {
       // screen.
       // TODO: remove this special case when a better fix is found for the race
       // condition. This if statement was introduced to fix http://b/113786350.
-      if ((this.currentScreen.id == SCREEN_APP_LAUNCH_SPLASH ||
-           this.currentScreen.id == SCREEN_ARC_KIOSK_SPLASH) &&
+      if (this.currentScreen.id == SCREEN_APP_LAUNCH_SPLASH &&
           screen.id == SCREEN_GAIA_SIGNIN) {
         console.log(
             this.currentScreen.id +
@@ -742,10 +742,6 @@ cr.define('cr.ui.login', function() {
       }
       this.appendButtons_(el.buttons, screenId);
 
-      if (attributes && attributes.commonScreenSize) {
-        SCREEN_GROUPS[0].push(screenId);
-      }
-
       if (el.updateOobeConfiguration && this.oobe_configuration_)
         el.updateOobeConfiguration(this.oobe_configuration_);
     },
@@ -757,53 +753,33 @@ cr.define('cr.ui.login', function() {
      * @param {!HTMLElement} screen Screen that is being shown.
      */
     updateScreenSize: function(screen) {
-      // Have to reset any previously predefined screen size first
-      // so that screen contents would define it instead.
-      $('inner-container').style.height = '';
-      $('inner-container').style.width = '';
-      screen.style.width = '';
-      screen.style.height = '';
+      if (!cr.isChromeOS) {
+        // Have to reset any previously predefined screen size first
+        // so that screen contents would define it instead.
+        $('inner-container').style.height = '';
+        $('inner-container').style.width = '';
+        screen.style.width = '';
+        screen.style.height = '';
+      }
 
       $('outer-container').classList.toggle(
         'fullscreen', screen.classList.contains('fullscreen'));
 
       var width = screen.getPreferredSize().width;
       var height = screen.getPreferredSize().height;
-      for (let i = 0; i < SCREEN_GROUPS.length; ++i) {
-        let screenGroup = SCREEN_GROUPS[i];
-        if (screenGroup.indexOf(screen.id) != -1) {
-          // Set screen dimensions to maximum dimensions within this group.
-          for (let j = 0; j < screenGroup.length; ++j) {
-            let screen2 = $(screenGroup[j]);
-            // Other screens in this screen group might be missing if we're not
-            // in OOBE.
-            if (!screen2)
-              continue;
-            width = Math.max(width, screen2.getPreferredSize().width);
-            height = Math.max(height, screen2.getPreferredSize().height);
-          }
-          break;
+
+      if (!cr.isChromeOS) {
+        if (screen.classList.contains('fullscreen')) {
+          $('inner-container').style.height = '100%';
+          $('inner-container').style.width = '100%';
+        } else {
+          $('inner-container').style.height = height + 'px';
+          $('inner-container').style.width = width + 'px';
         }
-      }
-
-      if (screen.classList.contains('fullscreen')) {
-        $('inner-container').style.height = '100%';
-        $('inner-container').style.width = '100%';
-      } else {
-        $('inner-container').style.height = height + 'px';
-        $('inner-container').style.width = width + 'px';
-      }
-      // This requires |screen| to have 'box-sizing: border-box'.
-      screen.style.width = width + 'px';
-      screen.style.height = height + 'px';
-      screen.style.margin = 'auto';
-
-      if (this.showingViewsLogin) {
-        chrome.send('updateOobeDialogSize', [width, height]);
-        $('scroll-container').classList.toggle('disable-scroll', true);
-        $('inner-container').classList.toggle('disable-scroll', true);
-        $('inner-container').style.top =
-            cr.ui.toCssPx($('scroll-container').scrollTop);
+        // This requires |screen| to have 'box-sizing: border-box'.
+        screen.style.width = width + 'px';
+        screen.style.height = height + 'px';
+        screen.style.margin = 'auto';
       }
     },
 
@@ -822,6 +798,12 @@ cr.define('cr.ui.login', function() {
         this.appendButtons_(screen.buttons, screenId);
         if (screen.updateLocalizedContent)
           screen.updateLocalizedContent();
+      }
+      var dynamicElements = document.getElementsByClassName('i18n-dynamic');
+      for (var child of dynamicElements) {
+        if (typeof(child.i18nUpdateLocale) === 'function') {
+          child.i18nUpdateLocale();
+        }
       }
       var isInTabletMode = loadTimeData.getBoolean('isInTabletMode');
       this.setTabletModeState_(isInTabletMode);
@@ -856,18 +838,6 @@ cr.define('cr.ui.login', function() {
         var screen = $(screenId);
         if (screen.setTabletModeState)
           screen.setTabletModeState(isInTabletMode);
-      }
-    },
-
-    /**
-     * Initialized first group of OOBE screens.
-     */
-    initializeOOBEScreens: function() {
-      if (this.isOobeUI() && $('inner-container').classList.contains('down')) {
-        for (let i = 0; i < SCREEN_GROUPS[SCREEN_GROUP_OOBE].length; ++i) {
-          let screen = $(SCREEN_GROUPS[SCREEN_GROUP_OOBE][i]);
-          screen.hidden = false;
-        }
       }
     },
 
@@ -1026,11 +996,10 @@ cr.define('cr.ui.login', function() {
      * Notifies the C++ handler in views login that the OOBE signin state has
      * been updated. This information is primarily used by the login shelf to
      * update button visibility state.
-     * @param {number} state The state (see SIGNIN_UI_STATE) of the OOBE UI.
+     * @param {number} state The state (see OOBE_UI_STATE) of the OOBE UI.
      */
-    setSigninUIState: function(state) {
-      if (Oobe.getInstance().showingViewsLogin)
-        chrome.send('updateSigninUIState', [state]);
+    setOobeUIState: function(state) {
+      chrome.send('updateOobeUIState', [state]);
     },
 
   };
@@ -1060,7 +1029,6 @@ cr.define('cr.ui.login', function() {
       instance.displayType = DISPLAY_TYPE.LOGIN;
     }
 
-    instance.initializeOOBEScreens();
     instance.initializeDemoModeMultiTapListener();
 
     window.addEventListener('resize', instance.onWindowResize_.bind(instance));
@@ -1111,7 +1079,7 @@ cr.define('cr.ui.login', function() {
   DisplayManager.showSigninUI = function(opt_email) {
     var currentScreenId = Oobe.getInstance().currentScreen.id;
     if (currentScreenId == SCREEN_GAIA_SIGNIN)
-      Oobe.getInstance().setSigninUIState(SIGNIN_UI_STATE.GAIA_SIGNIN);
+      Oobe.getInstance().setOobeUIState(OOBE_UI_STATE.GAIA_SIGNIN);
     chrome.send('showAddUser', [opt_email]);
   };
 

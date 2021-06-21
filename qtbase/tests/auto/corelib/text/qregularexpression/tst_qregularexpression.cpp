@@ -69,6 +69,7 @@ private slots:
     void captureCount();
     void captureNames_data();
     void captureNames();
+    void captureNamesNul();
     void pcreJitStackUsage_data();
     void pcreJitStackUsage();
     void regularExpressionMatch_data();
@@ -365,22 +366,22 @@ void tst_QRegularExpression::provideRegularExpressions()
     QTest::addColumn<QRegularExpression::PatternOptions>("patternOptions");
 
     QTest::newRow("emptynull01") << QString()
-                                 << QRegularExpression::PatternOptions(0);
+                                 << QRegularExpression::PatternOptions{};
     QTest::newRow("emptynull02") << QString()
                                  << QRegularExpression::PatternOptions(QRegularExpression::CaseInsensitiveOption
                                                                        | QRegularExpression::DotMatchesEverythingOption
                                                                        | QRegularExpression::MultilineOption);
     QTest::newRow("emptynull03") << ""
-                                 << QRegularExpression::PatternOptions(0);
+                                 << QRegularExpression::PatternOptions{};
     QTest::newRow("emptynull04") << ""
                                  << QRegularExpression::PatternOptions(QRegularExpression::CaseInsensitiveOption
                                                                        | QRegularExpression::DotMatchesEverythingOption
                                                                        | QRegularExpression::MultilineOption);
 
     QTest::newRow("regexp01") << "a pattern"
-                              << QRegularExpression::PatternOptions(0);
+                              << QRegularExpression::PatternOptions{};
     QTest::newRow("regexp02") << "^a (.*) more complicated(?<P>pattern)$"
-                              << QRegularExpression::PatternOptions(0);
+                              << QRegularExpression::PatternOptions{};
     QTest::newRow("regexp03") << "(?:a) pAttErN"
                               << QRegularExpression::PatternOptions(QRegularExpression::CaseInsensitiveOption);
     QTest::newRow("regexp04") << "a\nmultiline\npattern"
@@ -397,13 +398,13 @@ void tst_QRegularExpression::provideRegularExpressions()
                                                                     | QRegularExpression::InvertedGreedinessOption);
 
     QTest::newRow("unicode01") << QString::fromUtf8("^s[ome] latin-1 \xc3\x80\xc3\x88\xc3\x8c\xc3\x92\xc3\x99 chars$")
-                               << QRegularExpression::PatternOptions(0);
+                               << QRegularExpression::PatternOptions{};
     QTest::newRow("unicode02") << QString::fromUtf8("^s[ome] latin-1 \xc3\x80\xc3\x88\xc3\x8c\xc3\x92\xc3\x99 chars$")
                                << QRegularExpression::PatternOptions(QRegularExpression::CaseInsensitiveOption
                                                                      | QRegularExpression::DotMatchesEverythingOption
                                                                      | QRegularExpression::InvertedGreedinessOption);
     QTest::newRow("unicode03") << QString::fromUtf8("Unicode \xf0\x9d\x85\x9d \xf0\x9d\x85\x9e\xf0\x9d\x85\x9f")
-                               << QRegularExpression::PatternOptions(0);
+                               << QRegularExpression::PatternOptions{};
     QTest::newRow("unicode04") << QString::fromUtf8("Unicode \xf0\x9d\x85\x9d \xf0\x9d\x85\x9e\xf0\x9d\x85\x9f")
                                << QRegularExpression::PatternOptions(QRegularExpression::CaseInsensitiveOption
                                                                      | QRegularExpression::DotMatchesEverythingOption
@@ -1621,6 +1622,36 @@ void tst_QRegularExpression::captureNames()
         }
     }
 
+}
+
+void tst_QRegularExpression::captureNamesNul()
+{
+    QRegularExpression re("a(\\d+)b(?<name>\\d+)c(?<anotherName>\\d+)d(\\d+)e$");
+    QVERIFY(re.isValid());
+
+    QCOMPARE(re.captureCount(), 4);
+
+    QStringList namedCaptureGroups = re.namedCaptureGroups();
+    QCOMPARE(namedCaptureGroups[0], QString());
+    QCOMPARE(namedCaptureGroups[1], QString());
+    QCOMPARE(namedCaptureGroups[2], "name");
+    QCOMPARE(namedCaptureGroups[3], "anotherName");
+    QCOMPARE(namedCaptureGroups[4], QString());
+
+    QRegularExpressionMatch m = re.match("a12b456c789d0e");
+    QVERIFY(m.hasMatch());
+
+    QString captureName("name");
+    QCOMPARE(m.captured(captureName), "456");
+    QCOMPARE(m.captured(QStringView(captureName)), "456");
+    QCOMPARE(m.captured(qToStringViewIgnoringNull(captureName)), "456");
+    QCOMPARE(m.captured(u"name"), "456");
+
+    captureName = "anotherName";
+    QCOMPARE(m.captured(captureName), "789");
+    QCOMPARE(m.captured(QStringView(captureName)), "789");
+    QCOMPARE(m.captured(qToStringViewIgnoringNull(captureName)), "789");
+    QCOMPARE(m.captured(u"anotherName"), "789");
 }
 
 void tst_QRegularExpression::pcreJitStackUsage_data()

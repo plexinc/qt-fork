@@ -30,10 +30,10 @@ bool AbortOnEndInterceptor(URLLoaderInterceptor::RequestParams* params) {
   net::HttpResponseInfo info;
   info.headers = base::MakeRefCounted<net::HttpResponseHeaders>(
       net::HttpUtil::AssembleRawHeaders(headers));
-  network::ResourceResponseHead response;
-  response.headers = info.headers;
-  response.headers->GetMimeType(&response.mime_type);
-  params->client->OnReceiveResponse(response);
+  auto response = network::mojom::URLResponseHead::New();
+  response->headers = info.headers;
+  response->headers->GetMimeType(&response->mime_type);
+  params->client->OnReceiveResponse(std::move(response));
 
   std::string body = "some data\r\n";
   uint32_t bytes_written = body.size();
@@ -64,7 +64,7 @@ IN_PROC_BROWSER_TEST_F(WebKitBrowserTest, AbortOnEnd) {
   URLLoaderInterceptor interceptor(base::BindRepeating(&AbortOnEndInterceptor));
   GURL url = embedded_test_server()->GetURL(kAsyncScriptThatAbortsOnEndPage);
 
-  NavigateToURL(shell(), url);
+  EXPECT_TRUE(NavigateToURL(shell(), url));
 
   // If you are seeing this test fail, please strongly investigate the
   // possibility that http://crbug.com/75604 and
@@ -86,7 +86,7 @@ IN_PROC_BROWSER_TEST_F(WebKitBrowserTest, XsltBadImport) {
   URLLoaderInterceptor interceptor(base::BindRepeating(&AbortOnEndInterceptor));
   GURL url = embedded_test_server()->GetURL(kXsltBadImportPage);
 
-  NavigateToURL(shell(), url);
+  EXPECT_TRUE(NavigateToURL(shell(), url));
 
   EXPECT_FALSE(shell()->web_contents()->IsCrashed());
 }
@@ -106,7 +106,7 @@ IN_PROC_BROWSER_TEST_F(WebKitBrowserTest, PrerenderNoCrash) {
   ASSERT_TRUE(embedded_test_server()->Start());
   GURL url = embedded_test_server()->GetURL(kPrerenderNoCrashPage);
 
-  NavigateToURL(shell(), url);
+  EXPECT_TRUE(NavigateToURL(shell(), url));
 
   EXPECT_FALSE(shell()->web_contents()->IsCrashed());
 }

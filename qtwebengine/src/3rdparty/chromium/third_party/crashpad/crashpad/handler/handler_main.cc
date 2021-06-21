@@ -56,6 +56,10 @@
 #include "util/string/split_string.h"
 #include "util/synchronization/semaphore.h"
 
+#if defined(OS_CHROMEOS)
+#include "handler/linux/cros_crash_report_exception_handler.h"
+#endif
+
 #if defined(OS_LINUX) || defined(OS_ANDROID)
 #include <unistd.h>
 
@@ -139,6 +143,10 @@ void Usage(const base::FilePath& me) {
 "      --no-periodic-tasks     don't scan for new reports or prune the database\n"
 "      --no-rate-limit         don't rate limit crash uploads\n"
 "      --no-upload-gzip        don't use gzip compression when uploading\n"
+#if defined(OS_ANDROID)
+"      --no-write-minidump-to-database\n"
+"                              don't write minidump to database\n"
+#endif  // OS_ANDROID
 #if defined(OS_WIN)
 "      --pipe-name=PIPE        communicate with the client over PIPE\n"
 #endif  // OS_WIN
@@ -157,6 +165,21 @@ void Usage(const base::FilePath& me) {
 #endif  // OS_LINUX || OS_ANDROID
 "      --url=URL               send crash reports to this Breakpad server URL,\n"
 "                              only if uploads are enabled for the database\n"
+#if defined(OS_CHROMEOS)
+"      --use-cros-crash-reporter\n"
+"                              pass crash reports to /sbin/crash_reporter\n"
+"                              instead of storing them in the database\n"
+"      --minidump-dir-for-tests=TEST_MINIDUMP_DIR\n"
+"                              causes /sbin/crash_reporter to leave dumps in\n"
+"                              this directory instead of the normal location\n"
+"      --always-allow-feedback\n"
+"                              pass the --always_allow_feedback flag to\n"
+"                              crash_reporter, thus skipping metrics consent\n"
+"                              checks\n"
+#endif  // OS_CHROMEOS
+#if defined(OS_ANDROID)
+"      --write-minidump-to-log write minidump to log\n"
+#endif  // OS_ANDROID
 "      --help                  display this help and exit\n"
 "      --version               output version information and exit\n",
           me.value().c_str());
@@ -179,6 +202,10 @@ struct Options {
   VMAddress sanitization_information_address;
   int initial_client_fd;
   bool shared_client_connection;
+#if defined(OS_ANDROID)
+  bool write_minidump_to_log;
+  bool write_minidump_to_database;
+#endif  // OS_ANDROID
 #elif defined(OS_WIN)
   std::string pipe_name;
   InitialClientData initial_client_data;
@@ -188,6 +215,11 @@ struct Options {
   bool periodic_tasks;
   bool rate_limit;
   bool upload_gzip;
+#if defined(OS_CHROMEOS)
+  bool use_cros_crash_reporter = false;
+  base::FilePath minidump_dir_for_tests;
+  bool always_allow_feedback = false;
+#endif  // OS_CHROMEOS
 };
 
 // Splits |key_value| on '=' and inserts the resulting key and value into |map|.
@@ -247,8 +279,6 @@ class CallMetricsRecordNormalExit {
 
 #if defined(OS_MACOSX) || defined(OS_LINUX) || defined(OS_ANDROID)
 
-Signals::OldActions g_old_crash_signal_handlers;
-
 void HandleCrashSignal(int sig, siginfo_t* siginfo, void* context) {
   MetricsRecordExit(Metrics::LifetimeMilestone::kCrashed);
 
@@ -283,9 +313,7 @@ void HandleCrashSignal(int sig, siginfo_t* siginfo, void* context) {
   }
   Metrics::HandlerCrashed(metrics_code);
 
-  struct sigaction* old_action =
-      g_old_crash_signal_handlers.ActionForSignal(sig);
-  Signals::RestoreHandlerAndReraiseSignalOnReturn(siginfo, old_action);
+  Signals::RestoreHandlerAndReraiseSignalOnReturn(siginfo, nullptr);
 }
 
 void HandleTerminateSignal(int sig, siginfo_t* siginfo, void* context) {
@@ -293,13 +321,13 @@ void HandleTerminateSignal(int sig, siginfo_t* siginfo, void* context) {
   Signals::RestoreHandlerAndReraiseSignalOnReturn(siginfo, nullptr);
 }
 
-#if defined(OS_MACOSX)
-
 void ReinstallCrashHandler() {
   // This is used to re-enable the metrics-recording crash handler after
   // MonitorSelf() sets up a Crashpad exception handler. On macOS, the
   // metrics-recording handler uses signals and the Crashpad handler uses Mach
   // exceptions, so there’s nothing to re-enable.
+  // On Linux, the signal handler installed by StartHandler() restores the
+  // previously installed signal handler by default.
 }
 
 void InstallCrashHandler() {
@@ -308,6 +336,8 @@ void InstallCrashHandler() {
   // Not a crash handler, but close enough.
   Signals::InstallTerminateHandlers(HandleTerminateSignal, 0, nullptr);
 }
+
+#if defined(OS_MACOSX)
 
 struct ResetSIGTERMTraits {
   static struct sigaction* InvalidValue() {
@@ -331,21 +361,6 @@ void HandleSIGTERM(int sig, siginfo_t* siginfo, void* context) {
 
   DCHECK(g_exception_handler_server);
   g_exception_handler_server->Stop();
-}
-
-#else
-
-void ReinstallCrashHandler() {
-  // This is used to re-enable the metrics-recording crash handler after
-  // MonitorSelf() sets up a Crashpad signal handler.
-  Signals::InstallCrashHandlers(
-      HandleCrashSignal, 0, &g_old_crash_signal_handlers);
-}
-
-void InstallCrashHandler() {
-  ReinstallCrashHandler();
-
-  Signals::InstallTerminateHandlers(HandleTerminateSignal, 0, nullptr);
 }
 
 #endif  // OS_MACOSX
@@ -457,7 +472,7 @@ void MonitorSelf(const Options& options) {
   // instance of crashpad_handler to be writing metrics at a time, and it should
   // be the primary instance.
   CrashpadClient crashpad_client;
-#if defined(OS_LINUX) || defined(OS_ANDROID)
+#if defined(OS_ANDROID)
   if (!crashpad_client.StartHandlerAtCrash(executable_path,
                                            options.database,
                                            base::FilePath(),
@@ -509,6 +524,12 @@ class ScopedStoppable {
 int HandlerMain(int argc,
                 char* argv[],
                 const UserStreamDataSources* user_stream_sources) {
+#if defined(OS_CHROMEOS)
+  if (freopen("/var/log/chrome/chrome", "a", stderr) == nullptr) {
+    PLOG(ERROR) << "Failed to redirect stderr to /var/log/chrome/chrome";
+  }
+#endif
+
   InstallCrashHandler();
   CallMetricsRecordNormalExit metrics_record_normal_exit;
 
@@ -541,6 +562,9 @@ int HandlerMain(int argc,
     kOptionNoPeriodicTasks,
     kOptionNoRateLimit,
     kOptionNoUploadGzip,
+#if defined(OS_ANDROID)
+    kOptionNoWriteMinidumpToDatabase,
+#endif  // OS_ANDROID
 #if defined(OS_WIN)
     kOptionPipeName,
 #endif  // OS_WIN
@@ -553,6 +577,14 @@ int HandlerMain(int argc,
     kOptionTraceParentWithException,
 #endif
     kOptionURL,
+#if defined(OS_CHROMEOS)
+    kOptionUseCrosCrashReporter,
+    kOptionMinidumpDirForTests,
+    kOptionAlwaysAllowFeedback,
+#endif  // OS_CHROMEOS
+#if defined(OS_ANDROID)
+    kOptionWriteMinidumpToLog,
+#endif  // OS_ANDROID
 
     // Standard options.
     kOptionHelp = -2,
@@ -594,6 +626,12 @@ int HandlerMain(int argc,
     {"no-periodic-tasks", no_argument, nullptr, kOptionNoPeriodicTasks},
     {"no-rate-limit", no_argument, nullptr, kOptionNoRateLimit},
     {"no-upload-gzip", no_argument, nullptr, kOptionNoUploadGzip},
+#if defined(OS_ANDROID)
+    {"no-write-minidump-to-database",
+     no_argument,
+     nullptr,
+     kOptionNoWriteMinidumpToDatabase},
+#endif  // OS_ANDROID
 #if defined(OS_WIN)
     {"pipe-name", required_argument, nullptr, kOptionPipeName},
 #endif  // OS_WIN
@@ -618,6 +656,23 @@ int HandlerMain(int argc,
      kOptionTraceParentWithException},
 #endif  // OS_LINUX || OS_ANDROID
     {"url", required_argument, nullptr, kOptionURL},
+#if defined(OS_CHROMEOS)
+    {"use-cros-crash-reporter",
+      no_argument,
+      nullptr,
+      kOptionUseCrosCrashReporter},
+    {"minidump-dir-for-tests",
+      required_argument,
+      nullptr,
+      kOptionMinidumpDirForTests},
+    {"always-allow-feedback",
+      no_argument,
+      nullptr,
+      kOptionAlwaysAllowFeedback},
+#endif  // OS_CHROMEOS
+#if defined(OS_ANDROID)
+    {"write-minidump-to-log", no_argument, nullptr, kOptionWriteMinidumpToLog},
+#endif  // OS_ANDROID
     {"help", no_argument, nullptr, kOptionHelp},
     {"version", no_argument, nullptr, kOptionVersion},
     {nullptr, 0, nullptr, 0},
@@ -634,6 +689,9 @@ int HandlerMain(int argc,
   options.periodic_tasks = true;
   options.rate_limit = true;
   options.upload_gzip = true;
+#if defined(OS_ANDROID)
+  options.write_minidump_to_database = true;
+#endif
 
   int opt;
   while ((opt = getopt_long(argc, argv, "", long_options, nullptr)) != -1) {
@@ -720,6 +778,12 @@ int HandlerMain(int argc,
         options.upload_gzip = false;
         break;
       }
+#if defined(OS_ANDROID)
+      case kOptionNoWriteMinidumpToDatabase: {
+        options.write_minidump_to_database = false;
+        break;
+      }
+#endif  // OS_ANDROID
 #if defined(OS_WIN)
       case kOptionPipeName: {
         options.pipe_name = optarg;
@@ -759,6 +823,27 @@ int HandlerMain(int argc,
         options.url = optarg;
         break;
       }
+#if defined(OS_CHROMEOS)
+      case kOptionUseCrosCrashReporter: {
+        options.use_cros_crash_reporter = true;
+        break;
+      }
+      case kOptionMinidumpDirForTests: {
+        options.minidump_dir_for_tests = base::FilePath(
+            ToolSupport::CommandLineArgumentToFilePathStringType(optarg));
+        break;
+      }
+      case kOptionAlwaysAllowFeedback: {
+        options.always_allow_feedback = true;
+        break;
+      }
+#endif  // OS_CHROMEOS
+#if defined(OS_ANDROID)
+      case kOptionWriteMinidumpToLog: {
+        options.write_minidump_to_log = true;
+        break;
+      }
+#endif  // OS_ANDROID
       case kOptionHelp: {
         Usage(me);
         MetricsRecordExit(Metrics::LifetimeMilestone::kExitedEarly);
@@ -819,6 +904,14 @@ int HandlerMain(int argc,
         me, "--shared-client-connection requires --initial-client-fd");
     return ExitFailure();
   }
+#if defined(OS_ANDROID)
+  if (!options.write_minidump_to_log && !options.write_minidump_to_database) {
+    ToolSupport::UsageHint(me,
+                           "--no_write_minidump_to_database is required to use "
+                           "with --write_minidump_to_log.");
+    ExitFailure();
+  }
+#endif  // OS_ANDROID
 #endif  // OS_MACOSX
 
   if (options.database.empty()) {
@@ -884,7 +977,39 @@ int HandlerMain(int argc,
     upload_thread.Get()->Start();
   }
 
-  CrashReportExceptionHandler exception_handler(
+#if defined(OS_LINUX) || defined(OS_ANDROID)
+  std::unique_ptr<ExceptionHandlerServer::Delegate> exception_handler;
+#else
+  std::unique_ptr<CrashReportExceptionHandler> exception_handler;
+#endif
+
+#if defined(OS_CHROMEOS)
+  if (options.use_cros_crash_reporter) {
+    auto cros_handler = std::make_unique<CrosCrashReportExceptionHandler>(
+        database.get(),
+        &options.annotations,
+        user_stream_sources);
+
+    if (!options.minidump_dir_for_tests.empty()) {
+      cros_handler->SetDumpDir(options.minidump_dir_for_tests);
+    }
+
+    if (options.always_allow_feedback) {
+      cros_handler->SetAlwaysAllowFeedback();
+    }
+
+    exception_handler = std::move(cros_handler);
+  } else {
+    exception_handler = std::make_unique<CrashReportExceptionHandler>(
+        database.get(),
+        static_cast<CrashReportUploadThread*>(upload_thread.Get()),
+        &options.annotations,
+        true,
+        false,
+        user_stream_sources);
+  }
+#else
+  exception_handler = std::make_unique<CrashReportExceptionHandler>(
       database.get(),
       static_cast<CrashReportUploadThread*>(upload_thread.Get()),
       &options.annotations,
@@ -892,16 +1017,26 @@ int HandlerMain(int argc,
       // TODO(scottmg): Process level file attachments, and for all platforms.
       nullptr,
 #endif
+#if defined(OS_ANDROID)
+      options.write_minidump_to_database,
+      options.write_minidump_to_log,
+#endif  // OS_ANDROID
+#if defined(OS_LINUX)
+      true,
+      false,
+#endif  // OS_LINUX
       user_stream_sources);
+#endif  // OS_CHROMEOS
 
- #if defined(OS_LINUX) || defined(OS_ANDROID)
+#if defined(OS_LINUX) || defined(OS_ANDROID)
   if (options.exception_information_address) {
     ExceptionHandlerProtocol::ClientInformation info;
     info.exception_information_address = options.exception_information_address;
     info.sanitization_information_address =
         options.sanitization_information_address;
-    return exception_handler.HandleException(getppid(), info) ? EXIT_SUCCESS
-                                                              : ExitFailure();
+    return exception_handler->HandleException(getppid(), geteuid(), info)
+               ? EXIT_SUCCESS
+               : ExitFailure();
   }
 #endif  // OS_LINUX || OS_ANDROID
 
@@ -1005,7 +1140,7 @@ int HandlerMain(int argc,
 #if defined(OS_WIN)
   if (options.initial_client_data.IsValid()) {
     exception_handler_server.InitializeWithInheritedDataForInitialClient(
-        options.initial_client_data, &exception_handler);
+        options.initial_client_data, exception_handler.get());
   }
 #elif defined(OS_LINUX) || defined(OS_ANDROID)
   if (options.initial_client_fd == kInvalidFileHandle ||
@@ -1016,7 +1151,7 @@ int HandlerMain(int argc,
   }
 #endif  // OS_WIN
 
-  exception_handler_server.Run(&exception_handler);
+  exception_handler_server.Run(exception_handler.get());
 
   return EXIT_SUCCESS;
 }

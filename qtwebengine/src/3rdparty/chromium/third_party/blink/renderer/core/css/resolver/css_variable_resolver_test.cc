@@ -52,7 +52,7 @@ class CSSVariableResolverTest : public PageTestBase {
   }
 
   void SetTestHTML(const String& value) {
-    GetDocument().body()->SetInnerHTMLFromString(
+    GetDocument().body()->setInnerHTML(
         "<style>"
         "  #target {"
         "    --main-bg-color: black;"
@@ -129,7 +129,7 @@ class CSSVariableResolverTest : public PageTestBase {
     builder.Append("</style>\n");
     builder.Append("<div id=target></div>\n");
 
-    GetDocument().body()->SetInnerHTMLFromString(builder.ToString());
+    GetDocument().body()->setInnerHTML(builder.ToString());
     UpdateAllLifecyclePhasesForTest();
   }
 };
@@ -283,7 +283,7 @@ TEST_F(CSSVariableResolverTest, NeedsResolutionClearedByResolver) {
 
   const ComputedStyle* initial = &ComputedStyle::InitialStyle();
   StyleResolverState state(GetDocument(), *GetDocument().documentElement(),
-                           nullptr /* pseudo_element */, initial, initial);
+                           initial, initial);
 
   scoped_refptr<ComputedStyle> style = ComputedStyle::Create();
   style->InheritFrom(*initial);
@@ -294,14 +294,14 @@ TEST_F(CSSVariableResolverTest, NeedsResolutionClearedByResolver) {
   const auto* prop3 = CreateCustomProperty("--prop3", "var(--prop2)");
 
   // Register prop3 to make it non-inherited.
-  base::Optional<CSSSyntaxDescriptor> token_syntax =
+  base::Optional<CSSSyntaxDefinition> token_syntax =
       CSSSyntaxStringParser("*").Parse();
   ASSERT_TRUE(token_syntax);
   String initial_value_str("foo");
   const auto tokens = CSSTokenizer(initial_value_str).TokenizeToEOF();
   const auto* context = MakeGarbageCollected<CSSParserContext>(GetDocument());
   const CSSValue* initial_value =
-      token_syntax->Parse(CSSParserTokenRange(tokens), context, false);
+      token_syntax->Parse(CSSParserTokenRange(tokens), *context, false);
   ASSERT_TRUE(initial_value);
   ASSERT_TRUE(initial_value->IsVariableReferenceValue());
   PropertyRegistration* registration =
@@ -426,7 +426,7 @@ TEST_F(CSSVariableResolverTest, BillionLaughs) {
   builder.Append("</style>\n");
   builder.Append("<div id=target></div>\n");
 
-  GetDocument().body()->SetInnerHTMLFromString(builder.ToString());
+  GetDocument().body()->setInnerHTML(builder.ToString());
   UpdateAllLifecyclePhasesForTest();
 
   Element* target = GetDocument().getElementById("target");
@@ -471,7 +471,7 @@ TEST_F(CSSVariableResolverTest, CSSWideKeywords) {
 
   const ComputedStyle* initial = &ComputedStyle::InitialStyle();
   StyleResolverState state(GetDocument(), *GetDocument().documentElement(),
-                           nullptr /* pseudo_element */, initial, initial);
+                           initial, initial);
 
   scoped_refptr<ComputedStyle> style = ComputedStyle::Create();
   style->InheritFrom(*initial);

@@ -4,6 +4,9 @@
 
 #include "ui/views/controls/image_view.h"
 
+#include <memory>
+#include <utility>
+
 #include "base/i18n/rtl.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -48,7 +51,7 @@ class ImageViewTest : public ViewsTestBase,
         CreateParams(Widget::InitParams::TYPE_WINDOW_FRAMELESS);
     params.bounds = gfx::Rect(200, 200);
     params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-    widget_.Init(params);
+    widget_.Init(std::move(params));
     View* container = new View();
     // Make sure children can take up exactly as much space as they require.
     BoxLayout::Orientation orientation =
@@ -141,7 +144,7 @@ TEST_P(ImageViewTest, ImageOriginForCustomViewBounds) {
   EXPECT_EQ(image_view_bounds, image_view()->bounds());
 }
 
-INSTANTIATE_TEST_SUITE_P(,
+INSTANTIATE_TEST_SUITE_P(All,
                          ImageViewTest,
                          ::testing::Values(Axis::kHorizontal, Axis::kVertical));
 

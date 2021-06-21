@@ -22,9 +22,9 @@
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/signin/public/identity_manager/primary_account_access_token_fetcher.h"
+#include "components/signin/public/identity_manager/scope_set.h"
 #include "components/suggestions/blacklist_store.h"
 #include "components/suggestions/suggestions_store.h"
-#include "components/sync/driver/sync_service.h"
 #include "components/variations/net/variations_http_headers.h"
 #include "google_apis/gaia/gaia_constants.h"
 #include "net/base/escape.h"
@@ -38,7 +38,6 @@
 #include "net/url_request/url_fetcher.h"
 #include "net/url_request/url_request_status.h"
 #include "services/network/public/cpp/resource_request.h"
-#include "services/network/public/cpp/resource_response.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/public/cpp/simple_url_loader.h"
 
@@ -115,7 +114,6 @@ SuggestionsServiceImpl::SuggestionsServiceImpl(
     const base::TickClock* tick_clock)
     : identity_manager_(identity_manager),
       sync_service_(sync_service),
-      sync_service_observer_(this),
       history_sync_state_(syncer::UploadState::INITIALIZING),
       url_loader_factory_(url_loader_factory),
       suggestions_store_(std::move(suggestions_store)),
@@ -341,7 +339,7 @@ void SuggestionsServiceImpl::IssueRequestIfNoneOngoing(const GURL& url) {
   if (token_fetcher_)
     return;
 
-  identity::ScopeSet scopes{GaiaConstants::kChromeSyncOAuth2Scope};
+  signin::ScopeSet scopes{GaiaConstants::kChromeSyncOAuth2Scope};
   token_fetcher_ = std::make_unique<signin::PrimaryAccountAccessTokenFetcher>(
       "suggestions_service", identity_manager_, scopes,
       base::BindOnce(&SuggestionsServiceImpl::AccessTokenAvailable,
@@ -420,7 +418,7 @@ SuggestionsServiceImpl::CreateSuggestionsRequest(
   resource_request->url = url;
   resource_request->method = "GET";
   resource_request->load_flags = net::LOAD_DISABLE_CACHE;
-  resource_request->allow_credentials = false;
+  resource_request->credentials_mode = network::mojom::CredentialsMode::kOmit;
   // Add Chrome experiment state to the request headers.
   // TODO: We should call AppendVariationHeaders with explicit
   // variations::SignedIn::kNo If the access_token is empty

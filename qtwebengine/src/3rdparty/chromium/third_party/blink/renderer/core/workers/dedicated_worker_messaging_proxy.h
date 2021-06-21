@@ -9,8 +9,8 @@
 #include "base/macros.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/optional.h"
-#include "services/network/public/mojom/referrer_policy.mojom-blink.h"
-#include "third_party/blink/public/mojom/messaging/transferable_message.mojom-blink.h"
+#include "services/network/public/mojom/referrer_policy.mojom-blink-forward.h"
+#include "third_party/blink/public/mojom/messaging/transferable_message.mojom-blink-forward.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/messaging/message_port.h"
 #include "third_party/blink/renderer/core/workers/global_scope_creation_params.h"
@@ -41,7 +41,8 @@ class CORE_EXPORT DedicatedWorkerMessagingProxy
       const KURL& script_url,
       const FetchClientSettingsObjectSnapshot& outside_settings_object,
       const v8_inspector::V8StackTraceId&,
-      const String& source_code);
+      const String& source_code,
+      RejectCoepUnsafeNone reject_coep_unsafe_none);
   void PostMessageToWorkerGlobalScope(BlinkTransferableMessage);
 
   bool HasPendingActivity() const;
@@ -66,7 +67,7 @@ class CORE_EXPORT DedicatedWorkerMessagingProxy
     return *worker_object_proxy_.get();
   }
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
 
  private:
   friend class DedicatedWorkerMessagingProxyForTest;

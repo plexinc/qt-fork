@@ -51,6 +51,7 @@ void CFG::addExit(BlockId from, BlockId to) {
     }
 }
 
+#ifdef SK_DEBUG
 void CFG::dump() {
     for (size_t i = 0; i < fBlocks.size(); i++) {
         printf("Block %d\n-------\nBefore: ", (int) i);
@@ -82,6 +83,7 @@ void CFG::dump() {
         printf("\n\n");
     }
 }
+#endif
 
 bool BasicBlock::tryRemoveExpressionBefore(std::vector<BasicBlock::Node>::iterator* iter,
                                            Expression* e) {
@@ -149,7 +151,10 @@ bool BasicBlock::tryRemoveLValueBefore(std::vector<BasicBlock::Node>::iterator* 
             }
             return this->tryRemoveLValueBefore(iter, ((TernaryExpression*) lvalue)->fIfFalse.get());
         default:
+#ifdef SK_DEBUG
             ABORT("invalid lvalue: %s\n", lvalue->description().c_str());
+#endif
+            return false;
     }
 }
 
@@ -186,7 +191,7 @@ bool BasicBlock::tryRemoveExpression(std::vector<BasicBlock::Node>::iterator* it
         }
         case Expression::kSwizzle_Kind: {
             Swizzle* s = (Swizzle*) expr;
-            if (!this->tryRemoveExpressionBefore(iter, s->fBase.get())) {
+            if (s->fBase && !this->tryRemoveExpressionBefore(iter, s->fBase.get())) {
                 return false;
             }
             *iter = fNodes.erase(*iter);
@@ -247,7 +252,10 @@ bool BasicBlock::tryRemoveExpression(std::vector<BasicBlock::Node>::iterator* it
             *iter = fNodes.erase(*iter);
             return true;
         default:
+#ifdef SK_DEBUG
             ABORT("unhandled expression: %s\n", expr->description().c_str());
+#endif
+            return false;
     }
 }
 
@@ -284,6 +292,16 @@ bool BasicBlock::tryInsertExpression(std::vector<BasicBlock::Node>::iterator* it
                 }
                 ++(*iter);
             }
+            BasicBlock::Node node = { BasicBlock::Node::kExpression_Kind, true, expr, nullptr };
+            *iter = fNodes.insert(*iter, node);
+            return true;
+        }
+        case Expression::kSwizzle_Kind: {
+            Swizzle* s = (Swizzle*) expr->get();
+            if (!this->tryInsertExpression(iter, &s->fBase)) {
+                return false;
+            }
+            ++(*iter);
             BasicBlock::Node node = { BasicBlock::Node::kExpression_Kind, true, expr, nullptr };
             *iter = fNodes.insert(*iter, node);
             return true;
@@ -398,7 +416,6 @@ void CFGGenerator::addExpression(CFG& cfg, std::unique_ptr<Expression>* e, bool 
             cfg.fBlocks[cfg.fCurrent].fNodes.push_back({ BasicBlock::Node::kExpression_Kind,
                                                          constantPropagate, e, nullptr });
             break;
-        case Expression::kAppendStage_Kind:   // fall through
         case Expression::kBoolLiteral_Kind:   // fall through
         case Expression::kExternalValue_Kind: // fall through
         case Expression::kFloatLiteral_Kind:  // fall through
@@ -646,8 +663,10 @@ void CFGGenerator::addStatement(CFG& cfg, std::unique_ptr<Statement>* s) {
         case Statement::kNop_Kind:
             break;
         default:
-            printf("statement: %s\n", (*s)->description().c_str());
-            ABORT("unsupported statement kind");
+#ifdef SK_DEBUG
+            ABORT("unsupported statement: %s\n", (*s)->description().c_str());
+#endif
+            break;
     }
 }
 

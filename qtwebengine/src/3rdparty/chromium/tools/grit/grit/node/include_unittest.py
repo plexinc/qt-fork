@@ -9,17 +9,15 @@ from __future__ import print_function
 
 import os
 import sys
-if __name__ == '__main__':
-  sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
-
-import os
 import unittest
 import zlib
+
+if __name__ == '__main__':
+  sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
 
 from grit.node import misc
 from grit.node import include
 from grit.node import empty
-from grit import grd_reader
 from grit import util
 
 
@@ -80,7 +78,7 @@ class IncludeNodeUnittest(unittest.TestCase):
                    compress="gzip" type="BINDATA"/>
         </includes>''', base_dir = util.PathFromRoot('grit/testdata'))
     inc, = root.GetChildrenOfType(include.IncludeNode)
-    compressed = inc.GetDataPackValue(lang='en', encoding=1)
+    compressed = inc.GetDataPackValue(lang='en', encoding=util.BINARY)
 
     decompressed_data = zlib.decompress(compressed, 16 + zlib.MAX_WBITS)
 
@@ -105,10 +103,10 @@ class IncludeNodeUnittest(unittest.TestCase):
                    preprocess="true" type="chrome_html"/>
         </includes>''', base_dir = util.PathFromRoot('grit/testdata'))
     inc, = root.GetChildrenOfType(include.IncludeNode)
-    result = inc.GetDataPackValue(lang='en', encoding=1)
-    self.failUnless(result.find('should be kept') != -1)
-    self.failUnless(result.find('in the middle...') != -1)
-    self.failUnless(result.find('should be removed') == -1)
+    result = inc.GetDataPackValue(lang='en', encoding=util.BINARY)
+    self.assertIn(b'should be kept', result)
+    self.assertIn(b'in the middle...', result)
+    self.assertNotIn(b'should be removed', result)
 
 
 if __name__ == '__main__':

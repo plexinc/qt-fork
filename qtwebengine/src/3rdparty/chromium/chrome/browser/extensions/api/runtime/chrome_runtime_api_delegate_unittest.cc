@@ -116,9 +116,10 @@ class DownloaderTestDelegate : public ExtensionDownloaderTestDelegate {
             base::BindOnce(
                 &ExtensionDownloaderDelegate::OnExtensionDownloadFailed,
                 base::Unretained(delegate), id,
-                ExtensionDownloaderDelegate::NO_UPDATE_AVAILABLE,
+                ExtensionDownloaderDelegate::Error::NO_UPDATE_AVAILABLE,
                 ExtensionDownloaderDelegate::PingResult(),
-                fetch_data->request_ids()));
+                fetch_data->request_ids(),
+                ExtensionDownloaderDelegate::FailureData()));
         continue;
       }
       auto update = updates_.find(id);
@@ -334,7 +335,7 @@ TEST_F(ChromeRuntimeAPIDelegateTest, RequestUpdateCheck) {
 class ExtensionLoadWaiter : public ExtensionRegistryObserver {
  public:
   explicit ExtensionLoadWaiter(content::BrowserContext* context)
-      : context_(context), extension_registry_observer_(this) {
+      : context_(context) {
     extension_registry_observer_.Add(ExtensionRegistry::Get(context_));
   }
 
@@ -366,7 +367,7 @@ class ExtensionLoadWaiter : public ExtensionRegistryObserver {
   base::RunLoop run_loop_;
   content::BrowserContext* context_;
   ScopedObserver<ExtensionRegistry, ExtensionRegistryObserver>
-      extension_registry_observer_;
+      extension_registry_observer_{this};
 
   DISALLOW_COPY_AND_ASSIGN(ExtensionLoadWaiter);
 };

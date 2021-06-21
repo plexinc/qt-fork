@@ -32,6 +32,7 @@ namespace switches {
 extern const char kAllowCrossOriginAuthPrompt[];
 extern const char kAllowHttpScreenCapture[];
 extern const char kAllowOutdatedPlugins[];
+extern const char kAllowProfilesOutsideUserDir[];
 extern const char kAllowRunningInsecureContent[];
 extern const char kAllowSilentPush[];
 extern const char kApp[];
@@ -58,7 +59,6 @@ extern const char kCreateBrowserOnStartupForTests[];
 extern const char kCustomDevtoolsFrontend[];
 extern const char kDebugEnableFrameToggle[];
 extern const char kDebugPackedApps[];
-extern const char kDenyPermissionPrompts[];
 extern const char kDevToolsFlags[];
 extern const char kDiagnostics[];
 extern const char kDiagnosticsFormat[];
@@ -75,7 +75,6 @@ extern const char kDisableDomainReliability[];
 extern const char kDisableExtensions[];
 extern const char kDisableExtensionsExcept[];
 extern const char kDisableExtensionsFileAccessCheck[];
-extern const char kDisablePopupBlocking[];
 extern const char kDisablePrintPreview[];
 extern const char kDisablePromptOnRepost[];
 extern const char kDisableSearchGeolocationDisclosure[];
@@ -91,7 +90,6 @@ extern const char kEnableAutoReload[];
 extern const char kEnableBookmarkUndo[];
 extern const char kEnableCloudPrintProxy[];
 extern const char kEnableDeviceDiscoveryNotifications[];
-extern const char kEnableDevToolsExperiments[];
 extern const char kEnableDomainReliability[];
 extern const char kEnableExtensionActivityLogging[];
 extern const char kEnableExtensionActivityLogTesting[];
@@ -105,8 +103,6 @@ extern const char kExtensionContentVerificationEnforce[];
 extern const char kExtensionContentVerificationEnforceStrict[];
 extern const char kExtensionsInstallVerification[];
 extern const char kExtensionsNotWebstore[];
-extern const char kFastStart[];
-extern const char kForceAndroidAppMode[];
 extern const char kForceAppMode[];
 extern const char kForceFirstRun[];
 extern const char kForceStackedTabStripLayout[];
@@ -126,7 +122,7 @@ extern const char kMakeDefaultBrowser[];
 extern const char kMonitoringDestinationID[];
 extern const char kNativeMessagingConnectHost[];
 extern const char kNativeMessagingConnectExtension[];
-extern const char kNewNetErrorPageUI[];
+extern const char kNativeMessagingConnectId[];
 extern const char kNoDefaultBrowserCheck[];
 extern const char kNoExperiments[];
 extern const char kNoFirstRun[];
@@ -137,7 +133,6 @@ extern const char kNoStartupWindow[];
 extern const char kNoSupervisedUserAcknowledgmentCheck[];
 extern const char kOnTheFlyMhtmlHashComputation[];
 extern const char kOpenInNewWindow[];
-extern const char kOriginalProcessStartTime[];
 extern const char kOriginTrialDisabledFeatures[];
 extern const char kOriginTrialDisabledTokens[];
 extern const char kOriginTrialPublicKey[];
@@ -173,6 +168,8 @@ extern const char kSSLVersionTLSv12[];
 extern const char kSSLVersionTLSv13[];
 extern const char kStartMaximized[];
 extern const char kStartStackProfiler[];
+extern const char kStartStackProfilerBrowserTest[];
+extern const char kStoragePressureNotificationInterval[];
 extern const char kSupervisedUserId[];
 extern const char kSystemLogUploadFrequency[];
 extern const char kTaskManagerShowExtraRenderers[];
@@ -211,11 +208,11 @@ extern const char kWebApkServerUrl[];
 extern const char kCroshCommand[];
 extern const char kDisableLoggingRedirect[];
 extern const char kDisableLoginScreenApps[];
-extern const char kMashServiceName[];
 extern const char kShortMergeSessionTimeoutForTest[];
 extern const char kSchedulerConfiguration[];
 extern const char kSchedulerConfigurationConservative[];
 extern const char kSchedulerConfigurationPerformance[];
+extern const char kSchedulerConfigurationDefault[];
 #endif  // defined(OS_CHROMEOS)
 
 #if defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(OS_CHROMEOS)
@@ -229,7 +226,6 @@ extern const char kWmClass[];
 #if defined(OS_MACOSX)
 extern const char kAppsKeepChromeAliveInTests[];
 extern const char kDisableHostedAppShimCreation[];
-extern const char kEnableFullscreenToolbarReveal[];
 extern const char kEnableUserMetrics[];
 extern const char kHostedAppQuitNotification[];
 extern const char kMetricsClientID[];
@@ -248,9 +244,9 @@ extern const char kNotificationInlineReply[];
 extern const char kNotificationLaunchId[];
 extern const char kPrefetchArgumentBrowserBackground[];
 extern const char kPrefetchArgumentWatcher[];
+extern const char kPwaLauncherVersion[];
 extern const char kShowIcons[];
 extern const char kUninstall[];
-extern const char kWatcherProcess[];
 #endif  // defined(OS_WIN)
 
 #if BUILDFLAG(ENABLE_PRINT_PREVIEW) && !defined(OFFICIAL_BUILD)
@@ -268,13 +264,14 @@ extern const char kEnableNewAppMenuIcon[];
 extern const char kGuest[];
 #endif
 
-#if !defined(OS_CHROMEOS) && !defined(OS_ANDROID) && \
-    !defined(GOOGLE_CHROME_BUILD)
-extern const char kEnableMachineLevelUserCloudPolicy[];
+#if !defined(OS_CHROMEOS) && !defined(OS_ANDROID)
+// Only has an effect in branded builds.
+extern const char kEnableChromeBrowserCloudManagement[];
+extern const char kUseSystemDefaultPrinter[];
 #endif
 
-#if !defined(OS_CHROMEOS) && !defined(OS_ANDROID)
-extern const char kUseSystemDefaultPrinter[];
+#if BUILDFLAG(ENABLE_DOWNGRADE_PROCESSING)
+extern const char kUserDataMigrated[];
 #endif
 
 // DON'T ADD RANDOM STUFF HERE. Put it in the main section above in

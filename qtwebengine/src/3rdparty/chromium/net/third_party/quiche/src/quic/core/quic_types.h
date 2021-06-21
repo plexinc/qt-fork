@@ -15,7 +15,9 @@
 #include "net/third_party/quiche/src/quic/core/quic_error_codes.h"
 #include "net/third_party/quiche/src/quic/core/quic_packet_number.h"
 #include "net/third_party/quiche/src/quic/core/quic_time.h"
+#include "net/third_party/quiche/src/quic/platform/api/quic_containers.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
+#include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
 
 namespace quic {
 
@@ -23,8 +25,8 @@ typedef uint16_t QuicPacketLength;
 typedef uint32_t QuicControlFrameId;
 typedef uint32_t QuicHeaderId;
 typedef uint32_t QuicMessageId;
+typedef uint64_t QuicDatagramFlowId;
 
-// TODO(fkastenholz): Should update this to 64 bits for V99.
 typedef uint32_t QuicStreamId;
 
 // Count of stream IDs. Used in MAX_STREAMS and STREAMS_BLOCKED
@@ -55,7 +57,8 @@ typedef uint64_t QuicConnectionIdSequenceNumber;
 
 // A struct for functions which consume data payloads and fins.
 struct QUIC_EXPORT_PRIVATE QuicConsumedData {
-  QuicConsumedData(size_t bytes_consumed, bool fin_consumed);
+  constexpr QuicConsumedData(size_t bytes_consumed, bool fin_consumed)
+      : bytes_consumed(bytes_consumed), fin_consumed(fin_consumed) {}
 
   // By default, gtest prints the raw bytes of an object. The bool data
   // member causes this object to have padding bytes, which causes the
@@ -83,7 +86,7 @@ enum QuicAsyncStatus {
 };
 
 // TODO(wtc): see if WriteStatus can be replaced by QuicAsyncStatus.
-enum WriteStatus {
+enum WriteStatus : int16_t {
   WRITE_STATUS_OK,
   // Write is blocked, caller needs to retry.
   WRITE_STATUS_BLOCKED,
@@ -94,10 +97,13 @@ enum WriteStatus {
   // - Errors MUST be added after WRITE_STATUS_ERROR.
   WRITE_STATUS_ERROR,
   WRITE_STATUS_MSG_TOO_BIG,
+  WRITE_STATUS_FAILED_TO_COALESCE_PACKET,
   WRITE_STATUS_NUM_VALUES,
 };
 
 std::string HistogramEnumString(WriteStatus enum_value);
+QUIC_EXPORT_PRIVATE std::ostream& operator<<(std::ostream& os,
+                                             const WriteStatus& status);
 
 inline std::string HistogramEnumDescription(WriteStatus /*dummy*/) {
   return "status";
@@ -115,8 +121,10 @@ inline bool IsWriteError(WriteStatus status) {
 // A struct used to return the result of write calls including either the number
 // of bytes written or the error code, depending upon the status.
 struct QUIC_EXPORT_PRIVATE WriteResult {
-  WriteResult(WriteStatus status, int bytes_written_or_error_code);
-  WriteResult();
+  constexpr WriteResult(WriteStatus status, int bytes_written_or_error_code)
+      : status(status), bytes_written(bytes_written_or_error_code) {}
+
+  constexpr WriteResult() : WriteResult(WRITE_STATUS_ERROR, 0) {}
 
   bool operator==(const WriteResult& other) const {
     if (status != other.status) {
@@ -137,6 +145,12 @@ struct QUIC_EXPORT_PRIVATE WriteResult {
                                                       const WriteResult& s);
 
   WriteStatus status;
+  // Number of packets dropped as a result of this write.
+  // Only used by batch writers. Otherwise always 0.
+  uint16_t dropped_packets = 0;
+  // TODO(wub): In some cases, WRITE_STATUS_ERROR may set an error_code and
+  // WRITE_STATUS_BLOCKED_DATA_BUFFERED may set bytes_written. This may need
+  // some cleaning up so that perhaps both values can be set and valid.
   union {
     int bytes_written;  // only valid when status is WRITE_STATUS_OK
     int error_code;     // only valid when status is WRITE_STATUS_ERROR
@@ -153,9 +167,13 @@ enum TransmissionType : int8_t {
   LOSS_RETRANSMISSION,         // Retransmits due to loss detection.
   RTO_RETRANSMISSION,          // Retransmits due to retransmit time out.
   TLP_RETRANSMISSION,          // Tail loss probes.
+  PTO_RETRANSMISSION,          // Retransmission due to probe timeout.
   PROBING_RETRANSMISSION,      // Retransmission in order to probe bandwidth.
   LAST_TRANSMISSION_TYPE = PROBING_RETRANSMISSION,
 };
+
+QUIC_EXPORT_PRIVATE std::string TransmissionTypeToString(
+    TransmissionType transmission_type);
 
 enum HasRetransmittableData : uint8_t {
   NO_RETRANSMITTABLE_DATA,
@@ -210,6 +228,7 @@ enum QuicFrameType : uint8_t {
   MESSAGE_FRAME,
   NEW_TOKEN_FRAME,
   RETIRE_CONNECTION_ID_FRAME,
+  HANDSHAKE_DONE_FRAME,
 
   NUM_FRAME_TYPES
 };
@@ -246,10 +265,8 @@ enum QuicIetfFrameType : uint8_t {
   IETF_MAX_STREAM_DATA = 0x11,
   IETF_MAX_STREAMS_BIDIRECTIONAL = 0x12,
   IETF_MAX_STREAMS_UNIDIRECTIONAL = 0x13,
-  IETF_BLOCKED = 0x14,  // TODO(fkastenholz): Should, eventually, be renamed to
-                        // IETF_DATA_BLOCKED
-  IETF_STREAM_BLOCKED = 0x15,  // TODO(fkastenholz): Should, eventually, be
-                               // renamed to IETF_STREAM_DATA_BLOCKED
+  IETF_DATA_BLOCKED = 0x14,
+  IETF_STREAM_DATA_BLOCKED = 0x15,
   IETF_STREAMS_BLOCKED_BIDIRECTIONAL = 0x16,
   IETF_STREAMS_BLOCKED_UNIDIRECTIONAL = 0x17,
   IETF_NEW_CONNECTION_ID = 0x18,
@@ -262,11 +279,20 @@ enum QuicIetfFrameType : uint8_t {
   IETF_CONNECTION_CLOSE = 0x1c,
   IETF_APPLICATION_CLOSE = 0x1d,
 
-  // MESSAGE frame type is not yet determined, use 0x2x temporarily to give
-  // stream frame some wiggle room.
+  IETF_HANDSHAKE_DONE = 0x1e,
+
+  // The MESSAGE frame type has not yet been fully standardized.
+  // QUIC versions starting with 46 and before 99 use 0x20-0x21.
+  // IETF QUIC (v99) uses 0x30-0x31, see draft-pauly-quic-datagram.
   IETF_EXTENSION_MESSAGE_NO_LENGTH = 0x20,
   IETF_EXTENSION_MESSAGE = 0x21,
+  IETF_EXTENSION_MESSAGE_NO_LENGTH_V99 = 0x30,
+  IETF_EXTENSION_MESSAGE_V99 = 0x31,
 };
+QUIC_EXPORT_PRIVATE std::ostream& operator<<(std::ostream& os,
+                                             const QuicIetfFrameType& c);
+QUIC_EXPORT_PRIVATE std::string QuicIetfFrameTypeString(QuicIetfFrameType t);
+
 // Masks for the bits that indicate the frame is a Stream frame vs the
 // bits used as flags.
 #define IETF_STREAM_FRAME_TYPE_MASK 0xfffffffffffffff8
@@ -298,10 +324,11 @@ const QuicVariableLengthIntegerLength kQuicDefaultLongHeaderLengthLength =
 enum QuicPacketNumberLength : uint8_t {
   PACKET_1BYTE_PACKET_NUMBER = 1,
   PACKET_2BYTE_PACKET_NUMBER = 2,
-  PACKET_3BYTE_PACKET_NUMBER = 3,  // Used in version > QUIC_VERSION_44.
+  PACKET_3BYTE_PACKET_NUMBER = 3,  // Used in versions 45+.
   PACKET_4BYTE_PACKET_NUMBER = 4,
   IETF_MAX_PACKET_NUMBER_LENGTH = 4,
-  // TODO(rch): Remove this when we remove QUIC_VERSION_39.
+  // TODO(rch): Remove these when we remove QUIC_VERSION_43 since these values
+  // are not representable with v46 and above.
   PACKET_6BYTE_PACKET_NUMBER = 6,
   PACKET_8BYTE_PACKET_NUMBER = 8
 };
@@ -378,13 +405,6 @@ enum CongestionControlType {
   kBBRv2,
 };
 
-enum LossDetectionType : uint8_t {
-  kNack,          // Used to mimic TCP's loss detection.
-  kTime,          // Time based loss detection.
-  kAdaptiveTime,  // Adaptive time based loss detection.
-  kLazyFack,      // Nack based but with FACK disabled for the first ack.
-};
-
 // EncryptionLevel enumerates the stages of encryption that a QUIC connection
 // progresses through. When retransmitting a packet, the encryption level needs
 // to be specified so that it is retransmitted at a level which the peer can
@@ -401,6 +421,17 @@ enum EncryptionLevel : int8_t {
 inline bool EncryptionLevelIsValid(EncryptionLevel level) {
   return ENCRYPTION_INITIAL <= level && level < NUM_ENCRYPTION_LEVELS;
 }
+
+QUIC_EXPORT_PRIVATE std::string EncryptionLevelToString(EncryptionLevel level);
+
+// Enumeration of whether a server endpoint will request a client certificate,
+// and whether that endpoint requires a valid client certificate to establish a
+// connection.
+enum class ClientCertMode {
+  kNone,     // Do not request a client certificate.  Default server behavior.
+  kRequest,  // Request a certificate, but allow unauthenticated connections.
+  kRequire,  // Require clients to provide a valid certificate.
+};
 
 enum AddressChangeType : uint8_t {
   // IP address and port remain unchanged.
@@ -419,6 +450,12 @@ enum AddressChangeType : uint8_t {
   IPV6_TO_IPV6_CHANGE,
 };
 
+QUIC_EXPORT_PRIVATE std::string AddressChangeTypeToString(
+    AddressChangeType type);
+
+QUIC_EXPORT_PRIVATE std::ostream& operator<<(std::ostream& os,
+                                             AddressChangeType type);
+
 enum StreamSendingState {
   // Sender has more data to send on this stream.
   NO_FIN,
@@ -430,7 +467,7 @@ enum StreamSendingState {
 };
 
 enum SentPacketState : uint8_t {
-  // The packet has been sent and waiting to be acked.
+  // The packet is in flight and waiting to be acked.
   OUTSTANDING,
   FIRST_PACKET_STATE = OUTSTANDING,
   // The packet was never sent.
@@ -439,6 +476,8 @@ enum SentPacketState : uint8_t {
   ACKED,
   // This packet is not expected to be acked.
   UNACKABLE,
+  // This packet has been delivered or unneeded.
+  NEUTERED,
 
   // States below are corresponding to retransmission types in TransmissionType.
 
@@ -451,6 +490,8 @@ enum SentPacketState : uint8_t {
   TLP_RETRANSMITTED,
   // This packet has been retransmitted when RTO fires.
   RTO_RETRANSMITTED,
+  // This packet has been retransmitted when PTO fires.
+  PTO_RETRANSMITTED,
   // This packet has been retransmitted for probing purpose.
   PROBE_RETRANSMITTED,
   LAST_PACKET_STATE = PROBE_RETRANSMITTED,
@@ -462,11 +503,14 @@ enum PacketHeaderFormat : uint8_t {
   GOOGLE_QUIC_PACKET,
 };
 
+QUIC_EXPORT_PRIVATE std::string PacketHeaderFormatToString(
+    PacketHeaderFormat format);
+
 // Information about a newly acknowledged packet.
-struct AckedPacket {
-  AckedPacket(QuicPacketNumber packet_number,
-              QuicPacketLength bytes_acked,
-              QuicTime receive_timestamp)
+struct QUIC_EXPORT_PRIVATE AckedPacket {
+  constexpr AckedPacket(QuicPacketNumber packet_number,
+                        QuicPacketLength bytes_acked,
+                        QuicTime receive_timestamp)
       : packet_number(packet_number),
         bytes_acked(bytes_acked),
         receive_timestamp(receive_timestamp) {}
@@ -485,10 +529,10 @@ struct AckedPacket {
 };
 
 // A vector of acked packets.
-typedef std::vector<AckedPacket> AckedPacketVector;
+typedef QuicInlinedVector<AckedPacket, 2> AckedPacketVector;
 
 // Information about a newly lost packet.
-struct LostPacket {
+struct QUIC_EXPORT_PRIVATE LostPacket {
   LostPacket(QuicPacketNumber packet_number, QuicPacketLength bytes_lost)
       : packet_number(packet_number), bytes_lost(bytes_lost) {}
 
@@ -502,10 +546,9 @@ struct LostPacket {
 };
 
 // A vector of lost packets.
-typedef std::vector<LostPacket> LostPacketVector;
+typedef QuicInlinedVector<LostPacket, 2> LostPacketVector;
 
-// TODO(fkastenholz): Change this to uint64_t to reflect -22 of the ID.
-enum QuicIetfTransportErrorCodes : uint16_t {
+enum QuicIetfTransportErrorCodes : uint64_t {
   NO_IETF_QUIC_ERROR = 0x0,
   INTERNAL_ERROR = 0x1,
   SERVER_BUSY_ERROR = 0x2,
@@ -515,13 +558,34 @@ enum QuicIetfTransportErrorCodes : uint16_t {
   FINAL_SIZE_ERROR = 0x6,
   FRAME_ENCODING_ERROR = 0x7,
   TRANSPORT_PARAMETER_ERROR = 0x8,
-  VERSION_NEGOTIATION_ERROR = 0x9,
+  CONNECTION_ID_LIMIT_ERROR = 0x9,
   PROTOCOL_VIOLATION = 0xA,
-  INVALID_MIGRATION = 0xC,
+  INVALID_TOKEN = 0xB,
+  CRYPTO_BUFFER_EXCEEDED = 0xD,
+  CRYPTO_ERROR_FIRST = 0x100,
+  CRYPTO_ERROR_LAST = 0x1FF,
 };
+QUIC_EXPORT_PRIVATE std::string QuicIetfTransportErrorCodeString(
+    QuicIetfTransportErrorCodes c);
+
 QUIC_EXPORT_PRIVATE std::ostream& operator<<(
     std::ostream& os,
     const QuicIetfTransportErrorCodes& c);
+
+// Returns the mapping of the QuicErrorCode to an IETF TransportErrorCode. If
+// first element of the pair is false, it means that an IETF Application Close
+// should be done instead.
+
+struct QUIC_EXPORT_PRIVATE QuicErrorCodeToIetfMapping {
+  bool is_transport_close_;
+  union {
+    uint64_t application_error_code_;
+    QuicIetfTransportErrorCodes transport_error_code_;
+  };
+};
+
+QUIC_EXPORT_PRIVATE QuicErrorCodeToIetfMapping
+QuicErrorCodeToTransportErrorCode(QuicErrorCode error);
 
 // Please note, this value cannot used directly for packet serialization.
 enum QuicLongHeaderType : uint8_t {
@@ -533,6 +597,9 @@ enum QuicLongHeaderType : uint8_t {
 
   INVALID_PACKET_TYPE,
 };
+
+QUIC_EXPORT_PRIVATE std::string QuicLongHeaderTypeToString(
+    QuicLongHeaderType type);
 
 enum QuicPacketHeaderTypeFlags : uint8_t {
   // Bit 2: Reserved for experimentation for short header.
@@ -566,6 +633,9 @@ enum MessageStatus {
                                   // reaches an invalid state.
 };
 
+QUIC_EXPORT_PRIVATE std::string MessageStatusToString(
+    MessageStatus message_status);
+
 // Used to return the result of SendMessage calls
 struct QUIC_EXPORT_PRIVATE MessageResult {
   MessageResult(MessageStatus status, QuicMessageId message_id);
@@ -574,10 +644,16 @@ struct QUIC_EXPORT_PRIVATE MessageResult {
     return status == other.status && message_id == other.message_id;
   }
 
+  QUIC_EXPORT_PRIVATE friend std::ostream& operator<<(std::ostream& os,
+                                                      const MessageResult& mr);
+
   MessageStatus status;
   // Only valid when status is MESSAGE_STATUS_SUCCESS.
   QuicMessageId message_id;
 };
+
+QUIC_EXPORT_PRIVATE std::string MessageResultToString(
+    MessageResult message_result);
 
 enum WriteStreamDataResult {
   WRITE_SUCCESS,
@@ -608,6 +684,9 @@ enum PacketNumberSpace : uint8_t {
   NUM_PACKET_NUMBER_SPACES,
 };
 
+QUIC_EXPORT_PRIVATE std::string PacketNumberSpaceToString(
+    PacketNumberSpace packet_number_space);
+
 enum AckMode { TCP_ACKING, ACK_DECIMATION, ACK_DECIMATION_WITH_REORDERING };
 
 // Used to return the result of processing a received ACK frame.
@@ -622,6 +701,53 @@ enum AckResult {
                             // and all sent packets in the different version
                             // cannot be processed by the peer.
   PACKETS_ACKED_IN_WRONG_PACKET_NUMBER_SPACE,
+};
+
+// Indicates the fate of a serialized packet in WritePacket().
+enum SerializedPacketFate : uint8_t {
+  COALESCE,                          // Try to coalesce packet.
+  BUFFER,                            // Buffer packet in buffered_packets_.
+  SEND_TO_WRITER,                    // Send packet to writer.
+  FAILED_TO_WRITE_COALESCED_PACKET,  // Packet cannot be coalesced, error occurs
+                                     // when sending existing coalesced packet.
+};
+
+QUIC_EXPORT_PRIVATE std::string SerializedPacketFateToString(
+    SerializedPacketFate fate);
+
+// There are three different forms of CONNECTION_CLOSE.
+typedef enum QuicConnectionCloseType {
+  GOOGLE_QUIC_CONNECTION_CLOSE = 0,
+  IETF_QUIC_TRANSPORT_CONNECTION_CLOSE = 1,
+  IETF_QUIC_APPLICATION_CONNECTION_CLOSE = 2
+} QuicConnectionCloseType;
+
+QUIC_EXPORT_PRIVATE std::ostream& operator<<(
+    std::ostream& os,
+    const QuicConnectionCloseType type);
+
+QUIC_EXPORT_PRIVATE std::string QuicConnectionCloseTypeString(
+    QuicConnectionCloseType type);
+
+// Indicate handshake state of a connection.
+enum HandshakeState {
+  // Initial state.
+  HANDSHAKE_START,
+  // Only used in IETF QUIC with TLS handshake. State proceeds to
+  // HANDSHAKE_PROCESSED after a packet of HANDSHAKE packet number space
+  // gets successfully processed, and the initial key can be dropped.
+  HANDSHAKE_PROCESSED,
+  // In QUIC crypto, state proceeds to HANDSHAKE_COMPLETE if client receives
+  // SHLO or server successfully processes an ENCRYPTION_FORWARD_SECURE
+  // packet, such that the handshake packets can be neutered. In IETF QUIC
+  // with TLS handshake, state proceeds to HANDSHAKE_COMPLETE once the client
+  // has both 1-RTT send and receive keys.
+  HANDSHAKE_COMPLETE,
+  // Only used in IETF QUIC with TLS handshake. State proceeds to
+  // HANDSHAKE_CONFIRMED if 1) a client receives HANDSHAKE_DONE frame or
+  // acknowledgment for 1-RTT packet or 2) server has
+  // 1-RTT send and receive keys.
+  HANDSHAKE_CONFIRMED,
 };
 
 }  // namespace quic

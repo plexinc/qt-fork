@@ -10,6 +10,7 @@
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_promise_rejection_event_init.h"
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
 #include "third_party/blink/renderer/core/events/promise_rejection_event.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
@@ -75,7 +76,7 @@ class RejectedPromises::Message final {
         sanitize_script_errors_ == SanitizeScriptErrors::kDoNotSanitize) {
       PromiseRejectionEventInit* init = PromiseRejectionEventInit::Create();
       init->setPromise(ScriptPromise(script_state_, value));
-      init->setReason(ScriptValue(script_state_, reason));
+      init->setReason(ScriptValue(script_state_->GetIsolate(), reason));
       init->setCancelable(true);
       PromiseRejectionEvent* event = PromiseRejectionEvent::Create(
           script_state_, event_type_names::kUnhandledrejection, init);
@@ -115,7 +116,7 @@ class RejectedPromises::Message final {
         sanitize_script_errors_ == SanitizeScriptErrors::kDoNotSanitize) {
       PromiseRejectionEventInit* init = PromiseRejectionEventInit::Create();
       init->setPromise(ScriptPromise(script_state_, value));
-      init->setReason(ScriptValue(script_state_, reason));
+      init->setReason(ScriptValue(script_state_->GetIsolate(), reason));
       PromiseRejectionEvent* event = PromiseRejectionEvent::Create(
           script_state_, event_type_names::kRejectionhandled, init);
       target->DispatchEvent(*event);

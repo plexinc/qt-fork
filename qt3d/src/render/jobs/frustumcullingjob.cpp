@@ -41,7 +41,6 @@
 #include <Qt3DRender/private/job_common_p.h>
 #include <Qt3DRender/private/managers_p.h>
 #include <Qt3DRender/private/entity_p.h>
-#include <Qt3DRender/private/renderview_p.h>
 #include <Qt3DRender/private/sphere_p.h>
 #include <Qt3DRender/private/managers_p.h>
 #include <Qt3DRender/private/nodemanagers_p.h>
@@ -52,13 +51,22 @@ namespace Qt3DRender {
 
 namespace Render {
 
+namespace {
+int instanceCounter = 0;
+} // anonymous
+
 FrustumCullingJob::FrustumCullingJob()
     : Qt3DCore::QAspectJob()
     , m_root(nullptr)
     , m_manager(nullptr)
     , m_active(false)
 {
-    SET_JOB_RUN_STAT_TYPE(this, JobTypes::FrustumCulling, 0);
+    SET_JOB_RUN_STAT_TYPE(this, JobTypes::FrustumCulling, instanceCounter++)
+}
+
+FrustumCullingJob::~FrustumCullingJob()
+{
+    --instanceCounter;
 }
 
 void FrustumCullingJob::run()

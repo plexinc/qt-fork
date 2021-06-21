@@ -104,38 +104,13 @@ public:
             Slot& s = fSlots[index];
             SkASSERT(!s.empty());
             if (hash == s.hash && key == Traits::GetKey(s.val)) {
-                fCount--;
-                break;
+               this->removeSlot(index);
+               if (4 * fCount <= fCapacity && fCapacity > 4) {
+                   this->resize(fCapacity / 2);
+               }
+               return;
             }
             index = this->next(index);
-        }
-
-        // Rearrange elements to restore the invariants for linear probing.
-        for (;;) {
-            Slot& emptySlot = fSlots[index];
-            int emptyIndex = index;
-            int originalIndex;
-            // Look for an element that can be moved into the empty slot.
-            // If the empty slot is in between where an element landed, and its native slot, then
-            // move it to the empty slot. Don't move it if its native slot is in between where
-            // the element landed and the empty slot.
-            // [native] <= [empty] < [candidate] == GOOD, can move candidate to empty slot
-            // [empty] < [native] < [candidate] == BAD, need to leave candidate where it is
-            do {
-                index = this->next(index);
-                Slot& s = fSlots[index];
-                if (s.empty()) {
-                    // We're done shuffling elements around.  Clear the last empty slot.
-                    emptySlot = Slot();
-                    return;
-                }
-                originalIndex = s.hash & (fCapacity - 1);
-            } while ((index <= originalIndex && originalIndex < emptyIndex)
-                     || (originalIndex < emptyIndex && emptyIndex < index)
-                     || (emptyIndex < index && index <= originalIndex));
-            // Move the element to the empty slot.
-            Slot& moveFrom = fSlots[index];
-            emptySlot = std::move(moveFrom);
         }
     }
 
@@ -202,6 +177,38 @@ private:
             }
         }
         SkASSERT(fCount == oldCount);
+    }
+
+    void removeSlot(int index) {
+        fCount--;
+
+        // Rearrange elements to restore the invariants for linear probing.
+        for (;;) {
+            Slot& emptySlot = fSlots[index];
+            int emptyIndex = index;
+            int originalIndex;
+            // Look for an element that can be moved into the empty slot.
+            // If the empty slot is in between where an element landed, and its native slot, then
+            // move it to the empty slot. Don't move it if its native slot is in between where
+            // the element landed and the empty slot.
+            // [native] <= [empty] < [candidate] == GOOD, can move candidate to empty slot
+            // [empty] < [native] < [candidate] == BAD, need to leave candidate where it is
+            do {
+                index = this->next(index);
+                Slot& s = fSlots[index];
+                if (s.empty()) {
+                    // We're done shuffling elements around.  Clear the last empty slot.
+                    emptySlot = Slot();
+                    return;
+                }
+                originalIndex = s.hash & (fCapacity - 1);
+            } while ((index <= originalIndex && originalIndex < emptyIndex)
+                     || (originalIndex < emptyIndex && emptyIndex < index)
+                     || (emptyIndex < index && index <= originalIndex));
+            // Move the element to the empty slot.
+            Slot& moveFrom = fSlots[index];
+            emptySlot = std::move(moveFrom);
+        }
     }
 
     int next(int index) const {
@@ -274,6 +281,13 @@ public:
         return nullptr;
     }
 
+    V& operator[](const K& key) {
+        if (V* val = this->find(key)) {
+            return *val;
+        }
+        return *this->set(key, V{});
+    }
+
     // Remove the key/value entry in the table with this key.
     void remove(const K& key) {
         SkASSERT(this->find(key));
@@ -319,6 +333,9 @@ public:
 
     // How many items are in the set?
     int count() const { return fTable.count(); }
+
+    // Is empty?
+    bool empty() const { return fTable.count() == 0; }
 
     // Approximately how many bytes of memory do we use beyond sizeof(*this)?
     size_t approxBytesUsed() const { return fTable.approxBytesUsed(); }

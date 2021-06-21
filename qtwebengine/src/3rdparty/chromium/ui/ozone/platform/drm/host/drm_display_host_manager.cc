@@ -15,12 +15,12 @@
 #include "base/files/file_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "ui/display/types/display_snapshot.h"
 #include "ui/events/ozone/device/device_event.h"
 #include "ui/events/ozone/device/device_manager.h"
-#include "ui/ozone/platform/drm/common/drm_overlay_manager.h"
 #include "ui/ozone/platform/drm/common/drm_util.h"
 #include "ui/ozone/platform/drm/host/drm_device_handle.h"
 #include "ui/ozone/platform/drm/host/drm_display_host.h"
@@ -112,14 +112,11 @@ DrmDisplayHostManager::DrmDisplayHostManager(
     GpuThreadAdapter* proxy,
     DeviceManager* device_manager,
     OzonePlatform::InitializedHostProperties* host_properties,
-    DrmOverlayManager* overlay_manager,
     InputControllerEvdev* input_controller)
     : proxy_(proxy),
       device_manager_(device_manager),
-      overlay_manager_(overlay_manager),
       input_controller_(input_controller),
-      primary_graphics_card_path_(GetPrimaryDisplayCardPath()),
-      weak_ptr_factory_(this) {
+      primary_graphics_card_path_(GetPrimaryDisplayCardPath()) {
   {
     // First device needs to be treated specially. We need to open this
     // synchronously since the GPU process will need it to initialize the
@@ -129,7 +126,7 @@ DrmDisplayHostManager::DrmDisplayHostManager(
     base::FilePath primary_graphics_card_path_sysfs =
         MapDevPathToSysPath(primary_graphics_card_path_);
 
-    primary_drm_device_handle_.reset(new DrmDeviceHandle());
+    primary_drm_device_handle_ = std::make_unique<DrmDeviceHandle>();
     if (!primary_drm_device_handle_->Initialize(
             primary_graphics_card_path_, primary_graphics_card_path_sysfs)) {
       LOG(FATAL) << "Failed to open primary graphics card";
@@ -252,7 +249,7 @@ void DrmDisplayHostManager::ProcessEvent() {
     switch (event.action_type) {
       case DeviceEvent::ADD:
         if (drm_devices_.find(event.path) == drm_devices_.end()) {
-          base::PostTaskWithTraits(
+          base::ThreadPool::PostTask(
               FROM_HERE,
               {base::MayBlock(),
                base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
@@ -292,7 +289,7 @@ void DrmDisplayHostManager::OnAddGraphicsDevice(
     std::unique_ptr<DrmDeviceHandle> handle) {
   if (handle->IsValid()) {
     drm_devices_[dev_path] = sys_path;
-    proxy_->GpuAddGraphicsDevice(sys_path, handle->PassFD());
+    proxy_->GpuAddGraphicsDeviceOnUIThread(sys_path, handle->PassFD());
     NotifyDisplayDelegate();
   }
 
@@ -334,10 +331,8 @@ void DrmDisplayHostManager::OnGpuProcessLaunched() {
 
   // Send the primary device first since this is used to initialize graphics
   // state.
-  if (!proxy_->GpuAddGraphicsDevice(drm_devices_[primary_graphics_card_path_],
-                                    handle->PassFD())) {
-    LOG(ERROR) << "Failed to add primary graphics device.";
-  }
+  proxy_->GpuAddGraphicsDeviceOnIOThread(
+      drm_devices_[primary_graphics_card_path_], handle->PassFD());
 }
 
 void DrmDisplayHostManager::OnGpuThreadReady() {
@@ -403,9 +398,6 @@ void DrmDisplayHostManager::GpuConfiguredDisplay(int64_t display_id,
   DrmDisplayHost* display = GetDisplay(display_id);
   if (display) {
     display->OnDisplayConfigured(status);
-
-    if (overlay_manager_)
-      overlay_manager_->ResetCache();
   } else {
     LOG(ERROR) << "Couldn't find display with id=" << display_id;
   }

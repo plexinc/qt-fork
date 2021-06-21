@@ -15,7 +15,7 @@
 #include "chrome/browser/ui/webui/translate_internals/chrome_translate_internals_handler.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/url_constants.h"
-#include "chrome/grit/browser_resources.h"
+#include "chrome/grit/dev_ui_browser_resources.h"
 #include "components/translate/translate_internals/translate_internals_handler.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
@@ -29,7 +29,7 @@ content::WebUIDataSource* CreateTranslateInternalsHTMLSource() {
       content::WebUIDataSource::Create(chrome::kChromeUITranslateInternalsHost);
 
   source->SetDefaultResource(IDR_TRANSLATE_INTERNALS_HTML);
-  source->SetJsonPath("strings.js");
+  source->UseStringsJs();
   source->AddResourcePath("translate_internals.js", IDR_TRANSLATE_INTERNALS_JS);
 
   base::DictionaryValue langs;

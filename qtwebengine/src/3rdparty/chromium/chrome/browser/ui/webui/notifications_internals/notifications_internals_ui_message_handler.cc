@@ -15,12 +15,13 @@
 #include "chrome/browser/notifications/scheduler/public/notification_params.h"
 #include "chrome/browser/notifications/scheduler/public/notification_schedule_service.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/profiles/profile_key.h"
 #include "content/public/browser/web_ui.h"
 
 NotificationsInternalsUIMessageHandler::NotificationsInternalsUIMessageHandler(
     Profile* profile)
-    : schedule_service_(
-          NotificationScheduleServiceFactory::GetForBrowserContext(profile)) {}
+    : schedule_service_(NotificationScheduleServiceFactory::GetForKey(
+          profile->GetProfileKey())) {}
 
 NotificationsInternalsUIMessageHandler::
     ~NotificationsInternalsUIMessageHandler() = default;
@@ -37,7 +38,11 @@ void NotificationsInternalsUIMessageHandler::HandleScheduleNotification(
     const base::ListValue* args) {
   CHECK_EQ(args->GetList().size(), 4u);
   notifications::ScheduleParams schedule_params;
+  schedule_params.deliver_time_start = base::Time::Now();
+  schedule_params.deliver_time_end =
+      base::Time::Now() + base::TimeDelta::FromMinutes(5);
   notifications::NotificationData data;
+  // TOOD(hesen): Enable adding icons from notifications-internals HTML.
   data.custom_data.emplace("url", args->GetList()[1].GetString());
   data.title = base::UTF8ToUTF16(args->GetList()[2].GetString());
   data.message = base::UTF8ToUTF16(args->GetList()[3].GetString());

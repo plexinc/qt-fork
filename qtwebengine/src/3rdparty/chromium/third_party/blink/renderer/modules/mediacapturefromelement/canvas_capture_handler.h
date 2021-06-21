@@ -15,6 +15,7 @@
 #include "base/memory/weak_ptr.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_checker.h"
+#include "gpu/GLES2/gl2extchromium.h"
 #include "media/base/video_frame_pool.h"
 #include "media/capture/video_capturer_source.h"
 #include "third_party/blink/public/platform/web_media_stream_track.h"
@@ -26,7 +27,10 @@ class SkImage;
 
 namespace blink {
 
+class LocalFrame;
+class StaticBitmapImage;
 class WebGraphicsContext3DProvider;
+class WebGraphicsContext3DProviderWrapper;
 
 // CanvasCaptureHandler acts as the link between Blink side HTMLCanvasElement
 // and Chrome side VideoCapturerSource. It is responsible for handling
@@ -43,13 +47,15 @@ class MODULES_EXPORT CanvasCaptureHandler {
 
   // Creates a CanvasCaptureHandler instance and updates UMA histogram.
   static std::unique_ptr<CanvasCaptureHandler> CreateCanvasCaptureHandler(
+      LocalFrame* frame,
       const blink::WebSize& size,
       double frame_rate,
       scoped_refptr<base::SingleThreadTaskRunner> io_task_runner,
       blink::WebMediaStreamTrack* track);
 
-  void SendNewFrame(sk_sp<SkImage> image,
-                    blink::WebGraphicsContext3DProvider* context_provider);
+  void SendNewFrame(scoped_refptr<StaticBitmapImage> image,
+                    base::WeakPtr<blink::WebGraphicsContext3DProviderWrapper>
+                        context_provider);
   bool NeedsNewFrame() const;
 
   // Functions called by media::VideoCapturerSource implementation.
@@ -67,28 +73,30 @@ class MODULES_EXPORT CanvasCaptureHandler {
   // is then plugged into a MediaStreamTrack passed as |track|, and it is owned
   // by the Blink side MediaStreamSource.
   CanvasCaptureHandler(
+      LocalFrame* frame,
       const blink::WebSize& size,
       double frame_rate,
       scoped_refptr<base::SingleThreadTaskRunner> io_task_runner,
       blink::WebMediaStreamTrack* track);
 
   // Helper functions to read pixel content.
-  void ReadARGBPixelsSync(sk_sp<SkImage> image);
+  void ReadARGBPixelsSync(scoped_refptr<StaticBitmapImage> image);
   void ReadARGBPixelsAsync(
-      sk_sp<SkImage> image,
+      scoped_refptr<StaticBitmapImage> image,
       blink::WebGraphicsContext3DProvider* context_provider);
   void ReadYUVPixelsAsync(
-      sk_sp<SkImage> image,
-      blink::WebGraphicsContext3DProvider* context_provider);
-  void OnARGBPixelsReadAsync(sk_sp<SkImage> image,
+      scoped_refptr<StaticBitmapImage> image,
+      base::WeakPtr<blink::WebGraphicsContext3DProviderWrapper>
+          context_provider);
+  void OnARGBPixelsReadAsync(scoped_refptr<StaticBitmapImage> image,
                              scoped_refptr<media::VideoFrame> temp_argb_frame,
                              base::TimeTicks this_frame_ticks,
                              bool flip,
                              bool success);
-  void OnYUVPixelsReadAsync(sk_sp<SkImage> image,
-                            scoped_refptr<media::VideoFrame> yuv_frame,
+  void OnYUVPixelsReadAsync(scoped_refptr<media::VideoFrame> yuv_frame,
                             base::TimeTicks this_frame_ticks,
                             bool success);
+  void OnReleaseMailbox(scoped_refptr<StaticBitmapImage> image);
 
   scoped_refptr<media::VideoFrame> ConvertToYUVFrame(
       bool is_opaque,
@@ -102,8 +110,17 @@ class MODULES_EXPORT CanvasCaptureHandler {
                  const gfx::ColorSpace& color_space);
 
   void AddVideoCapturerSourceToVideoTrack(
+      LocalFrame* frame,
       std::unique_ptr<media::VideoCapturerSource> source,
       blink::WebMediaStreamTrack* web_track);
+
+  // Helper methods to increment/decrement the number of ongoing async pixel
+  // readouts currently happening.
+  void IncrementOngoingAsyncPixelReadouts();
+  void DecrementOngoingAsyncPixelReadouts();
+
+  // Send a refresh frame.
+  void SendRefreshFrame();
 
   // Object that does all the work of running |new_frame_callback_|.
   // Destroyed on |frame_callback_task_runner_| after the class is destroyed.
@@ -114,6 +131,11 @@ class MODULES_EXPORT CanvasCaptureHandler {
   media::VideoFramePool frame_pool_;
   base::Optional<base::TimeTicks> first_frame_ticks_;
   scoped_refptr<media::VideoFrame> last_frame_;
+
+  // The following attributes ensure that CanvasCaptureHandler emits
+  // frames with monotonically increasing timestamps.
+  bool deferred_request_refresh_frame_ = false;
+  int num_ongoing_async_pixel_readouts_ = 0;
 
   const scoped_refptr<base::SingleThreadTaskRunner> io_task_runner_;
   std::unique_ptr<CanvasCaptureHandlerDelegate> delegate_;

@@ -6,15 +6,16 @@
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_REMOTEPLAYBACK_REMOTE_PLAYBACK_H_
 
 #include "base/macros.h"
-#include "mojo/public/cpp/bindings/binding.h"
+#include "mojo/public/cpp/bindings/receiver.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "third_party/blink/public/mojom/presentation/presentation.mojom-blink.h"
 #include "third_party/blink/public/platform/modules/remoteplayback/web_remote_playback_client.h"
 #include "third_party/blink/public/platform/web_url.h"
 #include "third_party/blink/renderer/bindings/core/v8/active_script_wrappable.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
-#include "third_party/blink/renderer/core/execution_context/context_lifecycle_observer.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
 #include "third_party/blink/renderer/core/html/media/remote_playback_controller.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/modules/presentation/presentation_availability_observer.h"
@@ -39,7 +40,7 @@ class V8RemotePlaybackAvailabilityCallback;
 // - A remote playback session is implemented as a PresentationConnection.
 class MODULES_EXPORT RemotePlayback final
     : public EventTargetWithInlineData,
-      public ContextLifecycleObserver,
+      public ExecutionContextLifecycleObserver,
       public ActiveScriptWrappable<RemotePlayback>,
       public WebRemotePlaybackClient,
       public PresentationAvailabilityObserver,
@@ -124,8 +125,8 @@ class MODULES_EXPORT RemotePlayback final
   // ScriptWrappable implementation.
   bool HasPendingActivity() const final;
 
-  // ContextLifecycleObserver implementation.
-  void ContextDestroyed(ExecutionContext*) override;
+  // ExecutionContextLifecycleObserver implementation.
+  void ContextDestroyed() override;
 
   // Adjusts the internal state of |this| after a playback state change.
   void StateChanged(mojom::blink::PresentationConnectionState);
@@ -134,7 +135,7 @@ class MODULES_EXPORT RemotePlayback final
   DEFINE_ATTRIBUTE_EVENT_LISTENER(connect, kConnect)
   DEFINE_ATTRIBUTE_EVENT_LISTENER(disconnect, kDisconnect)
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
 
  private:
   friend class V8RemotePlayback;
@@ -170,9 +171,10 @@ class MODULES_EXPORT RemotePlayback final
   String presentation_id_;
   KURL presentation_url_;
 
-  mojo::Binding<mojom::blink::PresentationConnection>
-      presentation_connection_binding_;
-  mojom::blink::PresentationConnectionPtr target_presentation_connection_;
+  mojo::Receiver<mojom::blink::PresentationConnection>
+      presentation_connection_receiver_{this};
+  mojo::Remote<mojom::blink::PresentationConnection>
+      target_presentation_connection_;
 
   HeapHashSet<Member<RemotePlaybackObserver>> observers_;
 

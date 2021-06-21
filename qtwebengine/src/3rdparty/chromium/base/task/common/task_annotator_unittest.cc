@@ -18,7 +18,7 @@
 #include "base/synchronization/waitable_event.h"
 #include "base/task/post_task.h"
 #include "base/test/bind_test_util.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -153,7 +153,7 @@ class TaskAnnotatorBacktraceIntegrationTest
 
 // Ensure the task backtrace populates correctly.
 TEST_F(TaskAnnotatorBacktraceIntegrationTest, SingleThreadedSimple) {
-  test::ScopedTaskEnvironment scoped_task_environment;
+  test::TaskEnvironment task_environment;
   const uint32_t dummy_ipc_hash = 0xDEADBEEF;
   const Location location0 = FROM_HERE;
   const Location location1 = FROM_HERE;
@@ -211,16 +211,16 @@ TEST_F(TaskAnnotatorBacktraceIntegrationTest, SingleThreadedSimple) {
 
 // Ensure it works when posting tasks across multiple threads managed by //base.
 TEST_F(TaskAnnotatorBacktraceIntegrationTest, MultipleThreads) {
-  test::ScopedTaskEnvironment scoped_task_environment;
+  test::TaskEnvironment task_environment;
 
   // Use diverse task runners (a task environment main thread, a ThreadPool
   // based SequencedTaskRunner, and a ThreadPool based
   // SingleThreadTaskRunner) to verify that TaskAnnotator can capture backtraces
   // for PostTasks back-and-forth between these.
   auto main_thread_a = ThreadTaskRunnerHandle::Get();
-  auto task_runner_b = CreateSingleThreadTaskRunner({ThreadPool()});
-  auto task_runner_c = CreateSequencedTaskRunner(
-      {ThreadPool(), base::MayBlock(), base::WithBaseSyncPrimitives()});
+  auto task_runner_b = ThreadPool::CreateSingleThreadTaskRunner({});
+  auto task_runner_c = ThreadPool::CreateSequencedTaskRunner(
+      {base::MayBlock(), base::WithBaseSyncPrimitives()});
 
   const Location& location_a0 = FROM_HERE;
   const Location& location_a1 = FROM_HERE;
@@ -312,7 +312,7 @@ TEST_F(TaskAnnotatorBacktraceIntegrationTest, MultipleThreads) {
 
 // Ensure nesting doesn't break the chain.
 TEST_F(TaskAnnotatorBacktraceIntegrationTest, SingleThreadedNested) {
-  test::ScopedTaskEnvironment scoped_task_environment;
+  test::TaskEnvironment task_environment;
   uint32_t dummy_ipc_hash = 0xDEADBEEF;
   uint32_t dummy_ipc_hash1 = 0xBAADF00D;
   uint32_t dummy_ipc_hash2 = 0x900DD099;

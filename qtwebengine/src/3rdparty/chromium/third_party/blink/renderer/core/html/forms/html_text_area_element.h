@@ -101,7 +101,6 @@ class CORE_EXPORT HTMLTextAreaElement final : public TextControlElement {
 
   bool IsEnumeratable() const override { return true; }
   bool IsInteractiveContent() const override;
-  bool SupportsAutofocus() const override;
   bool IsLabelable() const override { return true; }
 
   const AtomicString& FormControlType() const override;
@@ -118,6 +117,7 @@ class CORE_EXPORT HTMLTextAreaElement final : public TextControlElement {
       const QualifiedName&,
       const AtomicString&,
       MutableCSSPropertyValueSet*) override;
+  bool TypeShouldForceLegacyLayout() const override { return true; }
   LayoutObject* CreateLayoutObject(const ComputedStyle&, LegacyLayout) override;
   void AppendToFormData(FormData&) override;
   void ResetImpl() override;

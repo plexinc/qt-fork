@@ -89,7 +89,7 @@ enum class UpdateLoginError {
   kMaxValue = kDbError,
 };
 
-// PasswordStore interface for PasswordSyncableService. It provides access to
+// PasswordStore interface for PasswordSyncBridge. It provides access to
 // synchronous methods of PasswordStore which shouldn't be accessible to other
 // classes. These methods are to be called on the PasswordStore background
 // thread only.
@@ -162,6 +162,15 @@ class PasswordStoreSync {
   // Returns a SyncMetadataStore that sync machinery would use to persist the
   // sync metadata.
   virtual MetadataStore* GetMetadataStore() = 0;
+
+  // Returns whether this is the profile-scoped or the account-scoped storage:
+  // true:  Gaia-account-scoped store, which is used for signed-in but not
+  //        syncing users.
+  // false: Profile-scoped store, which is used for local storage and for
+  //        syncing users.
+  virtual bool IsAccountStore() const = 0;
+
+  virtual bool DeleteAndRecreateDatabaseFile() = 0;
 
  protected:
   virtual ~PasswordStoreSync();

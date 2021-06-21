@@ -2,13 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef NGTextFragmentBuilder_h
-#define NGTextFragmentBuilder_h
+#ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_INLINE_NG_TEXT_FRAGMENT_BUILDER_H_
+#define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_INLINE_NG_TEXT_FRAGMENT_BUILDER_H_
 
 #include "third_party/blink/renderer/core/layout/geometry/logical_size.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_node.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_physical_text_fragment.h"
-#include "third_party/blink/renderer/core/layout/ng/inline/ng_text_end_effect.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_fragment_builder.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 
@@ -26,6 +25,8 @@ class CORE_EXPORT NGTextFragmentBuilder final : public NGFragmentBuilder {
       : NGFragmentBuilder(writing_mode, TextDirection::kLtr) {}
 
   NGTextFragmentBuilder(const NGPhysicalTextFragment& fragment);
+
+  TextDirection ResolvedDirection() const { return resolved_direction_; }
 
   // NOTE: Takes ownership of the shape result within the item result.
   void SetItem(NGPhysicalTextFragment::NGTextType,
@@ -56,9 +57,12 @@ class CORE_EXPORT NGTextFragmentBuilder final : public NGFragmentBuilder {
   NGPhysicalTextFragment::NGTextType text_type_ =
       NGPhysicalTextFragment::kNormalText;
 
+  // Set from |NGInlineItem| by |SetItem()|.
+  TextDirection resolved_direction_ = TextDirection::kLtr;
+
   friend class NGPhysicalTextFragment;
 };
 
 }  // namespace blink
 
-#endif  // NGTextFragmentBuilder
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_INLINE_NG_TEXT_FRAGMENT_BUILDER_H_

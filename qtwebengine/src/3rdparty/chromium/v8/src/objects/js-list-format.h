@@ -12,6 +12,7 @@
 #include <set>
 #include <string>
 
+#include "src/base/bit-field.h"
 #include "src/execution/isolate.h"
 #include "src/heap/factory.h"
 #include "src/objects/managed.h"
@@ -82,12 +83,8 @@ class JSListFormat : public JSObject {
   inline void set_type(Type type);
   inline Type type() const;
 
-// Bit positions in |flags|.
-#define FLAGS_BIT_FIELDS(V, _) \
-  V(StyleBits, Style, 2, _)    \
-  V(TypeBits, Type, 2, _)
-  DEFINE_BIT_FIELDS(FLAGS_BIT_FIELDS)
-#undef FLAGS_BIT_FIELDS
+  // Bit positions in |flags|.
+  DEFINE_TORQUE_GENERATED_JS_LIST_FORMAT_FLAGS()
 
   STATIC_ASSERT(Style::LONG <= StyleBits::kMax);
   STATIC_ASSERT(Style::SHORT <= StyleBits::kMax);
@@ -104,7 +101,7 @@ class JSListFormat : public JSObject {
 
   // Layout description.
   DEFINE_FIELD_OFFSET_CONSTANTS(JSObject::kHeaderSize,
-                                TORQUE_GENERATED_JSLIST_FORMAT_FIELDS)
+                                TORQUE_GENERATED_JS_LIST_FORMAT_FIELDS)
 
   OBJECT_CONSTRUCTORS(JSListFormat, JSObject);
 };

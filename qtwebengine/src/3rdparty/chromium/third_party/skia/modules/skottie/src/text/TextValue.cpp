@@ -9,27 +9,9 @@
 
 #include "modules/skottie/src/SkottieJson.h"
 #include "modules/skottie/src/SkottiePriv.h"
+#include "modules/skottie/src/SkottieValue.h"
 
 namespace skottie {
-
-bool TextValue::operator==(const TextValue &other) const {
-    return fTypeface == other.fTypeface
-        && fText == other.fText
-        && fTextSize == other.fTextSize
-        && fStrokeWidth == other.fStrokeWidth
-        && fLineHeight == other.fLineHeight
-        && fHAlign == other.fHAlign
-        && fVAlign == other.fVAlign
-        && fBox == other.fBox
-        && fFillColor == other.fFillColor
-        && fStrokeColor == other.fStrokeColor
-        && fHasFill == other.fHasFill
-        && fHasStroke == other.fHasStroke;
-}
-
-bool TextValue::operator!=(const TextValue &other) const {
-    return !(*this== other);
-}
 
 template <>
 bool ValueTraits<TextValue>::FromJSON(const skjson::Value& jv,
@@ -65,7 +47,7 @@ bool ValueTraits<TextValue>::FromJSON(const skjson::Value& jv,
         SkTextUtils::kRight_Align, // 'j': 1
         SkTextUtils::kCenter_Align // 'j': 2
     };
-    v->fHAlign = gAlignMap[SkTMin<size_t>(ParseDefault<size_t>((*jtxt)["j"], 0),
+    v->fHAlign = gAlignMap[std::min<size_t>(ParseDefault<size_t>((*jtxt)["j"], 0),
                                           SK_ARRAY_COUNT(gAlignMap))];
 
     // Optional text box size.
@@ -84,20 +66,54 @@ bool ValueTraits<TextValue>::FromJSON(const skjson::Value& jv,
         }
     }
 
+    // Skia resizing extension "sk_rs":
+    static constexpr Shaper::ResizePolicy gResizeMap[] = {
+        Shaper::ResizePolicy::kNone,           // 'sk_rs': 0
+        Shaper::ResizePolicy::kScaleToFit,     // 'sk_rs': 1
+        Shaper::ResizePolicy::kDownscaleToFit, // 'sk_rs': 2
+    };
+    v->fResize = gResizeMap[std::min<size_t>(ParseDefault<size_t>((*jtxt)["sk_rs"], 0),
+                                           SK_ARRAY_COUNT(gResizeMap))];
+
     // In point mode, the text is baseline-aligned.
     v->fVAlign = v->fBox.isEmpty() ? Shaper::VAlign::kTopBaseline
                                    : Shaper::VAlign::kTop;
 
     // Skia vertical alignment extension "sk_vj":
     static constexpr Shaper::VAlign gVAlignMap[] = {
-        Shaper::VAlign::kVisualTop,         // 'sk_vj': 0
-        Shaper::VAlign::kVisualCenter,      // 'sk_vj': 1
-        Shaper::VAlign::kVisualBottom,      // 'sk_vj': 2
-        Shaper::VAlign::kVisualResizeToFit, // 'sk_vj': 3
+        Shaper::VAlign::kVisualTop,    // 'sk_vj': 0
+        Shaper::VAlign::kVisualCenter, // 'sk_vj': 1
+        Shaper::VAlign::kVisualBottom, // 'sk_vj': 2
     };
     size_t sk_vj;
-    if (Parse((*jtxt)["sk_vj"], &sk_vj) && sk_vj < SK_ARRAY_COUNT(gVAlignMap)) {
-        v->fVAlign = gVAlignMap[sk_vj];
+    if (Parse((*jtxt)["sk_vj"], &sk_vj)) {
+        if (sk_vj < SK_ARRAY_COUNT(gVAlignMap)) {
+            v->fVAlign = gVAlignMap[sk_vj];
+        } else {
+            // Legacy sk_vj values.
+            // TODO: remove after clients update.
+            switch (sk_vj) {
+            case 3:
+                // 'sk_vj': 3 -> kVisualCenter/kScaleToFit
+                v->fVAlign = Shaper::VAlign::kVisualCenter;
+                v->fResize = Shaper::ResizePolicy::kScaleToFit;
+                break;
+            case 4:
+                // 'sk_vj': 4 -> kVisualCenter/kDownscaleToFit
+                v->fVAlign = Shaper::VAlign::kVisualCenter;
+                v->fResize = Shaper::ResizePolicy::kDownscaleToFit;
+                break;
+            default:
+                abuilder->log(Logger::Level::kWarning, nullptr,
+                              "Ignoring unknown 'sk_vj' value: %zu", sk_vj);
+                break;
+            }
+        }
+    }
+
+    if (v->fResize != Shaper::ResizePolicy::kNone && v->fBox.isEmpty()) {
+        abuilder->log(Logger::Level::kWarning, jtxt, "Auto-scaled text requires a paragraph box.");
+        v->fResize = Shaper::ResizePolicy::kNone;
     }
 
     const auto& parse_color = [] (const skjson::ArrayValue* jcolor,
@@ -127,15 +143,13 @@ bool ValueTraits<TextValue>::FromJSON(const skjson::Value& jv,
 }
 
 template <>
-bool ValueTraits<TextValue>::CanLerp(const TextValue&, const TextValue&) {
-    // Text values are never interpolated, but we pretend that they could be.
-    return true;
-}
-
-template <>
-void ValueTraits<TextValue>::Lerp(const TextValue& v0, const TextValue&, float, TextValue* result) {
+bool ValueTraits<TextValue>::Lerp(const TextValue& v0, const TextValue&, float, TextValue* result) {
     // Text value keyframes are treated as selectors, not as interpolated values.
-    *result = v0;
+    if (v0 != *result) {
+        *result = v0;
+        return true;
+    }
+    return false;
 }
 
 } // namespace skottie

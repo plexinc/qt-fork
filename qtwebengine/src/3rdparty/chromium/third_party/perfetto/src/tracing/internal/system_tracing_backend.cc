@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include "src/tracing/internal/system_tracing_backend.h"
+#include "perfetto/tracing/internal/system_tracing_backend.h"
 
 #include "perfetto/base/logging.h"
 #include "perfetto/base/task_runner.h"
@@ -26,7 +26,7 @@ namespace perfetto {
 namespace internal {
 
 // static
-SystemTracingBackend* SystemTracingBackend::GetInstance() {
+TracingBackend* SystemTracingBackend::GetInstance() {
   static auto* instance = new SystemTracingBackend();
   return instance;
 }
@@ -39,7 +39,8 @@ std::unique_ptr<ProducerEndpoint> SystemTracingBackend::ConnectProducer(
 
   auto endpoint = ProducerIPCClient::Connect(
       GetProducerSocket(), args.producer, args.producer_name, args.task_runner,
-      TracingService::ProducerSMBScrapingMode::kEnabled);
+      TracingService::ProducerSMBScrapingMode::kEnabled,
+      args.shmem_size_hint_bytes, args.shmem_page_size_hint_bytes);
   PERFETTO_CHECK(endpoint);
   return endpoint;
 }

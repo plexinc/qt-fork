@@ -5,11 +5,12 @@
 #include "net/third_party/quiche/src/quic/test_tools/simple_quic_framer.h"
 
 #include <memory>
+#include <utility>
 
 #include "net/third_party/quiche/src/quic/core/crypto/quic_decrypter.h"
 #include "net/third_party/quiche/src/quic/core/crypto/quic_encrypter.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_ptr_util.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_string_piece.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 namespace test {
@@ -30,17 +31,20 @@ class SimpleFramerVisitor : public QuicFramerVisitorInterface {
 
   void OnPacket() override {}
   void OnPublicResetPacket(const QuicPublicResetPacket& packet) override {
-    public_reset_packet_ = QuicMakeUnique<QuicPublicResetPacket>((packet));
+    public_reset_packet_ = std::make_unique<QuicPublicResetPacket>((packet));
   }
   void OnVersionNegotiationPacket(
       const QuicVersionNegotiationPacket& packet) override {
     version_negotiation_packet_ =
-        QuicMakeUnique<QuicVersionNegotiationPacket>((packet));
+        std::make_unique<QuicVersionNegotiationPacket>((packet));
   }
 
   void OnRetryPacket(QuicConnectionId /*original_connection_id*/,
                      QuicConnectionId /*new_connection_id*/,
-                     QuicStringPiece /*retry_token*/) override {}
+                     quiche::QuicheStringPiece /*retry_token*/,
+                     quiche::QuicheStringPiece /*retry_integrity_tag*/,
+                     quiche::QuicheStringPiece /*retry_without_tag*/) override {
+  }
 
   bool OnUnauthenticatedPublicHeader(
       const QuicPacketHeader& /*header*/) override {
@@ -58,7 +62,13 @@ class SimpleFramerVisitor : public QuicFramerVisitorInterface {
     return true;
   }
 
-  void OnCoalescedPacket(const QuicEncryptedPacket& /*packet*/) override {}
+  void OnCoalescedPacket(const QuicEncryptedPacket& packet) override {
+    coalesced_packet_ = packet.Clone();
+  }
+
+  void OnUndecryptablePacket(const QuicEncryptedPacket& /*packet*/,
+                             EncryptionLevel /*decryption_level*/,
+                             bool /*has_decryption_key*/) override {}
 
   bool OnStreamFrame(const QuicStreamFrame& frame) override {
     // Save a copy of the data so it is valid after the packet is processed.
@@ -66,9 +76,9 @@ class SimpleFramerVisitor : public QuicFramerVisitorInterface {
         new std::string(frame.data_buffer, frame.data_length);
     stream_data_.push_back(QuicWrapUnique(string_data));
     // TODO(ianswett): A pointer isn't necessary with emplace_back.
-    stream_frames_.push_back(QuicMakeUnique<QuicStreamFrame>(
+    stream_frames_.push_back(std::make_unique<QuicStreamFrame>(
         frame.stream_id, frame.fin, frame.offset,
-        QuicStringPiece(*string_data)));
+        quiche::QuicheStringPiece(*string_data)));
     return true;
   }
 
@@ -77,8 +87,8 @@ class SimpleFramerVisitor : public QuicFramerVisitorInterface {
     std::string* string_data =
         new std::string(frame.data_buffer, frame.data_length);
     crypto_data_.push_back(QuicWrapUnique(string_data));
-    crypto_frames_.push_back(QuicMakeUnique<QuicCryptoFrame>(
-        frame.level, frame.offset, QuicStringPiece(*string_data)));
+    crypto_frames_.push_back(std::make_unique<QuicCryptoFrame>(
+        frame.level, frame.offset, quiche::QuicheStringPiece(*string_data)));
     return true;
   }
 
@@ -189,6 +199,11 @@ class SimpleFramerVisitor : public QuicFramerVisitorInterface {
     return true;
   }
 
+  bool OnHandshakeDoneFrame(const QuicHandshakeDoneFrame& frame) override {
+    handshake_done_frames_.push_back(frame);
+    return true;
+  }
+
   void OnPacketComplete() override {}
 
   bool IsValidStatelessResetToken(QuicUint128 /*token*/) const override {
@@ -198,7 +213,7 @@ class SimpleFramerVisitor : public QuicFramerVisitorInterface {
   void OnAuthenticatedIetfStatelessResetPacket(
       const QuicIetfStatelessResetPacket& packet) override {
     stateless_reset_packet_ =
-        QuicMakeUnique<QuicIetfStatelessResetPacket>(packet);
+        std::make_unique<QuicIetfStatelessResetPacket>(packet);
   }
 
   const QuicPacketHeader& header() const { return header_; }
@@ -248,6 +263,9 @@ class SimpleFramerVisitor : public QuicFramerVisitorInterface {
     return version_negotiation_packet_.get();
   }
   EncryptionLevel last_decrypted_level() const { return last_decrypted_level_; }
+  const QuicEncryptedPacket* coalesced_packet() const {
+    return coalesced_packet_.get();
+  }
 
  private:
   QuicErrorCode error_;
@@ -276,9 +294,11 @@ class SimpleFramerVisitor : public QuicFramerVisitorInterface {
   std::vector<QuicRetireConnectionIdFrame> retire_connection_id_frames_;
   std::vector<QuicNewTokenFrame> new_token_frames_;
   std::vector<QuicMessageFrame> message_frames_;
+  std::vector<QuicHandshakeDoneFrame> handshake_done_frames_;
   std::vector<std::unique_ptr<std::string>> stream_data_;
   std::vector<std::unique_ptr<std::string>> crypto_data_;
   EncryptionLevel last_decrypted_level_;
+  std::unique_ptr<QuicEncryptedPacket> coalesced_packet_;
 };
 
 SimpleQuicFramer::SimpleQuicFramer()
@@ -305,13 +325,13 @@ SimpleQuicFramer::SimpleQuicFramer(
 SimpleQuicFramer::~SimpleQuicFramer() {}
 
 bool SimpleQuicFramer::ProcessPacket(const QuicEncryptedPacket& packet) {
-  visitor_ = QuicMakeUnique<SimpleFramerVisitor>();
+  visitor_ = std::make_unique<SimpleFramerVisitor>();
   framer_.set_visitor(visitor_.get());
   return framer_.ProcessPacket(packet);
 }
 
 void SimpleQuicFramer::Reset() {
-  visitor_ = QuicMakeUnique<SimpleFramerVisitor>();
+  visitor_ = std::make_unique<SimpleFramerVisitor>();
 }
 
 const QuicPacketHeader& SimpleQuicFramer::header() const {
@@ -397,6 +417,10 @@ SimpleQuicFramer::connection_close_frames() const {
 
 const std::vector<QuicPaddingFrame>& SimpleQuicFramer::padding_frames() const {
   return visitor_->padding_frames();
+}
+
+const QuicEncryptedPacket* SimpleQuicFramer::coalesced_packet() const {
+  return visitor_->coalesced_packet();
 }
 
 }  // namespace test

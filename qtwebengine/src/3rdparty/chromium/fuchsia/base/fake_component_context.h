@@ -7,6 +7,7 @@
 
 #include <fuchsia/base/agent_impl.h>
 #include <fuchsia/modular/cpp/fidl_test_base.h>
+#include <map>
 #include <memory>
 #include <string>
 #include <utility>
@@ -18,7 +19,7 @@ namespace cr_fuchsia {
 // Used to test interactions with an Agent in unit-tests for a component.
 // |create_component_state_callback| can be used with a test-specific
 // ComponentStateBase to serve fake services to the component.
-// |service_directory| specifies the directory into which the ComponentContext
+// |outgoing_directory| specifies the directory into which the ComponentContext
 // should be published, alongside any other services the test wishes to provide
 // to the component's default service namespace. |component_url| specifies the
 // component identity that should be reported to the Agent
@@ -27,9 +28,13 @@ class FakeComponentContext
  public:
   explicit FakeComponentContext(
       AgentImpl::CreateComponentStateCallback create_component_state_callback,
-      base::fuchsia::ServiceDirectory* service_directory,
+      sys::OutgoingDirectory* outgoing_directory,
       base::StringPiece component_url);
   ~FakeComponentContext() override;
+
+  void RegisterCreateComponentStateCallback(
+      base::StringPiece agent_url,
+      AgentImpl::CreateComponentStateCallback callback);
 
   // fuchsia::modular::ComponentContext_TestBase implementation.
   void ConnectToAgent(
@@ -37,13 +42,19 @@ class FakeComponentContext
       fidl::InterfaceRequest<::fuchsia::sys::ServiceProvider> services,
       fidl::InterfaceRequest<fuchsia::modular::AgentController> controller)
       override;
+  void ConnectToAgentService(
+      fuchsia::modular::AgentServiceRequest request) override;
   void NotImplemented_(const std::string& name) override;
 
  private:
   base::fuchsia::ScopedServiceBinding<fuchsia::modular::ComponentContext>
       binding_;
-  AgentImpl agent_impl_;
   const std::string component_url_;
+  sys::OutgoingDirectory* const outgoing_directory_;
+  fuchsia::sys::ServiceProviderPtr agent_services_;
+
+  std::map<base::StringPiece, std::unique_ptr<AgentImpl>> agent_impl_map_;
+  AgentImpl default_agent_impl_;
 
   DISALLOW_COPY_AND_ASSIGN(FakeComponentContext);
 };

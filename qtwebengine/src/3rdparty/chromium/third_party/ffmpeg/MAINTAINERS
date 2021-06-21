@@ -53,6 +53,7 @@ Communication
 website                                 Deby Barbara Lepage
 fate.ffmpeg.org                         Timothy Gu
 Trac bug tracker                        Alexander Strasser, Michael Niedermayer, Carl Eugen Hoyos
+Patchwork                               Andriy Gelman
 mailing lists                           Baptiste Coudurier
 Google+                                 Paul B Mahol, Michael Niedermayer, Alexander Strasser
 Twitter                                 Lou Logan, Reynaldo H. Verdejo Pinochet
@@ -198,6 +199,7 @@ Codecs:
   libvorbis.c                           David Conrad
   libvpx*                               James Zern
   libxavs.c                             Stefan Gehrer
+  libxavs2.c                            Huiwen Ren
   libzvbi-teletextdec.c                 Marton Balint
   lzo.h, lzo.c                          Reimar Doeffinger
   mdec.c                                Michael Niedermayer
@@ -213,6 +215,7 @@ Codecs:
   msvideo1.c                            Mike Melanson
   nuv.c                                 Reimar Doeffinger
   nvdec*, nvenc*                        Timo Rothenpieler
+  omx.c                                 Martin Storsjo, Aman Gupta
   opus*                                 Rostislav Pehlivanov
   paf.*                                 Paul B Mahol
   pcx.c                                 Ivo van Poorten
@@ -368,6 +371,8 @@ Filters:
 Sources:
   vsrc_mandelbrot.c                     Michael Niedermayer
 
+dnn                                     Yejun Guo
+
 libavformat
 ===========
 
@@ -446,7 +451,7 @@ Muxers/Demuxers:
   mpegtsenc.c                           Baptiste Coudurier
   msnwc_tcp.c                           Ramiro Polla
   mtv.c                                 Reynaldo H. Verdejo Pinochet
-  mxf*                                  Baptiste Coudurier
+  mxf*                                  Baptiste Coudurier, Tomas Härdin
   nistspheredec.c                       Paul B Mahol
   nsvdec.c                              Francois Revol
   nut*                                  Michael Niedermayer
@@ -502,6 +507,7 @@ Protocols:
   ftp.c                                 Lukasz Marek
   http.c                                Ronald S. Bultje
   libssh.c                              Lukasz Marek
+  libzmq.c                              Andriy Gelman
   mms*.c                                Ronald S. Bultje
   udp.c                                 Luca Abeni
   icecast.c                             Marvin Scholz
@@ -614,6 +620,7 @@ Sascha Sommer                 38A0 F88B 868E 9D3A 97D4 D6A0 E823 706F 1E07 0D3C
 Stefano Sabatini              0D0B AD6B 5330 BBAD D3D6 6A0C 719C 2839 FC43 2D5F
 Steinar H. Gunderson          C2E9 004F F028 C18E 4EAD DB83 7F61 7561 7797 8F76
 Stephan Hilb                  4F38 0B3A 5F39 B99B F505 E562 8D5C 5554 4E17 8863
+Thilo Borgmann (thilo)        CE1D B7F4 4D20 FC3A DD9F FE5A 257C 5B8F 1D20 B92F
 Tiancheng "Timothy" Gu        9456 AFC0 814A 8139 E994 8351 7FE6 B095 B582 B0D4
 Tim Nicholson                 38CF DB09 3ED0 F607 8B67 6CED 0C0B FC44 8B0B FC83
 Tomas Härdin (thardin)        A79D 4E3D F38F 763F 91F5 8B33 A01E 8AE0 41BB 2551

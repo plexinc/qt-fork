@@ -8,8 +8,8 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/synchronization/waitable_event.h"
-#include "base/task/post_task.h"
 #include "base/task/task_traits.h"
+#include "base/task/thread_pool.h"
 #include "build/build_config.h"
 #include "third_party/webrtc/api/task_queue/task_queue_base.h"
 #include "third_party/webrtc/api/task_queue/task_queue_factory.h"
@@ -19,7 +19,7 @@ namespace {
 class WebrtcTaskQueue final : public webrtc::TaskQueueBase {
  public:
   explicit WebrtcTaskQueue(const base::TaskTraits& traits)
-      : task_runner_(base::CreateSequencedTaskRunnerWithTraits(traits)),
+      : task_runner_(base::ThreadPool::CreateSequencedTaskRunner(traits)),
         is_active_(new base::RefCountedData<bool>(true)) {
     DCHECK(task_runner_);
   }

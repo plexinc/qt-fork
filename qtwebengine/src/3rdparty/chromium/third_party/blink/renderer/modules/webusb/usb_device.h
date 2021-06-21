@@ -6,10 +6,12 @@
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_WEBUSB_USB_DEVICE_H_
 
 #include <bitset>
+#include "mojo/public/cpp/bindings/pending_remote.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "services/device/public/mojom/usb_device.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/array_buffer_or_array_buffer_view.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
-#include "third_party/blink/renderer/core/execution_context/context_lifecycle_observer.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
@@ -21,20 +23,14 @@ class ScriptState;
 class USBConfiguration;
 class USBControlTransferParameters;
 
-class USBDevice : public ScriptWrappable, public ContextLifecycleObserver {
+class USBDevice : public ScriptWrappable,
+                  public ExecutionContextLifecycleObserver {
   USING_GARBAGE_COLLECTED_MIXIN(USBDevice);
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-  static USBDevice* Create(device::mojom::blink::UsbDeviceInfoPtr device_info,
-                           device::mojom::blink::UsbDevicePtr device,
-                           ExecutionContext* context) {
-    return MakeGarbageCollected<USBDevice>(std::move(device_info),
-                                           std::move(device), context);
-  }
-
   explicit USBDevice(device::mojom::blink::UsbDeviceInfoPtr,
-                     device::mojom::blink::UsbDevicePtr,
+                     mojo::PendingRemote<device::mojom::blink::UsbDevice>,
                      ExecutionContext*);
   ~USBDevice() override;
 
@@ -100,10 +96,10 @@ class USBDevice : public ScriptWrappable, public ContextLifecycleObserver {
                                        Vector<unsigned> packet_lengths);
   ScriptPromise reset(ScriptState*);
 
-  // ContextLifecycleObserver interface.
-  void ContextDestroyed(ExecutionContext*) override;
+  // ExecutionContextLifecycleObserver interface.
+  void ContextDestroyed() override;
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
 
  private:
   static const size_t kEndpointsBitsNumber = 16;
@@ -113,6 +109,7 @@ class USBDevice : public ScriptWrappable, public ContextLifecycleObserver {
   wtf_size_t FindAlternateIndex(wtf_size_t interface_index,
                                 uint8_t alternate_setting) const;
   bool IsProtectedInterfaceClass(wtf_size_t interface_index) const;
+  bool EnsureNoDeviceChangeInProgress(ScriptPromiseResolver*) const;
   bool EnsureNoDeviceOrInterfaceChangeInProgress(ScriptPromiseResolver*) const;
   bool EnsureDeviceConfigured(ScriptPromiseResolver*) const;
   bool EnsureInterfaceClaimed(uint8_t interface_number,
@@ -171,7 +168,7 @@ class USBDevice : public ScriptWrappable, public ContextLifecycleObserver {
   bool MarkRequestComplete(ScriptPromiseResolver*);
 
   device::mojom::blink::UsbDeviceInfoPtr device_info_;
-  device::mojom::blink::UsbDevicePtr device_;
+  mojo::Remote<device::mojom::blink::UsbDevice> device_;
   HeapHashSet<Member<ScriptPromiseResolver>> device_requests_;
   bool opened_;
   bool device_state_change_in_progress_;

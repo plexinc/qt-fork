@@ -6,6 +6,7 @@
 #define QUICHE_QUIC_CORE_UBER_QUIC_STREAM_ID_MANAGER_H_
 
 #include "net/third_party/quiche/src/quic/core/quic_stream_id_manager.h"
+#include "net/third_party/quiche/src/quic/core/quic_types.h"
 
 namespace quic {
 
@@ -21,46 +22,32 @@ class QuicSession;
 class QUIC_EXPORT_PRIVATE UberQuicStreamIdManager {
  public:
   UberQuicStreamIdManager(
-      QuicSession* session,
+      Perspective perspective,
+      ParsedQuicVersion version,
+      QuicStreamIdManager::DelegateInterface* delegate,
       QuicStreamCount max_open_outgoing_bidirectional_streams,
       QuicStreamCount max_open_outgoing_unidirectional_streams,
       QuicStreamCount max_open_incoming_bidirectional_streams,
       QuicStreamCount max_open_incoming_unidirectional_streams);
 
-  // Called when a stream with |stream_id| is registered as a static stream.
-  // If |stream_already_counted| is true, the static stream is already counted
-  // as an open stream earlier, so no need to count it again.
-  void RegisterStaticStream(QuicStreamId id, bool stream_already_counted);
+  // Called on |max_open_streams| outgoing streams can be created because of 1)
+  // config negotiated or 2) MAX_STREAMS received. Returns true if new
+  // streams can be created.
+  bool MaybeAllowNewOutgoingBidirectionalStreams(
+      QuicStreamCount max_open_streams);
+  bool MaybeAllowNewOutgoingUnidirectionalStreams(
+      QuicStreamCount max_open_streams);
 
-  // Sets the maximum outgoing stream count as a result of doing the transport
-  // configuration negotiation. Forces the limit to max_streams, regardless of
-  // static streams.
-  void ConfigureMaxOpenOutgoingBidirectionalStreams(size_t max_streams);
-  void ConfigureMaxOpenOutgoingUnidirectionalStreams(size_t max_streams);
-
-  // Sets the limits to max_open_streams + number of static streams
-  // in existence. SetMaxOpenOutgoingStreams will QUIC_BUG if it is called
-  // after getting the first MAX_STREAMS frame or the transport configuration
-  // was done.
-  // TODO(fkastenholz): SetMax is cognizant of the number of static streams and
-  // sets the maximum to be max_streams + number_of_statics. This should
-  // eventually be removed from IETF QUIC.
-  void SetMaxOpenOutgoingBidirectionalStreams(size_t max_open_streams);
-  void SetMaxOpenOutgoingUnidirectionalStreams(size_t max_open_streams);
-  void SetMaxOpenIncomingBidirectionalStreams(size_t max_open_streams);
-  void SetMaxOpenIncomingUnidirectionalStreams(size_t max_open_streams);
-
-  // Sets the outgoing stream count to the number of static streams + max
-  // outgoing streams.  Unlike SetMaxOpenOutgoingStreams, this method will
-  // not QUIC_BUG if called after getting  the first MAX_STREAMS frame.
-  void AdjustMaxOpenOutgoingBidirectionalStreams(size_t max_streams);
-  void AdjustMaxOpenOutgoingUnidirectionalStreams(size_t max_streams);
+  // Sets the limits to max_open_streams.
+  void SetMaxOpenIncomingBidirectionalStreams(QuicStreamCount max_open_streams);
+  void SetMaxOpenIncomingUnidirectionalStreams(
+      QuicStreamCount max_open_streams);
 
   // Returns true if next outgoing bidirectional stream ID can be allocated.
-  bool CanOpenNextOutgoingBidirectionalStream();
+  bool CanOpenNextOutgoingBidirectionalStream() const;
 
   // Returns true if next outgoing unidirectional stream ID can be allocated.
-  bool CanOpenNextOutgoingUnidirectionalStream();
+  bool CanOpenNextOutgoingUnidirectionalStream() const;
 
   // Returns the next outgoing bidirectional stream id.
   QuicStreamId GetNextOutgoingBidirectionalStreamId();
@@ -69,16 +56,15 @@ class QUIC_EXPORT_PRIVATE UberQuicStreamIdManager {
   QuicStreamId GetNextOutgoingUnidirectionalStreamId();
 
   // Returns true if the incoming |id| is within the limit.
-  bool MaybeIncreaseLargestPeerStreamId(QuicStreamId id);
+  bool MaybeIncreaseLargestPeerStreamId(QuicStreamId id,
+                                        std::string* error_details);
 
   // Called when |id| is released.
   void OnStreamClosed(QuicStreamId id);
 
-  // Called when a MAX_STREAMS frame is received.
-  bool OnMaxStreamsFrame(const QuicMaxStreamsFrame& frame);
-
   // Called when a STREAMS_BLOCKED frame is received.
-  bool OnStreamsBlockedFrame(const QuicStreamsBlockedFrame& frame);
+  bool OnStreamsBlockedFrame(const QuicStreamsBlockedFrame& frame,
+                             std::string* error_details);
 
   // Return true if |id| is peer initiated.
   bool IsIncomingStream(QuicStreamId id) const;
@@ -86,25 +72,23 @@ class QUIC_EXPORT_PRIVATE UberQuicStreamIdManager {
   // Returns true if |id| is still available.
   bool IsAvailableStream(QuicStreamId id) const;
 
-  size_t GetMaxAllowdIncomingBidirectionalStreams() const;
+  QuicStreamCount GetMaxAllowdIncomingBidirectionalStreams() const;
 
-  size_t GetMaxAllowdIncomingUnidirectionalStreams() const;
+  QuicStreamCount GetMaxAllowdIncomingUnidirectionalStreams() const;
 
-  void SetLargestPeerCreatedStreamId(
-      QuicStreamId largest_peer_created_stream_id);
+  QuicStreamId GetLargestPeerCreatedStreamId(bool unidirectional) const;
 
   QuicStreamId next_outgoing_bidirectional_stream_id() const;
   QuicStreamId next_outgoing_unidirectional_stream_id() const;
 
-  size_t max_allowed_outgoing_bidirectional_streams() const;
-  size_t max_allowed_outgoing_unidirectional_streams() const;
+  QuicStreamCount max_outgoing_bidirectional_streams() const;
+  QuicStreamCount max_outgoing_unidirectional_streams() const;
 
-  QuicStreamCount actual_max_allowed_incoming_bidirectional_streams() const;
-  QuicStreamCount actual_max_allowed_incoming_unidirectional_streams() const;
+  QuicStreamCount max_incoming_bidirectional_streams() const;
+  QuicStreamCount max_incoming_unidirectional_streams() const;
 
-  QuicStreamCount advertised_max_allowed_incoming_bidirectional_streams() const;
-  QuicStreamCount advertised_max_allowed_incoming_unidirectional_streams()
-      const;
+  QuicStreamCount advertised_max_incoming_bidirectional_streams() const;
+  QuicStreamCount advertised_max_incoming_unidirectional_streams() const;
 
  private:
   friend class test::QuicSessionPeer;

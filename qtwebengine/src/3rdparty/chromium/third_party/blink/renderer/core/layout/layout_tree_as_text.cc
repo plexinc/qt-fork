@@ -46,9 +46,10 @@
 #include "third_party/blink/renderer/core/layout/layout_table_cell.h"
 #include "third_party/blink/renderer/core/layout/layout_view.h"
 #include "third_party/blink/renderer/core/layout/line/inline_text_box.h"
-#include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_fragment_traversal.h"
+#include "third_party/blink/renderer/core/layout/ng/inline/ng_fragment_item.h"
+#include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_cursor.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_text_fragment.h"
-#include "third_party/blink/renderer/core/layout/ng/list/layout_ng_list_item.h"
+#include "third_party/blink/renderer/core/layout/ng/list/list_marker.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_physical_box_fragment.h"
 #include "third_party/blink/renderer/core/layout/svg/layout_svg_image.h"
 #include "third_party/blink/renderer/core/layout/svg/layout_svg_inline.h"
@@ -257,7 +258,8 @@ void LayoutTreeAsText::WriteLayoutObject(WTF::TextStream& ts,
   }
 
   if (o.IsTableCell()) {
-    const LayoutTableCell& c = ToLayoutTableCell(o);
+    const LayoutNGTableCellInterface& c =
+        ToInterface<LayoutNGTableCellInterface>(o);
     ts << " [r=" << c.RowIndex() << " c=" << c.AbsoluteColumnIndex()
        << " rs=" << c.ResolvedRowSpan() << " cs=" << c.ColSpan() << "]";
   }
@@ -358,7 +360,7 @@ void LayoutTreeAsText::WriteLayoutObject(WTF::TextStream& ts,
       ts << ")";
   }
 
-  if (o.LayoutBlockedByDisplayLock(DisplayLockContext::kChildren))
+  if (o.LayoutBlockedByDisplayLock(DisplayLockLifecycleTarget::kChildren))
     ts << " (display-locked)";
 }
 
@@ -427,8 +429,10 @@ static void WriteTextRun(WTF::TextStream& ts,
   int logical_width = (run.X() + run.LogicalWidth()).Ceil() - x;
 
   // FIXME: Table cell adjustment is temporary until results can be updated.
-  if (o.ContainingBlock()->IsTableCell())
-    y -= ToLayoutTableCell(o.ContainingBlock())->IntrinsicPaddingBefore();
+  if (o.ContainingBlock()->IsTableCell()) {
+    y -= ToInterface<LayoutNGTableCellInterface>(o.ContainingBlock())
+             ->IntrinsicPaddingBefore();
+  }
 
   ts << "text run at (" << x << "," << y << ") width " << logical_width;
   if (!run.IsLeftToRightDirection() || run.DirOverride()) {
@@ -447,21 +451,17 @@ static void WriteTextRun(WTF::TextStream& ts,
 }
 
 static void WriteTextFragment(WTF::TextStream& ts,
-                              const NGPhysicalFragment& physical_fragment,
-                              PhysicalOffset offset_to_container_box) {
-  const auto* physical_text_fragment =
-      DynamicTo<NGPhysicalTextFragment>(physical_fragment);
-  if (!physical_text_fragment)
-    return;
-  const ComputedStyle& style = physical_fragment.Style();
+                              const LayoutObject* layout_object,
+                              PhysicalRect rect,
+                              const ComputedStyle& style,
+                              StringView text,
+                              LayoutUnit inline_size) {
   // TODO(layout-dev): Dump physical coordinates when removing the legacy inline
   // layout code.
-  NGTextFragment fragment(style.GetWritingMode(), *physical_text_fragment);
+  PhysicalOffset offset_to_container_box = rect.offset;
   if (UNLIKELY(style.IsFlippedBlocksWritingMode())) {
-    if (physical_fragment.GetLayoutObject()) {
-      PhysicalRect rect(offset_to_container_box, physical_fragment.Size());
-      const LayoutBlock* containing_block =
-          physical_fragment.GetLayoutObject()->ContainingBlock();
+    if (layout_object) {
+      const LayoutBlock* containing_block = layout_object->ContainingBlock();
       LayoutRect layout_rect = containing_block->FlipForWritingMode(rect);
       offset_to_container_box.left = layout_rect.X();
     }
@@ -470,12 +470,36 @@ static void WriteTextFragment(WTF::TextStream& ts,
   // See WriteTextRun() for why we convert to int.
   int x = offset_to_container_box.left.ToInt();
   int y = offset_to_container_box.top.ToInt();
-  int logical_width =
-      (offset_to_container_box.left + fragment.InlineSize()).Ceil() - x;
+  int logical_width = (offset_to_container_box.left + inline_size).Ceil() - x;
   ts << "text run at (" << x << "," << y << ") width " << logical_width;
-  ts << ": "
-     << QuoteAndEscapeNonPrintables(physical_text_fragment->Text().ToString());
+  ts << ": " << QuoteAndEscapeNonPrintables(text.ToString());
   ts << "\n";
+}
+
+static void WriteTextFragment(WTF::TextStream& ts,
+                              const NGInlineCursor& cursor) {
+  if (const NGPaintFragment* const paint_fragment =
+          cursor.CurrentPaintFragment()) {
+    const auto* physical_text_fragment =
+        DynamicTo<NGPhysicalTextFragment>(paint_fragment->PhysicalFragment());
+    if (!physical_text_fragment)
+      return;
+    const NGTextFragment fragment(paint_fragment->Style().GetWritingMode(),
+                                  *physical_text_fragment);
+    WriteTextFragment(ts, paint_fragment->GetLayoutObject(),
+                      paint_fragment->RectInContainerBlock(),
+                      paint_fragment->Style(), physical_text_fragment->Text(),
+                      fragment.InlineSize());
+    return;
+  }
+  DCHECK(cursor.CurrentItem());
+  const NGFragmentItem& item = *cursor.CurrentItem();
+  DCHECK(item.Type() == NGFragmentItem::kText ||
+         item.Type() == NGFragmentItem::kGeneratedText);
+  const LayoutUnit inline_size =
+      item.IsHorizontal() ? item.Size().width : item.Size().height;
+  WriteTextFragment(ts, item.GetLayoutObject(), item.RectInContainerBlock(),
+                    item.Style(), item.Text(cursor.Items()), inline_size);
 }
 
 static void WritePaintProperties(WTF::TextStream& ts,
@@ -557,12 +581,12 @@ void Write(WTF::TextStream& ts,
 
   if (o.IsText() && !o.IsBR()) {
     const LayoutText& text = ToLayoutText(o);
-    if (const NGPhysicalBoxFragment* box_fragment =
-            text.ContainingBlockFlowFragment()) {
-      for (const auto& child :
-           NGInlineFragmentTraversal::SelfFragmentsOf(*box_fragment, &text)) {
+    if (const LayoutBlockFlow* block_flow = text.ContainingNGBlockFlow()) {
+      NGInlineCursor cursor(*block_flow);
+      cursor.MoveTo(text);
+      for (; cursor; cursor.MoveToNextForSameLayoutObject()) {
         WriteIndent(ts, indent + 1);
-        WriteTextFragment(ts, *child.fragment, child.offset_to_container_box);
+        WriteTextFragment(ts, cursor);
       }
     } else {
       for (InlineTextBox* box : text.TextBoxes()) {
@@ -572,7 +596,7 @@ void Write(WTF::TextStream& ts,
     }
   }
 
-  if (!o.LayoutBlockedByDisplayLock(DisplayLockContext::kChildren)) {
+  if (!o.LayoutBlockedByDisplayLock(DisplayLockLifecycleTarget::kChildren)) {
     for (LayoutObject* child = o.SlowFirstChild(); child;
          child = child->NextSibling()) {
       if (child->HasLayer())
@@ -585,7 +609,8 @@ void Write(WTF::TextStream& ts,
     FrameView* frame_view = ToLayoutEmbeddedContent(o).ChildFrameView();
     if (auto* local_frame_view = DynamicTo<LocalFrameView>(frame_view)) {
       if (auto* layout_view = local_frame_view->GetLayoutView()) {
-        layout_view->GetDocument().UpdateStyleAndLayout();
+        layout_view->GetDocument().UpdateStyleAndLayout(
+            DocumentUpdateReason::kTest);
         if (auto* layer = layout_view->Layer()) {
           LayoutTreeAsText::WriteLayers(ts, layer, layer, indent + 1, behavior);
         }
@@ -685,7 +710,7 @@ static void Write(WTF::TextStream& ts,
     }
   }
 
-  if ((behavior & kLayoutAsTextShowPaintProperties) && layer.NeedsRepaint())
+  if ((behavior & kLayoutAsTextShowPaintProperties) && layer.SelfNeedsRepaint())
     ts << " needsRepaint";
 
   ts << "\n";
@@ -875,7 +900,8 @@ String ExternalRepresentation(LocalFrame* frame,
                               LayoutAsTextBehavior behavior,
                               const PaintLayer* marked_layer) {
   if (!(behavior & kLayoutAsTextDontUpdateLayout)) {
-    bool success = frame->View()->UpdateAllLifecyclePhasesExceptPaint();
+    bool success = frame->View()->UpdateAllLifecyclePhasesExceptPaint(
+        DocumentUpdateReason::kTest);
     DCHECK(success);
   };
 
@@ -906,8 +932,9 @@ String ExternalRepresentation(LocalFrame* frame,
 String ExternalRepresentation(Element* element, LayoutAsTextBehavior behavior) {
   // Doesn't support printing mode.
   DCHECK(!(behavior & kLayoutAsTextPrintingMode));
-  if (!(behavior & kLayoutAsTextDontUpdateLayout))
-    element->GetDocument().UpdateStyleAndLayout();
+  if (!(behavior & kLayoutAsTextDontUpdateLayout)) {
+    element->GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kTest);
+  }
 
   LayoutObject* layout_object = element->GetLayoutObject();
   if (!layout_object || !layout_object->IsBox())
@@ -933,11 +960,14 @@ static void WriteCounterValuesFromChildren(WTF::TextStream& stream,
 }
 
 String CounterValueForElement(Element* element) {
-  element->GetDocument().UpdateStyleAndLayout();
+  element->GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kTest);
   WTF::TextStream stream;
   bool is_first_counter = true;
-  // The counter layoutObjects should be children of :before or :after
-  // pseudo-elements.
+  // The counter LayoutObjects should be children of ::marker, ::before or
+  // ::after pseudo-elements.
+  if (LayoutObject* marker =
+          element->PseudoElementLayoutObject(kPseudoIdMarker))
+    WriteCounterValuesFromChildren(stream, marker, is_first_counter);
   if (LayoutObject* before =
           element->PseudoElementLayoutObject(kPseudoIdBefore))
     WriteCounterValuesFromChildren(stream, before, is_first_counter);
@@ -947,14 +977,16 @@ String CounterValueForElement(Element* element) {
 }
 
 String MarkerTextForListItem(Element* element) {
-  element->GetDocument().UpdateStyleAndLayout();
+  element->GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kTest);
 
   LayoutObject* layout_object = element->GetLayoutObject();
   if (layout_object) {
     if (layout_object->IsListItem())
       return ToLayoutListItem(layout_object)->MarkerText();
-    if (layout_object->IsLayoutNGListItem())
-      return ToLayoutNGListItem(layout_object)->MarkerTextWithoutSuffix();
+    if (layout_object->IsLayoutNGListItem()) {
+      if (LayoutObject* marker = ToLayoutNGListItem(layout_object)->Marker())
+        return ListMarker::Get(marker)->MarkerTextWithoutSuffix(*marker);
+    }
   }
   return String();
 }

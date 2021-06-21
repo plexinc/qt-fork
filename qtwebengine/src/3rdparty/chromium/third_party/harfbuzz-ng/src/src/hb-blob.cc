@@ -25,18 +25,6 @@
  * Red Hat Author(s): Behdad Esfahbod
  */
 
-
-/* https://github.com/harfbuzz/harfbuzz/issues/1308
- * http://www.gnu.org/software/libc/manual/html_node/Feature-Test-Macros.html
- * https://www.oracle.com/technetwork/articles/servers-storage-dev/standardheaderfiles-453865.html
- */
-#if !defined(_POSIX_C_SOURCE) && !defined(_MSC_VER) && !defined(__NetBSD__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wunused-macros"
-#define _POSIX_C_SOURCE 200809L
-#pragma GCC diagnostic pop
-#endif
-
 #include "hb.hh"
 #include "hb-blob.hh"
 
@@ -48,7 +36,6 @@
 #endif /* HAVE_SYS_MMAN_H */
 
 #include <stdio.h>
-#include <errno.h>
 #include <stdlib.h>
 
 
@@ -592,7 +579,7 @@ fail_without_close:
     ceparams.lpSecurityAttributes = nullptr;
     ceparams.hTemplateFile = nullptr;
     fd = CreateFile2 (wchar_file_name, GENERIC_READ, FILE_SHARE_READ,
-                      OPEN_EXISTING, &ceparams);
+		      OPEN_EXISTING, &ceparams);
   }
 #else
   fd = CreateFileW (wchar_file_name, GENERIC_READ, FILE_SHARE_READ, nullptr,
@@ -669,7 +656,7 @@ fail_without_close:
   }
 
   return hb_blob_create (data, len, HB_MEMORY_MODE_WRITABLE, data,
-                         (hb_destroy_func_t) free);
+			 (hb_destroy_func_t) free);
 
 fread_fail:
   fclose (fp);

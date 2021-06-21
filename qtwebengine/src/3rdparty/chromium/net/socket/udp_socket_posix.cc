@@ -23,6 +23,7 @@
 #include "base/posix/eintr_wrapper.h"
 #include "base/rand_util.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/task_runner_util.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
@@ -214,6 +215,10 @@ int UDPSocketPosix::Open(AddressFamily address_family) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   DCHECK_EQ(socket_, kInvalidSocket);
 
+  auto owned_socket_count = TryAcquireGlobalUDPSocketCount();
+  if (owned_socket_count.empty())
+    return ERR_INSUFFICIENT_RESOURCES;
+
   addr_family_ = ConvertAddressFamily(address_family);
   socket_ = CreatePlatformSocket(addr_family_, SOCK_DGRAM, 0);
   if (socket_ == kInvalidSocket)
@@ -230,6 +235,8 @@ int UDPSocketPosix::Open(AddressFamily address_family) {
   }
   if (tag_ != SocketTag())
     tag_.Apply(socket_);
+
+  owned_socket_count_ = std::move(owned_socket_count);
   return OK;
 }
 
@@ -291,15 +298,17 @@ void UDPSocketPosix::ReceivedActivityMonitor::NetworkActivityMonitorIncrement(
 void UDPSocketPosix::Close() {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
+  owned_socket_count_.Reset();
+
   if (socket_ == kInvalidSocket)
     return;
 
   // Zero out any pending read/write callback state.
-  read_buf_ = NULL;
+  read_buf_.reset();
   read_buf_len_ = 0;
   read_callback_.Reset();
   recv_from_address_ = NULL;
-  write_buf_ = NULL;
+  write_buf_.reset();
   write_buf_len_ = 0;
   write_callback_.Reset();
   send_to_address_.reset();
@@ -739,7 +748,7 @@ void UDPSocketPosix::DidCompleteRead() {
   int result =
       InternalRecvFrom(read_buf_.get(), read_buf_len_, recv_from_address_);
   if (result != ERR_IO_PENDING) {
-    read_buf_ = NULL;
+    read_buf_.reset();
     read_buf_len_ = 0;
     recv_from_address_ = NULL;
     bool ok = read_socket_watcher_.StopWatchingFileDescriptor();
@@ -776,7 +785,7 @@ void UDPSocketPosix::DidCompleteWrite() {
       InternalSendTo(write_buf_.get(), write_buf_len_, send_to_address_.get());
 
   if (result != ERR_IO_PENDING) {
-    write_buf_ = NULL;
+    write_buf_.reset();
     write_buf_len_ = 0;
     send_to_address_.reset();
     write_socket_watcher_.StopWatchingFileDescriptor();
@@ -1323,14 +1332,13 @@ void UDPSocketPosix::FlushPending() {
 
 // TODO(ckrasic) Sad face.  Do this lazily because many tests exploded
 // otherwise.  |threading_and_tasks.md| advises to instantiate a
-// |base::test::ScopedTaskEnvironment| in the test, implementing that
+// |base::test::TaskEnvironment| in the test, implementing that
 // for all tests that might exercise QUIC is too daunting.  Also, in
 // some tests it seemed like following the advice just broke in other
 // ways.
 base::SequencedTaskRunner* UDPSocketPosix::GetTaskRunner() {
-  if (task_runner_ == nullptr) {
-    task_runner_ = CreateSequencedTaskRunnerWithTraits(base::TaskTraits());
-  }
+  if (task_runner_ == nullptr)
+    task_runner_ = base::ThreadPool::CreateSequencedTaskRunner({});
   return task_runner_.get();
 }
 

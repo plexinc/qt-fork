@@ -23,15 +23,16 @@ namespace SkSL {
 class AutoDepth {
 public:
     AutoDepth(Parser* p)
-    : fParser(p) {
-        fParser->fDepth++;
-    }
+    : fParser(p)
+    , fDepth(0) {}
 
     ~AutoDepth() {
-        fParser->fDepth--;
+        fParser->fDepth -= fDepth;
     }
 
-    bool checkValid() {
+    bool increase() {
+        ++fDepth;
+        ++fParser->fDepth;
         if (fParser->fDepth > MAX_PARSE_DEPTH) {
             fParser->error(fParser->peek(), String("exceeded max parse depth"));
             return false;
@@ -41,6 +42,7 @@ public:
 
 private:
     Parser* fParser;
+    int fDepth;
 };
 
 std::unordered_map<String, Parser::LayoutToken>* Parser::layoutTokens;
@@ -88,11 +90,11 @@ void Parser::InitLayoutMap() {
     TOKEN(TRACKED,                      "tracked");
     TOKEN(CTYPE,                        "ctype");
     TOKEN(SKPMCOLOR4F,                  "SkPMColor4f");
-    TOKEN(SKVECTOR4,                    "SkVector4");
+    TOKEN(SKV4,                         "SkV4");
     TOKEN(SKRECT,                       "SkRect");
     TOKEN(SKIRECT,                      "SkIRect");
     TOKEN(SKPMCOLOR,                    "SkPMColor");
-    TOKEN(SKMATRIX44,                   "SkMatrix44");
+    TOKEN(SKM44,                        "SkM44");
     TOKEN(BOOL,                         "bool");
     TOKEN(INT,                          "int");
     TOKEN(FLOAT,                        "float");
@@ -728,8 +730,8 @@ Layout::CType Parser::layoutCType() {
             switch (found->second) {
                 case LayoutToken::SKPMCOLOR4F:
                     return Layout::CType::kSkPMColor4f;
-                case LayoutToken::SKVECTOR4:
-                    return Layout::CType::kSkVector4;
+                case LayoutToken::SKV4:
+                    return Layout::CType::kSkV4;
                 case LayoutToken::SKRECT:
                     return Layout::CType::kSkRect;
                 case LayoutToken::SKIRECT:
@@ -742,8 +744,8 @@ Layout::CType Parser::layoutCType() {
                     return Layout::CType::kInt32;
                 case LayoutToken::FLOAT:
                     return Layout::CType::kFloat;
-                case LayoutToken::SKMATRIX44:
-                    return Layout::CType::kSkMatrix44;
+                case LayoutToken::SKM44:
+                    return Layout::CType::kSkM44;
                 default:
                     break;
             }
@@ -922,7 +924,7 @@ Layout Parser::layout() {
 
 /* layout? (UNIFORM | CONST | IN | OUT | INOUT | LOWP | MEDIUMP | HIGHP | FLAT | NOPERSPECTIVE |
             READONLY | WRITEONLY | COHERENT | VOLATILE | RESTRICT | BUFFER | PLS | PLSIN |
-            PLSOUT)* */
+            PLSOUT | VARYING)* */
 Modifiers Parser::modifiers() {
     Layout layout = this->layout();
     int flags = 0;
@@ -998,6 +1000,10 @@ Modifiers Parser::modifiers() {
                 this->nextToken();
                 flags |= Modifiers::kPLSOut_Flag;
                 break;
+            case Token::VARYING:
+                this->nextToken();
+                flags |= Modifiers::kVarying_Flag;
+                break;
             default:
                 return Modifiers(layout, flags);
         }
@@ -1016,7 +1022,7 @@ Modifiers Parser::modifiersWithDefaults(int defaultFlags) {
 ASTNode::ID Parser::statement() {
     Token start = this->nextToken();
     AutoDepth depth(this);
-    if (!depth.checkValid()) {
+    if (!depth.increase()) {
         return ASTNode::ID::Invalid();
     }
     this->pushback(start);
@@ -1450,7 +1456,7 @@ ASTNode::ID Parser::block() {
         return ASTNode::ID::Invalid();
     }
     AutoDepth depth(this);
-    if (!depth.checkValid()) {
+    if (!depth.increase()) {
         return ASTNode::ID::Invalid();
     }
     CREATE_NODE(result, start.fOffset, ASTNode::Kind::kBlock);
@@ -1510,6 +1516,7 @@ ASTNode::ID Parser::expression() {
    assignmentExpression)*
  */
 ASTNode::ID Parser::assignmentExpression() {
+    AutoDepth depth(this);
     ASTNode::ID result = this->ternaryExpression();
     if (!result) {
         return ASTNode::ID::Invalid();
@@ -1530,6 +1537,9 @@ ASTNode::ID Parser::assignmentExpression() {
             case Token::LOGICALANDEQ: // fall through
             case Token::LOGICALXOREQ: // fall through
             case Token::LOGICALOREQ: {
+                if (!depth.increase()) {
+                    return ASTNode::ID::Invalid();
+                }
                 Token t = this->nextToken();
                 ASTNode::ID right = this->assignmentExpression();
                 if (!right) {
@@ -1550,11 +1560,15 @@ ASTNode::ID Parser::assignmentExpression() {
 
 /* logicalOrExpression ('?' expression ':' assignmentExpression)? */
 ASTNode::ID Parser::ternaryExpression() {
+    AutoDepth depth(this);
     ASTNode::ID base = this->logicalOrExpression();
     if (!base) {
         return ASTNode::ID::Invalid();
     }
     if (this->checkNext(Token::QUESTION)) {
+        if (!depth.increase()) {
+            return ASTNode::ID::Invalid();
+        }
         ASTNode::ID trueExpr = this->expression();
         if (!trueExpr) {
             return ASTNode::ID::Invalid();
@@ -1577,12 +1591,16 @@ ASTNode::ID Parser::ternaryExpression() {
 
 /* logicalXorExpression (LOGICALOR logicalXorExpression)* */
 ASTNode::ID Parser::logicalOrExpression() {
+    AutoDepth depth(this);
     ASTNode::ID result = this->logicalXorExpression();
     if (!result) {
         return ASTNode::ID::Invalid();
     }
     Token t;
     while (this->checkNext(Token::LOGICALOR, &t)) {
+        if (!depth.increase()) {
+            return ASTNode::ID::Invalid();
+        }
         ASTNode::ID right = this->logicalXorExpression();
         if (!right) {
             return ASTNode::ID::Invalid();
@@ -1597,12 +1615,16 @@ ASTNode::ID Parser::logicalOrExpression() {
 
 /* logicalAndExpression (LOGICALXOR logicalAndExpression)* */
 ASTNode::ID Parser::logicalXorExpression() {
+    AutoDepth depth(this);
     ASTNode::ID result = this->logicalAndExpression();
     if (!result) {
         return ASTNode::ID::Invalid();
     }
     Token t;
     while (this->checkNext(Token::LOGICALXOR, &t)) {
+        if (!depth.increase()) {
+            return ASTNode::ID::Invalid();
+        }
         ASTNode::ID right = this->logicalAndExpression();
         if (!right) {
             return ASTNode::ID::Invalid();
@@ -1617,12 +1639,16 @@ ASTNode::ID Parser::logicalXorExpression() {
 
 /* bitwiseOrExpression (LOGICALAND bitwiseOrExpression)* */
 ASTNode::ID Parser::logicalAndExpression() {
+    AutoDepth depth(this);
     ASTNode::ID result = this->bitwiseOrExpression();
     if (!result) {
         return ASTNode::ID::Invalid();
     }
     Token t;
     while (this->checkNext(Token::LOGICALAND, &t)) {
+        if (!depth.increase()) {
+            return ASTNode::ID::Invalid();
+        }
         ASTNode::ID right = this->bitwiseOrExpression();
         if (!right) {
             return ASTNode::ID::Invalid();
@@ -1637,12 +1663,16 @@ ASTNode::ID Parser::logicalAndExpression() {
 
 /* bitwiseXorExpression (BITWISEOR bitwiseXorExpression)* */
 ASTNode::ID Parser::bitwiseOrExpression() {
+    AutoDepth depth(this);
     ASTNode::ID result = this->bitwiseXorExpression();
     if (!result) {
         return ASTNode::ID::Invalid();
     }
     Token t;
     while (this->checkNext(Token::BITWISEOR, &t)) {
+        if (!depth.increase()) {
+            return ASTNode::ID::Invalid();
+        }
         ASTNode::ID right = this->bitwiseXorExpression();
         if (!right) {
             return ASTNode::ID::Invalid();
@@ -1657,12 +1687,16 @@ ASTNode::ID Parser::bitwiseOrExpression() {
 
 /* bitwiseAndExpression (BITWISEXOR bitwiseAndExpression)* */
 ASTNode::ID Parser::bitwiseXorExpression() {
+    AutoDepth depth(this);
     ASTNode::ID result = this->bitwiseAndExpression();
     if (!result) {
         return ASTNode::ID::Invalid();
     }
     Token t;
     while (this->checkNext(Token::BITWISEXOR, &t)) {
+        if (!depth.increase()) {
+            return ASTNode::ID::Invalid();
+        }
         ASTNode::ID right = this->bitwiseAndExpression();
         if (!right) {
             return ASTNode::ID::Invalid();
@@ -1677,12 +1711,16 @@ ASTNode::ID Parser::bitwiseXorExpression() {
 
 /* equalityExpression (BITWISEAND equalityExpression)* */
 ASTNode::ID Parser::bitwiseAndExpression() {
+    AutoDepth depth(this);
     ASTNode::ID result = this->equalityExpression();
     if (!result) {
         return ASTNode::ID::Invalid();
     }
     Token t;
     while (this->checkNext(Token::BITWISEAND, &t)) {
+        if (!depth.increase()) {
+            return ASTNode::ID::Invalid();
+        }
         ASTNode::ID right = this->equalityExpression();
         if (!right) {
             return ASTNode::ID::Invalid();
@@ -1697,6 +1735,7 @@ ASTNode::ID Parser::bitwiseAndExpression() {
 
 /* relationalExpression ((EQEQ | NEQ) relationalExpression)* */
 ASTNode::ID Parser::equalityExpression() {
+    AutoDepth depth(this);
     ASTNode::ID result = this->relationalExpression();
     if (!result) {
         return ASTNode::ID::Invalid();
@@ -1705,6 +1744,9 @@ ASTNode::ID Parser::equalityExpression() {
         switch (this->peek().fKind) {
             case Token::EQEQ:   // fall through
             case Token::NEQ: {
+                if (!depth.increase()) {
+                    return ASTNode::ID::Invalid();
+                }
                 Token t = this->nextToken();
                 ASTNode::ID right = this->relationalExpression();
                 if (!right) {
@@ -1725,6 +1767,7 @@ ASTNode::ID Parser::equalityExpression() {
 
 /* shiftExpression ((LT | GT | LTEQ | GTEQ) shiftExpression)* */
 ASTNode::ID Parser::relationalExpression() {
+    AutoDepth depth(this);
     ASTNode::ID result = this->shiftExpression();
     if (!result) {
         return ASTNode::ID::Invalid();
@@ -1735,6 +1778,9 @@ ASTNode::ID Parser::relationalExpression() {
             case Token::GT:   // fall through
             case Token::LTEQ: // fall through
             case Token::GTEQ: {
+                if (!depth.increase()) {
+                    return ASTNode::ID::Invalid();
+                }
                 Token t = this->nextToken();
                 ASTNode::ID right = this->shiftExpression();
                 if (!right) {
@@ -1755,6 +1801,7 @@ ASTNode::ID Parser::relationalExpression() {
 
 /* additiveExpression ((SHL | SHR) additiveExpression)* */
 ASTNode::ID Parser::shiftExpression() {
+    AutoDepth depth(this);
     ASTNode::ID result = this->additiveExpression();
     if (!result) {
         return ASTNode::ID::Invalid();
@@ -1763,6 +1810,9 @@ ASTNode::ID Parser::shiftExpression() {
         switch (this->peek().fKind) {
             case Token::SHL: // fall through
             case Token::SHR: {
+                if (!depth.increase()) {
+                    return ASTNode::ID::Invalid();
+                }
                 Token t = this->nextToken();
                 ASTNode::ID right = this->additiveExpression();
                 if (!right) {
@@ -1783,6 +1833,7 @@ ASTNode::ID Parser::shiftExpression() {
 
 /* multiplicativeExpression ((PLUS | MINUS) multiplicativeExpression)* */
 ASTNode::ID Parser::additiveExpression() {
+    AutoDepth depth(this);
     ASTNode::ID result = this->multiplicativeExpression();
     if (!result) {
         return ASTNode::ID::Invalid();
@@ -1791,6 +1842,9 @@ ASTNode::ID Parser::additiveExpression() {
         switch (this->peek().fKind) {
             case Token::PLUS: // fall through
             case Token::MINUS: {
+                if (!depth.increase()) {
+                    return ASTNode::ID::Invalid();
+                }
                 Token t = this->nextToken();
                 ASTNode::ID right = this->multiplicativeExpression();
                 if (!right) {
@@ -1811,6 +1865,7 @@ ASTNode::ID Parser::additiveExpression() {
 
 /* unaryExpression ((STAR | SLASH | PERCENT) unaryExpression)* */
 ASTNode::ID Parser::multiplicativeExpression() {
+    AutoDepth depth(this);
     ASTNode::ID result = this->unaryExpression();
     if (!result) {
         return ASTNode::ID::Invalid();
@@ -1820,6 +1875,9 @@ ASTNode::ID Parser::multiplicativeExpression() {
             case Token::STAR: // fall through
             case Token::SLASH: // fall through
             case Token::PERCENT: {
+                if (!depth.increase()) {
+                    return ASTNode::ID::Invalid();
+                }
                 Token t = this->nextToken();
                 ASTNode::ID right = this->unaryExpression();
                 if (!right) {
@@ -1840,6 +1898,7 @@ ASTNode::ID Parser::multiplicativeExpression() {
 
 /* postfixExpression | (PLUS | MINUS | NOT | PLUSPLUS | MINUSMINUS) unaryExpression */
 ASTNode::ID Parser::unaryExpression() {
+    AutoDepth depth(this);
     switch (this->peek().fKind) {
         case Token::PLUS:       // fall through
         case Token::MINUS:      // fall through
@@ -1847,11 +1906,10 @@ ASTNode::ID Parser::unaryExpression() {
         case Token::BITWISENOT: // fall through
         case Token::PLUSPLUS:   // fall through
         case Token::MINUSMINUS: {
-            Token t = this->nextToken();
-            AutoDepth depth(this);
-            if (!depth.checkValid()) {
+            if (!depth.increase()) {
                 return ASTNode::ID::Invalid();
             }
+            Token t = this->nextToken();
             ASTNode::ID expr = this->unaryExpression();
             if (!expr) {
                 return ASTNode::ID::Invalid();
@@ -1867,18 +1925,28 @@ ASTNode::ID Parser::unaryExpression() {
 
 /* term suffix* */
 ASTNode::ID Parser::postfixExpression() {
+    AutoDepth depth(this);
     ASTNode::ID result = this->term();
     if (!result) {
         return ASTNode::ID::Invalid();
     }
     for (;;) {
-        switch (this->peek().fKind) {
-            case Token::LBRACKET:   // fall through
-            case Token::DOT:        // fall through
-            case Token::LPAREN:     // fall through
-            case Token::PLUSPLUS:   // fall through
-            case Token::MINUSMINUS: // fall through
+        Token t = this->peek();
+        switch (t.fKind) {
+            case Token::FLOAT_LITERAL:
+                if (this->text(t)[0] != '.') {
+                    return result;
+                }
+                // fall through
+            case Token::LBRACKET:
+            case Token::DOT:
+            case Token::LPAREN:
+            case Token::PLUSPLUS:
+            case Token::MINUSMINUS:
             case Token::COLONCOLON:
+                if (!depth.increase()) {
+                    return ASTNode::ID::Invalid();
+                }
                 result = this->suffix(result);
                 if (!result) {
                     return ASTNode::ID::Invalid();
@@ -1891,12 +1959,12 @@ ASTNode::ID Parser::postfixExpression() {
 }
 
 /* LBRACKET expression? RBRACKET | DOT IDENTIFIER | LPAREN parameters RPAREN |
-   PLUSPLUS | MINUSMINUS | COLONCOLON IDENTIFIER */
+   PLUSPLUS | MINUSMINUS | COLONCOLON IDENTIFIER | FLOAT_LITERAL [IDENTIFIER] */
 ASTNode::ID Parser::suffix(ASTNode::ID base) {
     SkASSERT(base);
     Token next = this->nextToken();
     AutoDepth depth(this);
-    if (!depth.checkValid()) {
+    if (!depth.increase()) {
         return ASTNode::ID::Invalid();
     }
     switch (next.fKind) {
@@ -1925,7 +1993,31 @@ ASTNode::ID Parser::suffix(ASTNode::ID base) {
                 getNode(result).addChild(base);
                 return result;
             }
-            return ASTNode::ID::Invalid();
+        }
+        case Token::FLOAT_LITERAL: {
+            // Swizzles that start with a constant number, e.g. '.000r', will be tokenized as
+            // floating point literals, possibly followed by an identifier. Handle that here.
+            StringFragment field = this->text(next);
+            SkASSERT(field.fChars[0] == '.');
+            ++field.fChars;
+            --field.fLength;
+            for (size_t i = 0; i < field.fLength; ++i) {
+                if (field.fChars[i] != '0' && field.fChars[i] != '1') {
+                    this->error(next, "invalid swizzle");
+                    return ASTNode::ID::Invalid();
+                }
+            }
+            // use the next *raw* token so we don't ignore whitespace - we only care about
+            // identifiers that directly follow the float
+            Token id = this->nextRawToken();
+            if (id.fKind == Token::IDENTIFIER) {
+                field.fLength += id.fLength;
+            } else {
+                this->pushback(id);
+            }
+            CREATE_NODE(result, next.fOffset, ASTNode::Kind::kField, field);
+            getNode(result).addChild(base);
+            return result;
         }
         case Token::LPAREN: {
             CREATE_NODE(result, next.fOffset, ASTNode::Kind::kCall);
@@ -1996,7 +2088,7 @@ ASTNode::ID Parser::term() {
         case Token::LPAREN: {
             this->nextToken();
             AutoDepth depth(this);
-            if (!depth.checkValid()) {
+            if (!depth.increase()) {
                 return ASTNode::ID::Invalid();
             }
             ASTNode::ID result = this->expression();

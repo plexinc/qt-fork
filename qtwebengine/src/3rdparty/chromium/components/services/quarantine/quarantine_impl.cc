@@ -7,6 +7,7 @@
 #include "base/bind.h"
 #include "base/files/file_util.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/task_runner_util.h"
 #include "build/build_config.h"
 #include "components/services/quarantine/quarantine.h"
@@ -18,9 +19,11 @@
 
 namespace quarantine {
 
+QuarantineImpl::QuarantineImpl() = default;
+
 QuarantineImpl::QuarantineImpl(
-    std::unique_ptr<service_manager::ServiceContextRef> service_ref)
-    : service_ref_(std::move(service_ref)) {}
+    mojo::PendingReceiver<mojom::Quarantine> receiver)
+    : receiver_(this, std::move(receiver)) {}
 
 QuarantineImpl::~QuarantineImpl() = default;
 
@@ -28,12 +31,12 @@ namespace {
 
 #if defined(OS_WIN)
 scoped_refptr<base::SingleThreadTaskRunner> GetTaskRunner() {
-  return base::CreateCOMSTATaskRunnerWithTraits(
+  return base::ThreadPool::CreateCOMSTATaskRunner(
       {base::MayBlock(), base::TaskPriority::USER_VISIBLE});
 }
 #else   // OS_WIN
 scoped_refptr<base::TaskRunner> GetTaskRunner() {
-  return base::CreateTaskRunnerWithTraits(
+  return base::ThreadPool::CreateTaskRunner(
       {base::MayBlock(), base::TaskPriority::USER_VISIBLE});
 }
 #endif  // OS_WIN

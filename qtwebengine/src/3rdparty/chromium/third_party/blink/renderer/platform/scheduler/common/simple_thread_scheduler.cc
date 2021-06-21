@@ -61,6 +61,11 @@ SimpleThreadScheduler::DeprecatedDefaultTaskRunner() {
   return base::ThreadTaskRunnerHandle::Get();
 }
 
+scoped_refptr<base::SingleThreadTaskRunner>
+SimpleThreadScheduler::NonWakingTaskRunner() {
+  return base::ThreadTaskRunnerHandle::Get();
+}
+
 std::unique_ptr<PageScheduler> SimpleThreadScheduler::CreatePageScheduler(
     PageScheduler::Delegate* delegate) {
   return nullptr;
@@ -75,11 +80,11 @@ base::TimeTicks SimpleThreadScheduler::MonotonicallyIncreasingVirtualTime() {
   return base::TimeTicks::Now();
 }
 
-void SimpleThreadScheduler::AddTaskObserver(
-    base::MessageLoop::TaskObserver* task_observer) {}
+void SimpleThreadScheduler::AddTaskObserver(base::TaskObserver* task_observer) {
+}
 
 void SimpleThreadScheduler::RemoveTaskObserver(
-    base::MessageLoop::TaskObserver* task_observer) {}
+    base::TaskObserver* task_observer) {}
 
 NonMainThreadSchedulerImpl* SimpleThreadScheduler::AsNonMainThreadScheduler() {
   return nullptr;

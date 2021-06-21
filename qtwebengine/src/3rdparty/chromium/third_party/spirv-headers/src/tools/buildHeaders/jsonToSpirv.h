@@ -1,4 +1,4 @@
-// Copyright (c) 2014-2019 The Khronos Group Inc.
+// Copyright (c) 2014-2020 The Khronos Group Inc.
 // 
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and/or associated documentation files (the "Materials"),
@@ -51,6 +51,7 @@ enum OperandClass {
     OperandVariableLiterals,
     OperandVariableIdLiteral,
     OperandVariableLiteralId,
+    OperandAnySizeLiteralNumber,
     OperandLiteralNumber,
     OperandLiteralString,
     OperandSource,
@@ -83,11 +84,22 @@ enum OperandClass {
     OperandKernelEnqueueFlags,
     OperandKernelProfilingInfo,
     OperandCapability,
+    OperandRayFlags,
+    OperandRayQueryIntersection,
+    OperandRayQueryCommittedIntersectionType,
+    OperandRayQueryCandidateIntersectionType,
 
     OperandOpcode,
 
     OperandCount
 };
+
+// For direct representation of the JSON grammar "instruction_printing_class".
+struct PrintingClass {
+    std::string tag;
+    std::string heading;
+};
+using PrintingClasses = std::vector<PrintingClass>;
 
 // Any specific enum can have a set of capabilities that allow it:
 typedef std::vector<std::string> EnumCaps;
@@ -238,10 +250,10 @@ public:
 // per OperandParameters above.
 class InstructionValue : public EnumValue {
 public:
-    InstructionValue(EnumValue&& e, bool has_type, bool has_result)
+    InstructionValue(EnumValue&& e, const std::string& printClass, bool has_type, bool has_result)
      : EnumValue(std::move(e)),
+       printingClass(printClass),
        opDesc("TBD"),
-       opClass(0),
        typePresent(has_type),
        resultPresent(has_result),
        alias(this) { }
@@ -257,8 +269,8 @@ public:
     const InstructionValue& getAlias() const { return *alias; }
     bool isAlias() const { return alias != this; }
 
+    std::string printingClass;
     const char* opDesc;
-    int opClass;
 
 protected:
     int typePresent   : 1;
@@ -270,6 +282,7 @@ using InstructionValues = EnumValuesContainer<InstructionValue>;
 
 // Parameterization info for all instructions.
 extern InstructionValues InstructionDesc;
+extern PrintingClasses InstructionPrintingClasses;
 
 // These hold definitions of the enumerants used for operands.
 // This is indexed by OperandClass, but not including OperandOpcode.

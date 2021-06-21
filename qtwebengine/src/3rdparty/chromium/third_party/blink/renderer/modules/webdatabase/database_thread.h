@@ -43,11 +43,11 @@ class DatabaseTask;
 class SQLTransactionClient;
 class SQLTransactionCoordinator;
 
-class DatabaseThread : public GarbageCollectedFinalized<DatabaseThread> {
+class DatabaseThread final : public GarbageCollected<DatabaseThread> {
  public:
   DatabaseThread();
   ~DatabaseThread();
-  void Trace(blink::Visitor*);
+  void Trace(Visitor*);
 
   // Callable only from the main thread.
   void Start();

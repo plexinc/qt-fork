@@ -22,6 +22,7 @@
 #include "media/base/video_decoder_config.h"
 #include "media/base/video_frame.h"
 #include "media/video/h264_parser.h"
+#include "media/video/video_encoder_info.h"
 
 namespace media {
 
@@ -38,9 +39,6 @@ class VideoFrame;
 //                  temporal_idx > 0.
 struct MEDIA_EXPORT Vp8Metadata final {
   Vp8Metadata();
-  Vp8Metadata(const Vp8Metadata& other);
-  Vp8Metadata(Vp8Metadata&& other);
-  ~Vp8Metadata();
   bool non_reference;
   uint8_t temporal_idx;
   bool layer_sync;
@@ -77,6 +75,7 @@ class MEDIA_EXPORT VideoEncodeAccelerator {
                      uint32_t max_framerate_denominator = 1u);
     ~SupportedProfile();
     VideoCodecProfile profile;
+    gfx::Size min_resolution;
     gfx::Size max_resolution;
     uint32_t max_framerate_numerator;
     uint32_t max_framerate_denominator;
@@ -98,11 +97,8 @@ class MEDIA_EXPORT VideoEncodeAccelerator {
     kErrorMax = kPlatformFailureError
   };
 
-  // Unified default values for all VEA implementations.
-  enum {
-    kDefaultFramerate = 30,
-    kDefaultH264Level = H264SPS::kLevelIDC4p0,
-  };
+  // A default framerate for all VEA implementations.
+  enum { kDefaultFramerate = 30 };
 
   // Parameters required for VEA initialization.
   struct MEDIA_EXPORT Config {
@@ -154,11 +150,9 @@ class MEDIA_EXPORT VideoEncodeAccelerator {
     base::Optional<uint32_t> gop_length;
 
     // Codec level of encoded output stream for H264 only. This value should
-    // be aligned to the H264 standard definition of SPS.level_idc. The only
-    // exception is in Main and Baseline profile we still use
-    // |h264_output_level|=9 for Level 1b, which should set level_idc to 11 and
-    // constraint_set3_flag to 1 (Spec A.3.1 and A.3.2). This is optional and
-    // use |kDefaultH264Level| if not given.
+    // be aligned to the H264 standard definition of SPS.level_idc.
+    // If this is not given, VideoEncodeAccelerator selects one of proper H.264
+    // levels for |input_visible_size| and |initial_framerate|.
     base::Optional<uint8_t> h264_output_level;
 
     // The storage type of video frame provided on Encode().
@@ -212,6 +206,9 @@ class MEDIA_EXPORT VideoEncodeAccelerator {
     // reported here, but will instead be indicated by a false return value
     // there.
     virtual void NotifyError(Error error) = 0;
+
+    // Call VideoEncoderInfo of the VEA is changed.
+    virtual void NotifyEncoderInfoChange(const VideoEncoderInfo& info);
 
    protected:
     // Clients are not owned by VEA instances and should not be deleted through

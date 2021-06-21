@@ -23,7 +23,6 @@
 #include "net/socket/connect_job.h"
 #include "net/socket/next_proto.h"
 #include "net/socket/stream_socket.h"
-#include "net/ssl/ssl_config_service.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "url/gurl.h"
 
@@ -32,6 +31,7 @@ struct CommonConnectJobParams;
 class HttpAuthController;
 class HttpResponseInfo;
 class HttpNetworkSession;
+class ProxyResolutionRequest;
 }  // namespace net
 
 namespace network {
@@ -47,15 +47,13 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) ProxyResolvingClientSocket
   // where a connection will be established to. The full URL will be only used
   // for proxy resolution. Caller doesn't need to explicitly sanitize the url,
   // any sensitive data (like embedded usernames and passwords), and local data
-  // (i.e. reference fragment) will be sanitized by
-  // net::ProxyResolutionService::ResolveProxyHelper() before the url is
-  // disclosed to the proxy. If |use_tls|, this will try to do a tls connect
-  // instead of a regular tcp connect. |network_session| and
+  // (i.e. reference fragment) will be sanitized by net::ProxyResolutionService
+  // before the url is disclosed to the PAC script. If |use_tls|, this will try
+  // to do a tls connect instead of a regular tcp connect. |network_session| and
   // |common_connect_job_params| must outlive |this|.
   ProxyResolvingClientSocket(
       net::HttpNetworkSession* network_session,
       const net::CommonConnectJobParams* common_connect_job_params,
-      const net::SSLConfig& ssl_config,
       const GURL& url,
       bool use_tls);
   ~ProxyResolvingClientSocket() override;
@@ -131,8 +129,7 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) ProxyResolvingClientSocket
   std::unique_ptr<net::ConnectJob> connect_job_;
   std::unique_ptr<net::StreamSocket> socket_;
 
-  const net::SSLConfig ssl_config_;
-  std::unique_ptr<net::ProxyResolutionService::Request> proxy_resolve_request_;
+  std::unique_ptr<net::ProxyResolutionRequest> proxy_resolve_request_;
   net::ProxyInfo proxy_info_;
   const GURL url_;
   const bool use_tls_;

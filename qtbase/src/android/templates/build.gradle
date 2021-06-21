@@ -5,7 +5,7 @@ buildscript {
     }
 
     dependencies {
-        classpath 'com.android.tools.build:gradle:3.5.0'
+        classpath 'com.android.tools.build:gradle:3.6.0'
     }
 }
 
@@ -51,6 +51,15 @@ android {
        }
     }
 
+    tasks.withType(JavaCompile) {
+        options.incremental = true
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
     lintOptions {
         abortOnError false
     }
@@ -61,6 +70,8 @@ android {
     }
 
     defaultConfig {
-        resConfigs "en"
+        resConfig "en"
+        minSdkVersion = qtMinSdkVersion
+        targetSdkVersion = qtTargetSdkVersion
     }
 }

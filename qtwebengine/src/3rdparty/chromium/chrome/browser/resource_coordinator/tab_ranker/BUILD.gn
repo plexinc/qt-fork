@@ -14,6 +14,8 @@ source_set("tab_ranker") {
   sources = [
     "native_inference.cc",
     "native_inference.h",
+    "pairwise_inference.cc",
+    "pairwise_inference.h",
     "tab_features.cc",
     "tab_score_predictor.cc",
     "window_features.cc",
@@ -39,7 +41,5 @@ static_library("tab_features_test_helper") {
     "tab_features_test_helper.h",
   ]
 
-  deps = [
-    ":tab_ranker",
-  ]
+  deps = [ ":tab_ranker" ]
 }

@@ -7,7 +7,6 @@
 #include <utility>
 
 #include "base/logging.h"
-#include "components/signin/internal/identity_manager/profile_oauth2_token_service.h"
 #include "components/signin/public/identity_manager/access_token_info.h"
 #include "google_apis/gaia/google_service_auth_error.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
@@ -17,7 +16,7 @@ namespace signin {
 AccessTokenFetcher::AccessTokenFetcher(const CoreAccountId& account_id,
                                        const std::string& oauth_consumer_name,
                                        ProfileOAuth2TokenService* token_service,
-                                       const identity::ScopeSet& scopes,
+                                       const ScopeSet& scopes,
                                        TokenCallback callback,
                                        Mode mode)
     : AccessTokenFetcher(account_id,
@@ -33,7 +32,7 @@ AccessTokenFetcher::AccessTokenFetcher(
     const std::string& oauth_consumer_name,
     ProfileOAuth2TokenService* token_service,
     scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
-    const identity::ScopeSet& scopes,
+    const ScopeSet& scopes,
     TokenCallback callback,
     Mode mode)
     : AccessTokenFetcher(account_id,
@@ -51,7 +50,7 @@ AccessTokenFetcher::AccessTokenFetcher(const CoreAccountId& account_id,
                                        const std::string client_secret,
                                        const std::string& oauth_consumer_name,
                                        ProfileOAuth2TokenService* token_service,
-                                       const identity::ScopeSet& scopes,
+                                       const ScopeSet& scopes,
                                        TokenCallback callback,
                                        Mode mode)
     : AccessTokenFetcher(account_id,
@@ -71,7 +70,7 @@ AccessTokenFetcher::AccessTokenFetcher(
     const std::string& oauth_consumer_name,
     ProfileOAuth2TokenService* token_service,
     scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
-    const identity::ScopeSet& scopes,
+    const ScopeSet& scopes,
     TokenCallback callback,
     Mode mode)
     : OAuth2AccessTokenManager::Consumer(oauth_consumer_name),
@@ -82,8 +81,7 @@ AccessTokenFetcher::AccessTokenFetcher(
       url_loader_factory_(std::move(url_loader_factory)),
       scopes_(scopes),
       mode_(mode),
-      callback_(std::move(callback)),
-      token_service_observer_(this) {
+      callback_(std::move(callback)) {
   DCHECK(client_id_.empty() == client_secret_.empty());
   DCHECK(client_id_.empty() || !url_loader_factory);
 

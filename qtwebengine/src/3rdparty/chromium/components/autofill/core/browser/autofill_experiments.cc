@@ -12,7 +12,6 @@
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
-#include "components/autofill/core/browser/autofill_internals_service.h"
 #include "components/autofill/core/browser/autofill_metrics.h"
 #include "components/autofill/core/browser/logging/log_manager.h"
 #include "components/autofill/core/browser/payments/payments_util.h"
@@ -96,20 +95,6 @@ bool IsCreditCardUploadEnabled(const PrefService* pref_service,
     // Wallet feature must be on.
     DCHECK(base::FeatureList::IsEnabled(
         features::kAutofillEnableAccountWalletStorage));
-    if (!base::FeatureList::IsEnabled(
-            features::kAutofillEnableAccountWalletStorageUpload)) {
-      // We're not enabling uploads in the account wallet mode, so suppress
-      // the upload prompt.
-      AutofillMetrics::LogCardUploadEnabledMetric(
-          AutofillMetrics::CardUploadEnabledMetric::
-              ACCOUNT_WALLET_STORAGE_UPLOAD_DISABLED,
-          sync_state);
-      if (log_manager) {
-        log_manager->Log() << LoggingScope::kContext
-                           << "ACCOUNT_WALLET_STORAGE_UPLOAD_DISABLED";
-      }
-      return false;
-    }
   }
 
   // Also don't offer upload for users that have a secondary sync passphrase.
@@ -275,15 +260,6 @@ bool OfferStoreUnmaskedCards(bool is_off_the_record) {
   // Otherwise use the field trial to show the checkbox or not.
   return group_name != "Disabled";
 #endif
-}
-
-bool ShouldUseActiveSignedInAccount() {
-  // If butter is enabled or the feature to get the Payment Identity from Sync
-  // is enabled, the account of the active signed-in user should be used.
-  return base::FeatureList::IsEnabled(
-             features::kAutofillEnableAccountWalletStorage) ||
-         base::FeatureList::IsEnabled(
-             features::kAutofillGetPaymentsIdentityFromSync);
 }
 
 }  // namespace autofill

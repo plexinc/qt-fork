@@ -6,20 +6,69 @@
 
 #include "third_party/blink/public/platform/web_vector.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_css_style_sheet_init.h"
+#include "third_party/blink/renderer/core/css/css_style_sheet.h"
+#include "third_party/blink/renderer/core/dom/document.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/loader/modulescript/module_script_creation_params.h"
 #include "third_party/blink/renderer/core/script/modulator.h"
 #include "third_party/blink/renderer/core/script/module_record_resolver.h"
+#include "third_party/blink/renderer/platform/bindings/to_v8.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
 #include "third_party/blink/renderer/platform/wtf/text/text_position.h"
 #include "v8/include/v8.h"
 
 namespace blink {
 
+// https://whatpr.org/html/4898/webappapis.html#creating-a-css-module-script
+ValueWrapperSyntheticModuleScript*
+ValueWrapperSyntheticModuleScript::CreateCSSWrapperSyntheticModuleScript(
+    const base::Optional<ModuleScriptCreationParams>& params,
+    Modulator* settings_object) {
+  DCHECK(settings_object->HasValidContext());
+  ScriptState* script_state = settings_object->GetScriptState();
+  ScriptState::Scope scope(script_state);
+  v8::Isolate* isolate = script_state->GetIsolate();
+  ExceptionState exception_state(isolate, ExceptionState::kExecutionContext,
+                                 "ModuleScriptLoader",
+                                 "CreateCSSWrapperSyntheticModuleScript");
+  ExecutionContext* execution_context = ExecutionContext::From(script_state);
+  Document* context_document = Document::DynamicFrom(execution_context);
+  if (!context_document) {
+    v8::Local<v8::Value> error = V8ThrowException::CreateTypeError(
+        isolate, "Cannot create CSS Module in non-document context");
+    return ValueWrapperSyntheticModuleScript::CreateWithError(
+        v8::Local<v8::Value>(), settings_object, params->GetResponseUrl(),
+        KURL(), ScriptFetchOptions(), error);
+  }
+  CSSStyleSheetInit* init = CSSStyleSheetInit::Create();
+  CSSStyleSheet* style_sheet =
+      CSSStyleSheet::Create(*context_document, init, exception_state);
+  if (exception_state.HadException()) {
+    v8::Local<v8::Value> error = exception_state.GetException();
+    exception_state.ClearException();
+    return ValueWrapperSyntheticModuleScript::CreateWithError(
+        v8::Local<v8::Value>(), settings_object, params->GetResponseUrl(),
+        KURL(), ScriptFetchOptions(), error);
+  }
+  style_sheet->replaceSync(params->GetSourceText().ToString(), exception_state);
+  if (exception_state.HadException()) {
+    v8::Local<v8::Value> error = exception_state.GetException();
+    exception_state.ClearException();
+    return ValueWrapperSyntheticModuleScript::CreateWithError(
+        v8::Local<v8::Value>(), settings_object, params->GetResponseUrl(),
+        KURL(), ScriptFetchOptions(), error);
+  }
+  v8::Local<v8::Value> v8_value_stylesheet = ToV8(style_sheet, script_state);
+  return ValueWrapperSyntheticModuleScript::CreateWithDefaultExport(
+      v8_value_stylesheet, settings_object, params->GetResponseUrl(), KURL(),
+      ScriptFetchOptions());
+}
+
 ValueWrapperSyntheticModuleScript*
 ValueWrapperSyntheticModuleScript::CreateJSONWrapperSyntheticModuleScript(
     const base::Optional<ModuleScriptCreationParams>& params,
-    Modulator* settings_object,
-    const ScriptFetchOptions options_) {
+    Modulator* settings_object) {
   DCHECK(settings_object->HasValidContext());
   ScriptState::Scope scope(settings_object->GetScriptState());
   v8::Local<v8::Context> context =
@@ -51,12 +100,12 @@ ValueWrapperSyntheticModuleScript::CreateJSONWrapperSyntheticModuleScript(
     v8::Local<v8::Value> error = exception_state.GetException();
     exception_state.ClearException();
     return ValueWrapperSyntheticModuleScript::CreateWithError(
-        parsed_json, settings_object, params->GetResponseUrl(),
-        params->GetResponseUrl(), options_, error);
+        parsed_json, settings_object, params->GetResponseUrl(), KURL(),
+        ScriptFetchOptions(), error);
   } else {
     return ValueWrapperSyntheticModuleScript::CreateWithDefaultExport(
-        parsed_json, settings_object, params->GetResponseUrl(),
-        params->GetResponseUrl(), options_);
+        parsed_json, settings_object, params->GetResponseUrl(), KURL(),
+        ScriptFetchOptions());
   }
 }
 
@@ -76,12 +125,10 @@ ValueWrapperSyntheticModuleScript::CreateWithDefaultExport(
   // Step 6. "Set script's record to the result of creating a synthetic module
   // record with a default export of json with settings."
   // [spec text]
-  ModuleRecord record = ModuleRecord(isolate, v8_synthetic_module, source_url);
-
   ValueWrapperSyntheticModuleScript* value_wrapper_module_script =
       MakeGarbageCollected<ValueWrapperSyntheticModuleScript>(
-          settings_object, record, source_url, base_url, fetch_options, value,
-          start_position);
+          settings_object, v8_synthetic_module, source_url, base_url,
+          fetch_options, value, start_position);
   settings_object->GetModuleRecordResolver()->RegisterModuleScript(
       value_wrapper_module_script);
   // Step 7. "Return script."
@@ -100,12 +147,12 @@ ValueWrapperSyntheticModuleScript::CreateWithError(
     const TextPosition& start_position) {
   ValueWrapperSyntheticModuleScript* value_wrapper_module_script =
       MakeGarbageCollected<ValueWrapperSyntheticModuleScript>(
-          settings_object, ModuleRecord(), source_url, base_url, fetch_options,
-          value, start_position);
+          settings_object, v8::Local<v8::Module>(), source_url, base_url,
+          fetch_options, value, start_position);
   settings_object->GetModuleRecordResolver()->RegisterModuleScript(
       value_wrapper_module_script);
   value_wrapper_module_script->SetParseErrorAndClearRecord(
-      ScriptValue(settings_object->GetScriptState(), error));
+      ScriptValue(settings_object->GetScriptState()->GetIsolate(), error));
   // Step 7. "Return script."
   // [spec text]
   return value_wrapper_module_script;
@@ -113,7 +160,7 @@ ValueWrapperSyntheticModuleScript::CreateWithError(
 
 ValueWrapperSyntheticModuleScript::ValueWrapperSyntheticModuleScript(
     Modulator* settings_object,
-    ModuleRecord record,
+    v8::Local<v8::Module> record,
     const KURL& source_url,
     const KURL& base_url,
     const ScriptFetchOptions& fetch_options,
@@ -126,23 +173,32 @@ ValueWrapperSyntheticModuleScript::ValueWrapperSyntheticModuleScript(
                    fetch_options),
       export_value_(v8::Isolate::GetCurrent(), value) {}
 
-// TODO(sasebree) Implement this method
+// This is the definition of [[EvaluationSteps]] As per the synthetic module
+// spec  https://heycam.github.io/webidl/#synthetic-module-records
+// It is responsible for setting the default export of the provided module to
+// the value wrapped by the ValueWrapperSyntheticModuleScript
 v8::MaybeLocal<v8::Value> ValueWrapperSyntheticModuleScript::EvaluationSteps(
     v8::Local<v8::Context> context,
     v8::Local<v8::Module> module) {
-  NOTREACHED();
-  return v8::MaybeLocal<v8::Value>();
-}
+  v8::Isolate* isolate = context->GetIsolate();
+  ScriptState* script_state = ScriptState::From(context);
+  Modulator* modulator = Modulator::From(script_state);
+  ModuleRecordResolver* module_record_resolver =
+      modulator->GetModuleRecordResolver();
+  const ValueWrapperSyntheticModuleScript*
+      value_wrapper_synthetic_module_script =
+          static_cast<const ValueWrapperSyntheticModuleScript*>(
+              module_record_resolver->GetModuleScriptFromModuleRecord(module));
+  v8::TryCatch try_catch(isolate);
+  v8::Maybe<bool> result = module->SetSyntheticModuleExport(
+      isolate, V8String(isolate, "default"),
+      value_wrapper_synthetic_module_script->export_value_.NewLocal(isolate));
 
-String ValueWrapperSyntheticModuleScript::InlineSourceTextForCSP() const {
-  // We don't construct a ValueWrapperSyntheticModuleScript with the original
-  // source, but instead construct it from the originally parsed
-  // text. If a need arises for the original module source to be used later,
-  // ValueWrapperSyntheticModuleScript will need to be modified such that its
-  // constructor takes this source text as an additional parameter and stashes
-  // it on the ValueWrapperSyntheticModuleScript.
-  NOTREACHED();
-  return "";
+  // Setting the default export should never fail.
+  DCHECK(!try_catch.HasCaught());
+  DCHECK(!result.IsNothing() && result.FromJust());
+
+  return v8::Undefined(reinterpret_cast<v8::Isolate*>(isolate));
 }
 
 void ValueWrapperSyntheticModuleScript::Trace(Visitor* visitor) {

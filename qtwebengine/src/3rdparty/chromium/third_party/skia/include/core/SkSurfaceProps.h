@@ -63,7 +63,8 @@ public:
     };
     SkSurfaceProps(InitType);
     SkSurfaceProps(uint32_t flags, InitType);
-    SkSurfaceProps(const SkSurfaceProps& other);
+    SkSurfaceProps(const SkSurfaceProps&);
+    SkSurfaceProps& operator=(const SkSurfaceProps&);
 
     uint32_t flags() const { return fFlags; }
     SkPixelGeometry pixelGeometry() const { return fPixelGeometry; }
@@ -76,6 +77,9 @@ public:
         return fFlags == that.fFlags && fPixelGeometry == that.fPixelGeometry;
     }
 
+    bool operator!=(const SkSurfaceProps& that) const {
+        return !(*this == that);
+    }
 private:
     SkSurfaceProps();
 

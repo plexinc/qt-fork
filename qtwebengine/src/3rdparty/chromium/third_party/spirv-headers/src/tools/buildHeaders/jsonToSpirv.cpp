@@ -1,4 +1,4 @@
-// Copyright (c) 2014-2019 The Khronos Group Inc.
+// Copyright (c) 2014-2020 The Khronos Group Inc.
 // 
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and/or associated documentation files (the "Materials"),
@@ -27,6 +27,7 @@
 #include <algorithm>
 #include <iostream>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <fstream>
 
@@ -39,6 +40,10 @@ namespace spv {
 // The set of objects that hold all the instruction/operand
 // parameterization information.
 InstructionValues InstructionDesc;
+
+// The ordered list (in printing order) of printing classes
+// (specification subsections).
+PrintingClasses InstructionPrintingClasses;
 
 // Note: There is no entry for OperandOpcode. Use InstructionDesc instead.
 EnumDefinition OperandClassParams[OperandOpcode];
@@ -72,6 +77,10 @@ EnumValues ScopeParams;
 EnumValues KernelEnqueueFlagsParams;
 EnumValues KernelProfilingInfoParams;
 EnumValues CapabilityParams;
+EnumValues RayFlagsParams;
+EnumValues RayQueryIntersectionParams;
+EnumValues RayQueryCommittedIntersectionTypeParams;
+EnumValues RayQueryCandidateIntersectionTypeParams;
 
 std::pair<bool, std::string> ReadFile(const std::string& path)
 {
@@ -141,7 +150,7 @@ ClassOptionality ToOperandClassAndOptionality(const std::string& operandKind, co
         } else if (operandKind == "LiteralSpecConstantOpInteger") {
             type = OperandLiteralNumber;
         } else if (operandKind == "LiteralContextDependentNumber") {
-            type = OperandVariableLiterals;
+            type = OperandAnySizeLiteralNumber;
         } else if (operandKind == "SourceLanguage") {
             type = OperandSource;
         } else if (operandKind == "ExecutionModel") {
@@ -198,6 +207,14 @@ ClassOptionality ToOperandClassAndOptionality(const std::string& operandKind, co
             type = OperandFunction;
         } else if (operandKind == "MemoryAccess") {
             type = OperandMemoryOperands;
+        } else if (operandKind == "RayFlags") {
+            type = OperandRayFlags;
+        } else if (operandKind == "RayQueryIntersection") {
+            type = OperandRayQueryIntersection;
+        } else if (operandKind == "RayQueryCommittedIntersectionType") {
+            type = OperandRayQueryCommittedIntersectionType;
+        } else if (operandKind == "RayQueryCandidateIntersectionType") {
+            type = OperandRayQueryCandidateIntersectionType;
         }
 
         if (type == OperandNone) {
@@ -227,20 +244,6 @@ unsigned int NumberStringToBit(const std::string& str)
     unsigned int bit = 0;
     for (; value; value >>= 1) ++bit;
     return bit;
-}
-
-bool ExcludeInstruction(unsigned op, bool buildingHeaders)
-{
-    // Some instructions in the grammar don't need to be reflected
-    // in the specification.
-
-    if (buildingHeaders)
-        return false;
-
-    if (op >= 5699 /* OpVmeImageINTEL */ && op <= 5816 /* OpSubgroupAvcSicGetInterRawSadsINTEL */)
-        return true;
-
-    return false;
 }
 
 void jsonToSpirv(const std::string& jsonPath, bool buildingHeaders)
@@ -298,11 +301,36 @@ void jsonToSpirv(const std::string& jsonPath, bool buildingHeaders)
         return result;
     };
 
+    // set up the printing classes
+    std::unordered_set<std::string> tags;  // short-lived local for error checking below
+    const Json::Value printingClasses = root["instruction_printing_class"];
+    for (const auto& printingClass : printingClasses) {
+        if (printingClass["tag"].asString().size() > 0)
+            tags.insert(printingClass["tag"].asString()); // just for error checking
+        else
+            std::cerr << "Error: each instruction_printing_class requires a non-empty \"tag\"" << std::endl;
+        if (buildingHeaders || printingClass["tag"].asString() != "@exclude") {
+            InstructionPrintingClasses.push_back({printingClass["tag"].asString(),
+                                                  printingClass["heading"].asString()});
+        }
+    }
+
+    // process the instructions
     const Json::Value insts = root["instructions"];
     for (const auto& inst : insts) {
-        const unsigned int opcode = inst["opcode"].asUInt();
-        if (ExcludeInstruction(opcode, buildingHeaders))
+        const auto printingClass = inst["class"].asString();
+        if (printingClass.size() == 0) {
+            std::cerr << "Error: " << inst["opname"].asString()
+                      << " requires a non-empty printing \"class\" tag" << std::endl;
+        }
+        if (!buildingHeaders && printingClass == "@exclude")
             continue;
+        if (tags.find(printingClass) == tags.end()) {
+            std::cerr << "Error: " << inst["opname"].asString()
+                      << " requires a \"class\" declared as a \"tag\" in \"instruction printing_class\""
+                      << std::endl;
+        }
+        const auto opcode = inst["opcode"].asUInt();
         const std::string name = inst["opname"].asString();
         EnumCaps caps = getCaps(inst);
         std::string version = inst["version"].asString();
@@ -324,7 +352,7 @@ void jsonToSpirv(const std::string& jsonPath, bool buildingHeaders)
             std::move(EnumValue(opcode, name,
                                 std::move(caps), std::move(version), std::move(lastVersion), std::move(exts),
                                 std::move(operands))),
-            defTypeId, defResultId);
+             printingClass, defTypeId, defResultId);
     }
 
     // Specific additional context-dependent operands
@@ -447,6 +475,14 @@ void jsonToSpirv(const std::string& jsonPath, bool buildingHeaders)
             establishOperandClass(enumName, OperandKernelEnqueueFlags, &KernelEnqueueFlagsParams, operandEnum, category);
         } else if (enumName == "KernelProfilingInfo") {
             establishOperandClass(enumName, OperandKernelProfilingInfo, &KernelProfilingInfoParams, operandEnum, category);
+        } else if (enumName == "RayFlags") {
+            establishOperandClass(enumName, OperandRayFlags, &RayFlagsParams, operandEnum, category);
+        } else if (enumName == "RayQueryIntersection") {
+            establishOperandClass(enumName, OperandRayQueryIntersection, &RayQueryIntersectionParams, operandEnum, category);
+        } else if (enumName == "RayQueryCommittedIntersectionType") {
+            establishOperandClass(enumName, OperandRayQueryCommittedIntersectionType, &RayQueryCommittedIntersectionTypeParams, operandEnum, category);
+        } else if (enumName == "RayQueryCandidateIntersectionType") {
+            establishOperandClass(enumName, OperandRayQueryCandidateIntersectionType, &RayQueryCandidateIntersectionTypeParams, operandEnum, category);
         }
     }
 }

@@ -10,7 +10,6 @@
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/scheduler/public/thread.h"
-#include "third_party/blink/renderer/platform/wtf/time.h"
 
 namespace blink {
 
@@ -28,7 +27,7 @@ class CORE_EXPORT LongTaskObserver : public GarbageCollectedMixin {
 // of LongTaskObservers drop to zero it automatically removes itself as a
 // TaskTimeObserver.
 class CORE_EXPORT LongTaskDetector final
-    : public GarbageCollectedFinalized<LongTaskDetector>,
+    : public GarbageCollected<LongTaskDetector>,
       public base::sequence_manager::TaskTimeObserver {
  public:
   static LongTaskDetector& Instance();
@@ -38,7 +37,7 @@ class CORE_EXPORT LongTaskDetector final
   void RegisterObserver(LongTaskObserver*);
   void UnregisterObserver(LongTaskObserver*);
 
-  void Trace(blink::Visitor*);
+  void Trace(Visitor*);
 
   static constexpr base::TimeDelta kLongTaskThreshold =
       base::TimeDelta::FromMilliseconds(50);

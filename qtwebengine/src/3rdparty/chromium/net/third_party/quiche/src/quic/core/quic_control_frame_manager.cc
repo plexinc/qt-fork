@@ -8,11 +8,24 @@
 
 #include "net/third_party/quiche/src/quic/core/quic_constants.h"
 #include "net/third_party/quiche/src/quic/core/quic_session.h"
+#include "net/third_party/quiche/src/quic/core/quic_types.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_bug_tracker.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_flag_utils.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_map_util.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_str_cat.h"
 
 namespace quic {
+
+namespace {
+
+// The maximum number of buffered control frames which are waiting to be ACKed
+// or sent for the first time.
+const size_t kMaxNumControlFrames = 1000;
+
+}  // namespace
+
+#define ENDPOINT \
+  (session_->perspective() == Perspective::IS_SERVER ? "Server: " : "Client: ")
 
 QuicControlFrameManager::QuicControlFrameManager(QuicSession* session)
     : last_control_frame_id_(kInvalidControlFrameId),
@@ -30,6 +43,16 @@ QuicControlFrameManager::~QuicControlFrameManager() {
 void QuicControlFrameManager::WriteOrBufferQuicFrame(QuicFrame frame) {
   const bool had_buffered_frames = HasBufferedFrames();
   control_frames_.emplace_back(frame);
+  if (control_frames_.size() > kMaxNumControlFrames) {
+    session_->connection()->CloseConnection(
+        QUIC_TOO_MANY_BUFFERED_CONTROL_FRAMES,
+        quiche::QuicheStrCat(
+            "More than ", kMaxNumControlFrames,
+            "buffered control frames, least_unacked: ", least_unacked_,
+            ", least_unsent_: ", least_unsent_),
+        ConnectionCloseBehavior::SEND_CONNECTION_CLOSE_PACKET);
+    return;
+  }
   if (had_buffered_frames) {
     return;
   }
@@ -91,6 +114,12 @@ void QuicControlFrameManager::WriteOrBufferStopSending(uint16_t code,
       new QuicStopSendingFrame(++last_control_frame_id_, stream_id, code)));
 }
 
+void QuicControlFrameManager::WriteOrBufferHandshakeDone() {
+  QUIC_DVLOG(1) << "Writing HANDSHAKE_DONE";
+  WriteOrBufferQuicFrame(
+      QuicFrame(QuicHandshakeDoneFrame(++last_control_frame_id_)));
+}
+
 void QuicControlFrameManager::WritePing() {
   QUIC_DVLOG(1) << "Writing PING_FRAME";
   if (HasBufferedFrames()) {
@@ -101,6 +130,16 @@ void QuicControlFrameManager::WritePing() {
   }
   control_frames_.emplace_back(
       QuicFrame(QuicPingFrame(++last_control_frame_id_)));
+  if (control_frames_.size() > kMaxNumControlFrames) {
+    session_->connection()->CloseConnection(
+        QUIC_TOO_MANY_BUFFERED_CONTROL_FRAMES,
+        quiche::QuicheStrCat(
+            "More than ", kMaxNumControlFrames,
+            "buffered control frames, least_unacked: ", least_unacked_,
+            ", least_unsent_: ", least_unsent_),
+        ConnectionCloseBehavior::SEND_CONNECTION_CLOSE_PACKET);
+    return;
+  }
   WriteBufferedFrames();
 }
 
@@ -172,6 +211,9 @@ void QuicControlFrameManager::OnControlFrameLost(const QuicFrame& frame) {
   }
   if (!QuicContainsKey(pending_retransmissions_, id)) {
     pending_retransmissions_[id] = true;
+    QUIC_BUG_IF(pending_retransmissions_.size() > control_frames_.size())
+        << "least_unacked_: " << least_unacked_
+        << ", least_unsent_: " << least_unsent_;
   }
 }
 
@@ -213,7 +255,10 @@ void QuicControlFrameManager::OnCanWrite() {
   WriteBufferedFrames();
 }
 
-bool QuicControlFrameManager::RetransmitControlFrame(const QuicFrame& frame) {
+bool QuicControlFrameManager::RetransmitControlFrame(const QuicFrame& frame,
+                                                     TransmissionType type) {
+  DCHECK(type == PTO_RETRANSMISSION || type == RTO_RETRANSMISSION ||
+         type == TLP_RETRANSMISSION || type == PROBING_RETRANSMISSION);
   QuicControlFrameId id = GetControlFrameId(frame);
   if (id == kInvalidControlFrameId) {
     // Frame does not have a valid control frame ID, ignore it. Returns true
@@ -236,7 +281,7 @@ bool QuicControlFrameManager::RetransmitControlFrame(const QuicFrame& frame) {
   QuicFrame copy = CopyRetransmittableControlFrame(frame);
   QUIC_DVLOG(1) << "control frame manager is forced to retransmit frame: "
                 << frame;
-  if (session_->WriteControlFrame(copy)) {
+  if (session_->WriteControlFrame(copy, type)) {
     return true;
   }
   DeleteFrame(&copy);
@@ -244,14 +289,16 @@ bool QuicControlFrameManager::RetransmitControlFrame(const QuicFrame& frame) {
 }
 
 void QuicControlFrameManager::WriteBufferedFrames() {
+  DCHECK(session_->connection()->connected())
+      << ENDPOINT << "Try to write control frames when connection is closed.";
   while (HasBufferedFrames()) {
-    if (session_->session_decides_what_to_write()) {
+    if (!session_->write_with_transmission()) {
       session_->SetTransmissionType(NOT_RETRANSMISSION);
     }
     QuicFrame frame_to_send =
         control_frames_.at(least_unsent_ - least_unacked_);
     QuicFrame copy = CopyRetransmittableControlFrame(frame_to_send);
-    if (!session_->WriteControlFrame(copy)) {
+    if (!session_->WriteControlFrame(copy, NOT_RETRANSMISSION)) {
       // Connection is write blocked.
       DeleteFrame(&copy);
       break;
@@ -264,7 +311,7 @@ void QuicControlFrameManager::WritePendingRetransmission() {
   while (HasPendingRetransmission()) {
     QuicFrame pending = NextPendingRetransmission();
     QuicFrame copy = CopyRetransmittableControlFrame(pending);
-    if (!session_->WriteControlFrame(copy)) {
+    if (!session_->WriteControlFrame(copy, LOSS_RETRANSMISSION)) {
       // Connection is write blocked.
       DeleteFrame(&copy);
       break;

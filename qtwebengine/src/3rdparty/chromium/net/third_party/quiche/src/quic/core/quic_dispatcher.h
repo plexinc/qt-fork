@@ -17,7 +17,7 @@
 #include "net/third_party/quiche/src/quic/core/quic_blocked_writer_interface.h"
 #include "net/third_party/quiche/src/quic/core/quic_buffered_packet_store.h"
 #include "net/third_party/quiche/src/quic/core/quic_connection.h"
-#include "net/third_party/quiche/src/quic/core/quic_crypto_server_stream.h"
+#include "net/third_party/quiche/src/quic/core/quic_crypto_server_stream_base.h"
 #include "net/third_party/quiche/src/quic/core/quic_packets.h"
 #include "net/third_party/quiche/src/quic/core/quic_process_packet_interface.h"
 #include "net/third_party/quiche/src/quic/core/quic_session.h"
@@ -25,6 +25,7 @@
 #include "net/third_party/quiche/src/quic/core/quic_version_manager.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_containers.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_socket_address.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 namespace test {
@@ -34,20 +35,22 @@ class QuicDispatcherPeer;
 class QuicConfig;
 class QuicCryptoServerConfig;
 
-class QuicDispatcher : public QuicTimeWaitListManager::Visitor,
-                       public ProcessPacketInterface,
-                       public QuicBufferedPacketStore::VisitorInterface {
+class QUIC_NO_EXPORT QuicDispatcher
+    : public QuicTimeWaitListManager::Visitor,
+      public ProcessPacketInterface,
+      public QuicBufferedPacketStore::VisitorInterface {
  public:
   // Ideally we'd have a linked_hash_set: the  boolean is unused.
   typedef QuicLinkedHashMap<QuicBlockedWriterInterface*, bool> WriteBlockedList;
 
-  QuicDispatcher(const QuicConfig* config,
-                 const QuicCryptoServerConfig* crypto_config,
-                 QuicVersionManager* version_manager,
-                 std::unique_ptr<QuicConnectionHelperInterface> helper,
-                 std::unique_ptr<QuicCryptoServerStream::Helper> session_helper,
-                 std::unique_ptr<QuicAlarmFactory> alarm_factory,
-                 uint8_t expected_server_connection_id_length);
+  QuicDispatcher(
+      const QuicConfig* config,
+      const QuicCryptoServerConfig* crypto_config,
+      QuicVersionManager* version_manager,
+      std::unique_ptr<QuicConnectionHelperInterface> helper,
+      std::unique_ptr<QuicCryptoServerStreamBase::Helper> session_helper,
+      std::unique_ptr<QuicAlarmFactory> alarm_factory,
+      uint8_t expected_server_connection_id_length);
   QuicDispatcher(const QuicDispatcher&) = delete;
   QuicDispatcher& operator=(const QuicDispatcher&) = delete;
 
@@ -113,10 +116,6 @@ class QuicDispatcher : public QuicTimeWaitListManager::Visitor,
                                            QuicConnectionId,
                                            QuicConnectionIdHash>;
 
-  const ConnectionIdMap& connection_id_map() const {
-    return connection_id_map_;
-  }
-
   // The largest packet number we expect to receive with a connection
   // ID for a connection that is not established yet.  The current design will
   // send a handshake and then up to 50 or so data packets, and then it may
@@ -140,17 +139,34 @@ class QuicDispatcher : public QuicTimeWaitListManager::Visitor,
   // Return true if there is CHLO buffered.
   virtual bool HasChlosBuffered() const;
 
+  // Start accepting new ConnectionIds.
+  void StartAcceptingNewConnections();
+
+  // Stop accepting new ConnectionIds, either as a part of the lame
+  // duck process or because explicitly configured.
+  void StopAcceptingNewConnections();
+
+  bool accept_new_connections() const { return accept_new_connections_; }
+
  protected:
-  virtual QuicSession* CreateQuicSession(QuicConnectionId server_connection_id,
-                                         const QuicSocketAddress& peer_address,
-                                         QuicStringPiece alpn,
-                                         const ParsedQuicVersion& version) = 0;
+  virtual std::unique_ptr<QuicSession> CreateQuicSession(
+      QuicConnectionId server_connection_id,
+      const QuicSocketAddress& peer_address,
+      quiche::QuicheStringPiece alpn,
+      const ParsedQuicVersion& version) = 0;
 
   // Tries to validate and dispatch packet based on available information.
   // Returns true if packet is dropped or successfully dispatched (e.g.,
   // processed by existing session, processed by time wait list, etc.),
   // otherwise, returns false and the packet needs further processing.
   virtual bool MaybeDispatchPacket(const ReceivedPacketInfo& packet_info);
+
+  // Generate a connection ID with a length that is expected by the dispatcher.
+  // Note that this MUST produce a deterministic result (calling this method
+  // with two connection IDs that are equal must produce the same result).
+  virtual QuicConnectionId GenerateNewServerConnectionId(
+      ParsedQuicVersion version,
+      QuicConnectionId connection_id) const;
 
   // Values to be returned by ValidityChecks() to indicate what should be done
   // with a packet. Fates with greater values are considered to be higher
@@ -204,7 +220,7 @@ class QuicDispatcher : public QuicTimeWaitListManager::Visitor,
 
   QuicConnectionHelperInterface* helper() { return helper_.get(); }
 
-  QuicCryptoServerStream::Helper* session_helper() {
+  QuicCryptoServerStreamBase::Helper* session_helper() {
     return session_helper_.get();
   }
 
@@ -244,8 +260,6 @@ class QuicDispatcher : public QuicTimeWaitListManager::Visitor,
                               QuicConnection* connection,
                               ConnectionCloseSource source);
 
-  void StopAcceptingNewConnections();
-
   // Called to terminate a connection statelessly. Depending on |format|, either
   // 1) send connection close with |error_code| and |error_details| and add
   // connection to time wait list or 2) directly add connection to time wait
@@ -254,6 +268,7 @@ class QuicDispatcher : public QuicTimeWaitListManager::Visitor,
       QuicConnectionId server_connection_id,
       PacketHeaderFormat format,
       bool version_flag,
+      bool use_length_prefix,
       ParsedQuicVersion version,
       QuicErrorCode error_code,
       const std::string& error_details,
@@ -279,6 +294,9 @@ class QuicDispatcher : public QuicTimeWaitListManager::Visitor,
     allow_short_initial_server_connection_ids_ =
         allow_short_initial_server_connection_ids;
   }
+
+  // Called if a packet from an unseen connection is reset or rejected.
+  virtual void OnNewConnectionRejected() {}
 
  private:
   friend class test::QuicDispatcherPeer;
@@ -309,11 +327,6 @@ class QuicDispatcher : public QuicTimeWaitListManager::Visitor,
   // connection ID according to the packet's size.
   void MaybeResetPacketsWithNoVersion(const ReceivedPacketInfo& packet_info);
 
-  void set_new_sessions_allowed_per_event_loop(
-      int16_t new_sessions_allowed_per_event_loop) {
-    new_sessions_allowed_per_event_loop_ = new_sessions_allowed_per_event_loop;
-  }
-
   const QuicConfig* config_;
 
   const QuicCryptoServerConfig* crypto_config_;
@@ -326,9 +339,6 @@ class QuicDispatcher : public QuicTimeWaitListManager::Visitor,
 
   SessionMap session_map_;
 
-  // Map of connection IDs with bad lengths to their replacements.
-  ConnectionIdMap connection_id_map_;
-
   // Entity that manages connection_ids in time wait state.
   std::unique_ptr<QuicTimeWaitListManager> time_wait_list_manager_;
 
@@ -339,7 +349,7 @@ class QuicDispatcher : public QuicTimeWaitListManager::Visitor,
   std::unique_ptr<QuicConnectionHelperInterface> helper_;
 
   // The helper used for all sessions.
-  std::unique_ptr<QuicCryptoServerStream::Helper> session_helper_;
+  std::unique_ptr<QuicCryptoServerStreamBase::Helper> session_helper_;
 
   // Creates alarms.
   std::unique_ptr<QuicAlarmFactory> alarm_factory_;
@@ -365,7 +375,8 @@ class QuicDispatcher : public QuicTimeWaitListManager::Visitor,
   // event loop. When reaches 0, it means can't create sessions for now.
   int16_t new_sessions_allowed_per_event_loop_;
 
-  // True if this dispatcher is not draining.
+  // True if this dispatcher is accepting new ConnectionIds (new client
+  // connections), false otherwise.
   bool accept_new_connections_;
 
   // If false, the dispatcher follows the IETF spec and rejects packets with

@@ -190,6 +190,17 @@ class AudioParamHandler final : public ThreadSafeRefCounted<AudioParamHandler>,
     return has_values || NumberOfRenderingConnections();
   }
 
+  // TODO(crbug.com/1015760) This is like HasSAmpleAccurateValues, but
+  // we don't check for the rate.  When the bug is fixed,
+  // HasSampleAccurateValues can be removed and this methed renamed.
+  bool HasSampleAccurateValuesTimeline() {
+    bool has_values =
+        timeline_.HasValues(destination_handler_->CurrentSampleFrame(),
+                            destination_handler_->SampleRate());
+
+    return has_values || NumberOfRenderingConnections();
+  }
+
   bool IsAudioRate() const { return automation_rate_ == kAudio; }
 
   // Calculates numberOfValues parameter values starting at the context's
@@ -258,6 +269,7 @@ class AudioParamHandler final : public ThreadSafeRefCounted<AudioParamHandler>,
 // AudioParam class represents web-exposed AudioParam interface.
 class AudioParam final : public ScriptWrappable, public InspectorHelperMixin {
   DEFINE_WRAPPERTYPEINFO();
+  USING_GARBAGE_COLLECTED_MIXIN(AudioParam);
 
  public:
   static AudioParam* Create(
@@ -281,7 +293,7 @@ class AudioParam final : public ScriptWrappable, public InspectorHelperMixin {
 
   ~AudioParam() override;
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
   // |handler| always returns a valid object.
   AudioParamHandler& Handler() const { return *handler_; }
   // |context| always returns a valid object.
@@ -290,6 +302,7 @@ class AudioParam final : public ScriptWrappable, public InspectorHelperMixin {
   AudioParamHandler::AudioParamType GetParamType() const {
     return Handler().GetParamType();
   }
+  String GetParamName() const { return Handler().GetParamName(); }
   void SetParamType(AudioParamHandler::AudioParamType);
   void SetCustomParamName(const String name);
 
@@ -322,6 +335,11 @@ class AudioParam final : public ScriptWrappable, public InspectorHelperMixin {
                                   ExceptionState&);
   AudioParam* cancelScheduledValues(double start_time, ExceptionState&);
   AudioParam* cancelAndHoldAtTime(double start_time, ExceptionState&);
+
+  // InspectorHelperMixin: an AudioParam is always owned by an AudioNode so
+  // its notification is done by the parent AudioNode.
+  void ReportDidCreate() final {}
+  void ReportWillBeDestroyed() final {}
 
  private:
   void WarnIfOutsideRange(const String& param_methd, float value);

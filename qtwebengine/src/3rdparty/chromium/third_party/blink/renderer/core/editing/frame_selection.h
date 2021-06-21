@@ -50,7 +50,7 @@ class LocalFrame;
 class FrameCaret;
 class GranularityStrategy;
 class GraphicsContext;
-class NGPaintFragment;
+class NGInlineCursor;
 class Range;
 class SelectionEditor;
 class LayoutSelection;
@@ -69,7 +69,7 @@ enum class CaretVisibility;
 enum class HandleVisibility { kNotVisible, kVisible };
 enum class SelectSoftLineBreak { kNotSelected, kSelected };
 
-// This is return type of ComputeLayoutSelectionStatus(paintfragment).
+// This is return type of ComputeLayoutSelectionStatus(cursor).
 // This structure represents how the fragment is selected.
 // |start|, |end| : Selection start/end offset. This offset is based on
 //   the text of NGInlineNode of a parent block thus
@@ -87,6 +87,9 @@ struct LayoutSelectionStatus {
       : start(passed_start), end(passed_end), line_break(passed_line_break) {
     DCHECK_LE(start, end);
   }
+
+  bool HasValidRange() const { return start < end; }
+
   bool operator==(const LayoutSelectionStatus& other) const {
     return start == other.start && end == other.end &&
            line_break == other.line_break;
@@ -121,19 +124,15 @@ struct LayoutTextSelectionStatus {
 };
 
 class CORE_EXPORT FrameSelection final
-    : public GarbageCollectedFinalized<FrameSelection>,
+    : public GarbageCollected<FrameSelection>,
       public SynchronousMutationObserver {
   USING_GARBAGE_COLLECTED_MIXIN(FrameSelection);
 
  public:
-  static FrameSelection* Create(LocalFrame& frame) {
-    return MakeGarbageCollected<FrameSelection>(frame);
-  }
-
   explicit FrameSelection(LocalFrame&);
   ~FrameSelection();
 
-  bool IsAvailable() const { return LifecycleContext(); }
+  bool IsAvailable() const;
   // You should not call |document()| when |!isAvailable()|.
   Document& GetDocument() const;
   LocalFrame* GetFrame() const { return frame_; }
@@ -264,7 +263,7 @@ class CORE_EXPORT FrameSelection final
   // TODO(tkent): This function has a bug that scrolling doesn't work well in
   // a case of RangeSelection. crbug.com/443061
   void RevealSelection(
-      const ScrollAlignment& = ScrollAlignment::kAlignCenterIfNeeded,
+      const mojom::blink::ScrollAlignment& = ScrollAlignment::CenterIfNeeded(),
       RevealExtentOption = kDoNotRevealExtent);
   void SetSelectionFromNone();
 
@@ -276,12 +275,16 @@ class CORE_EXPORT FrameSelection final
   Range* DocumentCachedRange() const;
   void ClearDocumentCachedRange();
 
+  // Invalidates the cached visual selection information, like
+  // |VisibleSelection| and selection bounds.
+  void MarkCacheDirty();
+
   FrameCaret& FrameCaretForTesting() const { return *frame_caret_; }
 
   LayoutTextSelectionStatus ComputeLayoutSelectionStatus(
       const LayoutText& text) const;
   LayoutSelectionStatus ComputeLayoutSelectionStatus(
-      const NGPaintFragment&) const;
+      const NGInlineCursor& cursor) const;
 
   void Trace(Visitor*) override;
 
@@ -308,7 +311,7 @@ class CORE_EXPORT FrameSelection final
   void MoveRangeSelectionInternal(const SelectionInDOMTree&, TextGranularity);
 
   // Implementation of |SynchronousMutationObserver| member functions.
-  void ContextDestroyed(Document*) final;
+  void ContextDestroyed() final;
   void NodeChildrenWillBeRemoved(ContainerNode&) final;
   void NodeWillBeRemoved(Node&) final;
 

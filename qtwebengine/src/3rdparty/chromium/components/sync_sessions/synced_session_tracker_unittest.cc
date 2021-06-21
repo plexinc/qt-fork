@@ -38,7 +38,6 @@ const sync_pb::SyncEnums::DeviceType kDeviceType =
 const char kTag[] = "tag";
 const char kTag2[] = "tag2";
 const char kTag3[] = "tag3";
-const char kTitle[] = "title";
 const int kTabNode1 = 0;
 const int kTabNode2 = 1;
 const int kTabNode3 = 2;
@@ -203,8 +202,7 @@ TEST_F(SyncedSessionTrackerTest, LookupAllSessions) {
   sessions::SessionTab* tab = tracker_.GetTab(kTag, kTab1);
   ASSERT_TRUE(tab);
   tab->navigations.push_back(
-      sessions::SerializedNavigationEntryTestHelper::CreateNavigation(kValidUrl,
-                                                                      kTitle));
+      sessions::SerializedNavigationEntryTestHelper::CreateNavigationForTest());
   EXPECT_THAT(tracker_.LookupAllSessions(SyncedSessionTracker::PRESENTABLE),
               ElementsAre(HasSessionTag(kTag)));
 
@@ -215,8 +213,7 @@ TEST_F(SyncedSessionTrackerTest, LookupAllSessions) {
   sessions::SessionTab* tab2 = tracker_.GetTab(kTag2, kTab2);
   ASSERT_TRUE(tab2);
   tab2->navigations.push_back(
-      sessions::SerializedNavigationEntryTestHelper::CreateNavigation(kValidUrl,
-                                                                      kTitle));
+      sessions::SerializedNavigationEntryTestHelper::CreateNavigationForTest());
   EXPECT_THAT(tracker_.LookupAllSessions(SyncedSessionTracker::PRESENTABLE),
               ElementsAre(HasSessionTag(kTag), HasSessionTag(kTag2)));
 }
@@ -235,8 +232,8 @@ TEST_F(SyncedSessionTrackerTest, LookupAllForeignSessions) {
   sessions::SessionTab* tab = tracker_.GetTab(kTag, kTab1);
   ASSERT_TRUE(tab);
   tab->navigations.push_back(
-      sessions::SerializedNavigationEntryTestHelper::CreateNavigation(kValidUrl,
-                                                                      kTitle));
+      sessions::SerializedNavigationEntryTestHelper::CreateNavigationForTest());
+  tab->navigations.back().set_virtual_url(GURL(kValidUrl));
   tracker_.GetSession(kTag2);
   tracker_.GetSession(kTag3);
   tracker_.PutWindowInSession(kTag3, kWindow1);
@@ -244,8 +241,8 @@ TEST_F(SyncedSessionTrackerTest, LookupAllForeignSessions) {
   tab = tracker_.GetTab(kTag3, kTab1);
   ASSERT_TRUE(tab);
   tab->navigations.push_back(
-      sessions::SerializedNavigationEntryTestHelper::CreateNavigation(
-          kInvalidUrl, kTitle));
+      sessions::SerializedNavigationEntryTestHelper::CreateNavigationForTest());
+  tab->navigations.back().set_virtual_url(GURL(kInvalidUrl));
   // Only the session with a valid window and tab gets returned.
   EXPECT_THAT(
       tracker_.LookupAllForeignSessions(SyncedSessionTracker::PRESENTABLE),
@@ -398,20 +395,6 @@ TEST_F(SyncedSessionTrackerTest, LookupTabNodeIds) {
 
   EXPECT_FALSE(tracker_.DeleteForeignSession(kTag2));
   EXPECT_THAT(tracker_.LookupTabNodeIds(kTag2), IsEmpty());
-}
-
-TEST_F(SyncedSessionTrackerTest, LookupUnmappedTabs) {
-  EXPECT_THAT(tracker_.LookupUnmappedTabs(kTag), IsEmpty());
-
-  sessions::SessionTab* tab = tracker_.GetTab(kTag, kTab1);
-  ASSERT_THAT(tab, NotNull());
-
-  EXPECT_THAT(tracker_.LookupUnmappedTabs(kTag), ElementsAre(tab));
-  EXPECT_THAT(tracker_.LookupUnmappedTabs(kTag2), IsEmpty());
-
-  tracker_.PutWindowInSession(kTag, kWindow1);
-  tracker_.PutTabInWindow(kTag, kWindow1, kTab1);
-  EXPECT_THAT(tracker_.LookupUnmappedTabs(kTag), IsEmpty());
 }
 
 TEST_F(SyncedSessionTrackerTest, SessionTracking) {
@@ -929,6 +912,39 @@ TEST_F(SyncedSessionTrackerTest, UpdateTrackerWithInvalidTab) {
   EXPECT_THAT(tracker_.LookupSessionTab(
                   kTag, SessionID::FromSerializedValue(kInvalidTabId)),
               IsNull());
+}
+
+// Verifies that an invalid header (with duplicated window IDs) is discarded.
+TEST_F(SyncedSessionTrackerTest, UpdateTrackerWithHeaderWithDuplicateWindowId) {
+  sync_pb::SessionSpecifics header;
+  header.set_session_tag(kTag);
+  header.mutable_header()->add_window()->set_window_id(kWindow1.id());
+  header.mutable_header()->add_window()->set_window_id(kWindow1.id());
+  header.mutable_header()->mutable_window(0)->add_tab(kTab1.id());
+  header.mutable_header()->mutable_window(1)->add_tab(kTab2.id());
+  UpdateTrackerWithSpecifics(header, base::Time::Now(), &tracker_);
+
+  EXPECT_THAT(tracker_.LookupSession(kTag),
+              MatchesSyncedSession(kTag, /*window_id_to_tabs=*/{}));
+}
+
+// Verifies that an invalid header with duplicated window IDs is ignored. It
+// specifically tests feeding the same input twice to
+// UpdateTrackerWithSpecifics(), as a regression test for crbug.com/803205 to
+// verify that it at least doesn't crash.
+TEST_F(SyncedSessionTrackerTest,
+       UpdateTrackerWithHeaderWithDuplicateWindowIdTwice) {
+  sync_pb::SessionSpecifics header;
+  header.set_session_tag(kTag);
+  header.mutable_header()->add_window()->set_window_id(kWindow1.id());
+  header.mutable_header()->mutable_window(0)->add_tab(kTab1.id());
+  header.mutable_header()->add_window()->set_window_id(kWindow1.id());
+  header.mutable_header()->mutable_window(1)->add_tab(kTab2.id());
+  UpdateTrackerWithSpecifics(header, base::Time::Now(), &tracker_);
+  UpdateTrackerWithSpecifics(header, base::Time::Now(), &tracker_);
+
+  EXPECT_THAT(tracker_.LookupSession(kTag),
+              MatchesSyncedSession(kTag, /*window_id_to_tabs=*/{}));
 }
 
 TEST_F(SyncedSessionTrackerTest, UpdateTrackerWithTab) {

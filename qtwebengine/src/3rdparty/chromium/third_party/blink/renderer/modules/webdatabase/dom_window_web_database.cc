@@ -29,6 +29,7 @@
 #include "third_party/blink/renderer/bindings/modules/v8/v8_database_callback.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
+#include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/modules/webdatabase/database.h"
 #include "third_party/blink/renderer/modules/webdatabase/database_manager.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
@@ -68,9 +69,9 @@ Database* DOMWindowWebDatabase::openDatabase(
       UseCounter::Count(window.document(), WebFeature::kFileAccessedDatabase);
 
     String error_message;
-    database = db_manager.OpenDatabase(window.document(), name, version,
-                                       display_name, estimated_size,
-                                       creation_callback, error, error_message);
+    database = db_manager.OpenDatabase(
+        window.document()->ToExecutionContext(), name, version, display_name,
+        estimated_size, creation_callback, error, error_message);
     DCHECK(database || error != DatabaseError::kNone);
     if (error != DatabaseError::kNone)
       DatabaseManager::ThrowExceptionForDatabaseError(error, error_message,

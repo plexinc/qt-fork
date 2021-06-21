@@ -83,7 +83,6 @@ class CORE_EXPORT HTMLSlotElement final : public HTMLElement {
 
   void AttributeChanged(const AttributeModificationParams&) final;
 
-  int tabIndex() const override;
   AtomicString GetName() const;
 
   // This method can be slow because this has to traverse the children of a
@@ -104,12 +103,14 @@ class CORE_EXPORT HTMLSlotElement final : public HTMLElement {
 
   static AtomicString NormalizeSlotName(const AtomicString&);
 
+  void RecalcStyleForSlotChildren(const StyleRecalcChange);
+
   // For User-Agent Shadow DOM
   static const AtomicString& UserAgentCustomAssignSlotName();
   static const AtomicString& UserAgentDefaultSlotName();
 
   // For imperative Shadow DOM distribution APIs
-  void assign(HeapVector<Member<Node>> nodes);
+  void assign(HeapVector<Member<Node>> nodes, ExceptionState&);
   const HeapHashSet<Member<Node>>& AssignedNodesCandidate() const {
     return assigned_nodes_candidates_;
   }
@@ -129,7 +130,8 @@ class CORE_EXPORT HTMLSlotElement final : public HTMLElement {
       const HeapVector<Member<Node>>& old_slotted,
       const HeapVector<Member<Node>>& new_slotted);
   static void NotifySlottedNodesOfFlatTreeChangeNaive(
-      const HeapVector<Member<Node>>& new_slotted);
+      const HeapVector<Member<Node>>& old_assigned_nodes,
+      const HeapVector<Member<Node>>& new_assigned_nodes);
   static void NotifySlottedNodesOfFlatTreeChangeByDynamicProgramming(
       const HeapVector<Member<Node>>& old_slotted,
       const HeapVector<Member<Node>>& new_slotted);
@@ -194,11 +196,12 @@ class CORE_EXPORT HTMLSlotElement final : public HTMLElement {
   }
 
   friend class HTMLSlotElementTest;
+  friend class HTMLSlotElementInDocumentTest;
 };
 
 inline const HTMLSlotElement* ToHTMLSlotElementIfSupportsAssignmentOrNull(
     const Node& node) {
-  if (auto* slot = ToHTMLSlotElementOrNull(node)) {
+  if (auto* slot = DynamicTo<HTMLSlotElement>(node)) {
     if (slot->SupportsAssignment())
       return slot;
   }

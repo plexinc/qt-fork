@@ -9,7 +9,8 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/memory/read_only_shared_memory_region.h"
+#include "base/test/task_environment.h"
 #include "media/audio/audio_io.h"
 #include "media/audio/mock_audio_manager.h"
 #include "media/audio/test_audio_thread.h"
@@ -144,8 +145,8 @@ class AudioServiceInputStreamTest : public testing::Test {
         remote_stream.InitWithNewPipeAndPassReceiver(), client_.MakeRemote(),
         observer_.MakeRemote(), log_.MakeRemote(), kDefaultDeviceId,
         media::AudioParameters::UnavailableDeviceParams(),
-        kDefaultSharedMemoryCount, enable_agc, mojo::ScopedSharedBufferHandle(),
-        nullptr,
+        kDefaultSharedMemoryCount, enable_agc,
+        base::ReadOnlySharedMemoryRegion(), nullptr,
         base::BindOnce(&AudioServiceInputStreamTest::OnCreated,
                        base::Unretained(this)));
     return remote_stream;
@@ -158,7 +159,7 @@ class AudioServiceInputStreamTest : public testing::Test {
         remote_stream.InitWithNewPipeAndPassReceiver(), client_.MakeRemote(),
         observer_.MakeRemote(), mojo::NullRemote(), kDefaultDeviceId,
         media::AudioParameters::UnavailableDeviceParams(),
-        kDefaultSharedMemoryCount, false, mojo::ScopedSharedBufferHandle(),
+        kDefaultSharedMemoryCount, false, base::ReadOnlySharedMemoryRegion(),
         nullptr,
         base::BindOnce(&AudioServiceInputStreamTest::OnCreated,
                        base::Unretained(this)));
@@ -172,7 +173,7 @@ class AudioServiceInputStreamTest : public testing::Test {
         remote_stream.InitWithNewPipeAndPassReceiver(), client_.MakeRemote(),
         mojo::NullRemote(), log_.MakeRemote(), kDefaultDeviceId,
         media::AudioParameters::UnavailableDeviceParams(),
-        kDefaultSharedMemoryCount, false, mojo::ScopedSharedBufferHandle(),
+        kDefaultSharedMemoryCount, false, base::ReadOnlySharedMemoryRegion(),
         nullptr,
         base::BindOnce(&AudioServiceInputStreamTest::OnCreated,
                        base::Unretained(this)));
@@ -198,7 +199,7 @@ class AudioServiceInputStreamTest : public testing::Test {
   MOCK_METHOD1(BadMessageCallback, void(const std::string&));
 
  private:
-  base::test::ScopedTaskEnvironment scoped_task_env_;
+  base::test::TaskEnvironment scoped_task_env_;
   media::MockAudioManager audio_manager_;
   StreamFactory stream_factory_;
   mojo::Remote<mojom::StreamFactory> remote_stream_factory_;

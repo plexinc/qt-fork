@@ -6,7 +6,8 @@
 
 #include <string>
 
-#include "net/third_party/quiche/src/quic/platform/api/quic_endian.h"
+#include "net/third_party/quiche/src/quic/core/quic_types.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_endian.h"
 
 namespace quic {
 
@@ -44,7 +45,6 @@ QuicTraceVisitor::QuicTraceVisitor(const QuicConnection* connection)
 }
 
 void QuicTraceVisitor::OnPacketSent(const SerializedPacket& serialized_packet,
-                                    QuicPacketNumber /*original_packet_number*/,
                                     TransmissionType /*transmission_type*/,
                                     QuicTime sent_time) {
   quic_trace::Event* event = trace_.add_events();
@@ -63,6 +63,7 @@ void QuicTraceVisitor::OnPacketSent(const SerializedPacket& serialized_packet,
       case WINDOW_UPDATE_FRAME:
       case BLOCKED_FRAME:
       case PING_FRAME:
+      case HANDSHAKE_DONE_FRAME:
         PopulateFrameInfo(frame, event->add_frames());
         break;
 
@@ -172,7 +173,7 @@ void QuicTraceVisitor::PopulateFrameInfo(const QuicFrame& frame,
 
       quic_trace::FlowControlInfo* info =
           frame_record->mutable_flow_control_info();
-      info->set_max_data(frame.window_update_frame->byte_offset);
+      info->set_max_data(frame.window_update_frame->max_data);
       if (!is_connection) {
         info->set_stream_id(frame.window_update_frame->stream_id);
       }
@@ -194,6 +195,7 @@ void QuicTraceVisitor::PopulateFrameInfo(const QuicFrame& frame,
 
     case PING_FRAME:
     case MTU_DISCOVERY_FRAME:
+    case HANDSHAKE_DONE_FRAME:
       frame_record->set_frame_type(quic_trace::PING);
       break;
 
@@ -226,6 +228,7 @@ void QuicTraceVisitor::PopulateFrameInfo(const QuicFrame& frame,
 
 void QuicTraceVisitor::OnIncomingAck(
     QuicPacketNumber /*ack_packet_number*/,
+    EncryptionLevel ack_decrypted_level,
     const QuicAckFrame& ack_frame,
     QuicTime ack_receive_time,
     QuicPacketNumber /*largest_observed*/,
@@ -235,6 +238,7 @@ void QuicTraceVisitor::OnIncomingAck(
   event->set_time_us(ConvertTimestampToRecordedFormat(ack_receive_time));
   event->set_packet_number(connection_->GetLargestReceivedPacket().ToUint64());
   event->set_event_type(quic_trace::PACKET_RECEIVED);
+  event->set_encryption_level(EncryptionLevelToProto(ack_decrypted_level));
 
   // TODO(vasilvv): consider removing this copy.
   QuicAckFrame copy_of_ack = ack_frame;
@@ -243,6 +247,7 @@ void QuicTraceVisitor::OnIncomingAck(
 }
 
 void QuicTraceVisitor::OnPacketLoss(QuicPacketNumber lost_packet_number,
+                                    EncryptionLevel encryption_level,
                                     TransmissionType /*transmission_type*/,
                                     QuicTime detection_time) {
   quic_trace::Event* event = trace_.add_events();
@@ -250,6 +255,7 @@ void QuicTraceVisitor::OnPacketLoss(QuicPacketNumber lost_packet_number,
   event->set_event_type(quic_trace::PACKET_LOST);
   event->set_packet_number(lost_packet_number.ToUint64());
   PopulateTransportState(event->mutable_transport_state());
+  event->set_encryption_level(EncryptionLevelToProto(encryption_level));
 }
 
 void QuicTraceVisitor::OnWindowUpdateFrame(const QuicWindowUpdateFrame& frame,
@@ -266,7 +272,8 @@ void QuicTraceVisitor::OnWindowUpdateFrame(const QuicWindowUpdateFrame& frame,
 
 void QuicTraceVisitor::OnSuccessfulVersionNegotiation(
     const ParsedQuicVersion& version) {
-  uint32_t tag = QuicEndian::HostToNet32(CreateQuicVersionLabel(version));
+  uint32_t tag =
+      quiche::QuicheEndian::HostToNet32(CreateQuicVersionLabel(version));
   std::string binary_tag(reinterpret_cast<const char*>(&tag), sizeof(tag));
   trace_.set_protocol_version(binary_tag);
 }

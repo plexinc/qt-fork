@@ -46,11 +46,25 @@ class COMPONENT_EXPORT(LEARNING_IMPL) LearningTaskControllerImpl
   ~LearningTaskControllerImpl() override;
 
   // LearningTaskController
-  void BeginObservation(base::UnguessableToken id,
-                        const FeatureVector& features) override;
+  // Note that we don't support |default_target|, since destroying us destroys
+  // everything.  One might make the argument that only the mojo client /
+  // service should support default values, but it's much more convenient if
+  // they're part of the base api.  So, since clients shouldn't be dealing with
+  // us directly (see LearningSessionImpl), it's okay.
+  void BeginObservation(
+      base::UnguessableToken id,
+      const FeatureVector& features,
+      const base::Optional<TargetValue>& default_target,
+      const base::Optional<ukm::SourceId>& source_id) override;
   void CompleteObservation(base::UnguessableToken id,
                            const ObservationCompletion& completion) override;
   void CancelObservation(base::UnguessableToken id) override;
+  void UpdateDefaultTarget(
+      base::UnguessableToken id,
+      const base::Optional<TargetValue>& default_target) override;
+  const LearningTask& GetLearningTask() override;
+  void PredictDistribution(const FeatureVector& features,
+                           PredictionCB callback) override;
 
  private:
   // Add |example| to the training data, and process it.

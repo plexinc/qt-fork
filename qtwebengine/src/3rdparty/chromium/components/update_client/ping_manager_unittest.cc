@@ -16,7 +16,7 @@
 #include "base/json/json_reader.h"
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/version.h"
 #include "components/update_client/component.h"
@@ -36,7 +36,7 @@ class PingManagerTest : public testing::Test,
                         public testing::WithParamInterface<bool> {
  public:
   PingManagerTest();
-  ~PingManagerTest() override {}
+  ~PingManagerTest() override = default;
 
   PingManager::Callback MakePingCallback();
   scoped_refptr<UpdateContext> MakeMockUpdateContext() const;
@@ -58,13 +58,12 @@ class PingManagerTest : public testing::Test,
   std::string response_;
 
  private:
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::TaskEnvironment task_environment_;
   base::OnceClosure quit_closure_;
 };
 
 PingManagerTest::PingManagerTest()
-    : scoped_task_environment_(
-          base::test::ScopedTaskEnvironment::MainThreadType::IO) {
+    : task_environment_(base::test::TaskEnvironment::MainThreadType::IO) {
   config_ = base::MakeRefCounted<TestConfigurator>();
 }
 
@@ -75,7 +74,7 @@ void PingManagerTest::SetUp() {
 void PingManagerTest::TearDown() {
   // Run the threads until they are idle to allow the clean up
   // of the network interceptors on the IO thread.
-  scoped_task_environment_.RunUntilIdle();
+  task_environment_.RunUntilIdle();
   ping_manager_ = nullptr;
 }
 
@@ -104,8 +103,9 @@ void PingManagerTest::PingSentCallback(int error, const std::string& response) {
 scoped_refptr<UpdateContext> PingManagerTest::MakeMockUpdateContext() const {
   return base::MakeRefCounted<UpdateContext>(
       config_, false, std::vector<std::string>(),
-      UpdateClient::CrxDataCallback(), UpdateEngine::NotifyObserversCallback(),
-      UpdateEngine::Callback(), nullptr);
+      UpdateClient::CrxDataCallback(), UpdateClient::CrxStateChangeCallback(),
+      UpdateEngine::NotifyObserversCallback(), UpdateEngine::Callback(),
+      nullptr, nullptr);
 }
 
 // This test is parameterized for using JSON or XML serialization. |true| means

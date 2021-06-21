@@ -54,6 +54,7 @@
 #include <Qt3DCore/qnode.h>
 
 #include <functional>
+#include <vector>
 
 #include <Qt3DCore/private/propertychangehandler_p.h>
 #include <Qt3DCore/private/qchangearbiter_p.h>
@@ -90,7 +91,10 @@ public:
     void updatePropertyTrackMode();
 
     void update();
+    QT_WARNING_PUSH
+    QT_WARNING_DISABLE_DEPRECATED
     void updateNode(QNode *node, const char* property, ChangeFlag change);
+    QT_WARNING_POP
 
     Q_DECLARE_PUBLIC(QNode)
 
@@ -129,6 +133,24 @@ public:
 
     template<typename Caller, typename NodeType>
     void registerDestructionHelper(NodeType *node, DestructionFunctionPointer<Caller, NodeType> func, QVector<NodeType*> &)
+    {
+        // If the node is destoyed, we make sure not to keep a dangling pointer to it
+        Q_Q(QNode);
+        auto f = [q, func, node]() { (static_cast<Caller *>(q)->*func)(node); };
+        m_destructionConnections.push_back({node, QObject::connect(node, &QNode::nodeDestroyed, f)});
+    }
+
+    template<typename Caller, typename NodeType>
+    void registerDestructionHelper(NodeType *node, DestructionFunctionPointer<Caller, NodeType> func, QList<NodeType*> &)
+    {
+        // If the node is destoyed, we make sure not to keep a dangling pointer to it
+        Q_Q(QNode);
+        auto f = [q, func, node]() { (static_cast<Caller *>(q)->*func)(node); };
+        m_destructionConnections.push_back({node, QObject::connect(node, &QNode::nodeDestroyed, f)});
+    }
+
+    template<typename Caller, typename NodeType>
+    void registerDestructionHelper(NodeType *node, DestructionFunctionPointer<Caller, NodeType> func, std::vector<NodeType*> &)
     {
         // If the node is destoyed, we make sure not to keep a dangling pointer to it
         Q_Q(QNode);

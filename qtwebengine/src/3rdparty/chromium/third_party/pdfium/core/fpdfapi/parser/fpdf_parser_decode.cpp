@@ -365,19 +365,21 @@ uint32_t FlateOrLZWDecode(bool bLZW,
                                        estimated_size, dest_buf, dest_size);
 }
 
-Optional<std::vector<std::pair<ByteString, const CPDF_Object*>>>
-GetDecoderArray(const CPDF_Dictionary* pDict) {
-  const CPDF_Object* pDecoder = pDict->GetDirectObjectFor("Filter");
-  if (!pDecoder || (!pDecoder->IsArray() && !pDecoder->IsName()))
-    return {};
+Optional<DecoderArray> GetDecoderArray(const CPDF_Dictionary* pDict) {
+  const CPDF_Object* pFilter = pDict->GetDirectObjectFor("Filter");
+  if (!pFilter)
+    return DecoderArray();
+
+  if (!pFilter->IsArray() && !pFilter->IsName())
+    return pdfium::nullopt;
 
   const CPDF_Object* pParams =
       pDict->GetDirectObjectFor(pdfium::stream::kDecodeParms);
 
-  std::vector<std::pair<ByteString, const CPDF_Object*>> decoder_array;
-  if (const CPDF_Array* pDecoders = pDecoder->AsArray()) {
+  DecoderArray decoder_array;
+  if (const CPDF_Array* pDecoders = pFilter->AsArray()) {
     if (!ValidateDecoderPipeline(pDecoders))
-      return {};
+      return pdfium::nullopt;
 
     const CPDF_Array* pParamsArray = ToArray(pParams);
     for (size_t i = 0; i < pDecoders->size(); ++i) {
@@ -386,8 +388,9 @@ GetDecoderArray(const CPDF_Dictionary* pDict) {
            pParamsArray ? pParamsArray->GetDictAt(i) : nullptr});
     }
   } else {
+    ASSERT(pFilter->IsName());
     decoder_array.push_back(
-        {pDecoder->GetString(), pParams ? pParams->GetDict() : nullptr});
+        {pFilter->GetString(), pParams ? pParams->GetDict() : nullptr});
   }
 
   return decoder_array;
@@ -401,7 +404,7 @@ bool PDF_DataDecode(
     std::unique_ptr<uint8_t, FxFreeDeleter>* dest_buf,
     uint32_t* dest_size,
     ByteString* ImageEncoding,
-    UnownedPtr<const CPDF_Dictionary>* pImageParams) {
+    RetainPtr<const CPDF_Dictionary>* pImageParams) {
   std::unique_ptr<uint8_t, FxFreeDeleter> result;
   // May be changed to point to |result| in the for-loop below. So put it below
   // |result| and let it get destroyed first.
@@ -421,7 +424,7 @@ bool PDF_DataDecode(
         *ImageEncoding = "FlateDecode";
         *dest_buf = std::move(result);
         *dest_size = last_span.size();
-        *pImageParams = pParam;
+        pImageParams->Reset(pParam);
         return true;
       }
       offset = FlateOrLZWDecode(false, last_span, pParam, estimated_size,
@@ -438,7 +441,7 @@ bool PDF_DataDecode(
         *ImageEncoding = "RunLengthDecode";
         *dest_buf = std::move(result);
         *dest_size = last_span.size();
-        *pImageParams = pParam;
+        pImageParams->Reset(pParam);
         return true;
       }
       offset = RunLengthDecode(last_span, &new_buf, &new_size);
@@ -449,7 +452,7 @@ bool PDF_DataDecode(
       else if (decoder == "CCF")
         decoder = "CCITTFaxDecode";
       *ImageEncoding = std::move(decoder);
-      *pImageParams = pParam;
+      pImageParams->Reset(pParam);
       *dest_buf = std::move(result);
       *dest_size = last_span.size();
       return true;

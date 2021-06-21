@@ -156,7 +156,7 @@ class BorderView : public NativeViewHost {
         Widget::InitParams params(Widget::InitParams::TYPE_CONTROL);
         params.parent = details.parent->GetWidget()->GetNativeView();
         params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-        widget_->Init(params);
+        widget_->Init(std::move(params));
         widget_->SetFocusTraversableParentView(this);
         widget_->SetContentsView(child_);
       }
@@ -164,8 +164,8 @@ class BorderView : public NativeViewHost {
       // We have been added to a view hierarchy, attach the native view.
       Attach(widget_->GetNativeView());
       // Also update the FocusTraversable parent so the focus traversal works.
-      static_cast<internal::RootView*>(widget_->GetRootView())->
-          SetFocusTraversableParent(GetWidget()->GetFocusTraversable());
+      static_cast<internal::RootView*>(widget_->GetRootView())
+          ->SetFocusTraversableParent(GetWidget()->GetFocusTraversable());
     }
   }
 
@@ -209,8 +209,8 @@ class FocusTraversalTest : public FocusManagerTest {
   void AdvanceEntireFocusLoop(const int (&traversal_ids)[N], bool reverse) {
     for (size_t i = 0; i < 3; ++i) {
       for (size_t j = 0; j < N; j++) {
-        SCOPED_TRACE(testing::Message() << "reverse:" << reverse << " i:" << i
-                                        << " j:" << j);
+        SCOPED_TRACE(testing::Message()
+                     << "reverse:" << reverse << " i:" << i << " j:" << j);
         GetFocusManager()->AdvanceFocus(reverse);
         View* focused_view = GetFocusManager()->GetFocusedView();
         EXPECT_NE(nullptr, focused_view);
@@ -443,11 +443,9 @@ void FocusTraversalTest::InitContentView() {
       scroll_view_ptr->SetContents(std::move(scroll_content));
 
   static const char* const kTitles[] = {
-      "Rosetta", "Stupeur et tremblement", "The diner game",
-      "Ridicule", "Le placard", "Les Visiteurs", "Amelie",
-      "Joyeux Noel", "Camping", "Brice de Nice",
-      "Taxi", "Asterix"
-  };
+      "Rosetta",    "Stupeur et tremblement", "The diner game", "Ridicule",
+      "Le placard", "Les Visiteurs",          "Amelie",         "Joyeux Noel",
+      "Camping",    "Brice de Nice",          "Taxi",           "Asterix"};
 
   static const int kIDs[] = {ROSETTA_LINK_ID,    STUPEUR_ET_TREMBLEMENT_LINK_ID,
                              DINER_GAME_LINK_ID, RIDICULE_LINK_ID,
@@ -489,86 +487,90 @@ void FocusTraversalTest::InitContentView() {
   y += 40;
 
   // Left bottom box with style checkboxes.
-  auto contents = std::make_unique<View>();
-  contents->SetBackground(CreateSolidBackground(SK_ColorWHITE));
+  auto tabbed_pane_contents = std::make_unique<View>();
+  tabbed_pane_contents->SetBackground(CreateSolidBackground(SK_ColorWHITE));
   cb = std::make_unique<Checkbox>(ASCIIToUTF16("Bold"));
-  cb_ptr = contents->AddChildView(std::move(cb));
+  cb_ptr = tabbed_pane_contents->AddChildView(std::move(cb));
   cb_ptr->SetBounds(10, 10, 50, 20);
   cb_ptr->SetID(BOLD_CHECKBOX_ID);
 
   cb = std::make_unique<Checkbox>(ASCIIToUTF16("Italic"));
-  cb_ptr = contents->AddChildView(std::move(cb));
+  cb_ptr = tabbed_pane_contents->AddChildView(std::move(cb));
   cb_ptr->SetBounds(70, 10, 50, 20);
   cb_ptr->SetID(ITALIC_CHECKBOX_ID);
 
   cb = std::make_unique<Checkbox>(ASCIIToUTF16("Underlined"));
-  cb_ptr = contents->AddChildView(std::move(cb));
+  cb_ptr = tabbed_pane_contents->AddChildView(std::move(cb));
   cb_ptr->SetBounds(130, 10, 70, 20);
   cb_ptr->SetID(UNDERLINED_CHECKBOX_ID);
 
   auto link = std::make_unique<Link>(ASCIIToUTF16("Help"));
-  auto* link_ptr = contents->AddChildView(std::move(link));
+  auto* link_ptr = tabbed_pane_contents->AddChildView(std::move(link));
   link_ptr->SetBounds(10, 35, 70, 10);
   link_ptr->SetID(STYLE_HELP_LINK_ID);
 
   text_field = std::make_unique<Textfield>();
-  text_field_ptr = contents->AddChildView(std::move(text_field));
+  text_field_ptr = tabbed_pane_contents->AddChildView(std::move(text_field));
   text_field_ptr->SetBounds(10, 50, 100, 20);
   text_field_ptr->SetID(STYLE_TEXT_EDIT_ID);
 
   auto style_tab = std::make_unique<TabbedPane>();
   style_tab_ = GetContentsView()->AddChildView(std::move(style_tab));
   style_tab_->SetBounds(10, y, 210, 100);
-  style_tab_->AddTab(ASCIIToUTF16("Style"), std::move(contents));
+  style_tab_->AddTab(ASCIIToUTF16("Style"), std::move(tabbed_pane_contents));
   style_tab_->GetSelectedTab()->SetID(STYLE_CONTAINER_ID);
   style_tab_->AddTab(ASCIIToUTF16("Other"), std::make_unique<View>());
 
   // Right bottom box with search.
-  contents = std::make_unique<View>();
-  contents->SetBackground(CreateSolidBackground(SK_ColorWHITE));
+  auto border_contents = std::make_unique<View>();
+  border_contents->SetBackground(CreateSolidBackground(SK_ColorWHITE));
   text_field = std::make_unique<Textfield>();
-  text_field_ptr = contents->AddChildView(std::move(text_field));
+  text_field_ptr = border_contents->AddChildView(std::move(text_field));
   text_field_ptr->SetBounds(10, 10, 100, 20);
   text_field_ptr->SetID(SEARCH_TEXTFIELD_ID);
 
   button = MdTextButton::Create(nullptr, ASCIIToUTF16("Search"));
   button->SetBounds(112, 5, 60, 30);
   button->SetID(SEARCH_BUTTON_ID);
-  contents->AddChildView(std::move(button));
+  border_contents->AddChildView(std::move(button));
 
   link = std::make_unique<Link>(ASCIIToUTF16("Help"));
   link->SetHorizontalAlignment(gfx::ALIGN_LEFT);
   link->SetID(HELP_LINK_ID);
-  link_ptr = contents->AddChildView(std::move(link));
+  link_ptr = border_contents->AddChildView(std::move(link));
   link_ptr->SetBounds(175, 10, 30, 20);
 
-  auto search_border_view = std::make_unique<BorderView>(contents.release());
+  auto search_border_view =
+      std::make_unique<BorderView>(border_contents.release());
   search_border_view->SetID(SEARCH_CONTAINER_ID);
-
   search_border_view_ =
       GetContentsView()->AddChildView(std::move(search_border_view));
   search_border_view_->SetBounds(300, y, 240, 50);
 
   y += 60;
 
-  contents = std::make_unique<View>();
-  contents->SetFocusBehavior(View::FocusBehavior::ALWAYS);
-  contents->SetBackground(CreateSolidBackground(SK_ColorBLUE));
-  contents->SetID(THUMBNAIL_CONTAINER_ID);
+  auto view_contents = std::make_unique<View>();
+  view_contents->SetFocusBehavior(View::FocusBehavior::ALWAYS);
+  view_contents->SetBackground(CreateSolidBackground(SK_ColorBLUE));
+  view_contents->SetID(THUMBNAIL_CONTAINER_ID);
   button = MdTextButton::Create(nullptr, ASCIIToUTF16("Star"));
   button->SetBounds(5, 5, 50, 30);
   button->SetID(THUMBNAIL_STAR_ID);
-  contents->AddChildView(std::move(button));
+  view_contents->AddChildView(std::move(button));
   button = MdTextButton::Create(nullptr, ASCIIToUTF16("SuperStar"));
   button->SetBounds(60, 5, 100, 30);
   button->SetID(THUMBNAIL_SUPER_STAR_ID);
-  contents->AddChildView(std::move(button));
+  view_contents->AddChildView(std::move(button));
 
-  auto* contents_ptr = GetContentsView()->AddChildView(std::move(contents));
+  auto* contents_ptr =
+      GetContentsView()->AddChildView(std::move(view_contents));
   contents_ptr->SetBounds(250, y, 200, 50);
   // We can only call RadioButton::SetChecked() on the radio-button is part of
   // the view hierarchy.
   radio_button_to_check->SetChecked(true);
+
+  // Perform any pending layouts.
+  GetWidget()->LayoutRootViewIfNecessary();
 }
 
 TEST_F(FocusTraversalTest, NormalTraversal) {
@@ -681,14 +683,14 @@ TEST_F(FocusTraversalTest, FullKeyboardToggle) {
 
 TEST_F(FocusTraversalTest, TraversalWithNonEnabledViews) {
   const int kDisabledIDs[] = {
-      BANANA_TEXTFIELD_ID, FRUIT_CHECKBOX_ID,    COMBOBOX_ID,
+      BANANA_TEXTFIELD_ID, FRUIT_CHECKBOX_ID,     COMBOBOX_ID,
       ASPARAGUS_BUTTON_ID, CAULIFLOWER_BUTTON_ID, CLOSET_LINK_ID,
       VISITING_LINK_ID,    BRICE_DE_NICE_LINK_ID, TAXI_LINK_ID,
       ASTERIX_LINK_ID,     HELP_BUTTON_ID,        BOLD_CHECKBOX_ID,
       SEARCH_TEXTFIELD_ID, HELP_LINK_ID};
 
   const int kTraversalIDs[] = {
-      TOP_CHECKBOX_ID,    APPLE_TEXTFIELD_ID,
+      TOP_CHECKBOX_ID,     APPLE_TEXTFIELD_ID,
       ORANGE_TEXTFIELD_ID, KIWI_TEXTFIELD_ID,
       FRUIT_BUTTON_ID,     BROCCOLI_BUTTON_ID,
       ROSETTA_LINK_ID,     STUPEUR_ET_TREMBLEMENT_LINK_ID,
@@ -696,7 +698,7 @@ TEST_F(FocusTraversalTest, TraversalWithNonEnabledViews) {
       AMELIE_LINK_ID,      JOYEUX_NOEL_LINK_ID,
       CAMPING_LINK_ID,     OK_BUTTON_ID,
       CANCEL_BUTTON_ID,    STYLE_CONTAINER_ID,
-      ITALIC_CHECKBOX_ID, UNDERLINED_CHECKBOX_ID,
+      ITALIC_CHECKBOX_ID,  UNDERLINED_CHECKBOX_ID,
       STYLE_HELP_LINK_ID,  STYLE_TEXT_EDIT_ID,
       SEARCH_BUTTON_ID,    THUMBNAIL_CONTAINER_ID,
       THUMBNAIL_STAR_ID,   THUMBNAIL_SUPER_STAR_ID};
@@ -736,7 +738,7 @@ TEST_F(FocusTraversalTest, TraversalWithInvisibleViews) {
       TAXI_LINK_ID,        ASTERIX_LINK_ID,
       CANCEL_BUTTON_ID,    HELP_BUTTON_ID,
       STYLE_CONTAINER_ID,  BOLD_CHECKBOX_ID,
-      ITALIC_CHECKBOX_ID, UNDERLINED_CHECKBOX_ID,
+      ITALIC_CHECKBOX_ID,  UNDERLINED_CHECKBOX_ID,
       STYLE_HELP_LINK_ID,  STYLE_TEXT_EDIT_ID,
       SEARCH_TEXTFIELD_ID, SEARCH_BUTTON_ID,
       HELP_LINK_ID};

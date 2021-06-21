@@ -13,7 +13,7 @@ using namespace angle;
 namespace gl
 {
 
-void CaptureCreateShaderProgramv_strings(const Context *context,
+void CaptureCreateShaderProgramv_strings(const State &glState,
                                          bool isCallValid,
                                          ShaderType typePacked,
                                          GLsizei count,
@@ -23,16 +23,16 @@ void CaptureCreateShaderProgramv_strings(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureDeleteProgramPipelines_pipelines(const Context *context,
-                                             bool isCallValid,
-                                             GLsizei n,
-                                             const GLuint *pipelines,
-                                             ParamCapture *paramCapture)
+void CaptureDeleteProgramPipelines_pipelinesPacked(const State &glState,
+                                                   bool isCallValid,
+                                                   GLsizei n,
+                                                   const ProgramPipelineID *pipelines,
+                                                   ParamCapture *paramCapture)
 {
-    UNIMPLEMENTED();
+    CaptureMemory(pipelines, sizeof(ProgramPipelineID) * n, paramCapture);
 }
 
-void CaptureDrawArraysIndirect_indirect(const Context *context,
+void CaptureDrawArraysIndirect_indirect(const State &glState,
                                         bool isCallValid,
                                         PrimitiveMode modePacked,
                                         const void *indirect,
@@ -41,7 +41,7 @@ void CaptureDrawArraysIndirect_indirect(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureDrawElementsIndirect_indirect(const Context *context,
+void CaptureDrawElementsIndirect_indirect(const State &glState,
                                           bool isCallValid,
                                           PrimitiveMode modePacked,
                                           DrawElementsType typePacked,
@@ -51,16 +51,16 @@ void CaptureDrawElementsIndirect_indirect(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGenProgramPipelines_pipelines(const Context *context,
-                                          bool isCallValid,
-                                          GLsizei n,
-                                          GLuint *pipelines,
-                                          ParamCapture *paramCapture)
+void CaptureGenProgramPipelines_pipelinesPacked(const State &glState,
+                                                bool isCallValid,
+                                                GLsizei n,
+                                                ProgramPipelineID *pipelines,
+                                                ParamCapture *paramCapture)
 {
-    UNIMPLEMENTED();
+    CaptureGenHandles(n, pipelines, paramCapture);
 }
 
-void CaptureGetBooleani_v_data(const Context *context,
+void CaptureGetBooleani_v_data(const State &glState,
                                bool isCallValid,
                                GLenum target,
                                GLuint index,
@@ -70,7 +70,7 @@ void CaptureGetBooleani_v_data(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetFramebufferParameteriv_params(const Context *context,
+void CaptureGetFramebufferParameteriv_params(const State &glState,
                                              bool isCallValid,
                                              GLenum target,
                                              GLenum pname,
@@ -80,7 +80,7 @@ void CaptureGetFramebufferParameteriv_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetMultisamplefv_val(const Context *context,
+void CaptureGetMultisamplefv_val(const State &glState,
                                  bool isCallValid,
                                  GLenum pname,
                                  GLuint index,
@@ -90,9 +90,9 @@ void CaptureGetMultisamplefv_val(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetProgramInterfaceiv_params(const Context *context,
+void CaptureGetProgramInterfaceiv_params(const State &glState,
                                          bool isCallValid,
-                                         GLuint program,
+                                         ShaderProgramID program,
                                          GLenum programInterface,
                                          GLenum pname,
                                          GLint *params,
@@ -101,9 +101,9 @@ void CaptureGetProgramInterfaceiv_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetProgramPipelineInfoLog_length(const Context *context,
+void CaptureGetProgramPipelineInfoLog_length(const State &glState,
                                              bool isCallValid,
-                                             GLuint pipeline,
+                                             ProgramPipelineID pipeline,
                                              GLsizei bufSize,
                                              GLsizei *length,
                                              GLchar *infoLog,
@@ -112,9 +112,9 @@ void CaptureGetProgramPipelineInfoLog_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetProgramPipelineInfoLog_infoLog(const Context *context,
+void CaptureGetProgramPipelineInfoLog_infoLog(const State &glState,
                                               bool isCallValid,
-                                              GLuint pipeline,
+                                              ProgramPipelineID pipeline,
                                               GLsizei bufSize,
                                               GLsizei *length,
                                               GLchar *infoLog,
@@ -123,9 +123,9 @@ void CaptureGetProgramPipelineInfoLog_infoLog(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetProgramPipelineiv_params(const Context *context,
+void CaptureGetProgramPipelineiv_params(const State &glState,
                                         bool isCallValid,
-                                        GLuint pipeline,
+                                        ProgramPipelineID pipeline,
                                         GLenum pname,
                                         GLint *params,
                                         ParamCapture *paramCapture)
@@ -133,9 +133,9 @@ void CaptureGetProgramPipelineiv_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetProgramResourceIndex_name(const Context *context,
+void CaptureGetProgramResourceIndex_name(const State &glState,
                                          bool isCallValid,
-                                         GLuint program,
+                                         ShaderProgramID program,
                                          GLenum programInterface,
                                          const GLchar *name,
                                          ParamCapture *paramCapture)
@@ -143,9 +143,9 @@ void CaptureGetProgramResourceIndex_name(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetProgramResourceLocation_name(const Context *context,
+void CaptureGetProgramResourceLocation_name(const State &glState,
                                             bool isCallValid,
-                                            GLuint program,
+                                            ShaderProgramID program,
                                             GLenum programInterface,
                                             const GLchar *name,
                                             ParamCapture *paramCapture)
@@ -153,9 +153,9 @@ void CaptureGetProgramResourceLocation_name(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetProgramResourceName_length(const Context *context,
+void CaptureGetProgramResourceName_length(const State &glState,
                                           bool isCallValid,
-                                          GLuint program,
+                                          ShaderProgramID program,
                                           GLenum programInterface,
                                           GLuint index,
                                           GLsizei bufSize,
@@ -166,9 +166,9 @@ void CaptureGetProgramResourceName_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetProgramResourceName_name(const Context *context,
+void CaptureGetProgramResourceName_name(const State &glState,
                                         bool isCallValid,
-                                        GLuint program,
+                                        ShaderProgramID program,
                                         GLenum programInterface,
                                         GLuint index,
                                         GLsizei bufSize,
@@ -179,9 +179,9 @@ void CaptureGetProgramResourceName_name(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetProgramResourceiv_props(const Context *context,
+void CaptureGetProgramResourceiv_props(const State &glState,
                                        bool isCallValid,
-                                       GLuint program,
+                                       ShaderProgramID program,
                                        GLenum programInterface,
                                        GLuint index,
                                        GLsizei propCount,
@@ -194,9 +194,9 @@ void CaptureGetProgramResourceiv_props(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetProgramResourceiv_length(const Context *context,
+void CaptureGetProgramResourceiv_length(const State &glState,
                                         bool isCallValid,
-                                        GLuint program,
+                                        ShaderProgramID program,
                                         GLenum programInterface,
                                         GLuint index,
                                         GLsizei propCount,
@@ -209,9 +209,9 @@ void CaptureGetProgramResourceiv_length(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetProgramResourceiv_params(const Context *context,
+void CaptureGetProgramResourceiv_params(const State &glState,
                                         bool isCallValid,
-                                        GLuint program,
+                                        ShaderProgramID program,
                                         GLenum programInterface,
                                         GLuint index,
                                         GLsizei propCount,
@@ -224,7 +224,7 @@ void CaptureGetProgramResourceiv_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetTexLevelParameterfv_params(const Context *context,
+void CaptureGetTexLevelParameterfv_params(const State &glState,
                                           bool isCallValid,
                                           TextureTarget targetPacked,
                                           GLint level,
@@ -235,7 +235,7 @@ void CaptureGetTexLevelParameterfv_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureGetTexLevelParameteriv_params(const Context *context,
+void CaptureGetTexLevelParameteriv_params(const State &glState,
                                           bool isCallValid,
                                           TextureTarget targetPacked,
                                           GLint level,
@@ -246,10 +246,10 @@ void CaptureGetTexLevelParameteriv_params(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureProgramUniform1fv_value(const Context *context,
+void CaptureProgramUniform1fv_value(const State &glState,
                                     bool isCallValid,
-                                    GLuint program,
-                                    GLint location,
+                                    ShaderProgramID program,
+                                    UniformLocation location,
                                     GLsizei count,
                                     const GLfloat *value,
                                     ParamCapture *paramCapture)
@@ -257,10 +257,10 @@ void CaptureProgramUniform1fv_value(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureProgramUniform1iv_value(const Context *context,
+void CaptureProgramUniform1iv_value(const State &glState,
                                     bool isCallValid,
-                                    GLuint program,
-                                    GLint location,
+                                    ShaderProgramID program,
+                                    UniformLocation location,
                                     GLsizei count,
                                     const GLint *value,
                                     ParamCapture *paramCapture)
@@ -268,10 +268,10 @@ void CaptureProgramUniform1iv_value(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureProgramUniform1uiv_value(const Context *context,
+void CaptureProgramUniform1uiv_value(const State &glState,
                                      bool isCallValid,
-                                     GLuint program,
-                                     GLint location,
+                                     ShaderProgramID program,
+                                     UniformLocation location,
                                      GLsizei count,
                                      const GLuint *value,
                                      ParamCapture *paramCapture)
@@ -279,10 +279,10 @@ void CaptureProgramUniform1uiv_value(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureProgramUniform2fv_value(const Context *context,
+void CaptureProgramUniform2fv_value(const State &glState,
                                     bool isCallValid,
-                                    GLuint program,
-                                    GLint location,
+                                    ShaderProgramID program,
+                                    UniformLocation location,
                                     GLsizei count,
                                     const GLfloat *value,
                                     ParamCapture *paramCapture)
@@ -290,10 +290,10 @@ void CaptureProgramUniform2fv_value(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureProgramUniform2iv_value(const Context *context,
+void CaptureProgramUniform2iv_value(const State &glState,
                                     bool isCallValid,
-                                    GLuint program,
-                                    GLint location,
+                                    ShaderProgramID program,
+                                    UniformLocation location,
                                     GLsizei count,
                                     const GLint *value,
                                     ParamCapture *paramCapture)
@@ -301,10 +301,10 @@ void CaptureProgramUniform2iv_value(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureProgramUniform2uiv_value(const Context *context,
+void CaptureProgramUniform2uiv_value(const State &glState,
                                      bool isCallValid,
-                                     GLuint program,
-                                     GLint location,
+                                     ShaderProgramID program,
+                                     UniformLocation location,
                                      GLsizei count,
                                      const GLuint *value,
                                      ParamCapture *paramCapture)
@@ -312,10 +312,10 @@ void CaptureProgramUniform2uiv_value(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureProgramUniform3fv_value(const Context *context,
+void CaptureProgramUniform3fv_value(const State &glState,
                                     bool isCallValid,
-                                    GLuint program,
-                                    GLint location,
+                                    ShaderProgramID program,
+                                    UniformLocation location,
                                     GLsizei count,
                                     const GLfloat *value,
                                     ParamCapture *paramCapture)
@@ -323,10 +323,10 @@ void CaptureProgramUniform3fv_value(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureProgramUniform3iv_value(const Context *context,
+void CaptureProgramUniform3iv_value(const State &glState,
                                     bool isCallValid,
-                                    GLuint program,
-                                    GLint location,
+                                    ShaderProgramID program,
+                                    UniformLocation location,
                                     GLsizei count,
                                     const GLint *value,
                                     ParamCapture *paramCapture)
@@ -334,10 +334,10 @@ void CaptureProgramUniform3iv_value(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureProgramUniform3uiv_value(const Context *context,
+void CaptureProgramUniform3uiv_value(const State &glState,
                                      bool isCallValid,
-                                     GLuint program,
-                                     GLint location,
+                                     ShaderProgramID program,
+                                     UniformLocation location,
                                      GLsizei count,
                                      const GLuint *value,
                                      ParamCapture *paramCapture)
@@ -345,10 +345,10 @@ void CaptureProgramUniform3uiv_value(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureProgramUniform4fv_value(const Context *context,
+void CaptureProgramUniform4fv_value(const State &glState,
                                     bool isCallValid,
-                                    GLuint program,
-                                    GLint location,
+                                    ShaderProgramID program,
+                                    UniformLocation location,
                                     GLsizei count,
                                     const GLfloat *value,
                                     ParamCapture *paramCapture)
@@ -356,10 +356,10 @@ void CaptureProgramUniform4fv_value(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureProgramUniform4iv_value(const Context *context,
+void CaptureProgramUniform4iv_value(const State &glState,
                                     bool isCallValid,
-                                    GLuint program,
-                                    GLint location,
+                                    ShaderProgramID program,
+                                    UniformLocation location,
                                     GLsizei count,
                                     const GLint *value,
                                     ParamCapture *paramCapture)
@@ -367,10 +367,10 @@ void CaptureProgramUniform4iv_value(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureProgramUniform4uiv_value(const Context *context,
+void CaptureProgramUniform4uiv_value(const State &glState,
                                      bool isCallValid,
-                                     GLuint program,
-                                     GLint location,
+                                     ShaderProgramID program,
+                                     UniformLocation location,
                                      GLsizei count,
                                      const GLuint *value,
                                      ParamCapture *paramCapture)
@@ -378,10 +378,10 @@ void CaptureProgramUniform4uiv_value(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureProgramUniformMatrix2fv_value(const Context *context,
+void CaptureProgramUniformMatrix2fv_value(const State &glState,
                                           bool isCallValid,
-                                          GLuint program,
-                                          GLint location,
+                                          ShaderProgramID program,
+                                          UniformLocation location,
                                           GLsizei count,
                                           GLboolean transpose,
                                           const GLfloat *value,
@@ -390,10 +390,10 @@ void CaptureProgramUniformMatrix2fv_value(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureProgramUniformMatrix2x3fv_value(const Context *context,
+void CaptureProgramUniformMatrix2x3fv_value(const State &glState,
                                             bool isCallValid,
-                                            GLuint program,
-                                            GLint location,
+                                            ShaderProgramID program,
+                                            UniformLocation location,
                                             GLsizei count,
                                             GLboolean transpose,
                                             const GLfloat *value,
@@ -402,10 +402,10 @@ void CaptureProgramUniformMatrix2x3fv_value(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureProgramUniformMatrix2x4fv_value(const Context *context,
+void CaptureProgramUniformMatrix2x4fv_value(const State &glState,
                                             bool isCallValid,
-                                            GLuint program,
-                                            GLint location,
+                                            ShaderProgramID program,
+                                            UniformLocation location,
                                             GLsizei count,
                                             GLboolean transpose,
                                             const GLfloat *value,
@@ -414,10 +414,10 @@ void CaptureProgramUniformMatrix2x4fv_value(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureProgramUniformMatrix3fv_value(const Context *context,
+void CaptureProgramUniformMatrix3fv_value(const State &glState,
                                           bool isCallValid,
-                                          GLuint program,
-                                          GLint location,
+                                          ShaderProgramID program,
+                                          UniformLocation location,
                                           GLsizei count,
                                           GLboolean transpose,
                                           const GLfloat *value,
@@ -426,10 +426,10 @@ void CaptureProgramUniformMatrix3fv_value(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureProgramUniformMatrix3x2fv_value(const Context *context,
+void CaptureProgramUniformMatrix3x2fv_value(const State &glState,
                                             bool isCallValid,
-                                            GLuint program,
-                                            GLint location,
+                                            ShaderProgramID program,
+                                            UniformLocation location,
                                             GLsizei count,
                                             GLboolean transpose,
                                             const GLfloat *value,
@@ -438,10 +438,10 @@ void CaptureProgramUniformMatrix3x2fv_value(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureProgramUniformMatrix3x4fv_value(const Context *context,
+void CaptureProgramUniformMatrix3x4fv_value(const State &glState,
                                             bool isCallValid,
-                                            GLuint program,
-                                            GLint location,
+                                            ShaderProgramID program,
+                                            UniformLocation location,
                                             GLsizei count,
                                             GLboolean transpose,
                                             const GLfloat *value,
@@ -450,10 +450,10 @@ void CaptureProgramUniformMatrix3x4fv_value(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureProgramUniformMatrix4fv_value(const Context *context,
+void CaptureProgramUniformMatrix4fv_value(const State &glState,
                                           bool isCallValid,
-                                          GLuint program,
-                                          GLint location,
+                                          ShaderProgramID program,
+                                          UniformLocation location,
                                           GLsizei count,
                                           GLboolean transpose,
                                           const GLfloat *value,
@@ -462,10 +462,10 @@ void CaptureProgramUniformMatrix4fv_value(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureProgramUniformMatrix4x2fv_value(const Context *context,
+void CaptureProgramUniformMatrix4x2fv_value(const State &glState,
                                             bool isCallValid,
-                                            GLuint program,
-                                            GLint location,
+                                            ShaderProgramID program,
+                                            UniformLocation location,
                                             GLsizei count,
                                             GLboolean transpose,
                                             const GLfloat *value,
@@ -474,10 +474,10 @@ void CaptureProgramUniformMatrix4x2fv_value(const Context *context,
     UNIMPLEMENTED();
 }
 
-void CaptureProgramUniformMatrix4x3fv_value(const Context *context,
+void CaptureProgramUniformMatrix4x3fv_value(const State &glState,
                                             bool isCallValid,
-                                            GLuint program,
-                                            GLint location,
+                                            ShaderProgramID program,
+                                            UniformLocation location,
                                             GLsizei count,
                                             GLboolean transpose,
                                             const GLfloat *value,

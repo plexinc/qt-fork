@@ -463,7 +463,7 @@ static const QTextHtmlElement *lookupElementHelper(const QString &element)
     const QTextHtmlElement *end = &elements[Html_NumElements];
     const QTextHtmlElement *e = std::lower_bound(start, end, element);
     if ((e == end) || (element < *e))
-        return 0;
+        return nullptr;
     return e;
 }
 
@@ -519,7 +519,7 @@ void QTextHtmlParser::dumpHtml()
 QTextHtmlParserNode *QTextHtmlParser::newNode(int parent)
 {
     QTextHtmlParserNode *lastNode = &nodes.last();
-    QTextHtmlParserNode *newNode = 0;
+    QTextHtmlParserNode *newNode = nullptr;
 
     bool reuseLastNode = true;
 
@@ -1388,6 +1388,8 @@ void QTextHtmlParserNode::applyCssDeclarations(const QVector<QCss::Declaration> 
     QFont f;
     int adjustment = -255;
     extractor.extractFont(&f, &adjustment);
+    if (f.pixelSize() > INT32_MAX / 2)
+        f.setPixelSize(INT32_MAX / 2);   // avoid even more extreme values
     charFormat.setFont(f, QTextCharFormat::FontPropertiesSpecifiedOnly);
 
     if (adjustment >= -1)
@@ -1451,19 +1453,19 @@ void QTextHtmlParserNode::applyBackgroundImage(const QString &url, const QTextDo
 
         if (QCoreApplication::instance()->thread() != QThread::currentThread()) {
             // must use images in non-GUI threads
-            if (val.type() == QVariant::Image) {
+            if (val.userType() == QMetaType::QImage) {
                 QImage image = qvariant_cast<QImage>(val);
                 charFormat.setBackground(image);
-            } else if (val.type() == QVariant::ByteArray) {
+            } else if (val.userType() == QMetaType::QByteArray) {
                 QImage image;
                 if (image.loadFromData(val.toByteArray())) {
                     charFormat.setBackground(image);
                 }
             }
         } else {
-            if (val.type() == QVariant::Image || val.type() == QVariant::Pixmap) {
+            if (val.userType() == QMetaType::QImage || val.userType() == QMetaType::QPixmap) {
                 charFormat.setBackground(qvariant_cast<QPixmap>(val));
-            } else if (val.type() == QVariant::ByteArray) {
+            } else if (val.userType() == QMetaType::QByteArray) {
                 QPixmap pm;
                 if (pm.loadFromData(val.toByteArray())) {
                     charFormat.setBackground(pm);
@@ -1907,9 +1909,9 @@ void QTextHtmlParser::importStyleSheet(const QString &href)
 
     QVariant res = resourceProvider->resource(QTextDocument::StyleSheetResource, href);
     QString css;
-    if (res.type() == QVariant::String) {
+    if (res.userType() == QMetaType::QString) {
         css = res.toString();
-    } else if (res.type() == QVariant::ByteArray) {
+    } else if (res.userType() == QMetaType::QByteArray) {
         // #### detect @charset
         css = QString::fromUtf8(res.toByteArray());
     }
@@ -2123,7 +2125,7 @@ QVector<QCss::Declaration> QTextHtmlParser::declarationsForNode(int node) const
     QCss::StyleSelector::NodePtr n;
     n.id = node;
 
-    const char *extraPseudo = 0;
+    const char *extraPseudo = nullptr;
     if (nodes.at(node).id == Html_a && nodes.at(node).hasHref)
         extraPseudo = "link";
     // Ensure that our own style is taken into consideration

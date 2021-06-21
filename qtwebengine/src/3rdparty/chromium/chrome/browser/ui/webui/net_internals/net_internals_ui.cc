@@ -15,15 +15,18 @@
 #include "base/files/file_util.h"
 #include "base/memory/weak_ptr.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/download/download_prefs.h"
 #include "chrome/browser/net/net_export_helper.h"
+#include "chrome/browser/policy/chrome_policy_conversions_client.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/common/webui_url_constants.h"
 #include "chrome/grit/net_internals_resources.h"
 #include "components/onc/onc_constants.h"
+#include "components/policy/core/browser/policy_conversions.h"
 #include "components/prefs/pref_member.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -35,19 +38,20 @@
 #include "content/public/browser/web_ui_message_handler.h"
 #include "net/log/net_log_util.h"
 #include "services/network/expect_ct_reporter.h"
+#include "services/network/public/mojom/network_context.mojom.h"
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/file_manager/filesystem_api_util.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/system_logs/debug_log_writer.h"
 #include "chrome/browser/net/nss_context.h"
-#include "chrome/browser/policy/policy_conversions.h"
 #include "chrome/common/logging_chrome.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
-#include "chromeos/dbus/debug_daemon_client.h"
+#include "chromeos/dbus/debug_daemon/debug_daemon_client.h"
 #include "chromeos/network/onc/onc_certificate_importer_impl.h"
 #include "chromeos/network/onc/onc_parsed_certificates.h"
 #include "chromeos/network/onc/onc_utils.h"
+#include "components/policy/core/browser/policy_conversions.h"
 #endif
 
 using content::BrowserThread;
@@ -62,7 +66,7 @@ content::WebUIDataSource* CreateNetInternalsHTMLSource() {
 
   source->SetDefaultResource(IDR_NET_INTERNALS_INDEX_HTML);
   source->AddResourcePath("index.js", IDR_NET_INTERNALS_INDEX_JS);
-  source->SetJsonPath("strings.js");
+  source->UseStringsJs();
   return source;
 }
 
@@ -381,7 +385,7 @@ void NetInternalsMessageHandler::ImportONCFileToNSSDB(
     error += network_error;
 
   chromeos::onc::CertificateImporterImpl cert_importer(
-      base::CreateSingleThreadTaskRunnerWithTraits({BrowserThread::IO}), nssdb);
+      base::CreateSingleThreadTaskRunner({BrowserThread::IO}), nssdb);
   auto certs =
       std::make_unique<chromeos::onc::OncParsedCertificates>(certificates);
   if (certs->has_error())
@@ -435,11 +439,11 @@ void NetInternalsMessageHandler::OnStoreDebugLogs(bool combined,
   if (file_manager::util::IsUnderNonNativeLocalPath(profile, path))
     path = prefs->GetDefaultDownloadDirectoryForProfile();
   base::FilePath policies_path = path.Append("policies.json");
-  std::string json_policies = policy::GetAllPolicyValuesAsJSON(
-      web_ui()->GetWebContents()->GetBrowserContext(),
-      true /* with_user_policies */, false /* with_device_data */,
-      true /* is_pretty_print */);
-  base::PostTaskWithTraitsAndReply(
+  auto client = std::make_unique<policy::ChromePolicyConversionsClient>(
+      web_ui()->GetWebContents()->GetBrowserContext());
+  std::string json_policies =
+      policy::DictionaryPolicyConversions(std::move(client)).ToJSON();
+  base::ThreadPool::PostTaskAndReply(
       FROM_HERE,
       {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
        base::TaskShutdownBehavior::BLOCK_SHUTDOWN},

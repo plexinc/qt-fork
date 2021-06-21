@@ -16,10 +16,12 @@
 #include "base/callback.h"
 #include "base/containers/queue.h"
 #include "base/macros.h"
+#include "base/memory/memory_pressure_listener.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "components/ui_devtools/buildflags.h"
 #include "components/viz/host/gpu_host_impl.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/browser_child_process_host_delegate.h"
@@ -32,14 +34,15 @@
 #include "gpu/config/gpu_mode.h"
 #include "gpu/ipc/common/surface_handle.h"
 #include "ipc/ipc_sender.h"
-#include "mojo/public/cpp/bindings/binding.h"
-#include "services/viz/privileged/interfaces/compositing/frame_sink_manager.mojom.h"
-#include "services/viz/privileged/interfaces/gl/gpu_host.mojom.h"
-#include "services/viz/privileged/interfaces/gl/gpu_service.mojom.h"
-#include "services/viz/privileged/interfaces/viz_main.mojom.h"
+#include "mojo/public/cpp/bindings/generic_pending_receiver.h"
+#include "mojo/public/cpp/bindings/pending_receiver.h"
+#include "services/viz/privileged/mojom/compositing/frame_sink_manager.mojom.h"
+#include "services/viz/privileged/mojom/gl/gpu_host.mojom.h"
+#include "services/viz/privileged/mojom/gl/gpu_service.mojom.h"
+#include "services/viz/privileged/mojom/viz_main.mojom.h"
 #include "url/gurl.h"
 
-#if defined(USE_VIZ_DEVTOOLS)
+#if BUILDFLAG(USE_VIZ_DEVTOOLS)
 #include "content/browser/gpu/viz_devtools_connector.h"
 #endif
 
@@ -98,6 +101,10 @@ class GpuProcessHost : public BrowserChildProcessHostDelegate,
   // Forcefully terminates the GPU process.
   void ForceShutdown();
 
+  // Asks the GPU process to run a service instance corresponding to the
+  // specific interface receiver type carried by |receiver|.
+  void RunService(mojo::GenericPendingReceiver receiver);
+
   CONTENT_EXPORT viz::mojom::GpuService* gpu_service();
 
   CONTENT_EXPORT int GetIDForTesting() const;
@@ -105,8 +112,6 @@ class GpuProcessHost : public BrowserChildProcessHostDelegate,
   viz::GpuHostImpl* gpu_host() { return gpu_host_.get(); }
 
  private:
-  class ConnectionFilterImpl;
-
   enum class GpuTerminationOrigin {
     kUnknownOrigin = 0,
     kOzoneWaylandProxy = 1,
@@ -115,10 +120,11 @@ class GpuProcessHost : public BrowserChildProcessHostDelegate,
 
   static bool ValidateHost(GpuProcessHost* host);
 
-  // Increments |crash_count| by one. Before incrementing |crash_count|, for
-  // each |forgive_minutes| that has passed since the previous crash remove one
-  // old crash.
-  static void IncrementCrashCount(int forgive_minutes, int* crash_count);
+  // Increments |recent_crash_count_| by one. Before incrementing, remove one
+  // old crash for each forgiveness interval that has passed since the previous
+  // crash. If |gpu_mode| doesn't match |last_crash_mode_|, first reset the
+  // crash count.
+  static void IncrementCrashCount(gpu::GpuMode gpu_mode);
 
   GpuProcessHost(int host_id, GpuProcessKind kind);
   ~GpuProcessHost() override;
@@ -144,6 +150,10 @@ class GpuProcessHost : public BrowserChildProcessHostDelegate,
       const gpu::GpuExtraInfo& gpu_extra_info) override;
   void DidFailInitialize() override;
   void DidCreateContextSuccessfully() override;
+  void MaybeShutdownGpuProcess() override;
+#if defined(OS_WIN)
+  void DidUpdateOverlayInfo(const gpu::OverlayInfo& overlay_info) override;
+#endif
   void BlockDomainFrom3DAPIs(const GURL& url, gpu::DomainGuilt guilt) override;
   void DisableGpuCompositing() override;
   bool GpuAccessAllowed() const override;
@@ -151,11 +161,13 @@ class GpuProcessHost : public BrowserChildProcessHostDelegate,
   void RecordLogMessage(int32_t severity,
                         const std::string& header,
                         const std::string& message) override;
-  void BindDiscardableMemoryRequest(
-      discardable_memory::mojom::DiscardableSharedMemoryManagerRequest request)
+  void BindDiscardableMemoryReceiver(
+      mojo::PendingReceiver<
+          discardable_memory::mojom::DiscardableSharedMemoryManager> receiver)
       override;
   void BindInterface(const std::string& interface_name,
                      mojo::ScopedMessagePipeHandle interface_pipe) override;
+  void BindHostReceiver(mojo::GenericPendingReceiver generic_receiver) override;
   void RunService(
       const std::string& service_name,
       mojo::PendingReceiver<service_manager::mojom::Service> receiver) override;
@@ -163,9 +175,6 @@ class GpuProcessHost : public BrowserChildProcessHostDelegate,
   void TerminateGpuProcess(const std::string& message) override;
   void SendGpuProcessMessage(IPC::Message* message) override;
 #endif
-
-  // Message handlers.
-  void OnFieldTrialActivated(const std::string& trial_name);
 
   bool LaunchGpuProcess();
 
@@ -175,6 +184,12 @@ class GpuProcessHost : public BrowserChildProcessHostDelegate,
 
   // Update GPU crash counters.  Disable GPU if crash limit is reached.
   void RecordProcessCrash();
+
+#if !defined(OS_ANDROID)
+  // Memory pressure handler, called by |memory_pressure_listener_|.
+  void OnMemoryPressure(
+      base::MemoryPressureListener::MemoryPressureLevel level);
+#endif
 
   // The serial number of the GpuProcessHost.
   int host_id_;
@@ -205,17 +220,14 @@ class GpuProcessHost : public BrowserChildProcessHostDelegate,
   // Time Init started.  Used to log total GPU process startup time to UMA.
   base::TimeTicks init_start_time_;
 
-  int connection_filter_id_;
-
   // The GPU process reported failure to initialize.
   bool did_fail_initialize_ = false;
 
   // The total number of GPU process crashes.
   static base::subtle::Atomic32 gpu_crash_count_;
   static bool crashed_before_;
-  static int hardware_accelerated_recent_crash_count_;
-  static int swiftshader_recent_crash_count_;
-  static int display_compositor_recent_crash_count_;
+  static int recent_crash_count_;
+  static gpu::GpuMode last_crash_mode_;
 
   // Here the bottom-up destruction order matters:
   // The GPU thread depends on its host so stop the host last.
@@ -235,9 +247,15 @@ class GpuProcessHost : public BrowserChildProcessHostDelegate,
   // automatic execution of 3D content from those domains.
   std::multiset<GURL> urls_with_live_offscreen_contexts_;
 
+#if !defined(OS_ANDROID)
+  // Responsible for forwarding the memory pressure notifications from the
+  // browser process to the GPU process.
+  std::unique_ptr<base::MemoryPressureListener> memory_pressure_listener_;
+#endif
+
   std::unique_ptr<viz::GpuHostImpl> gpu_host_;
 
-#if defined(USE_VIZ_DEVTOOLS)
+#if BUILDFLAG(USE_VIZ_DEVTOOLS)
   std::unique_ptr<VizDevToolsConnector> devtools_connector_;
 #endif
 

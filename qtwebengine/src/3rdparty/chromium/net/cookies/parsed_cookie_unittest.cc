@@ -18,29 +18,37 @@ TEST(ParsedCookieTest, TestBasic) {
   EXPECT_EQ("b", pc.Value());
 }
 
-// De facto standard behavior, per https://crbug.com/601786.
 TEST(ParsedCookieTest, TestEmpty) {
-  const struct {
-    const char* cookie;
-    const char* expected_path;
-    bool expect_secure;
-  } kTestCookieLines[]{{"", "", false},     {"     ", "", false},
-                       {"=;", "", false},   {"=; path=/; secure;", "/", true},
-                       {"= ;", "", false},  {"= ; path=/; secure;", "/", true},
-                       {" =;", "", false},  {" =; path=/; secure;", "/", true},
-                       {" = ;", "", false}, {" = ; path=/; secure;", "/", true},
-                       {" ;", "", false},   {" ; path=/; secure;", "/", true},
-                       {";", "", false},    {"; path=/; secure;", "/", true},
-                       {"\t;", "", false},  {"\t; path=/; secure;", "/", true}};
+  const char* kTestCookieLines[]{"",    "     ", "=",     "=;",  " =;",
+                                 "= ;", " = ;",  ";",     " ;",  " ; ",
+                                 "\t",  "\t;",   "\t=\t", "\t=", "=\t"};
 
-  for (const auto& test : kTestCookieLines) {
-    ParsedCookie pc(test.cookie);
-    EXPECT_TRUE(pc.IsValid());
-    EXPECT_EQ("", pc.Name());
-    EXPECT_EQ("", pc.Value());
-    EXPECT_EQ(test.expected_path, pc.Path());
-    EXPECT_EQ(test.expect_secure, pc.IsSecure());
+  for (const char* test : kTestCookieLines) {
+    ParsedCookie pc(test);
+    EXPECT_FALSE(pc.IsValid());
   }
+}
+
+TEST(ParsedCookieTest, TestSetEmptyNameValue) {
+  ParsedCookie empty("");
+  EXPECT_FALSE(empty.IsValid());
+  EXPECT_FALSE(empty.SetName(""));
+  EXPECT_FALSE(empty.SetValue(""));
+  EXPECT_FALSE(empty.IsValid());
+
+  ParsedCookie empty_value("name=");
+  EXPECT_TRUE(empty_value.IsValid());
+  EXPECT_EQ("name", empty_value.Name());
+  EXPECT_FALSE(empty_value.SetName(""));
+  EXPECT_EQ("name", empty_value.Name());
+  EXPECT_TRUE(empty_value.IsValid());
+
+  ParsedCookie empty_name("value");
+  EXPECT_TRUE(empty_name.IsValid());
+  EXPECT_EQ("value", empty_name.Value());
+  EXPECT_FALSE(empty_name.SetValue(""));
+  EXPECT_EQ("value", empty_name.Value());
+  EXPECT_TRUE(empty_value.IsValid());
 }
 
 TEST(ParsedCookieTest, TestQuoted) {
@@ -284,13 +292,13 @@ TEST(ParsedCookieTest, SerializeCookieLine) {
 }
 
 TEST(ParsedCookieTest, SetNameAndValue) {
-  ParsedCookie empty((std::string()));
-  EXPECT_TRUE(empty.IsValid());
-  EXPECT_TRUE(empty.SetDomain("foobar.com"));
-  EXPECT_TRUE(empty.SetName("name"));
-  EXPECT_TRUE(empty.SetValue("value"));
-  EXPECT_EQ("name=value; domain=foobar.com", empty.ToCookieLine());
-  EXPECT_TRUE(empty.IsValid());
+  ParsedCookie cookie("a=b");
+  EXPECT_TRUE(cookie.IsValid());
+  EXPECT_TRUE(cookie.SetDomain("foobar.com"));
+  EXPECT_TRUE(cookie.SetName("name"));
+  EXPECT_TRUE(cookie.SetValue("value"));
+  EXPECT_EQ("name=value; domain=foobar.com", cookie.ToCookieLine());
+  EXPECT_TRUE(cookie.IsValid());
 
   // We don't test
   //   ParsedCookie invalid("@foo=bar");
@@ -503,6 +511,39 @@ TEST(ParsedCookieTest, SetSameSite) {
   EXPECT_EQ("name=value; samesite=Blah", pc.ToCookieLine());
   EXPECT_EQ(CookieSameSite::UNSPECIFIED, pc.SameSite());
   EXPECT_TRUE(pc.IsValid());
+}
+
+// Test that the correct enum value is returned for the SameSite attribute
+// string.
+TEST(ParsedCookieTest, CookieSameSiteStringEnum) {
+  ParsedCookie pc("name=value; SameSite");
+  CookieSameSiteString actual = CookieSameSiteString::kLax;
+  EXPECT_EQ(CookieSameSite::UNSPECIFIED, pc.SameSite(&actual));
+  EXPECT_EQ(CookieSameSiteString::kEmptyString, actual);
+
+  pc.SetSameSite("Strict");
+  EXPECT_EQ(CookieSameSite::STRICT_MODE, pc.SameSite(&actual));
+  EXPECT_EQ(CookieSameSiteString::kStrict, actual);
+
+  pc.SetSameSite("Lax");
+  EXPECT_EQ(CookieSameSite::LAX_MODE, pc.SameSite(&actual));
+  EXPECT_EQ(CookieSameSiteString::kLax, actual);
+
+  pc.SetSameSite("None");
+  EXPECT_EQ(CookieSameSite::NO_RESTRICTION, pc.SameSite(&actual));
+  EXPECT_EQ(CookieSameSiteString::kNone, actual);
+
+  pc.SetSameSite("Extended");
+  EXPECT_EQ(CookieSameSite::UNSPECIFIED, pc.SameSite(&actual));
+  EXPECT_EQ(CookieSameSiteString::kExtended, actual);
+
+  pc.SetSameSite("Bananas");
+  EXPECT_EQ(CookieSameSite::UNSPECIFIED, pc.SameSite(&actual));
+  EXPECT_EQ(CookieSameSiteString::kUnrecognized, actual);
+
+  ParsedCookie pc2("no_samesite=1");
+  EXPECT_EQ(CookieSameSite::UNSPECIFIED, pc2.SameSite(&actual));
+  EXPECT_EQ(CookieSameSiteString::kUnspecified, actual);
 }
 
 TEST(ParsedCookieTest, SettersInputValidation) {

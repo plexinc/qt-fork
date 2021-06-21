@@ -709,7 +709,7 @@ static int mpeg4_decode_partition_a(Mpeg4DecContext *ctx)
                 int i;
 
                 do {
-                    if (show_bits_long(&s->gb, 19) == DC_MARKER)
+                    if (show_bits(&s->gb, 19) == DC_MARKER)
                         return mb_num - 1;
 
                     cbpc = get_vlc2(&s->gb, ff_h263_intra_MCBPC_vlc.table, INTRA_MCBPC_VLC_BITS, 2);
@@ -999,7 +999,7 @@ int ff_mpeg4_decode_partitions(Mpeg4DecContext *ctx)
     if (s->pict_type == AV_PICTURE_TYPE_I) {
         while (show_bits(&s->gb, 9) == 1)
             skip_bits(&s->gb, 9);
-        if (get_bits_long(&s->gb, 19) != DC_MARKER) {
+        if (get_bits(&s->gb, 19) != DC_MARKER) {
             av_log(s->avctx, AV_LOG_ERROR,
                    "marker missing after first I partition at %d %d\n",
                    s->mb_x, s->mb_y);
@@ -1780,7 +1780,7 @@ static void next_start_code_studio(GetBitContext *gb)
 {
     align_get_bits(gb);
 
-    while (get_bits_left(gb) >= 24 && show_bits_long(gb, 24) != 0x1) {
+    while (get_bits_left(gb) >= 24 && show_bits(gb, 24) != 0x1) {
         get_bits(gb, 8);
     }
 }
@@ -1824,6 +1824,7 @@ static int mpeg4_decode_studio_block(MpegEncContext *s, int32_t block[64], int n
     uint32_t flc;
     const int min = -1 *  (1 << (s->avctx->bits_per_raw_sample + 6));
     const int max =      ((1 << (s->avctx->bits_per_raw_sample + 6)) - 1);
+    int shift =  3 - s->dct_precision;
 
     mismatch = 1;
 
@@ -1919,7 +1920,7 @@ static int mpeg4_decode_studio_block(MpegEncContext *s, int32_t block[64], int n
             else
                 block[j] = flc;
         }
-        block[j] = ((8 * 2 * block[j] * quant_matrix[j] * s->qscale) >> s->dct_precision) / 32;
+        block[j] = ((block[j] * quant_matrix[j] * s->qscale) * (1 << shift)) / 16;
         block[j] = av_clip(block[j], min, max);
         mismatch ^= block[j];
     }
@@ -3209,7 +3210,7 @@ static int decode_studio_vol_header(Mpeg4DecContext *ctx, GetBitContext *gb)
  * Decode MPEG-4 headers.
  *
  * @param  header If set the absence of a VOP is not treated as error; otherwise, it is treated as such.
- * @return <0 if an error occured
+ * @return <0 if an error occurred
  *         FRAME_SKIPPED if a not coded VOP is found
  *         0 else
  */

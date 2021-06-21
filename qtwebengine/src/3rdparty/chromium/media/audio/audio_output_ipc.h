@@ -32,13 +32,13 @@ class MEDIA_EXPORT AudioOutputIPCDelegate {
                                   const std::string& matched_device_id) = 0;
 
   // Called when an audio stream has been created.
-  // See media/mojo/interfaces/audio_data_pipe.mojom for documentation of
+  // See media/mojo/mojom/audio_data_pipe.mojom for documentation of
   // |handle| and |socket_handle|. |playing_automatically| indicates if the
   // AudioOutputIPCDelegate is playing right away due to an earlier call to
   // Play();
   virtual void OnStreamCreated(
       base::UnsafeSharedMemoryRegion shared_memory_region,
-      base::SyncSocket::Handle socket_handle,
+      base::SyncSocket::ScopedHandle socket_handle,
       bool playing_automatically) = 0;
 
   // Called when the AudioOutputIPC object is going away and/or when the IPC

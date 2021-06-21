@@ -27,16 +27,14 @@ class CORE_EXPORT NGFragmentBuilder {
     DCHECK(style_);
     return *style_;
   }
-  NGFragmentBuilder& SetStyleVariant(NGStyleVariant style_variant) {
+  void SetStyleVariant(NGStyleVariant style_variant) {
     style_variant_ = style_variant;
-    return *this;
   }
-  NGFragmentBuilder& SetStyle(scoped_refptr<const ComputedStyle> style,
-                              NGStyleVariant style_variant) {
+  void SetStyle(scoped_refptr<const ComputedStyle> style,
+                NGStyleVariant style_variant) {
     DCHECK(style);
     style_ = std::move(style);
     style_variant_ = style_variant;
-    return *this;
   }
 
   WritingMode GetWritingMode() const { return writing_mode_; }
@@ -48,6 +46,9 @@ class CORE_EXPORT NGFragmentBuilder {
   void SetBlockSize(LayoutUnit block_size) { size_.block_size = block_size; }
 
   void SetIsHiddenForPaint(bool value) { is_hidden_for_paint_ = value; }
+
+  // Specify whether this will be the first fragment generated for the node.
+  void SetIsFirstForNode(bool is_first) { is_first_for_node_ = is_first; }
 
   const LayoutObject* GetLayoutObject() const { return layout_object_; }
 
@@ -82,6 +83,7 @@ class CORE_EXPORT NGFragmentBuilder {
   LayoutObject* layout_object_ = nullptr;
   scoped_refptr<NGBreakToken> break_token_;
   bool is_hidden_for_paint_ = false;
+  bool is_first_for_node_ = true;
 
   friend class NGPhysicalFragment;
 };

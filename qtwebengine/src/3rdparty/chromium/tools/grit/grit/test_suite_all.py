@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # Copyright (c) 2011 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -19,7 +19,8 @@ TYP_DIR = os.path.join(
 if TYP_DIR not in sys.path:
     sys.path.insert(0, TYP_DIR)
 
-import typ
+
+import typ  # pylint: disable=import-error,unused-import
 
 
 def main(args):

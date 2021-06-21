@@ -27,14 +27,14 @@ struct Scale {
       Init(1, 1, 1, true);
   }
   explicit Scale(const InterpolableValue& value) {
-    const InterpolableList& list = ToInterpolableList(value);
+    const auto& list = To<InterpolableList>(value);
     if (list.length() == 0) {
       Init(1, 1, 1, true);
       return;
     }
-    Init(ToInterpolableNumber(*list.Get(0)).Value(),
-         ToInterpolableNumber(*list.Get(1)).Value(),
-         ToInterpolableNumber(*list.Get(2)).Value(), false);
+    Init(To<InterpolableNumber>(*list.Get(0)).Value(),
+         To<InterpolableNumber>(*list.Get(1)).Value(),
+         To<InterpolableNumber>(*list.Get(2)).Value(), false);
   }
 
   void Init(double x, double y, double z, bool is_value_none) {
@@ -91,6 +91,13 @@ class CSSScaleNonInterpolableValue : public NonInterpolableValue {
         new CSSScaleNonInterpolableValue(scale, scale, false, false));
   }
 
+  static scoped_refptr<CSSScaleNonInterpolableValue> CreateAdditive(
+      const CSSScaleNonInterpolableValue& other) {
+    const bool is_additive = true;
+    return base::AdoptRef(new CSSScaleNonInterpolableValue(
+        other.start_, other.end_, is_additive, is_additive));
+  }
+
   static scoped_refptr<CSSScaleNonInterpolableValue> Merge(
       const CSSScaleNonInterpolableValue& start,
       const CSSScaleNonInterpolableValue& end) {
@@ -103,11 +110,6 @@ class CSSScaleNonInterpolableValue : public NonInterpolableValue {
   const Scale& end() const { return end_; }
   bool IsStartAdditive() const { return is_start_additive_; }
   bool IsEndAdditive() const { return is_end_additive_; }
-
-  void SetIsAdditive() {
-    is_start_additive_ = true;
-    is_end_additive_ = true;
-  }
 
   DECLARE_NON_INTERPOLABLE_VALUE_TYPE();
 
@@ -128,7 +130,15 @@ class CSSScaleNonInterpolableValue : public NonInterpolableValue {
 };
 
 DEFINE_NON_INTERPOLABLE_VALUE_TYPE(CSSScaleNonInterpolableValue);
-DEFINE_NON_INTERPOLABLE_VALUE_TYPE_CASTS(CSSScaleNonInterpolableValue);
+template <>
+struct DowncastTraits<CSSScaleNonInterpolableValue> {
+  static bool AllowFrom(const NonInterpolableValue* value) {
+    return value && AllowFrom(*value);
+  }
+  static bool AllowFrom(const NonInterpolableValue& value) {
+    return value.GetType() == CSSScaleNonInterpolableValue::static_type_;
+  }
+};
 
 InterpolationValue Scale::CreateInterpolationValue() const {
   if (is_none) {
@@ -191,18 +201,23 @@ InterpolationValue CSSScaleInterpolationType::MaybeConvertValue(
   }
 }
 
-void CSSScaleInterpolationType::AdditiveKeyframeHook(
-    InterpolationValue& value) const {
-  ToCSSScaleNonInterpolableValue(*value.non_interpolable_value).SetIsAdditive();
+InterpolationValue CSSScaleInterpolationType::PreInterpolationCompositeIfNeeded(
+    InterpolationValue value,
+    const InterpolationValue& underlying,
+    EffectModel::CompositeOperation,
+    ConversionCheckers&) const {
+  value.non_interpolable_value = CSSScaleNonInterpolableValue::CreateAdditive(
+      To<CSSScaleNonInterpolableValue>(*value.non_interpolable_value));
+  return value;
 }
 
 PairwiseInterpolationValue CSSScaleInterpolationType::MaybeMergeSingles(
     InterpolationValue&& start,
     InterpolationValue&& end) const {
   wtf_size_t start_list_length =
-      ToInterpolableList(*start.interpolable_value).length();
+      To<InterpolableList>(*start.interpolable_value).length();
   wtf_size_t end_list_length =
-      ToInterpolableList(*end.interpolable_value).length();
+      To<InterpolableList>(*end.interpolable_value).length();
   if (start_list_length < end_list_length)
     start.interpolable_value = CreateScaleIdentity();
   else if (end_list_length < start_list_length)
@@ -211,8 +226,8 @@ PairwiseInterpolationValue CSSScaleInterpolationType::MaybeMergeSingles(
   return PairwiseInterpolationValue(
       std::move(start.interpolable_value), std::move(end.interpolable_value),
       CSSScaleNonInterpolableValue::Merge(
-          ToCSSScaleNonInterpolableValue(*start.non_interpolable_value),
-          ToCSSScaleNonInterpolableValue(*end.non_interpolable_value)));
+          To<CSSScaleNonInterpolableValue>(*start.non_interpolable_value),
+          To<CSSScaleNonInterpolableValue>(*end.non_interpolable_value)));
 }
 
 InterpolationValue
@@ -226,22 +241,21 @@ void CSSScaleInterpolationType::Composite(
     double underlying_fraction,
     const InterpolationValue& value,
     double interpolation_fraction) const {
-  if (ToInterpolableList(
+  if (To<InterpolableList>(
           *underlying_value_owner.MutableValue().interpolable_value)
           .length() == 0) {
     underlying_value_owner.MutableValue().interpolable_value =
         CreateScaleIdentity();
   }
 
-  const CSSScaleNonInterpolableValue& metadata =
-      ToCSSScaleNonInterpolableValue(*value.non_interpolable_value);
+  const auto& metadata =
+      To<CSSScaleNonInterpolableValue>(*value.non_interpolable_value);
   DCHECK(metadata.IsStartAdditive() || metadata.IsEndAdditive());
 
-  InterpolableList& underlying_list = ToInterpolableList(
+  auto& underlying_list = To<InterpolableList>(
       *underlying_value_owner.MutableValue().interpolable_value);
   for (wtf_size_t i = 0; i < 3; i++) {
-    InterpolableNumber& underlying =
-        ToInterpolableNumber(*underlying_list.GetMutable(i));
+    auto& underlying = To<InterpolableNumber>(*underlying_list.GetMutable(i));
 
     double start = metadata.Start().array[i] *
                    (metadata.IsStartAdditive() ? underlying.Value() : 1);

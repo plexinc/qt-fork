@@ -2,14 +2,13 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-source_set("signature_matcher_api") {
-  sources = [
-    "signature_matcher_api.h",
-  ]
+# Nothing outside //chrome/chrome_cleaner can depend on these targets.
+visibility = [ "//chrome/chrome_cleaner/*" ]
 
-  deps = [
-    "//base",
-  ]
+source_set("signature_matcher_api") {
+  sources = [ "signature_matcher_api.h" ]
+
+  deps = [ "//base" ]
 }
 
 source_set("matcher_util") {
@@ -22,7 +21,6 @@ source_set("matcher_util") {
     "//base",
     "//chrome/chrome_cleaner/constants:common_strings",
     "//chrome/chrome_cleaner/os:common_os",
-    "//chrome/chrome_cleaner/pup_data:pup_data_base",
     "//chrome/chrome_cleaner/scanner:signature_matcher_api",
     "//chrome/chrome_cleaner/settings",
     "//chrome/chrome_cleaner/strings",
@@ -44,9 +42,7 @@ source_set("signature_matcher") {
 }
 
 source_set("scanner_api") {
-  sources = [
-    "scanner.h",
-  ]
+  sources = [ "scanner.h" ]
 
   deps = [
     "//base",
@@ -120,9 +116,7 @@ source_set("unittest_sources") {
 }
 
 source_set("force_installed_extension_scanner_api") {
-  sources = [
-    "force_installed_extension_scanner.h",
-  ]
+  sources = [ "force_installed_extension_scanner.h" ]
 
   deps = [
     "//chrome/chrome_cleaner/chrome_utils:force_installed_extension",

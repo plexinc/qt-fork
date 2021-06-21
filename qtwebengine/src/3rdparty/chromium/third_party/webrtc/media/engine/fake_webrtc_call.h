@@ -229,6 +229,16 @@ class FakeVideoReceiveStream final : public webrtc::VideoReceiveStream {
   void SetFrameDecryptor(rtc::scoped_refptr<webrtc::FrameDecryptorInterface>
                              frame_decryptor) override {}
 
+  void SetDepacketizerToDecoderFrameTransformer(
+      rtc::scoped_refptr<webrtc::FrameTransformerInterface> frame_transformer)
+      override {}
+
+  RecordingState SetAndGetRecordingState(RecordingState state,
+                                         bool generate_key_frame) override {
+    return RecordingState();
+  }
+  void GenerateKeyFrame() override {}
+
  private:
   // webrtc::VideoReceiveStream implementation.
   void Start() override;
@@ -302,9 +312,6 @@ class FakeCall final : public webrtc::Call, public webrtc::PacketReceiver {
   int GetNumCreatedSendStreams() const;
   int GetNumCreatedReceiveStreams() const;
   void SetStats(const webrtc::Call::Stats& stats);
-
-  void MediaTransportChange(
-      webrtc::MediaTransportInterface* media_transport_interface) override;
 
   void SetClientBitratePreferences(
       const webrtc::BitrateSettings& preferences) override {}

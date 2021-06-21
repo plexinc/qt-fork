@@ -50,12 +50,14 @@
 #     encountering any dependency to that file.
 
 import argparse
+import io
 import os
 import re
 import sys
 
 _CWD = os.getcwd()
-_ROOT = os.path.normpath(os.path.join(_CWD, '..', '..'))
+_HERE_PATH = os.path.dirname(__file__)
+_ROOT = os.path.normpath(os.path.join(_HERE_PATH, '..', '..'))
 
 POLYMER_V1_DIR = 'third_party/polymer/v1_0/components-chromium/'
 POLYMER_V3_DIR = 'third_party/polymer/v3_0/components-chromium/'
@@ -70,9 +72,14 @@ _namespace_rewrites = {}
 # ui/webui/resources/html/cr/ui/focus_outline_manager.html is encountered.
 _auto_imports = {}
 
+# Populated from command line arguments. Specifies a list of HTML imports to
+# ignore when converting HTML imports to JS modules.
+_ignore_imports = []
+
 _chrome_redirects = {
-  'chrome://resources/polymer/v1_0/': POLYMER_V1_DIR,
-  'chrome://resources/html/': 'ui/webui/resources/html/',
+    'chrome://resources/polymer/v1_0/': POLYMER_V1_DIR,
+    'chrome://resources/html/': 'ui/webui/resources/html/',
+    'chrome://resources/cr_elements/': 'ui/webui/resources/cr_elements/',
 }
 
 _chrome_reverse_redirects = {
@@ -163,38 +170,71 @@ class Dependency:
     return 'import \'%s\';' % self.js_path
 
 
-def _extract_dependencies(html_file):
-  with open(html_file, 'r') as f:
+def _generate_js_imports(html_file):
+  output = []
+  imports_end_index = -1
+  imports_found = False
+  with io.open(html_file, encoding='utf-8', mode='r') as f:
     lines = f.readlines()
     deps = []
-    for line in lines:
+    for i, line in enumerate(lines):
       match = re.search(r'\s*<link rel="import" href="(.*)"', line)
       if match:
-        deps.append(match.group(1))
-  return deps;
+        if not imports_found:
+          imports_found = True
+          # Include the previous line if it is an opening <if> tag.
+          if (i > 0):
+            previous_line = lines[i - 1]
+            if re.search(r'^\s*<if', previous_line):
+              previous_line = '// ' + previous_line
+              output.append(previous_line.rstrip('\n'))
 
+        imports_end_index = i
 
-def _generate_js_imports(html_file):
-  return map(
-      lambda dep: Dependency(html_file, dep).to_js_import(_auto_imports),
-      _extract_dependencies(html_file))
+        # Convert HTML import URL to equivalent JS import URL.
+        dep = Dependency(html_file, match.group(1))
+        js_import = dep.to_js_import(_auto_imports)
+        if dep.html_path_normalized in _ignore_imports:
+          output.append('// ' + js_import)
+        else:
+          output.append(js_import)
+
+      elif imports_found:
+        if re.search(r'^\s*</?if', line):
+          line = '// ' + line
+        output.append(line.rstrip('\n'))
+
+  if len(output) == 0:
+    return output
+
+  # Include the next line if it is a closing </if> tag.
+  if re.search(r'^// \s*</if>', output[imports_end_index + 1]):
+    imports_end_index += 1
+
+  return output[0:imports_end_index + 1]
 
 
 def _extract_dom_module_id(html_file):
-  with open(html_file, 'r') as f:
+  with io.open(html_file, encoding='utf-8', mode='r') as f:
     contents = f.read()
     match = re.search(r'\s*<dom-module id="(.*)"', contents)
     assert match
     return match.group(1)
 
 
+def _add_template_markers(html_template):
+  return '<!--_html_template_start_-->%s<!--_html_template_end_-->' % \
+      html_template;
+
+
 def _extract_template(html_file, html_type):
   if html_type == 'v3-ready':
-    with open(html_file, 'r') as f:
-      return f.read()
+    with io.open(html_file, encoding='utf-8', mode='r') as f:
+      template = f.read()
+      return _add_template_markers('\n' + template)
 
   if html_type == 'dom-module':
-    with open(html_file, 'r') as f:
+    with io.open(html_file, encoding='utf-8', mode='r') as f:
       lines = f.readlines()
       start_line = -1
       end_line = -1
@@ -210,10 +250,16 @@ def _extract_template(html_file, html_type):
           assert re.match(r'\s*</template>', lines[i - 2])
           assert re.match(r'\s*<script ', lines[i - 1])
           end_line = i - 3;
-    return '\n' + ''.join(lines[start_line:end_line + 1])
+
+    # If an opening <dom-module> tag was found, check that a closing one was
+    # found as well.
+    if start_line != - 1:
+      assert end_line != -1
+
+    return _add_template_markers('\n' + ''.join(lines[start_line:end_line + 1]))
 
   if html_type == 'style-module':
-    with open(html_file, 'r') as f:
+    with io.open(html_file, encoding='utf-8', mode='r') as f:
       lines = f.readlines()
       start_line = -1
       end_line = -1
@@ -233,7 +279,7 @@ def _extract_template(html_file, html_type):
 
   if html_type == 'iron-iconset':
     templates = []
-    with open(html_file, 'r') as f:
+    with io.open(html_file, encoding='utf-8', mode='r') as f:
       lines = f.readlines()
       start_line = -1
       end_line = -1
@@ -254,7 +300,7 @@ def _extract_template(html_file, html_type):
 
 
   assert html_type == 'custom-style'
-  with open(html_file, 'r') as f:
+  with io.open(html_file, encoding='utf-8', mode='r') as f:
     lines = f.readlines()
     start_line = -1
     end_line = -1
@@ -283,7 +329,7 @@ def _process_v3_ready(js_file, html_file):
   # Extract HTML template and place in JS file.
   html_template = _extract_template(html_file, 'v3-ready')
 
-  with open(js_file) as f:
+  with io.open(js_file, encoding='utf-8') as f:
     lines = f.readlines()
 
   HTML_TEMPLATE_REGEX = '{__html_template__}'
@@ -294,27 +340,48 @@ def _process_v3_ready(js_file, html_file):
   out_filename = os.path.basename(js_file)
   return lines, out_filename
 
-
 def _process_dom_module(js_file, html_file):
   html_template = _extract_template(html_file, 'dom-module')
   js_imports = _generate_js_imports(html_file)
 
+  # Remove IFFE opening/closing lines.
   IIFE_OPENING = '(function() {\n'
+  IIFE_OPENING_ARROW = '(() => {\n'
   IIFE_CLOSING = '})();'
 
-  with open(js_file) as f:
+  # Remove this line.
+  CR_DEFINE_START_REGEX = r'cr.define\('
+  # Ignore all lines after this comment, including the line it appears on.
+  CR_DEFINE_END_REGEX = r'\s*// #cr_define_end'
+
+  # Replace export annotations with 'export'.
+  EXPORT_LINE_REGEX = '/* #export */'
+
+  # Ignore lines with an ignore annotation.
+  IGNORE_LINE_REGEX = '\s*/\* #ignore \*/(\S|\s)*'
+
+  with io.open(js_file, encoding='utf-8') as f:
     lines = f.readlines()
 
   imports_added = False
   iife_found = False
+  cr_define_found = False
+  cr_define_end_line = -1
 
   for i, line in enumerate(lines):
     if not imports_added:
-      if line.startswith(IIFE_OPENING):
+      if line.startswith(IIFE_OPENING) or line.startswith(IIFE_OPENING_ARROW):
+        assert not cr_define_found, 'cr.define() and IFFE in the same file'
         # Replace the IIFE opening line with the JS imports.
         line = '\n'.join(js_imports) + '\n\n'
         imports_added = True
         iife_found = True
+      elif re.match(CR_DEFINE_START_REGEX, line):
+        assert not cr_define_found, 'Multiple cr.define()s are not supported'
+        assert not iife_found, 'cr.define() and IFFE in the same file'
+        line = '\n'.join(js_imports) + '\n\n'
+        cr_define_found = True
+        imports_added = True
       elif line.startswith('Polymer({\n'):
         # Place the JS imports right before the opening "Polymer({" line.
         line = line.replace(
@@ -328,11 +395,22 @@ def _process_dom_module(js_file, html_file):
         r'Polymer({',
         'Polymer({\n  _template: html`%s`,' % html_template)
 
-    if line.startswith('cr.exportPath('):
+    line = line.replace(EXPORT_LINE_REGEX, 'export')
+
+    if re.match(CR_DEFINE_END_REGEX, line):
+      assert cr_define_found, 'Found cr_define_end without cr.define()'
+      cr_define_end_line = i
+      break
+
+    if re.match(IGNORE_LINE_REGEX, line):
       line = ''
 
     line = _rewrite_namespaces(line)
     lines[i] = line
+
+  if cr_define_found:
+    assert cr_define_end_line != -1, 'No cr_define_end found'
+    lines = lines[0:cr_define_end_line]
 
   if iife_found:
     last_line = lines[-1]
@@ -350,15 +428,22 @@ def _process_style_module(js_file, html_file):
 
   style_id = _extract_dom_module_id(html_file)
 
+  # Add |assetpath| attribute so that relative CSS url()s are resolved
+  # correctly. Without this they are resolved with respect to the main HTML
+  # documents location (unlike Polymer2). Note: This is assuming that only style
+  # modules under ui/webui/resources/ are processed by polymer_modulizer(), for
+  # example cr_icons_css.html.
   js_template = \
 """%(js_imports)s
-const styleElement = document.createElement('dom-module');
-styleElement.innerHTML = `%(html_template)s`;
-styleElement.register('%(style_id)s');""" % {
-  'js_imports': '\n'.join(js_imports),
-  'html_template': html_template,
-  'style_id': style_id,
-}
+const template = document.createElement('template');
+template.innerHTML = `
+<dom-module id="%(style_id)s" assetpath="chrome://resources/">%(html_template)s</dom-module>
+`;
+document.body.appendChild(template.content.cloneNode(true));""" % {
+      'html_template': html_template,
+      'js_imports': '\n'.join(js_imports),
+      'style_id': style_id,
+  }
 
   out_filename = os.path.basename(js_file)
   return js_template, out_filename
@@ -373,9 +458,9 @@ def _process_custom_style(js_file, html_file):
 const $_documentContainer = document.createElement('template');
 $_documentContainer.innerHTML = `%(html_template)s`;
 document.head.appendChild($_documentContainer.content);""" % {
-  'js_imports': '\n'.join(js_imports),
-  'html_template': html_template,
-}
+      'js_imports': '\n'.join(js_imports),
+      'html_template': html_template,
+  }
 
   out_filename = os.path.basename(js_file)
   return js_template, out_filename
@@ -389,9 +474,9 @@ def _process_iron_iconset(js_file, html_file):
 const template = html`%(html_template)s`;
 document.head.appendChild(template.content);
 """ % {
-  'js_imports': '\n'.join(js_imports),
-  'html_template': html_template,
-}
+      'js_imports': '\n'.join(js_imports),
+      'html_template': html_template,
+  }
 
   out_filename = os.path.basename(js_file)
   return js_template, out_filename
@@ -404,6 +489,7 @@ def main(argv):
   parser.add_argument('--js_file', required=True)
   parser.add_argument('--html_file', required=True)
   parser.add_argument('--namespace_rewrites', required=False, nargs="*")
+  parser.add_argument('--ignore_imports', required=False, nargs="*")
   parser.add_argument('--auto_imports', required=False, nargs="*")
   parser.add_argument(
       '--html_type', choices=['dom-module', 'style-module', 'custom-style',
@@ -423,6 +509,10 @@ def main(argv):
       path, imports = entry.split('|')
       _auto_imports[path] = imports.split(',')
 
+  # Extract ignored imports from arguments.
+  if args.ignore_imports:
+    global _ignore_imports
+    _ignore_imports = args.ignore_imports
 
   in_folder = os.path.normpath(os.path.join(_CWD, args.in_folder))
   out_folder = os.path.normpath(os.path.join(_CWD, args.out_folder))
@@ -443,9 +533,11 @@ def main(argv):
     result = _process_v3_ready(js_file, html_file)
 
   # Reconstruct file.
-  with open(os.path.join(out_folder, result[1]), 'w') as f:
+  # Specify the newline character so that the exact same file is generated
+  # across platforms.
+  with io.open(os.path.join(out_folder, result[1]), mode='wb') as f:
     for l in result[0]:
-      f.write(l)
+      f.write(l.encode('utf-8'))
   return
 
 

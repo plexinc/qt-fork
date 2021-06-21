@@ -28,9 +28,7 @@ source_set("libfuzzer_main") {
     # appropriate parameter passing to run the target in an isolate. This
     # directive makes this script and its dependencies to be included in the
     # target's isolate.
-    data = [
-      "//tools/code_coverage/",
-    ]
+    data = [ "//tools/code_coverage/" ]
   }
 }
 
@@ -52,4 +50,10 @@ config("no_clusterfuzz") {
 
 # noop to tag seed corpus rules.
 source_set("seed_corpus") {
+}
+
+if (use_fuzzing_engine) {
+  pool("fuzzer_owners_pool") {
+    depth = 1
+  }
 }

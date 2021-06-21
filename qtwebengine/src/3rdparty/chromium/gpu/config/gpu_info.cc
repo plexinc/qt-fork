@@ -4,7 +4,14 @@
 
 #include <stdint.h>
 
+#include "gpu/command_buffer/common/gpu_memory_buffer_support.h"
 #include "gpu/config/gpu_info.h"
+#include "gpu/config/gpu_util.h"
+
+#if defined(OS_MACOSX)
+#include <GLES2/gl2.h>
+#include <GLES2/gl2extchromium.h>
+#endif  // OS_MACOSX
 
 namespace {
 
@@ -13,12 +20,15 @@ void EnumerateGPUDevice(const gpu::GPUInfo::GPUDevice& device,
   enumerator->BeginGPUDevice();
   enumerator->AddInt("vendorId", device.vendor_id);
   enumerator->AddInt("deviceId", device.device_id);
+#if defined(OS_WIN)
+  enumerator->AddInt("subSysId", device.sub_sys_id);
+  enumerator->AddInt("revision", device.revision);
+#endif  // OS_WIN
   enumerator->AddBool("active", device.active);
   enumerator->AddString("vendorString", device.vendor_string);
   enumerator->AddString("deviceString", device.device_string);
   enumerator->AddString("driverVendor", device.driver_vendor);
   enumerator->AddString("driverVersion", device.driver_version);
-  enumerator->AddString("driverDate", device.driver_date);
   enumerator->AddInt("cudaComputeCapabilityMajor",
                      device.cuda_compute_capability_major);
   enumerator->EndGPUDevice();
@@ -42,6 +52,8 @@ void EnumerateVideoEncodeAcceleratorSupportedProfile(
     gpu::GPUInfo::Enumerator* enumerator) {
   enumerator->BeginVideoEncodeAcceleratorSupportedProfile();
   enumerator->AddInt("profile", profile.profile);
+  enumerator->AddInt("minResolutionWidth", profile.min_resolution.width());
+  enumerator->AddInt("minResolutionHeight", profile.min_resolution.height());
   enumerator->AddInt("maxResolutionWidth", profile.max_resolution.width());
   enumerator->AddInt("maxResolutionHeight", profile.max_resolution.height());
   enumerator->AddInt("maxFramerateNumerator", profile.max_framerate_numerator);
@@ -103,10 +115,23 @@ void EnumerateDx12VulkanVersionInfo(const gpu::Dx12VulkanVersionInfo& info,
   enumerator->BeginDx12VulkanVersionInfo();
   enumerator->AddBool("supportsDx12", info.supports_dx12);
   enumerator->AddBool("supportsVulkan", info.supports_vulkan);
-  enumerator->AddInt("dx12FeatureLevel",
-                     static_cast<int>(info.d3d12_feature_level));
-  enumerator->AddInt("vulkanVersion", static_cast<int>(info.vulkan_version));
+  enumerator->AddString("dx12FeatureLevel",
+                        gpu::D3DFeatureLevelToString(info.d3d12_feature_level));
+  enumerator->AddString("vulkanVersion",
+                        gpu::VulkanVersionToString(info.vulkan_version));
   enumerator->EndDx12VulkanVersionInfo();
+}
+
+void EnumerateOverlayInfo(const gpu::OverlayInfo& info,
+                          gpu::GPUInfo::Enumerator* enumerator) {
+  enumerator->BeginOverlayInfo();
+  enumerator->AddBool("directComposition", info.direct_composition);
+  enumerator->AddBool("supportsOverlays", info.supports_overlays);
+  enumerator->AddString("yuy2OverlaySupport",
+                        gpu::OverlaySupportToString(info.yuy2_overlay_support));
+  enumerator->AddString("nv12OverlaySupport",
+                        gpu::OverlaySupportToString(info.nv12_overlay_support));
+  enumerator->EndOverlayInfo();
 }
 #endif
 
@@ -126,6 +151,19 @@ const char* OverlaySupportToString(gpu::OverlaySupport support) {
   }
 }
 #endif  // OS_WIN
+
+#if defined(OS_MACOSX)
+GPU_EXPORT bool ValidateMacOSSpecificTextureTarget(int target) {
+  switch (target) {
+    case GL_TEXTURE_2D:
+    case GL_TEXTURE_RECTANGLE_ARB:
+      return true;
+
+    default:
+      return false;
+  }
+}
+#endif  // OS_MACOSX
 
 VideoDecodeAcceleratorCapabilities::VideoDecodeAcceleratorCapabilities()
     : flags(0) {}
@@ -154,11 +192,7 @@ operator=(const ImageDecodeAcceleratorSupportedProfile& other) = default;
 ImageDecodeAcceleratorSupportedProfile& ImageDecodeAcceleratorSupportedProfile::
 operator=(ImageDecodeAcceleratorSupportedProfile&& other) = default;
 
-GPUInfo::GPUDevice::GPUDevice()
-    : vendor_id(0),
-      device_id(0),
-      active(false),
-      cuda_compute_capability_major(0) {}
+GPUInfo::GPUDevice::GPUDevice() = default;
 
 GPUInfo::GPUDevice::GPUDevice(const GPUInfo::GPUDevice& other) = default;
 
@@ -178,7 +212,7 @@ GPUInfo::GPUDevice& GPUInfo::GPUDevice::operator=(
   device_string = std::move(other.device_string);
   driver_vendor = std::move(other.driver_vendor);
   driver_version = std::move(other.driver_version);
-  driver_date = std::move(other.driver_date);
+  cuda_compute_capability_major = std::move(other.cuda_compute_capability_major);
   return *this;
 }
 
@@ -190,12 +224,12 @@ GPUInfo::GPUInfo()
       sandboxed(false),
       in_process_gpu(true),
       passthrough_cmd_decoder(false),
+#if defined(OS_MACOSX)
+      macos_specific_texture_target(gpu::GetPlatformSpecificTextureTarget()),
+#endif  // OS_MACOSX
       jpeg_decode_accelerator_supported(false),
-#if defined(USE_X11)
-      system_visual(0),
-      rgba_visual(0),
-#endif
-      oop_rasterization_supported(false) {
+      oop_rasterization_supported(false),
+      subpixel_font_rendering(true) {
 }
 
 GPUInfo::GPUInfo(const GPUInfo& other) = default;
@@ -248,13 +282,13 @@ void GPUInfo::EnumerateFields(Enumerator* enumerator) const {
     bool in_process_gpu;
     bool passthrough_cmd_decoder;
     bool can_support_threaded_texture_mailbox;
+#if defined(OS_MACOSX)
+    uint32_t macos_specific_texture_target;
+#endif  // OS_MACOSX
 #if defined(OS_WIN)
-    bool direct_composition;
-    bool supports_overlays;
-    OverlaySupport yuy2_overlay_support;
-    OverlaySupport nv12_overlay_support;
     DxDiagNode dx_diagnostics;
     Dx12VulkanVersionInfo dx12_vulkan_version_info;
+    OverlayInfo overlay_info;
 #endif
 
     VideoDecodeAcceleratorCapabilities video_decode_accelerator_capabilities;
@@ -265,12 +299,12 @@ void GPUInfo::EnumerateFields(Enumerator* enumerator) const {
     ImageDecodeAcceleratorSupportedProfiles
         image_decode_accelerator_supported_profiles;
 
-#if defined(USE_X11)
-    VisualID system_visual;
-    VisualID rgba_visual;
-#endif
-
     bool oop_rasterization_supported;
+    bool subpixel_font_rendering;
+
+#if BUILDFLAG(ENABLE_VULKAN)
+    base::Optional<VulkanInfo> vulkan_info;
+#endif
   };
 
   // If this assert fails then most likely something below needs to be updated.
@@ -312,14 +346,13 @@ void GPUInfo::EnumerateFields(Enumerator* enumerator) const {
   enumerator->AddBool("passthroughCmdDecoder", passthrough_cmd_decoder);
   enumerator->AddBool("canSupportThreadedTextureMailbox",
                       can_support_threaded_texture_mailbox);
+#if defined(OS_MACOSX)
+  enumerator->AddInt("macOSSpecificTextureTarget",
+                     macos_specific_texture_target);
+#endif  // OS_MACOSX
   // TODO(kbr): add dx_diagnostics on Windows.
 #if defined(OS_WIN)
-  enumerator->AddBool("directComposition", direct_composition);
-  enumerator->AddBool("supportsOverlays", supports_overlays);
-  enumerator->AddString("yuy2OverlaySupport",
-                        OverlaySupportToString(yuy2_overlay_support));
-  enumerator->AddString("nv12OverlaySupport",
-                        OverlaySupportToString(nv12_overlay_support));
+  EnumerateOverlayInfo(overlay_info, enumerator);
   EnumerateDx12VulkanVersionInfo(dx12_vulkan_version_info, enumerator);
 #endif
   enumerator->AddInt("videoDecodeAcceleratorFlags",
@@ -335,11 +368,14 @@ void GPUInfo::EnumerateFields(Enumerator* enumerator) const {
       jpeg_decode_accelerator_supported);
   for (const auto& profile : image_decode_accelerator_supported_profiles)
     EnumerateImageDecodeAcceleratorSupportedProfile(profile, enumerator);
-#if defined(USE_X11)
-  enumerator->AddInt64("systemVisual", system_visual);
-  enumerator->AddInt64("rgbaVisual", rgba_visual);
-#endif
   enumerator->AddBool("oopRasterizationSupported", oop_rasterization_supported);
+  enumerator->AddBool("subpixelFontRendering", subpixel_font_rendering);
+#if BUILDFLAG(ENABLE_VULKAN)
+  if (vulkan_info) {
+    auto blob = vulkan_info->Serialize();
+    enumerator->AddBinary("vulkanInfo", base::span<const uint8_t>(blob));
+  }
+#endif
   enumerator->EndAuxAttributes();
 }
 

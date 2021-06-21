@@ -38,13 +38,13 @@
 ****************************************************************************/
 
 #if defined(USE_OZONE)
-#include "gl_ozone_egl_qt.h"
+#include <QtCore/qobject.h>
+#include <QtGui/qtgui-config.h>
 #include "gl_context_qt.h"
+#include "gl_ozone_egl_qt.h"
 #include "gl_surface_egl_qt.h"
 #include "base/files/file_path.h"
 #include "base/native_library.h"
-#include "gl_context_qt.h"
-#include "gl_ozone_egl_qt.h"
 #include "ui/gl/gl_context_egl.h"
 #include "ui/gl/gl_implementation.h"
 #include "ui/gl/gl_surface.h"
@@ -54,15 +54,6 @@
 
 #include <EGL/egl.h>
 #include <dlfcn.h>
-
-#include <QtGui/qtgui-config.h> // for QT_NO_OPENGL
-
-#ifndef QT_NO_OPENGL
-#include <QOpenGLContext>
-QT_BEGIN_NAMESPACE
-Q_GUI_EXPORT QOpenGLContext *qt_gl_global_share_context();
-QT_END_NAMESPACE
-#endif
 
 namespace ui {
 
@@ -88,13 +79,11 @@ bool GLOzoneEGLQt::LoadGLES2Bindings(gl::GLImplementation /*implementation*/)
             reinterpret_cast<gl::GLGetProcAddressProc>(
                 base::GetFunctionPointerFromNativeLibrary(eglgles2Library,
                                                           "eglGetProcAddress"));
-#ifndef QT_NO_OPENGL
+#if QT_CONFIG(opengl)
     if (!get_proc_address) {
         // QTBUG-63341 most likely libgles2 not linked with libegl -> fallback to qpa
-        if (QOpenGLContext *context = qt_gl_global_share_context()) {
-            get_proc_address = reinterpret_cast<gl::GLGetProcAddressProc>(
-                context->getProcAddress("eglGetProcAddress"));
-        }
+        get_proc_address =
+                reinterpret_cast<gl::GLGetProcAddressProc>(GLContextHelper::getEglGetProcAddress());
     }
 #endif
 
@@ -142,14 +131,11 @@ scoped_refptr<gl::GLSurface> GLOzoneEGLQt::CreateOffscreenGLSurface(const gfx::S
     return nullptr;
 }
 
-intptr_t GLOzoneEGLQt::GetNativeDisplay()
+gl::EGLDisplayPlatform GLOzoneEGLQt::GetNativeDisplay()
 {
     static void *display = GLContextHelper::getNativeDisplay();
-
-    if (display)
-        return reinterpret_cast<intptr_t>(display);
-
-    return reinterpret_cast<intptr_t>(EGL_DEFAULT_DISPLAY);
+    static gl::EGLDisplayPlatform platform(display ? reinterpret_cast<intptr_t>(display) : EGL_DEFAULT_DISPLAY);
+    return platform;
 }
 
 } // namespace ui

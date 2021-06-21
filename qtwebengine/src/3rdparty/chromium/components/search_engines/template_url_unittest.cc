@@ -802,6 +802,33 @@ TEST_F(TemplateURLTest, ReplaceCurrentPageUrl) {
   }
 }
 
+// Tests appending attribution parameter to queries originating from Play API
+// search engine.
+TEST_F(TemplateURLTest, PlayAPIAttribution) {
+  const struct TestData {
+    const char* url;
+    base::string16 terms;
+    bool created_from_play_api;
+    const char* output;
+  } test_data[] = {{"http://foo/?q={searchTerms}", ASCIIToUTF16("bar"), false,
+                    "http://foo/?q=bar"},
+                   {"http://foo/?q={searchTerms}", ASCIIToUTF16("bar"), true,
+                    "http://foo/?q=bar&chrome_dse_attribution=1"}};
+  TemplateURLData data;
+  for (size_t i = 0; i < base::size(test_data); ++i) {
+    data.SetURL(test_data[i].url);
+    data.created_from_play_api = test_data[i].created_from_play_api;
+    TemplateURL url(data);
+    EXPECT_TRUE(url.url_ref().IsValid(search_terms_data_));
+    ASSERT_TRUE(url.url_ref().SupportsReplacement(search_terms_data_));
+    GURL result(url.url_ref().ReplaceSearchTerms(
+        TemplateURLRef::SearchTermsArgs(test_data[i].terms),
+        search_terms_data_));
+    ASSERT_TRUE(result.is_valid());
+    EXPECT_EQ(test_data[i].output, result.spec());
+  }
+}
+
 TEST_F(TemplateURLTest, Suggestions) {
   struct TestData {
     const int accepted_suggestion;
@@ -1714,7 +1741,7 @@ TEST_F(TemplateURLTest, ContextualSearchParameters) {
   // Test the current common case, which uses no home country or previous
   // event.
   TemplateURLRef::SearchTermsArgs::ContextualSearchParams params(
-      2, 1, std::string(), 0, 0);
+      2, 1, std::string(), 0, 0, false, std::string(), std::string());
   search_terms_args.contextual_search_params = params;
   result = url.url_ref().ReplaceSearchTerms(search_terms_args,
                                             search_terms_data_);
@@ -1726,8 +1753,8 @@ TEST_F(TemplateURLTest, ContextualSearchParameters) {
 
   // Test the home country and non-zero event data case.
   search_terms_args.contextual_search_params =
-      TemplateURLRef::SearchTermsArgs::ContextualSearchParams(2, 2, "CH",
-                                                              1657713458, 5);
+      TemplateURLRef::SearchTermsArgs::ContextualSearchParams(
+          2, 2, "CH", 1657713458, 5, false, std::string(), std::string());
   result =
       url.url_ref().ReplaceSearchTerms(search_terms_args, search_terms_data_);
 
@@ -1739,6 +1766,28 @@ TEST_F(TemplateURLTest, ContextualSearchParameters) {
       "ctxsl_pid=1657713458&"
       "ctxsl_per=5",
       result);
+
+  // Test exact-search.
+  search_terms_args.contextual_search_params =
+      TemplateURLRef::SearchTermsArgs::ContextualSearchParams(
+          2, 1, std::string(), 0, 0, true, std::string(), std::string());
+  result =
+      url.url_ref().ReplaceSearchTerms(search_terms_args, search_terms_data_);
+  // Find our param.
+  size_t found_pos = result.find("ctxsl_exact=1");
+  EXPECT_NE(found_pos, std::string::npos);
+
+  // Test source and target languages.
+  search_terms_args.contextual_search_params =
+      TemplateURLRef::SearchTermsArgs::ContextualSearchParams(
+          2, 1, std::string(), 0, 0, true, "es", "de");
+  result =
+      url.url_ref().ReplaceSearchTerms(search_terms_args, search_terms_data_);
+  // Find our params.
+  size_t source_pos = result.find("tlitesl=es");
+  EXPECT_NE(source_pos, std::string::npos);
+  size_t target_pos = result.find("tlitetl=de");
+  EXPECT_NE(target_pos, std::string::npos);
 }
 
 TEST_F(TemplateURLTest, GenerateKeyword) {

@@ -7,6 +7,7 @@
 
 #include "mojo/public/cpp/bindings/remote.h"
 #include "third_party/blink/public/mojom/credentialmanager/credential_manager.mojom-blink.h"
+#include "third_party/blink/public/mojom/sms/sms_receiver.mojom-blink.h"
 #include "third_party/blink/public/mojom/webauthn/authenticator.mojom-blink.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
@@ -29,7 +30,7 @@ class ScriptState;
 // whose global object owns the CredentialsContainer instance on which the
 // method was called.
 class MODULES_EXPORT CredentialManagerProxy
-    : public GarbageCollectedFinalized<CredentialManagerProxy>,
+    : public GarbageCollected<CredentialManagerProxy>,
       public Supplement<Document> {
   USING_GARBAGE_COLLECTED_MIXIN(CredentialManagerProxy);
 
@@ -45,9 +46,13 @@ class MODULES_EXPORT CredentialManagerProxy
 
   mojom::blink::Authenticator* Authenticator() { return authenticator_.get(); }
 
+  mojom::blink::SmsReceiver* SmsReceiver();
+
   void FlushCredentialManagerConnectionForTesting() {
     credential_manager_.FlushForTesting();
   }
+
+  void Trace(Visitor* visitor) override;
 
   // Both flavors must be called only with arguments representing a valid
   // context corresponding to an attached Document.
@@ -57,6 +62,9 @@ class MODULES_EXPORT CredentialManagerProxy
  private:
   mojo::Remote<mojom::blink::Authenticator> authenticator_;
   mojo::Remote<mojom::blink::CredentialManager> credential_manager_;
+  mojo::Remote<mojom::blink::SmsReceiver> sms_receiver_;
+
+  Member<Document> document_;
 };
 
 }  // namespace blink

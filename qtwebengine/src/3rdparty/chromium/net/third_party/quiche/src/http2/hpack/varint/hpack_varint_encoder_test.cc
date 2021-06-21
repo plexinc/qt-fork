@@ -4,8 +4,8 @@
 
 #include "net/third_party/quiche/src/http2/hpack/varint/hpack_varint_encoder.h"
 
-#include "net/third_party/quiche/src/http2/platform/api/http2_arraysize.h"
 #include "net/third_party/quiche/src/http2/platform/api/http2_string_utils.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_arraysize.h"
 
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -30,8 +30,8 @@ struct {
 
 // Encode integers that fit in the prefix.
 TEST(HpackVarintEncoderTest, Short) {
-  for (size_t i = 0; i < HTTP2_ARRAYSIZE(kShortTestData); ++i) {
-    Http2String output;
+  for (size_t i = 0; i < QUICHE_ARRAYSIZE(kShortTestData); ++i) {
+    std::string output;
     HpackVarintEncoder::Encode(kShortTestData[i].high_bits,
                                kShortTestData[i].prefix_length,
                                kShortTestData[i].value, &output);
@@ -103,17 +103,17 @@ struct {
 TEST(HpackVarintEncoderTest, Long) {
   // Test encoding byte by byte, also test encoding in
   // a single ResumeEncoding() call.
-    for (size_t i = 0; i < HTTP2_ARRAYSIZE(kLongTestData); ++i) {
-      Http2String expected_encoding =
-          Http2HexDecode(kLongTestData[i].expected_encoding);
+  for (size_t i = 0; i < QUICHE_ARRAYSIZE(kLongTestData); ++i) {
+    std::string expected_encoding =
+        Http2HexDecode(kLongTestData[i].expected_encoding);
 
-      Http2String output;
-      HpackVarintEncoder::Encode(kLongTestData[i].high_bits,
-                                 kLongTestData[i].prefix_length,
-                                 kLongTestData[i].value, &output);
+    std::string output;
+    HpackVarintEncoder::Encode(kLongTestData[i].high_bits,
+                               kLongTestData[i].prefix_length,
+                               kLongTestData[i].value, &output);
 
-      EXPECT_EQ(expected_encoding, output);
-    }
+    EXPECT_EQ(expected_encoding, output);
+  }
 }
 
 struct {
@@ -130,8 +130,8 @@ struct {
 // Make sure that the encoder outputs the last byte even when it is zero.  This
 // happens exactly when encoding  the value 2^prefix_length - 1.
 TEST(HpackVarintEncoderTest, LastByteIsZero) {
-  for (size_t i = 0; i < HTTP2_ARRAYSIZE(kLastByteIsZeroTestData); ++i) {
-    Http2String output;
+  for (size_t i = 0; i < QUICHE_ARRAYSIZE(kLastByteIsZeroTestData); ++i) {
+    std::string output;
     HpackVarintEncoder::Encode(kLastByteIsZeroTestData[i].high_bits,
                                kLastByteIsZeroTestData[i].prefix_length,
                                kLastByteIsZeroTestData[i].value, &output);
@@ -144,7 +144,7 @@ TEST(HpackVarintEncoderTest, LastByteIsZero) {
 
 // Test that encoder appends correctly to non-empty string.
 TEST(HpackVarintEncoderTest, Append) {
-  Http2String output("foo");
+  std::string output("foo");
   EXPECT_EQ(Http2HexDecode("666f6f"), output);
 
   HpackVarintEncoder::Encode(0b10011000, 3, 103, &output);

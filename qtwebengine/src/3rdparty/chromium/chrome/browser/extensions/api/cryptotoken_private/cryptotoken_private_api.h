@@ -27,18 +27,18 @@ void CryptotokenRegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry);
 
 class CryptotokenPrivateCanOriginAssertAppIdFunction
-    : public UIThreadExtensionFunction {
-  public:
-    CryptotokenPrivateCanOriginAssertAppIdFunction();
-    DECLARE_EXTENSION_FUNCTION("cryptotokenPrivate.canOriginAssertAppId",
-                               CRYPTOTOKENPRIVATE_CANORIGINASSERTAPPID)
-  protected:
-    ~CryptotokenPrivateCanOriginAssertAppIdFunction() override {}
-    ResponseAction Run() override;
+    : public ExtensionFunction {
+ public:
+  CryptotokenPrivateCanOriginAssertAppIdFunction();
+  DECLARE_EXTENSION_FUNCTION("cryptotokenPrivate.canOriginAssertAppId",
+                             CRYPTOTOKENPRIVATE_CANORIGINASSERTAPPID)
+ protected:
+  ~CryptotokenPrivateCanOriginAssertAppIdFunction() override {}
+  ResponseAction Run() override;
 };
 
 class CryptotokenPrivateIsAppIdHashInEnterpriseContextFunction
-    : public UIThreadExtensionFunction {
+    : public ExtensionFunction {
  public:
   CryptotokenPrivateIsAppIdHashInEnterpriseContextFunction();
   DECLARE_EXTENSION_FUNCTION(
@@ -51,7 +51,7 @@ class CryptotokenPrivateIsAppIdHashInEnterpriseContextFunction
 };
 
 class CryptotokenPrivateCanAppIdGetAttestationFunction
-    : public UIThreadExtensionFunction {
+    : public ExtensionFunction {
  public:
   CryptotokenPrivateCanAppIdGetAttestationFunction();
   DECLARE_EXTENSION_FUNCTION("cryptotokenPrivate.canAppIdGetAttestation",
@@ -61,6 +61,29 @@ class CryptotokenPrivateCanAppIdGetAttestationFunction
   ~CryptotokenPrivateCanAppIdGetAttestationFunction() override {}
   ResponseAction Run() override;
   void Complete(bool result);
+};
+
+class CryptotokenPrivateRecordRegisterRequestFunction
+    : public ExtensionFunction {
+ public:
+  CryptotokenPrivateRecordRegisterRequestFunction() = default;
+  DECLARE_EXTENSION_FUNCTION("cryptotokenPrivate.recordRegisterRequest",
+                             CRYPTOTOKENPRIVATE_RECORDREGISTERREQUEST)
+
+ protected:
+  ~CryptotokenPrivateRecordRegisterRequestFunction() override = default;
+  ResponseAction Run() override;
+};
+
+class CryptotokenPrivateRecordSignRequestFunction : public ExtensionFunction {
+ public:
+  CryptotokenPrivateRecordSignRequestFunction() = default;
+  DECLARE_EXTENSION_FUNCTION("cryptotokenPrivate.recordSignRequest",
+                             CRYPTOTOKENPRIVATE_RECORDSIGNREQUEST)
+
+ protected:
+  ~CryptotokenPrivateRecordSignRequestFunction() override = default;
+  ResponseAction Run() override;
 };
 
 }  // namespace api

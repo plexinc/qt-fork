@@ -13,6 +13,37 @@ declare_args() {
   default_output_buffer_size_in_frames = 2048
 }
 
+cast_source_set("audio_io_thread") {
+  sources = [
+    "audio_io_thread.cc",
+    "audio_io_thread.h",
+  ]
+
+  deps = [ "//base" ]
+}
+
+cast_source_set("processing") {
+  sources = [
+    "audio_clock_simulator.cc",
+    "audio_clock_simulator.h",
+    "audio_fader.cc",
+    "audio_fader.h",
+    "audio_provider.h",
+    "interleaved_channel_mixer.cc",
+    "interleaved_channel_mixer.h",
+  ]
+
+  deps = [
+    "//base",
+    "//media",
+  ]
+
+  # Use fastest possible float math.
+  configs -= [ "//build/config/compiler:default_optimization" ]
+  configs += [ "//build/config/compiler:optimize_speed" ]
+  cflags = [ "-ffast-math" ]
+}
+
 cast_source_set("audio") {
   sources = [
     "cast_audio_input_stream.cc",
@@ -23,6 +54,8 @@ cast_source_set("audio") {
     "cast_audio_mixer.h",
     "cast_audio_output_stream.cc",
     "cast_audio_output_stream.h",
+    "cma_audio_output_stream.cc",
+    "cma_audio_output_stream.h",
   ]
 
   deps = [
@@ -31,9 +64,11 @@ cast_source_set("audio") {
     "//chromecast/base",
     "//chromecast/common/mojom",
     "//chromecast/media/audio/capture_service:receiver",
-    "//chromecast/media/audio/mixer_service:connection",
+    "//chromecast/media/audio/mixer_service:common",
+    "//chromecast/media/audio/mixer_service:output_stream_connection",
     "//chromecast/media/audio/mixer_service:proto",
     "//chromecast/media/base",
+    "//chromecast/media/base:monotonic_clock",
     "//chromecast/media/cma/backend",
     "//chromecast/media/cma/base",
     "//chromecast/public/media",
@@ -71,14 +106,14 @@ if (is_android) {
   }
 }
 
-cast_shared_library("libcast_external_audio_pipeline_1.0") {
-  sources = [
-    "external_audio_pipeline_dummy.cc",
-  ]
+source_set("dummy_external_audio_pipeline") {
+  sources = [ "external_audio_pipeline_dummy.cc" ]
 
-  public_deps = [
-    "//chromecast/public/media",
-  ]
+  public_deps = [ "//chromecast/public/media" ]
+}
+
+cast_shared_library("libcast_external_audio_pipeline_1.0") {
+  public_deps = [ ":dummy_external_audio_pipeline" ]
 }
 
 source_set("fake_external_audio_pipeline") {
@@ -113,15 +148,26 @@ buildflag_header("audio_buildflags") {
 cast_source_set("test_support") {
   testonly = true
 
-  sources = [
-    "mock_audio_input_callback.h",
-  ]
+  sources = [ "mock_audio_input_callback.h" ]
 
-  public_deps = [
-    "//testing/gmock",
+  public_deps = [ "//testing/gmock" ]
+
+  deps = [ "//media" ]
+}
+
+cast_source_set("unittests") {
+  testonly = true
+  sources = [
+    "audio_clock_simulator_unittest.cc",
+    "audio_fader_unittest.cc",
+    "interleaved_channel_mixer_unittest.cc",
   ]
 
   deps = [
+    ":processing",
+    "//base",
     "//media",
+    "//testing/gmock",
+    "//testing/gtest",
   ]
 }

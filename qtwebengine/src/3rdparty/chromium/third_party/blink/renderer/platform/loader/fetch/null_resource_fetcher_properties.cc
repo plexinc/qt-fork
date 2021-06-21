@@ -4,7 +4,9 @@
 
 #include "third_party/blink/renderer/platform/loader/fetch/null_resource_fetcher_properties.h"
 
+#include "services/network/public/mojom/ip_address_space.mojom-blink.h"
 #include "services/network/public/mojom/referrer_policy.mojom-blink.h"
+#include "third_party/blink/public/mojom/security_context/insecure_request_policy.mojom-blink.h"
 #include "third_party/blink/renderer/platform/loader/allowed_by_nosniff.h"
 #include "third_party/blink/renderer/platform/loader/fetch/fetch_client_settings_object_snapshot.h"
 #include "third_party/blink/renderer/platform/loader/fetch/https_state.h"
@@ -23,14 +25,17 @@ NullResourceFetcherProperties::NullResourceFetcherProperties()
               String(),
               HttpsState::kNone,
               AllowedByNosniff::MimeTypeCheck::kStrict,
-              mojom::IPAddressSpace::kPublic,
-              kLeaveInsecureRequestsAlone,
-              FetchClientSettingsObject::InsecureNavigationsSet(),
-              false /* mixed_autoupgrade_opt_out */)) {}
+              network::mojom::IPAddressSpace::kPublic,
+              mojom::blink::InsecureRequestPolicy::kLeaveInsecureRequestsAlone,
+              FetchClientSettingsObject::InsecureNavigationsSet())) {}
 
 void NullResourceFetcherProperties::Trace(Visitor* visitor) {
   visitor->Trace(fetch_client_settings_object_);
   ResourceFetcherProperties::Trace(visitor);
+}
+
+const KURL& NullResourceFetcherProperties::WebBundlePhysicalUrl() const {
+  return NullURL();
 }
 
 }  // namespace blink

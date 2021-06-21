@@ -102,15 +102,15 @@ GpuHostImpl::GpuHostImpl(Delegate* delegate,
       host_thread_task_runner_(base::ThreadTaskRunnerHandle::Get()) {
   DCHECK(delegate_);
 
-  discardable_memory::mojom::DiscardableSharedMemoryManagerPtr
-      discardable_manager_ptr;
-  auto discardable_request = mojo::MakeRequest(&discardable_manager_ptr);
-  delegate_->BindDiscardableMemoryRequest(std::move(discardable_request));
+  mojo::PendingRemote<discardable_memory::mojom::DiscardableSharedMemoryManager>
+      discardable_manager_remote;
+  delegate_->BindDiscardableMemoryReceiver(
+      discardable_manager_remote.InitWithNewPipeAndPassReceiver());
 
   DCHECK(GetFontRenderParams().Get());
   viz_main_->CreateGpuService(gpu_service_remote_.BindNewPipeAndPassReceiver(),
                               gpu_host_receiver_.BindNewPipeAndPassRemote(),
-                              std::move(discardable_manager_ptr),
+                              std::move(discardable_manager_remote),
                               activity_flags_.CloneHandle(),
                               GetFontRenderParams().Get()->subpixel_rendering);
 
@@ -135,7 +135,7 @@ void GpuHostImpl::ResetFontRenderParams() {
   GetFontRenderParams().Reset();
 }
 
-void GpuHostImpl::OnProcessLaunched(base::ProcessId pid) {
+void GpuHostImpl::SetProcessId(base::ProcessId pid) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK_EQ(base::kNullProcessId, pid_);
   DCHECK_NE(base::kNullProcessId, pid);
@@ -176,8 +176,8 @@ void GpuHostImpl::BlockLiveOffscreenContexts() {
 }
 
 void GpuHostImpl::ConnectFrameSinkManager(
-    mojom::FrameSinkManagerRequest request,
-    mojom::FrameSinkManagerClientPtrInfo client) {
+    mojo::PendingReceiver<mojom::FrameSinkManager> receiver,
+    mojo::PendingRemote<mojom::FrameSinkManagerClient> client) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   TRACE_EVENT0("gpu", "GpuHostImpl::ConnectFrameSinkManager");
 
@@ -188,12 +188,12 @@ void GpuHostImpl::ConnectFrameSinkManager(
       params_.deadline_to_synchronize_surfaces.has_value();
   params->activation_deadline_in_frames =
       params_.deadline_to_synchronize_surfaces.value_or(0u);
-  params->frame_sink_manager = std::move(request);
+  params->frame_sink_manager = std::move(receiver);
   params->frame_sink_manager_client = std::move(client);
   viz_main_->CreateFrameSinkManager(std::move(params));
 }
 
-#if defined(USE_VIZ_DEVTOOLS)
+#if BUILDFLAG(USE_VIZ_DEVTOOLS)
 void GpuHostImpl::ConnectVizDevTools(mojom::VizDevToolsParamsPtr params) {
   viz_main_->CreateVizDevTools(std::move(params));
 }
@@ -205,6 +205,8 @@ void GpuHostImpl::EstablishGpuChannel(int client_id,
                                       EstablishChannelCallback callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   TRACE_EVENT0("gpu", "GpuHostImpl::EstablishGpuChannel");
+
+  shutdown_timeout_.Stop();
 
   // If GPU features are already blacklisted, no need to establish the channel.
   if (!delegate_->GpuAccessAllowed()) {
@@ -272,6 +274,7 @@ mojom::GpuService* GpuHostImpl::gpu_service() {
 }
 
 #if defined(USE_OZONE)
+
 void GpuHostImpl::InitOzone() {
   // Ozone needs to send the primary DRM device to GPU service as early as
   // possible to ensure the latter always has a valid device.
@@ -280,9 +283,8 @@ void GpuHostImpl::InitOzone() {
   // The Ozone/Wayland requires mojo communication to be established to be
   // functional with a separate gpu process. Thus, using the PlatformProperties,
   // check if there is such a requirement.
-  if (features::IsOzoneDrmMojo() || ui::OzonePlatform::EnsureInstance()
-                                        ->GetPlatformProperties()
-                                        .requires_mojo) {
+  if (features::IsOzoneDrmMojo() ||
+      ui::OzonePlatform::GetInstance()->GetPlatformProperties().requires_mojo) {
     // TODO(rjkroege): Remove the legacy IPC code paths when no longer
     // necessary. https://crbug.com/806092
     auto interface_binder = base::BindRepeating(&GpuHostImpl::BindInterface,
@@ -415,19 +417,12 @@ void GpuHostImpl::DidInitialize(
                            gpu_info_for_hardware_gpu,
                            gpu_feature_info_for_hardware_gpu, gpu_extra_info);
 
-  // Remove entries so that GPU process shader caches get populated on any
-  // GPU process start.
-  client_id_to_shader_cache_.clear();
-
   if (!params_.disable_gpu_shader_disk_cache) {
-    bool oopd_enabled = features::IsVizDisplayCompositorEnabled();
-    if (oopd_enabled)
-      CreateChannelCache(gpu::kInProcessCommandBufferClientId);
+    CreateChannelCache(gpu::kInProcessCommandBufferClientId);
 
-    bool use_gr_shader_cache =
-        base::FeatureList::IsEnabled(
-            features::kDefaultEnableOopRasterization) ||
-        base::FeatureList::IsEnabled(features::kUseSkiaRenderer);
+    bool use_gr_shader_cache = base::FeatureList::IsEnabled(
+                                   features::kDefaultEnableOopRasterization) ||
+                               features::IsUsingSkiaRenderer();
     if (use_gr_shader_cache)
       CreateChannelCache(gpu::kGrShaderCacheClientId);
   }
@@ -457,6 +452,22 @@ void GpuHostImpl::DidDestroyOffscreenContext(const GURL& url) {
 void GpuHostImpl::DidDestroyChannel(int32_t client_id) {
   TRACE_EVENT0("gpu", "GpuHostImpl::DidDestroyChannel");
   client_id_to_shader_cache_.erase(client_id);
+}
+
+void GpuHostImpl::DidDestroyAllChannels() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  if (!channel_requests_.empty())
+    return;
+  constexpr base::TimeDelta kShutDownTimeout = base::TimeDelta::FromSeconds(10);
+  shutdown_timeout_.Start(FROM_HERE, kShutDownTimeout,
+                          base::BindOnce(&GpuHostImpl::MaybeShutdownGpuProcess,
+                                         base::Unretained(this)));
+}
+
+void GpuHostImpl::MaybeShutdownGpuProcess() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK(channel_requests_.empty());
+  delegate_->MaybeShutdownGpuProcess();
 }
 
 void GpuHostImpl::DidLoseContext(bool offscreen,
@@ -507,6 +518,10 @@ void GpuHostImpl::DisableGpuCompositing() {
 }
 
 #if defined(OS_WIN)
+void GpuHostImpl::DidUpdateOverlayInfo(const gpu::OverlayInfo& overlay_info) {
+  delegate_->DidUpdateOverlayInfo(overlay_info);
+}
+
 void GpuHostImpl::SetChildSurface(gpu::SurfaceHandle parent,
                                   gpu::SurfaceHandle child) {
   if (pid_ != base::kNullProcessId) {

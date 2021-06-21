@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include "src/tracing/internal/in_process_tracing_backend.h"
+#include "perfetto/tracing/internal/in_process_tracing_backend.h"
 
 #include "perfetto/base/logging.h"
 #include "perfetto/base/task_runner.h"
@@ -42,6 +42,7 @@ class InProcessShm : public SharedMemory {
   ~InProcessShm() override;
   void* start() const override;
   size_t size() const override;
+  int fd() const override;
 
  private:
   base::PagedMemory mem_;
@@ -66,6 +67,10 @@ size_t InProcessShm::size() const {
   return mem_.size();
 }
 
+int InProcessShm::fd() const {
+  return -1;
+}
+
 InProcessShmFactory::~InProcessShmFactory() = default;
 std::unique_ptr<SharedMemory> InProcessShmFactory::CreateSharedMemory(
     size_t size) {
@@ -75,7 +80,7 @@ std::unique_ptr<SharedMemory> InProcessShmFactory::CreateSharedMemory(
 }  // namespace
 
 // static
-InProcessTracingBackend* InProcessTracingBackend::GetInstance() {
+TracingBackend* InProcessTracingBackend::GetInstance() {
   static auto* instance = new InProcessTracingBackend();
   return instance;
 }
@@ -92,10 +97,10 @@ std::unique_ptr<ProducerEndpoint> InProcessTracingBackend::ConnectProducer(
 
   return GetOrCreateService(args.task_runner)
       ->ConnectProducer(args.producer, /*uid=*/0, args.producer_name,
-                        /*shm_hint=*/0,
+                        args.shmem_size_hint_bytes,
                         /*in_process=*/true,
                         TracingService::ProducerSMBScrapingMode::kEnabled,
-                        /*shm_page_hint*/ 0);
+                        args.shmem_page_size_hint_bytes);
 }
 
 std::unique_ptr<ConsumerEndpoint> InProcessTracingBackend::ConnectConsumer(

@@ -10,6 +10,7 @@
 
 namespace base {
 class CommandLine;
+class FilePath;
 }
 
 namespace sandbox {
@@ -24,6 +25,12 @@ CONTENT_EXPORT void SetupSandboxParameters(
     service_manager::SandboxType sandbox_type,
     const base::CommandLine& command_line,
     sandbox::SeatbeltExecClient* client);
+
+// Expands the SandboxType::kNetwork policy to allow reading files from
+// the specified |path|, which stores TLS certificates used by the browser
+// test web servers.
+CONTENT_EXPORT void SetNetworkTestCertsDirectoryForTesting(
+    const base::FilePath& path);
 
 }  // namespace content
 

@@ -13,12 +13,14 @@
 #include "net/third_party/quiche/src/quic/core/congestion_control/bbr2_probe_bw.h"
 #include "net/third_party/quiche/src/quic/core/congestion_control/bbr2_probe_rtt.h"
 #include "net/third_party/quiche/src/quic/core/congestion_control/bbr2_startup.h"
+#include "net/third_party/quiche/src/quic/core/congestion_control/bbr_sender.h"
 #include "net/third_party/quiche/src/quic/core/congestion_control/rtt_stats.h"
 #include "net/third_party/quiche/src/quic/core/congestion_control/send_algorithm_interface.h"
 #include "net/third_party/quiche/src/quic/core/congestion_control/windowed_filter.h"
 #include "net/third_party/quiche/src/quic/core/quic_bandwidth.h"
 #include "net/third_party/quiche/src/quic/core/quic_types.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
+#include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
 
 namespace quic {
 
@@ -30,7 +32,8 @@ class QUIC_EXPORT_PRIVATE Bbr2Sender final : public SendAlgorithmInterface {
              QuicPacketCount initial_cwnd_in_packets,
              QuicPacketCount max_cwnd_in_packets,
              QuicRandom* random,
-             QuicConnectionStats* /*stats*/);
+             QuicConnectionStats* stats,
+             BbrSender* old_sender);
 
   ~Bbr2Sender() override = default;
 
@@ -47,9 +50,7 @@ class QUIC_EXPORT_PRIVATE Bbr2Sender final : public SendAlgorithmInterface {
   void SetFromConfig(const QuicConfig& config,
                      Perspective perspective) override;
 
-  void AdjustNetworkParameters(QuicBandwidth bandwidth,
-                               QuicTime::Delta rtt,
-                               bool allow_cwnd_to_decrease) override;
+  void AdjustNetworkParameters(const NetworkParams& params) override;
 
   void SetInitialCongestionWindowInPackets(
       QuicPacketCount congestion_window) override;
@@ -65,6 +66,8 @@ class QUIC_EXPORT_PRIVATE Bbr2Sender final : public SendAlgorithmInterface {
                     QuicPacketNumber packet_number,
                     QuicByteCount bytes,
                     HasRetransmittableData is_retransmittable) override;
+
+  void OnPacketNeutered(QuicPacketNumber packet_number) override;
 
   void OnRetransmissionTimeout(bool /*packets_retransmitted*/) override {}
 
@@ -89,6 +92,8 @@ class QUIC_EXPORT_PRIVATE Bbr2Sender final : public SendAlgorithmInterface {
   std::string GetDebugState() const override;
 
   void OnApplicationLimited(QuicByteCount bytes_in_flight) override;
+
+  void PopulateConnectionStats(QuicConnectionStats* stats) const override;
   // End implementation of SendAlgorithmInterface.
 
   const Bbr2Params& Params() const { return params_; }
@@ -97,7 +102,10 @@ class QUIC_EXPORT_PRIVATE Bbr2Sender final : public SendAlgorithmInterface {
     return cwnd_limits().Min();
   }
 
-  struct DebugState {
+  // Returns the min of BDP and congestion window.
+  QuicByteCount GetTargetBytesInflight() const;
+
+  struct QUIC_EXPORT_PRIVATE DebugState {
     Bbr2Mode mode;
 
     // Shared states.
@@ -105,6 +113,9 @@ class QUIC_EXPORT_PRIVATE Bbr2Sender final : public SendAlgorithmInterface {
     QuicBandwidth bandwidth_hi = QuicBandwidth::Zero();
     QuicBandwidth bandwidth_lo = QuicBandwidth::Zero();
     QuicBandwidth bandwidth_est = QuicBandwidth::Zero();
+    QuicByteCount inflight_hi;
+    QuicByteCount inflight_lo;
+    QuicByteCount max_ack_height;
     QuicTime::Delta min_rtt = QuicTime::Delta::Zero();
     QuicTime min_rtt_timestamp = QuicTime::Zero();
     QuicByteCount congestion_window;
@@ -125,6 +136,8 @@ class QUIC_EXPORT_PRIVATE Bbr2Sender final : public SendAlgorithmInterface {
   void UpdatePacingRate(QuicByteCount bytes_acked);
   void UpdateCongestionWindow(QuicByteCount bytes_acked);
   QuicByteCount GetTargetCongestionWindow(float gain) const;
+  void OnEnterQuiescence(QuicTime now);
+  void OnExitQuiescence(QuicTime now);
 
   // Helper function for BBR2_MODE_DISPATCH.
   Bbr2ProbeRttMode& probe_rtt_or_die() {
@@ -151,28 +164,33 @@ class QUIC_EXPORT_PRIVATE Bbr2Sender final : public SendAlgorithmInterface {
   // Cwnd limits imposed by caller.
   const Limits<QuicByteCount>& cwnd_limits() const;
 
+  const Bbr2Params& params() const { return params_; }
+
   Bbr2Mode mode_;
 
   const RttStats* const rtt_stats_;
   const QuicUnackedPacketMap* const unacked_packets_;
   QuicRandom* random_;
+  QuicConnectionStats* connection_stats_;
 
-  const Bbr2Params params_;
+  // Don't use it directly outside of SetFromConfig. Instead, use params() to
+  // get read-only access.
+  Bbr2Params params_;
 
   Bbr2NetworkModel model_;
+
+  const QuicByteCount initial_cwnd_;
 
   // Current cwnd and pacing rate.
   QuicByteCount cwnd_;
   QuicBandwidth pacing_rate_;
 
+  QuicTime last_quiescence_start_ = QuicTime::Zero();
+
   Bbr2StartupMode startup_;
   Bbr2DrainMode drain_;
   Bbr2ProbeBwMode probe_bw_;
   Bbr2ProbeRttMode probe_rtt_;
-
-  // Indicates app-limited calls should be ignored as long as there's
-  // enough data inflight to see more bandwidth when necessary.
-  bool flexible_app_limited_;
 
   // Debug only.
   bool last_sample_is_app_limited_;

@@ -43,7 +43,7 @@ class MessageView {
   MessageView(Channel::MessagePtr message, size_t offset)
       : message_(std::move(message)),
         offset_(offset),
-        handles_(message_->TakeHandlesForTransport()) {
+        handles_(message_->TakeHandles()) {
     DCHECK(!message_->data_num_bytes() || message_->data_num_bytes() > offset_);
   }
 
@@ -98,7 +98,7 @@ class ChannelPosix : public Channel,
   ChannelPosix(Delegate* delegate,
                ConnectionParams connection_params,
                HandlePolicy handle_policy,
-               scoped_refptr<base::TaskRunner> io_task_runner)
+               scoped_refptr<base::SingleThreadTaskRunner> io_task_runner)
       : Channel(delegate, handle_policy),
         self_(this),
         io_task_runner_(io_task_runner) {
@@ -285,8 +285,8 @@ class ChannelPosix : public Channel,
       std::vector<base::ScopedFD> incoming_fds;
       ssize_t read_result =
           SocketRecvmsg(socket_.get(), buffer, buffer_capacity, &incoming_fds);
-      for (auto& fd : incoming_fds)
-        incoming_fds_.emplace_back(std::move(fd));
+      for (auto& incoming_fd : incoming_fds)
+        incoming_fds_.emplace_back(std::move(incoming_fd));
 
       if (read_result > 0) {
         bytes_read = static_cast<size_t>(read_result);
@@ -552,7 +552,7 @@ class ChannelPosix : public Channel,
   // or accepted over |server_|.
   base::ScopedFD socket_;
 
-  scoped_refptr<base::TaskRunner> io_task_runner_;
+  scoped_refptr<base::SingleThreadTaskRunner> io_task_runner_;
 
   // These watchers must only be accessed on the IO thread.
   std::unique_ptr<base::MessagePumpForIO::FdWatchController> read_watcher_;
@@ -583,7 +583,7 @@ scoped_refptr<Channel> Channel::Create(
     Delegate* delegate,
     ConnectionParams connection_params,
     HandlePolicy handle_policy,
-    scoped_refptr<base::TaskRunner> io_task_runner) {
+    scoped_refptr<base::SingleThreadTaskRunner> io_task_runner) {
   return new ChannelPosix(delegate, std::move(connection_params), handle_policy,
                           io_task_runner);
 }

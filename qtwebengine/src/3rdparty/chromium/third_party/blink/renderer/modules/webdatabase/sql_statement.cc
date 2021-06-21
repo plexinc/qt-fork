@@ -41,7 +41,7 @@
 
 namespace blink {
 
-void SQLStatement::OnSuccessV8Impl::Trace(blink::Visitor* visitor) {
+void SQLStatement::OnSuccessV8Impl::Trace(Visitor* visitor) {
   visitor->Trace(callback_);
   OnSuccessCallback::Trace(visitor);
 }
@@ -56,7 +56,7 @@ bool SQLStatement::OnSuccessV8Impl::OnSuccess(SQLTransaction* transaction,
   return callback_->handleEvent(nullptr, transaction, result_set).IsJust();
 }
 
-void SQLStatement::OnErrorV8Impl::Trace(blink::Visitor* visitor) {
+void SQLStatement::OnErrorV8Impl::Trace(Visitor* visitor) {
   visitor->Trace(callback_);
   OnErrorCallback::Trace(visitor);
 }
@@ -90,11 +90,11 @@ SQLStatement::SQLStatement(Database* database,
 
   if (HasCallback() || HasErrorCallback()) {
     probe::AsyncTaskScheduled(database->GetExecutionContext(), "SQLStatement",
-                              this);
+                              &async_task_id_);
   }
 }
 
-void SQLStatement::Trace(blink::Visitor* visitor) {
+void SQLStatement::Trace(Visitor* visitor) {
   visitor->Trace(backend_);
   visitor->Trace(success_callback_);
   visitor->Trace(error_callback_);
@@ -123,7 +123,7 @@ bool SQLStatement::PerformCallback(SQLTransaction* transaction) {
   SQLErrorData* error = backend_->SqlError();
 
   probe::AsyncTask async_task(transaction->GetDatabase()->GetExecutionContext(),
-                              this);
+                              &async_task_id_);
 
   // Call the appropriate statement callback and track if it resulted in an
   // error, because then we need to jump to the transaction error callback.

@@ -30,7 +30,6 @@
 
 #include "base/memory/ptr_util.h"
 #include "build/build_config.h"
-#include "third_party/blink/renderer/core/scroll/scrollbar_theme.h"
 #include "third_party/blink/renderer/platform/graphics/dark_mode_settings.h"
 
 namespace blink {
@@ -93,28 +92,6 @@ void Settings::SetTextAutosizingWindowSizeOverride(
 
   text_autosizing_window_size_override_ = text_autosizing_window_size_override;
   Invalidate(SettingsDelegate::kTextAutosizingChange);
-}
-
-void Settings::SetMockScrollbarsEnabled(bool flag) {
-  ScrollbarTheme::SetMockScrollbarsEnabled(flag);
-}
-
-bool Settings::MockScrollbarsEnabled() {
-  return ScrollbarTheme::MockScrollbarsEnabled();
-}
-
-void Settings::SetForceDarkModeEnabled(bool enabled) {
-  if (force_dark_mode_ == enabled)
-    return;
-  force_dark_mode_ = enabled;
-
-  if (force_dark_mode_) {
-    SetDarkMode(DarkMode::kInvertLightnessLAB);
-    SetDarkModeImagePolicy(DarkModeImagePolicy::kFilterSmart);
-  } else {
-    SetDarkMode(DarkMode::kOff);
-  }
-  Invalidate(SettingsDelegate::kColorSchemeChange);
 }
 
 }  // namespace blink

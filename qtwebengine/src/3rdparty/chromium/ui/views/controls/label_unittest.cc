@@ -7,6 +7,7 @@
 #include <stddef.h>
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/command_line.h"
@@ -14,6 +15,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/clipboard/clipboard.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -68,9 +70,9 @@ class TestLabel : public Label {
   }
 
   // View:
-  void SchedulePaintInRect(const gfx::Rect& r) override {
+  void OnDidSchedulePaint(const gfx::Rect& r) override {
     ++schedule_paint_count_;
-    Label::SchedulePaintInRect(r);
+    Label::OnDidSchedulePaint(r);
   }
 
  private:
@@ -93,9 +95,9 @@ bool Increased(int current, int* last) {
   return increased;
 }
 
-base::string16 GetClipboardText(ui::ClipboardType clipboard_type) {
+base::string16 GetClipboardText(ui::ClipboardBuffer clipboard_buffer) {
   base::string16 clipboard_text;
-  ui::Clipboard::GetForCurrentThread()->ReadText(clipboard_type,
+  ui::Clipboard::GetForCurrentThread()->ReadText(clipboard_buffer,
                                                  &clipboard_text);
   return clipboard_text;
 }
@@ -126,7 +128,7 @@ class LabelTest : public ViewsTestBase {
         CreateParams(Widget::InitParams::TYPE_WINDOW_FRAMELESS);
     params.bounds = gfx::Rect(200, 200);
     params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-    widget_.Init(params);
+    widget_.Init(std::move(params));
     View* container = new View();
     widget_.SetContentsView(container);
 
@@ -259,14 +261,14 @@ class LabelSelectionTest : public LabelTest {
   DISALLOW_COPY_AND_ASSIGN(LabelSelectionTest);
 };
 
-// Crashes on Linux only. http://crbug.com/612406
+TEST_F(LabelTest, FontPropertySymbol) {
 #if defined(OS_LINUX)
-#define MAYBE_FontPropertySymbol DISABLED_FontPropertySymbol
+  // On linux, the fonts are mocked with a custom FontConfig. The "Courier New"
+  // family name is mapped to Cousine-Regular.ttf (see: $build/test_fonts/*).
+  std::string font_name("Courier New");
 #else
-#define MAYBE_FontPropertySymbol FontPropertySymbol
-#endif
-TEST_F(LabelTest, MAYBE_FontPropertySymbol) {
   std::string font_name("symbol");
+#endif
   gfx::Font font(font_name, 26);
   label()->SetFontList(gfx::FontList(font));
   gfx::Font font_used = label()->font_list().GetPrimaryFont();
@@ -323,6 +325,54 @@ TEST_F(LabelTest, AlignmentProperty) {
   }
 
   EXPECT_EQ(was_rtl, base::i18n::IsRTL());
+}
+
+TEST_F(LabelTest, MinimumSizeRespectsLineHeight) {
+  base::string16 text(ASCIIToUTF16("This is example text."));
+  label()->SetText(text);
+
+  const gfx::Size minimum_size = label()->GetMinimumSize();
+  const int expected_height = minimum_size.height() + 10;
+  label()->SetLineHeight(expected_height);
+  EXPECT_EQ(expected_height, label()->GetMinimumSize().height());
+}
+
+TEST_F(LabelTest, MinimumSizeRespectsLineHeightMultiline) {
+  base::string16 text(ASCIIToUTF16("This is example text."));
+  label()->SetText(text);
+  label()->SetMultiLine(true);
+
+  const gfx::Size minimum_size = label()->GetMinimumSize();
+  const int expected_height = minimum_size.height() + 10;
+  label()->SetLineHeight(expected_height);
+  EXPECT_EQ(expected_height, label()->GetMinimumSize().height());
+}
+
+TEST_F(LabelTest, MinimumSizeRespectsLineHeightWithInsets) {
+  base::string16 text(ASCIIToUTF16("This is example text."));
+  label()->SetText(text);
+
+  const gfx::Size minimum_size = label()->GetMinimumSize();
+  int expected_height = minimum_size.height() + 10;
+  label()->SetLineHeight(expected_height);
+  constexpr gfx::Insets kInsets{2, 3, 4, 5};
+  expected_height += kInsets.height();
+  label()->SetBorder(CreateEmptyBorder(kInsets));
+  EXPECT_EQ(expected_height, label()->GetMinimumSize().height());
+}
+
+TEST_F(LabelTest, MinimumSizeRespectsLineHeightMultilineWithInsets) {
+  base::string16 text(ASCIIToUTF16("This is example text."));
+  label()->SetText(text);
+  label()->SetMultiLine(true);
+
+  const gfx::Size minimum_size = label()->GetMinimumSize();
+  int expected_height = minimum_size.height() + 10;
+  label()->SetLineHeight(expected_height);
+  constexpr gfx::Insets kInsets{2, 3, 4, 5};
+  expected_height += kInsets.height();
+  label()->SetBorder(CreateEmptyBorder(kInsets));
+  EXPECT_EQ(expected_height, label()->GetMinimumSize().height());
 }
 
 TEST_F(LabelTest, ElideBehavior) {
@@ -944,6 +994,42 @@ TEST_F(LabelTest, DefaultDirectionalityIsFromText) {
             rtl.GetTextDirectionForTesting());
 }
 
+TEST_F(LabelTest, IsDisplayTextTruncated) {
+  const base::string16 text = ASCIIToUTF16("A random string");
+  label()->SetText(text);
+
+  gfx::Size zero_size;
+  label()->SetElideBehavior(gfx::ELIDE_TAIL);
+  label()->SetBoundsRect(gfx::Rect(zero_size));
+  EXPECT_TRUE(label()->IsDisplayTextTruncated());
+
+  label()->SetElideBehavior(gfx::NO_ELIDE);
+  EXPECT_TRUE(label()->IsDisplayTextTruncated());
+
+  gfx::Size minimum_size(1, 1);
+  label()->SetBoundsRect(gfx::Rect(minimum_size));
+  EXPECT_TRUE(label()->IsDisplayTextTruncated());
+
+  gfx::Size enough_size(100, 100);
+  label()->SetBoundsRect(gfx::Rect(enough_size));
+  EXPECT_FALSE(label()->IsDisplayTextTruncated());
+
+  const base::string16 empty_text;
+  label()->SetText(empty_text);
+  EXPECT_FALSE(label()->IsDisplayTextTruncated());
+  label()->SetBoundsRect(gfx::Rect(zero_size));
+  EXPECT_FALSE(label()->IsDisplayTextTruncated());
+}
+
+TEST_F(LabelTest, TextChangedCallback) {
+  bool text_changed = false;
+  auto subscription = label()->AddTextChangedCallback(base::BindRepeating(
+      [](bool* text_changed) { *text_changed = true; }, &text_changed));
+
+  label()->SetText(ASCIIToUTF16("abc"));
+  EXPECT_TRUE(text_changed);
+}
+
 TEST_F(LabelSelectionTest, Selectable) {
   // By default, labels don't support text selection.
   EXPECT_FALSE(label()->GetSelectable());
@@ -1053,7 +1139,8 @@ TEST_F(LabelSelectionTest, MouseDrag) {
   EXPECT_STR_EQ(" mouse drag", GetSelectedText());
 
   event_generator()->PressKey(ui::VKEY_C, kControlCommandModifier);
-  EXPECT_STR_EQ(" mouse drag", GetClipboardText(ui::ClipboardType::kCopyPaste));
+  EXPECT_STR_EQ(" mouse drag",
+                GetClipboardText(ui::ClipboardBuffer::kCopyPaste));
 }
 
 TEST_F(LabelSelectionTest, MouseDragMultilineLTR) {
@@ -1250,14 +1337,14 @@ TEST_F(LabelSelectionTest, SelectionClipboard) {
   // selection clipboard.
   label()->SelectRange(gfx::Range(2, 5));
   EXPECT_STR_EQ("bel", GetSelectedText());
-  EXPECT_TRUE(GetClipboardText(ui::ClipboardType::kSelection).empty());
+  EXPECT_TRUE(GetClipboardText(ui::ClipboardBuffer::kSelection).empty());
 
   // Verify text selection using the mouse updates the selection clipboard.
   PerformMousePress(GetCursorPoint(5));
   PerformMouseDragTo(GetCursorPoint(0));
   PerformMouseRelease(GetCursorPoint(0));
   EXPECT_STR_EQ("Label", GetSelectedText());
-  EXPECT_STR_EQ("Label", GetClipboardText(ui::ClipboardType::kSelection));
+  EXPECT_STR_EQ("Label", GetClipboardText(ui::ClipboardBuffer::kSelection));
 }
 #endif
 
@@ -1276,7 +1363,7 @@ TEST_F(LabelSelectionTest, KeyboardActions) {
   EXPECT_EQ(initial_text, GetSelectedText());
 
   event_generator()->PressKey(ui::VKEY_C, kControlCommandModifier);
-  EXPECT_EQ(initial_text, GetClipboardText(ui::ClipboardType::kCopyPaste));
+  EXPECT_EQ(initial_text, GetClipboardText(ui::ClipboardBuffer::kCopyPaste));
 
   // The selection should get cleared on changing the text, but focus should not
   // be affected.

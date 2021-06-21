@@ -10,6 +10,8 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/cancelable_callback.h"
+#include "base/component_export.h"
 #include "base/containers/queue.h"
 #include "base/memory/ref_counted.h"
 #include "base/sequence_checker.h"
@@ -22,7 +24,7 @@ namespace leveldb_proto {
 // Controls a single LevelDB database to be used by many clients, and provides
 // a way to get SharedProtoDatabaseClients that allow shared access to the
 // underlying single database.
-class SharedProtoDatabase
+class COMPONENT_EXPORT(LEVELDB_PROTO) SharedProtoDatabase
     : public base::RefCountedThreadSafe<SharedProtoDatabase> {
  public:
   using SharedClientInitCallback =
@@ -52,6 +54,12 @@ class SharedProtoDatabase
       SharedDBMetadataProto::MigrationStatus migration_status,
       Callbacks::UpdateCallback callback);
 
+ protected:
+  SharedProtoDatabase(const std::string& client_db_id,
+                      const base::FilePath& db_dir);
+
+  virtual ~SharedProtoDatabase();
+
  private:
   friend class base::RefCountedThreadSafe<SharedProtoDatabase>;
   friend class ProtoDatabaseProvider;
@@ -60,6 +68,9 @@ class SharedProtoDatabase
   friend class SharedProtoDatabaseTest;
   friend class SharedProtoDatabaseClientTest;
   friend class TestSharedProtoDatabase;
+  FRIEND_TEST_ALL_PREFIXES(SharedProtoDatabaseTest,
+                           CancelDeleteObsoleteClients);
+  FRIEND_TEST_ALL_PREFIXES(SharedProtoDatabaseTest, DeleteObsoleteClients);
 
   enum InitState {
     // Initialization hasn't been attempted.
@@ -92,11 +103,7 @@ class SharedProtoDatabase
   // affecting startup or navigations.
   static const base::TimeDelta kDelayToClearObsoleteDatabase;
 
-  // Private since we only want to create a singleton of it.
-  SharedProtoDatabase(const std::string& client_db_id,
-                      const base::FilePath& db_dir);
-
-  virtual ~SharedProtoDatabase();
+  void Shutdown();
 
   void ProcessInitRequests(Enums::InitStatus status);
 
@@ -117,21 +124,16 @@ class SharedProtoDatabase
       const std::string& client_db_id,
       SharedClientInitCallback callback,
       scoped_refptr<base::SequencedTaskRunner> callback_task_runner);
-  void InitMetadataDatabase(bool create_shared_db_if_missing,
-                            int attempt,
-                            bool corruption);
-  void OnMetadataInitComplete(bool create_shared_db_if_missing,
-                              int attempt,
+  void InitMetadataDatabase(int attempt, bool corruption);
+  void OnMetadataInitComplete(int attempt,
                               bool corruption,
-                              bool success);
-  void OnGetGlobalMetadata(bool create_shared_db_if_missing,
-                           bool corruption,
+                              leveldb_proto::Enums::InitStatus status);
+  void OnGetGlobalMetadata(bool corruption,
                            bool success,
                            std::unique_ptr<SharedDBMetadataProto> proto);
-  void OnFinishCorruptionCountWrite(bool create_shared_db_if_missing,
-                                    bool success);
-  void InitDatabase(bool create_shared_db_if_missing);
-  void OnDatabaseInit(Enums::InitStatus status);
+  void OnFinishCorruptionCountWrite(bool success);
+  void InitDatabase();
+  void OnDatabaseInit(bool create_if_missing, Enums::InitStatus status);
   void CheckCorruptionAndRunInitCallback(
       const std::string& client_db_id,
       SharedClientInitCallback callback,
@@ -149,7 +151,15 @@ class SharedProtoDatabase
       Callbacks::InitStatusCallback callback,
       scoped_refptr<base::SequencedTaskRunner> callback_task_runner);
 
+  // |done| will be called on |task_runner|.
+  virtual void DestroyObsoleteSharedProtoDatabaseClients(
+      Callbacks::UpdateCallback done);
+
   LevelDB* GetLevelDBForTesting() const;
+
+  void set_delete_obsolete_delay_for_testing(base::TimeDelta delay) {
+    delete_obsolete_delay_ = delay;
+  }
 
   scoped_refptr<base::SequencedTaskRunner> database_task_runner_for_testing()
       const {
@@ -177,6 +187,10 @@ class SharedProtoDatabase
   Enums::InitStatus init_status_ = Enums::InitStatus::kNotInitialized;
 
   base::queue<std::unique_ptr<InitRequest>> outstanding_init_requests_;
+  bool create_if_missing_ = false;
+
+  base::TimeDelta delete_obsolete_delay_ = base::TimeDelta::FromSeconds(120);
+  base::CancelableOnceClosure delete_obsolete_task_;
 
   DISALLOW_COPY_AND_ASSIGN(SharedProtoDatabase);
 };

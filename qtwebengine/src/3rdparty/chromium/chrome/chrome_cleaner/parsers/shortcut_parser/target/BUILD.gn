@@ -3,6 +3,9 @@
 # found in the LICENSE file.
 import("//testing/libfuzzer/fuzzer_test.gni")
 
+# Nothing outside //chrome/chrome_cleaner can depend on these targets.
+visibility = [ "//chrome/chrome_cleaner/*" ]
+
 static_library("lnk_parser") {
   sources = [
     "lnk_parser.cc",
@@ -16,9 +19,7 @@ static_library("lnk_parser") {
 }
 
 fuzzer_test("lnk_parser_fuzzer") {
-  sources = [
-    "lnk_parser_fuzzer.cc",
-  ]
+  sources = [ "lnk_parser_fuzzer.cc" ]
 
   deps = [
     ":lnk_parser",
@@ -32,9 +33,7 @@ fuzzer_test("lnk_parser_fuzzer") {
 source_set("unittest_sources") {
   testonly = true
 
-  sources = [
-    "lnk_parser_unittest.cc",
-  ]
+  sources = [ "lnk_parser_unittest.cc" ]
 
   deps = [
     ":lnk_parser",

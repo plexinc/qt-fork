@@ -17,7 +17,10 @@
 #ifndef INCLUDE_PERFETTO_BASE_TASK_RUNNER_H_
 #define INCLUDE_PERFETTO_BASE_TASK_RUNNER_H_
 
+#include <stdint.h>
+
 #include <functional>
+#include <stdint.h>
 
 #include "perfetto/base/export.h"
 

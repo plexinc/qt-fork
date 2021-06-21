@@ -15,6 +15,7 @@
 #include "extensions/browser/api/declarative_content/content_rules_registry.h"
 #include "extensions/browser/api/storage/settings_namespace.h"
 #include "extensions/common/api/clipboard.h"
+#include "extensions/common/extension.h"
 #include "extensions/common/extension_id.h"
 
 class GURL;
@@ -54,6 +55,7 @@ class NetworkingCastPrivateDelegate;
 class NonNativeFileSystemDelegate;
 class RulesCacheDelegate;
 class SettingsObserver;
+class SupervisedUserServiceDelegate;
 class ValueStoreCache;
 class ValueStoreFactory;
 class VirtualKeyboardDelegate;
@@ -109,6 +111,19 @@ class ExtensionsAPIClient {
                                         int render_frame_id,
                                         const ExtensionId& extension_id);
 
+  // Updates an extension's matched action count stored in an ExtensionAction
+  // and optionally clears the extension's explicitly set badge text for the
+  // tab specified by |tab_id|.
+  virtual void UpdateActionCount(content::BrowserContext* context,
+                                 const ExtensionId& extension_id,
+                                 int tab_id,
+                                 int action_count,
+                                 bool clear_badge_text);
+
+  // Clears an extension's matched action count stored in an ExtensionAction.
+  virtual void ClearActionCount(content::BrowserContext* context,
+                                const Extension& extension);
+
   // Creates the AppViewGuestDelegate.
   virtual AppViewGuestDelegate* CreateAppViewGuestDelegate() const;
 
@@ -152,6 +167,11 @@ class ExtensionsAPIClient {
 
   // Creates a delegate for handling the management extension api.
   virtual ManagementAPIDelegate* CreateManagementAPIDelegate() const;
+
+  // Creates a delegate for calling into the SupervisedUserService from the
+  // Management API.
+  virtual std::unique_ptr<SupervisedUserServiceDelegate>
+  CreateSupervisedUserServiceDelegate() const;
 
   // Creates and returns the DisplayInfoProvider used by the
   // chrome.system.display extension API.

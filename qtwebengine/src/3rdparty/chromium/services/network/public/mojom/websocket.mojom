@@ -38,6 +38,10 @@ struct WebSocketHandshakeResponse {
   IPEndPoint remote_endpoint;
   array<HttpHeader> headers;
   string headers_text;
+  // Sub-protocol the server selected, or empty if no sub-protocol was selected.
+  string selected_protocol;
+  // The list of extensions negotiated for the connection.
+  string extensions;
 };
 
 // This interface is for HTTP Authentication.
@@ -50,27 +54,29 @@ interface AuthenticationHandler {
                  IPEndPoint remote_endpoint) => (AuthCredentials? credentials);
 };
 
+// This interface is for client-side WebSocket handshake. Used to initialize
+// the WebSocket Connection.
 interface WebSocketHandshakeClient {
   // Notify the renderer that the browser has started an opening handshake.
   OnOpeningHandshakeStarted(WebSocketHandshakeRequest request);
 
-  // Called when the connection is established. |selected_protocol| is the
-  // sub-protocol the server selected, or empty if no sub-protocol was selected.
-  // |extensions| is the list of extensions negotiated for the connection.
-  // default threshold value
+  // Called when the connection is established.
   // |response| may contain cookie-related headers when the client has
   // an access to raw cookie information.
-  // |receive_quota_threshold| is the value that the renderer calls
-  // AddReceiveFlowControlQuota() to the browser per receiving this value
-  // so that the browser can continue sending remaining data to the renderer.
-  // TODO(yoichio): Merge |selected_protocol| and |extensions| into |response|.
-  OnConnectionEstablished(WebSocket socket,
-                          string selected_protocol,
-                          string extensions,
+  // |readable| is readable datapipe to receive data from network service.
+  // |writable| is writable datapipe used to transfer the actual content of the
+  // message(data) to the network service. The network services later sends out
+  // the actual message by framing each message from the meta-info given from
+  // the renderer side with |SendMessage()|.
+  OnConnectionEstablished(pending_remote<WebSocket> socket,
+                          pending_receiver<WebSocketClient> client_receiver,
                           WebSocketHandshakeResponse response,
-                          uint64 receive_quota_threshold);
+                          handle<data_pipe_consumer> readable,
+                          handle<data_pipe_producer> writable);
 };
 
+// The interface for the client side of WebSocket. Implemented by renderer
+// processes to receive messages from the network service.
 interface WebSocketClient {
   // Receive a non-control frame from the remote server.
   // - |fin| indicates that this frame is the last in the current message.
@@ -78,12 +84,15 @@ interface WebSocketClient {
   //   must be set to either WebSocketMessageType.TEXT or
   //   WebSocketMessageType.BINARY. On subsequent frames, it must be set to
   //   WebSocketMessageType.CONTINUATION, and the type is the same as that of
-  //   the first message. If |type| is WebSocketMessageType.TEXT, then the
-  //   concatenation of the |data| from every frame in the message must be valid
-  //   UTF-8. If |fin| is not set, |data| must be non-empty.
+  //   the first message.
+  // - |data_length| is the length of data and actual data is read via
+  //   |readable| on WebSocketHandshakeClient.OnConnectionEstablished.
+  //   If |type| is WebSocketMessageType.TEXT, then the concatenation of all
+  //   the frames in the message must be valid UTF-8.
+  //   If |fin| is not set, |data_length| must be non-zero.
   OnDataFrame(bool fin,
               WebSocketMessageType type,
-              mojo_base.mojom.ReadOnlyBuffer data);
+              uint64 data_length);
 
   // Add |quota| bytes of send quota. |quota| must be positive. Initial quota
   // is 0. The renderer will wait for an AddSendFlowControlQuota() message
@@ -112,6 +121,8 @@ interface WebSocketClient {
   OnClosingHandshake();
 };
 
+// The interface for the server side of WebSocket. Implemented by the network
+// service. Used to send out data to the network service.
 interface WebSocket {
   // The client side may observe the following disconnection reason from the
   // service side:
@@ -127,13 +138,26 @@ interface WebSocket {
   //   the first message. If |type| is WebSocketMessageType.TEXT, then the
   //   concatenation of the |data| from every frame in the message must be valid
   //   UTF-8. If |fin| is not set, |data| must be non-empty.
-  SendFrame(bool fin, WebSocketMessageType type, array<uint8> data);
+  SendFrame(bool fin,
+            WebSocketMessageType type,
+            mojo_base.mojom.ReadOnlyBuffer data);
 
-  // Add |quota| bytes of receive quota. |quota| must be positive. Initial quota
-  // is 0. The browser will wait for an AddReceiveFlowControlQuota() message
-  // before forwarding any messages to the renderer. Total quota must never
-  // exceed 0x7FFFFFFFFFFFFFFF bytes.
-  AddReceiveFlowControlQuota(int64 quota);
+  // Sends a message via mojo datapipe to the remote server.
+  // - |type| is the type of the message. It must be set to either
+  //   WebSocketMessageType.TEXT or WebSocketMessageType.BINARY.
+  // - |data_length| is the actual length of message. The message is written to
+  //   the datapipe named |writable| in the
+  //   WebSocketHandshakeClient.OnConnectionEstablished message.
+  //
+  //   If |type| is WebSocketMessageType.TEXT, then the message must be
+  //   valid UTF-8.
+  SendMessage(WebSocketMessageType type, uint64 data_length);
+
+  // Let browser to start receiving WebSocket data frames from network stream.
+  // TODO(yoichio): Remove this by move Connect() after checking throttle at
+  // WebSocketChannelImpl::Connect so that OnAddChannelResponse is
+  // actual signal to start receive data frame.
+  StartReceiving();
 
   // Close the channel gracefully.
   //

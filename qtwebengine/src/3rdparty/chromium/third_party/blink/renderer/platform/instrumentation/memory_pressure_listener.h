@@ -9,10 +9,11 @@
 #include "third_party/blink/public/platform/web_memory_pressure_level.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
-#include "third_party/blink/renderer/platform/scheduler/public/thread.h"
 #include "third_party/blink/renderer/platform/wtf/threading_primitives.h"
 
 namespace blink {
+
+class Thread;
 
 class PLATFORM_EXPORT MemoryPressureListener : public GarbageCollectedMixin {
  public:
@@ -26,11 +27,13 @@ class PLATFORM_EXPORT MemoryPressureListener : public GarbageCollectedMixin {
 // MemoryPressureListenerRegistry listens to some events which could be
 // opportunities for reducing memory consumption and notifies its clients.
 class PLATFORM_EXPORT MemoryPressureListenerRegistry final
-    : public GarbageCollectedFinalized<MemoryPressureListenerRegistry> {
+    : public GarbageCollected<MemoryPressureListenerRegistry> {
  public:
   static MemoryPressureListenerRegistry& Instance();
 
-  // Whether the device Blink runs on is a low-end device.
+  // See: SysUtils::IsLowEndDevice for the full details of what "low-end" means.
+  // This returns true for devices that can use more extreme tradeoffs for
+  // performance. Many low memory devices (<=1GB) are not considered low-end.
   // Can be overridden in web tests via internals.
   static bool IsLowEndDevice();
 
@@ -56,7 +59,7 @@ class PLATFORM_EXPORT MemoryPressureListenerRegistry final
 
   void OnPurgeMemory();
 
-  void Trace(blink::Visitor*);
+  void Trace(Visitor*);
 
  private:
   friend class Internals;
@@ -68,7 +71,7 @@ class PLATFORM_EXPORT MemoryPressureListenerRegistry final
   static bool is_low_end_device_;
 
   HeapHashSet<WeakMember<MemoryPressureListener>> clients_;
-  HashSet<Thread*> threads_;
+  HashSet<Thread*> threads_ GUARDED_BY(threads_mutex_);
   Mutex threads_mutex_;
 
   DISALLOW_COPY_AND_ASSIGN(MemoryPressureListenerRegistry);

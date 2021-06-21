@@ -109,8 +109,8 @@ void DynamicImportTreeClient::NotifyModuleTreeLoadFinished(
   //
   // Note: We skip invocation of ModuleRecordResolver here. The
   // result of HostResolveImportedModule is guaranteed to be |module_script|.
-  ModuleRecord record = module_script->Record();
-  DCHECK(!record.IsNull());
+  v8::Local<v8::Module> record = module_script->V8Module();
+  DCHECK(!record.IsEmpty());
 
   // <spec
   // href="https://tc39.github.io/proposal-dynamic-import/#sec-finishdynamicimport"
@@ -123,7 +123,7 @@ void DynamicImportTreeClient::NotifyModuleTreeLoadFinished(
   // <spec
   // href="https://tc39.github.io/proposal-dynamic-import/#sec-finishdynamicimport"
   // step="2.4">Let namespace be GetModuleNamespace(moduleRecord).</spec>
-  v8::Local<v8::Value> module_namespace = record.V8Namespace(isolate);
+  v8::Local<v8::Value> module_namespace = ModuleRecord::V8Namespace(record);
 
   // <spec
   // href="https://tc39.github.io/proposal-dynamic-import/#sec-finishdynamicimport"
@@ -265,7 +265,8 @@ void DynamicModuleResolver::ResolveDynamically(
   if (auto* scope = DynamicTo<WorkerGlobalScope>(*execution_context))
     scope->EnsureFetcher();
   modulator_->FetchTree(url, execution_context->Fetcher(),
-                        mojom::RequestContextType::SCRIPT, options,
+                        mojom::RequestContextType::SCRIPT,
+                        network::mojom::RequestDestination::kScript, options,
                         ModuleScriptCustomFetchType::kNone, tree_client);
 
   // Steps 6-9 are implemented at

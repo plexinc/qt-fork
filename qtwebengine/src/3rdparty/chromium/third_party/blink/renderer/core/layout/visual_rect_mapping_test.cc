@@ -119,7 +119,10 @@ TEST_P(VisualRectMappingTest, LayoutText) {
   auto* container = To<LayoutBlock>(GetLayoutObjectByElementId("container"));
   auto* text = GetLayoutObjectByElementId("text")->SlowFirstChild();
 
-  container->SetScrollTop(LayoutUnit(50));
+  auto* scrollable_area =
+      To<Element>(container->GetNode())->GetScrollableArea();
+  scrollable_area->ScrollToAbsolutePosition(
+      FloatPoint(scrollable_area->ScrollPosition().X(), 50));
   UpdateAllLifecyclePhasesForTest();
 
   PhysicalRect original_rect(0, 60, 20, 80);
@@ -156,7 +159,10 @@ TEST_P(VisualRectMappingTest, LayoutTextContainerFlippedWritingMode) {
   auto* container = To<LayoutBlock>(GetLayoutObjectByElementId("container"));
   auto* text = GetLayoutObjectByElementId("text")->SlowFirstChild();
 
-  container->SetScrollTop(LayoutUnit(50));
+  auto* scrollable_area =
+      To<Element>(container->GetNode())->GetScrollableArea();
+  scrollable_area->ScrollToAbsolutePosition(
+      FloatPoint(scrollable_area->ScrollPosition().X(), 50));
   UpdateAllLifecyclePhasesForTest();
 
   // All results are the same as VisualRectMappingTest.LayoutText because all
@@ -191,7 +197,10 @@ TEST_P(VisualRectMappingTest, LayoutInline) {
   auto* container = To<LayoutBlock>(GetLayoutObjectByElementId("container"));
   LayoutObject* leaf = container->LastChild();
 
-  container->SetScrollTop(LayoutUnit(50));
+  auto* scrollable_area =
+      To<Element>(container->GetNode())->GetScrollableArea();
+  scrollable_area->ScrollToAbsolutePosition(
+      FloatPoint(scrollable_area->ScrollPosition().X(), 50));
   UpdateAllLifecyclePhasesForTest();
 
   PhysicalRect original_rect(0, 60, 20, 80);
@@ -228,7 +237,10 @@ TEST_P(VisualRectMappingTest, LayoutInlineContainerFlippedWritingMode) {
   auto* container = To<LayoutBlock>(GetLayoutObjectByElementId("container"));
   LayoutObject* leaf = container->LastChild();
 
-  container->SetScrollTop(LayoutUnit(50));
+  auto* scrollable_area =
+      To<Element>(container->GetNode())->GetScrollableArea();
+  scrollable_area->ScrollToAbsolutePosition(
+      FloatPoint(scrollable_area->ScrollPosition().X(), 50));
   UpdateAllLifecyclePhasesForTest();
 
   // All results are the same as VisualRectMappingTest.LayoutInline because all
@@ -275,7 +287,7 @@ TEST_P(VisualRectMappingTest, LayoutView) {
   // This case involves clipping: frame height is 50, y-coordinate of result
   // rect is 13, so height should be clipped to (50 - 13) == 37.
   ChildDocument().View()->LayoutViewport()->SetScrollOffset(
-      ScrollOffset(0, 47), kProgrammaticScroll);
+      ScrollOffset(0, 47), mojom::blink::ScrollType::kProgrammatic);
   UpdateAllLifecyclePhasesForTest();
 
   PhysicalRect original_rect(4, 60, 20, 80);
@@ -351,7 +363,7 @@ TEST_P(VisualRectMappingTest, LayoutViewDisplayNone) {
   // This part is copied from the LayoutView test, just to ensure that the
   // mapped rect is valid before display:none is set on the iframe.
   ChildDocument().View()->LayoutViewport()->SetScrollOffset(
-      ScrollOffset(0, 47), kProgrammaticScroll);
+      ScrollOffset(0, 47), mojom::blink::ScrollType::kProgrammatic);
   UpdateAllLifecyclePhasesForTest();
 
   PhysicalRect original_rect(4, 60, 20, 80);
@@ -442,10 +454,11 @@ TEST_P(VisualRectMappingTest, ContainerOverflowScroll) {
   )HTML");
 
   auto* container = To<LayoutBlock>(GetLayoutObjectByElementId("container"));
-  EXPECT_EQ(LayoutUnit(), container->ScrollTop());
-  EXPECT_EQ(LayoutUnit(), container->ScrollLeft());
-  container->SetScrollTop(LayoutUnit(7));
-  container->SetScrollLeft(LayoutUnit(8));
+  auto* scrollable_area =
+      To<Element>(container->GetNode())->GetScrollableArea();
+  EXPECT_EQ(0, scrollable_area->ScrollPosition().Y());
+  EXPECT_EQ(0, scrollable_area->ScrollPosition().X());
+  scrollable_area->ScrollToAbsolutePosition(FloatPoint(8, 7));
   UpdateAllLifecyclePhasesForTest();
 
   auto* target = To<LayoutBlock>(GetLayoutObjectByElementId("target"));
@@ -500,14 +513,15 @@ TEST_P(VisualRectMappingTest, ContainerFlippedWritingModeAndOverflowScroll) {
   )HTML");
 
   auto* container = To<LayoutBlock>(GetLayoutObjectByElementId("container"));
-  EXPECT_EQ(LayoutUnit(), container->ScrollTop());
+  auto* scrollable_area =
+      To<Element>(container->GetNode())->GetScrollableArea();
+  EXPECT_EQ(0, scrollable_area->ScrollPosition().Y());
   // The initial scroll offset is to the left-most because of flipped blocks
   // writing mode.
   // 150 = total_layout_overflow(100 + 100) - width(50)
-  EXPECT_EQ(LayoutUnit(150), container->ScrollLeft());
-  container->SetScrollTop(LayoutUnit(7));
+  EXPECT_EQ(150, scrollable_area->ScrollPosition().X());
   // Scroll to the right by 8 pixels.
-  container->SetScrollLeft(LayoutUnit(142));
+  scrollable_area->ScrollToAbsolutePosition(FloatPoint(142, 7));
   UpdateAllLifecyclePhasesForTest();
 
   auto* target = To<LayoutBlock>(GetLayoutObjectByElementId("target"));
@@ -572,10 +586,11 @@ TEST_P(VisualRectMappingTest, ContainerOverflowHidden) {
   )HTML");
 
   auto* container = To<LayoutBlock>(GetLayoutObjectByElementId("container"));
-  EXPECT_EQ(LayoutUnit(), container->ScrollTop());
-  EXPECT_EQ(LayoutUnit(), container->ScrollLeft());
-  container->SetScrollTop(LayoutUnit(27));
-  container->SetScrollLeft(LayoutUnit(28));
+  auto* scrollable_area =
+      To<Element>(container->GetNode())->GetScrollableArea();
+  EXPECT_EQ(0, scrollable_area->ScrollPosition().Y());
+  EXPECT_EQ(0, scrollable_area->ScrollPosition().X());
+  scrollable_area->ScrollToAbsolutePosition(FloatPoint(28, 27));
   UpdateAllLifecyclePhasesForTest();
 
   auto* target = To<LayoutBlock>(GetLayoutObjectByElementId("target"));
@@ -605,13 +620,14 @@ TEST_P(VisualRectMappingTest, ContainerFlippedWritingModeAndOverflowHidden) {
   )HTML");
 
   auto* container = To<LayoutBlock>(GetLayoutObjectByElementId("container"));
-  EXPECT_EQ(LayoutUnit(), container->ScrollTop());
+  auto* scrollable_area =
+      To<Element>(container->GetNode())->GetScrollableArea();
+  EXPECT_EQ(0, scrollable_area->ScrollPosition().Y());
   // The initial scroll offset is to the left-most because of flipped blocks
   // writing mode.
   // 150 = total_layout_overflow(100 + 100) - width(50)
-  EXPECT_EQ(LayoutUnit(150), container->ScrollLeft());
-  container->SetScrollTop(LayoutUnit(7));
-  container->SetScrollLeft(LayoutUnit(82));  // Scroll to the right by 8 pixels.
+  EXPECT_EQ(150, scrollable_area->ScrollPosition().X());
+  scrollable_area->ScrollToAbsolutePosition(FloatPoint(82, 7));
   UpdateAllLifecyclePhasesForTest();
 
   auto* target = To<LayoutBlock>(GetLayoutObjectByElementId("target"));
@@ -644,14 +660,15 @@ TEST_P(VisualRectMappingTest, ContainerAndTargetDifferentFlippedWritingMode) {
   )HTML");
 
   auto* container = To<LayoutBlock>(GetLayoutObjectByElementId("container"));
-  EXPECT_EQ(LayoutUnit(), container->ScrollTop());
+  auto* scrollable_area =
+      To<Element>(container->GetNode())->GetScrollableArea();
+  EXPECT_EQ(0, scrollable_area->ScrollPosition().Y());
   // The initial scroll offset is to the left-most because of flipped blocks
   // writing mode.
   // 150 = total_layout_overflow(100 + 100) - width(50)
-  EXPECT_EQ(LayoutUnit(150), container->ScrollLeft());
-  container->SetScrollTop(LayoutUnit(7));
-  container->SetScrollLeft(
-      LayoutUnit(142));  // Scroll to the right by 8 pixels.
+  EXPECT_EQ(150, scrollable_area->ScrollPosition().X());
+  // Scroll to the right by 8 pixels.
+  scrollable_area->ScrollToAbsolutePosition(FloatPoint(142, 7));
   UpdateAllLifecyclePhasesForTest();
 
   auto* target = To<LayoutBlock>(GetLayoutObjectByElementId("target"));
@@ -694,8 +711,9 @@ TEST_P(VisualRectMappingTest,
   )HTML");
 
   auto* scroller = To<LayoutBlock>(GetLayoutObjectByElementId("scroller"));
-  scroller->SetScrollTop(LayoutUnit(77));
-  scroller->SetScrollLeft(LayoutUnit(88));
+  To<Element>(scroller->GetNode())
+      ->GetScrollableArea()
+      ->ScrollToAbsolutePosition(FloatPoint(88, 77));
   UpdateAllLifecyclePhasesForTest();
 
   auto* normal_flow =
@@ -743,7 +761,8 @@ TEST_P(VisualRectMappingTest,
       To<LayoutBlock>(GetLayoutObjectByElementId("stacking-context"));
   auto* absolute = To<LayoutBlock>(GetLayoutObjectByElementId("absolute"));
   auto* container = To<LayoutBlock>(GetLayoutObjectByElementId("container"));
-  EXPECT_EQ(absolute->View(), &absolute->ContainerForPaintInvalidation());
+  if (!RuntimeEnabledFeatures::CompositeAfterPaintEnabled())
+    EXPECT_EQ(absolute->View(), &absolute->ContainerForPaintInvalidation());
   EXPECT_EQ(container, absolute->Container());
 
   PhysicalRect absolute_visual_rect = absolute->LocalVisualRect();
@@ -1170,7 +1189,7 @@ TEST_P(VisualRectMappingTest, FixedContentsInIframe) {
                                       root_view, kDefaultVisualRectFlags, true);
 
   ChildDocument().View()->LayoutViewport()->SetScrollOffset(
-      ScrollOffset(0, 50), kProgrammaticScroll);
+      ScrollOffset(0, 50), mojom::blink::ScrollType::kProgrammatic);
   UpdateAllLifecyclePhasesForTest();
 
   // The fixed element should not scroll so the mapped visual rect should not
@@ -1203,8 +1222,8 @@ TEST_P(VisualRectMappingTest, FixedContentsWithScrollOffset) {
                                       PhysicalRect(0, -10, 400, 300), fixed,
                                       ancestor, kDefaultVisualRectFlags, true);
 
-  GetDocument().View()->LayoutViewport()->SetScrollOffset(ScrollOffset(0, 50),
-                                                          kProgrammaticScroll);
+  GetDocument().View()->LayoutViewport()->SetScrollOffset(
+      ScrollOffset(0, 50), mojom::blink::ScrollType::kProgrammatic);
   UpdateAllLifecyclePhasesForTest();
 
   // The fixed element does not scroll but the ancestor does which changes the
@@ -1231,8 +1250,8 @@ TEST_P(VisualRectMappingTest, FixedContentsUnderViewWithScrollOffset) {
       PhysicalRect(0, 0, 400, 300), PhysicalRect(0, 0, 400, 300), fixed,
       fixed->View(), kDefaultVisualRectFlags, true);
 
-  GetDocument().View()->LayoutViewport()->SetScrollOffset(ScrollOffset(0, 50),
-                                                          kProgrammaticScroll);
+  GetDocument().View()->LayoutViewport()->SetScrollOffset(
+      ScrollOffset(0, 50), mojom::blink::ScrollType::kProgrammatic);
   UpdateAllLifecyclePhasesForTest();
 
   // Results of mapping to ancestor are in absolute coordinates of the

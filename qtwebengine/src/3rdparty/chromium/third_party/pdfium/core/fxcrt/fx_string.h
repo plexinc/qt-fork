@@ -25,6 +25,10 @@ float StringToFloat(ByteStringView str);
 float StringToFloat(WideStringView wsStr);
 size_t FloatToString(float f, char* buf);
 
+double StringToDouble(ByteStringView str);
+double StringToDouble(WideStringView wsStr);
+size_t DoubleToString(double d, char* buf);
+
 namespace fxcrt {
 
 template <typename StrType>
@@ -35,8 +39,8 @@ std::vector<StrType> Split(const StrType& that, typename StrType::CharType ch) {
     Optional<size_t> index = remaining.Find(ch);
     if (!index.has_value())
       break;
-    result.emplace_back(remaining.Left(index.value()));
-    remaining = remaining.Right(remaining.GetLength() - index.value() - 1);
+    result.emplace_back(remaining.First(index.value()));
+    remaining = remaining.Last(remaining.GetLength() - index.value() - 1);
   }
   result.emplace_back(remaining);
   return result;

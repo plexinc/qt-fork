@@ -27,9 +27,7 @@ scoped_refptr<gl::GLSurface> ImageTransportSurface::CreateNativeSurface(
     SurfaceHandle surface_handle,
     gl::GLSurfaceFormat format) {
   DCHECK_NE(surface_handle, kNullSurfaceHandle);
-
   scoped_refptr<gl::GLSurface> surface;
-  bool override_vsync_for_multi_window_swap = false;
 
   if (gl::GetGLImplementation() == gl::kGLImplementationEGLANGLE) {
     auto vsync_provider =
@@ -42,6 +40,7 @@ scoped_refptr<gl::GLSurface> ImageTransportSurface::CreateNativeSurface(
           workarounds.disable_nv12_dynamic_textures;
       settings.disable_larger_than_screen_overlays =
           workarounds.disable_larger_than_screen_overlays;
+      settings.disable_vp_scaling = workarounds.disable_vp_scaling;
       auto vsync_callback = delegate->GetGpuVSyncCallback();
       auto dc_surface = base::MakeRefCounted<gl::DirectCompositionSurfaceWin>(
           std::move(vsync_provider), std::move(vsync_callback), surface_handle,
@@ -57,10 +56,6 @@ scoped_refptr<gl::GLSurface> ImageTransportSurface::CreateNativeSurface(
               surface_handle, std::move(vsync_provider)));
       if (!surface)
         return nullptr;
-      // This is unnecessary with DirectComposition because that doesn't block
-      // swaps, but instead blocks the first draw into a surface during the next
-      // frame.
-      override_vsync_for_multi_window_swap = true;
     }
   } else {
     surface = gl::init::CreateViewGLSurface(surface_handle);
@@ -68,8 +63,11 @@ scoped_refptr<gl::GLSurface> ImageTransportSurface::CreateNativeSurface(
       return nullptr;
   }
 
+  // |override_vsync_for_multi_window_swap| is needed because Present() blocks
+  // when multiple windows use swap interval 1 all the time.  With this flag the
+  // surface forces swap interval 0 when multiple windows are presenting.
   return scoped_refptr<gl::GLSurface>(new PassThroughImageTransportSurface(
-      delegate, surface.get(), override_vsync_for_multi_window_swap));
+      delegate, surface.get(), /*override_vsync_for_multi_window_swap=*/true));
 }
 
 }  // namespace gpu

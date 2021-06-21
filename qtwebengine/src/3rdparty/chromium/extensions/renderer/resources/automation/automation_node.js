@@ -4,6 +4,7 @@
 
 var AutomationEvent = require('automationEvent').AutomationEvent;
 var automationInternal = getInternalApi('automationInternal');
+var AutomationTreeCache = require('automationTreeCache').AutomationTreeCache;
 var exceptionHandler = require('uncaught_exception_handler');
 
 var natives = requireNative('automationInternal');
@@ -346,6 +347,13 @@ var GetNameFrom = natives.GetNameFrom;
 /**
  * @param {string} axTreeID The id of the accessibility tree.
  * @param {number} nodeID The id of a node.
+ * @return {automation.DescriptionFromType} The node description source.
+ */
+var GetDescriptionFrom = natives.GetDescriptionFrom;
+
+/**
+ * @param {string} axTreeID The id of the accessibility tree.
+ * @param {number} nodeID The id of a node.
  * @return {?string} The image annotation status, which may
  *     include the annotation itself if completed successfully.
  */
@@ -450,6 +458,20 @@ var GetTableCellColumnIndex = natives.GetTableCellColumnIndex;
 var GetTableCellRowIndex = natives.GetTableCellRowIndex;
 
 /**
+ * @param {string} axTreeID The id of the accessibility tree.
+ * @param {number} nodeID The id of a node.
+ * @return {number} Column index for this cell.
+ */
+var GetTableCellAriaColumnIndex = natives.GetTableCellAriaColumnIndex;
+
+/**
+ * @param {string} axTreeID The id of the accessibility tree.
+ * @param {number} nodeID The id of a node.
+ * @return {number} Row index for this cell.
+ */
+var GetTableCellAriaRowIndex = natives.GetTableCellAriaRowIndex;
+
+/**
  * @param {string} axTreeId The id of the accessibility tree.
  * @param {number} nodeID The id of a node.
  * @return {string} Detected language for this node.
@@ -479,6 +501,36 @@ var GetWordStartOffsets = natives.GetWordStartOffsets;
  * @return {!Array<number>}
  */
 var GetWordEndOffsets = natives.GetWordEndOffsets;
+
+/**
+ * @param {string} axTreeID The id of the accessibility tree.
+ * @param {number} nodeID The id of a node.
+ * @param {string} eventType
+ */
+var EventListenerAdded = natives.EventListenerAdded;
+
+/**
+ * @param {string} axTreeID The id of the accessibility tree.
+ * @param {number} nodeID The id of a node.
+ * @param {string} eventType
+ */
+var EventListenerRemoved = natives.EventListenerRemoved;
+
+/**
+ * @param {string} axTreeID The id of the accessibility tree.
+ * @param {number} nodeID The id of a node.
+ * @return {Array}
+ */
+var GetMarkers = natives.GetMarkers;
+
+/**
+ * @param {string} axTreeID The id of the accessibility tree.
+ * @param {number} nodeID The id of a node.
+ * @param {number} offset
+ * @param {boolean} isUpstream
+ * @return {!Object}
+ */
+var createAutomationPosition = natives.CreateAutomationPosition;
 
 var logging = requireNative('logging');
 var utils = require('utils');
@@ -648,6 +700,11 @@ AutomationNodeImpl.prototype = {
     return GetNameFrom(this.treeID, this.id);
   },
 
+
+  get descriptionFrom() {
+    return GetDescriptionFrom(this.treeID, this.id);
+  },
+
   get imageAnnotation() {
     return GetImageAnnotation(this.treeID, this.id);
   },
@@ -721,12 +778,44 @@ AutomationNodeImpl.prototype = {
     return GetTableCellRowIndex(this.treeID, this.id);
   },
 
+
+  get tableCellAriaColumnIndex() {
+    return GetTableCellAriaColumnIndex(this.treeID, this.id);
+  },
+
+  get tableCellAriaRowIndex() {
+    return GetTableCellAriaRowIndex(this.treeID, this.id);
+  },
+
   get nonInlineTextWordStarts() {
     return GetWordStartOffsets(this.treeID, this.id);
   },
 
   get nonInlineTextWordEnds() {
     return GetWordEndOffsets(this.treeID, this.id);
+  },
+
+  get markers() {
+    return GetMarkers(this.treeID, this.id);
+  },
+
+  createPosition: function(offset, opt_isUpstream) {
+    var nativePosition = createAutomationPosition(
+        this.treeID, this.id, offset, !!opt_isUpstream);
+
+    // Attach a getter for the node, which is only available in js.
+    Object.defineProperty(nativePosition, 'node', {
+      get: function() {
+        var tree =
+            AutomationTreeCache.idToAutomationRootNode[nativePosition.treeID];
+        if (!tree)
+          return null;
+
+        return privates(tree).impl.get(nativePosition.anchorID);
+      }
+    });
+
+    return nativePosition;
   },
 
   doDefault: function() {
@@ -889,6 +978,7 @@ AutomationNodeImpl.prototype = {
       callback: callback,
       capture: !!capture,
     });
+    EventListenerAdded(this.treeID, this.id, eventType);
   },
 
   // TODO(dtseng/aboxhall): Check this impl against spec.
@@ -898,6 +988,10 @@ AutomationNodeImpl.prototype = {
       for (var i = 0; i < listeners.length; i++) {
         if (callback === listeners[i].callback)
           $Array.splice(listeners, i, 1);
+      }
+
+      if (listeners.length == 0) {
+        EventListenerRemoved(this.treeID, this.id, eventType);
       }
     }
   },
@@ -953,6 +1047,8 @@ AutomationNodeImpl.prototype = {
       result += ' childTreeID=' + childTreeID;
     if (name)
       result += ' name=' + name;
+    if (this.className)
+      result += ' className=' + this.className;
     return result;
   },
 
@@ -1139,6 +1235,7 @@ var stringAttributes = [
     'placeholder',
     'roleDescription',
     'textInputType',
+    'tooltip',
     'url',
     'value'];
 
@@ -1160,9 +1257,7 @@ var intAttributes = [
     'scrollYMax',
     'scrollYMin',
     'setSize',
-    'ariaCellColumnIndex',
     'tableCellColumnSpan',
-    'ariaCellRowIndex',
     'tableCellRowSpan',
     'tableColumnCount',
     'ariaColumnCount',
@@ -1176,8 +1271,7 @@ var intAttributes = [
 // Int attribute, relation property to expose, reverse relation to expose.
 var nodeRefAttributes = [
     ['activedescendantId', 'activeDescendant', 'activeDescendantFor'],
-    ['detailsId', 'details', 'detailsFor'],
-    ['errorMessageId', 'errorMessage', 'errorMessageFor'],
+    ['errormessageId', 'errorMessage', 'errorMessageFor'],
     ['inPageLinkTargetId', 'inPageLinkTarget', null],
     ['nextFocusId', 'nextFocus', null],
     ['nextOnLineId', 'nextOnLine', null],
@@ -1189,9 +1283,6 @@ var nodeRefAttributes = [
 
 var intListAttributes = [
     'lineBreaks',
-    'markerEnds',
-    'markerStarts',
-    'markerTypes',
     'wordEnds',
     'wordStarts'];
 
@@ -1199,6 +1290,7 @@ var intListAttributes = [
 var nodeRefListAttributes = [
     ['controlsIds', 'controls', 'controlledBy'],
     ['describedbyIds', 'describedBy', 'descriptionFor'],
+    ['detailsIds', 'details', 'detailsFor'],
     ['flowtoIds', 'flowTo', 'flowFrom'],
     ['labelledbyIds', 'labelledBy', 'labelFor']];
 
@@ -1377,19 +1469,16 @@ function AutomationRootNodeImpl(treeID) {
   this.axNodeDataCache_ = {__proto__: null};
 }
 
-utils.defineProperty(AutomationRootNodeImpl, 'idToAutomationRootNode_',
-    {__proto__: null});
-
 utils.defineProperty(AutomationRootNodeImpl, 'get', function(treeID) {
-  var result = AutomationRootNodeImpl.idToAutomationRootNode_[treeID];
+  var result = AutomationTreeCache.idToAutomationRootNode[treeID];
   return result || undefined;
 });
 
 utils.defineProperty(AutomationRootNodeImpl, 'getOrCreate', function(treeID) {
-  if (AutomationRootNodeImpl.idToAutomationRootNode_[treeID])
-    return AutomationRootNodeImpl.idToAutomationRootNode_[treeID];
+  if (AutomationTreeCache.idToAutomationRootNode[treeID])
+    return AutomationTreeCache.idToAutomationRootNode[treeID];
   var result = new AutomationRootNode(treeID);
-  AutomationRootNodeImpl.idToAutomationRootNode_[treeID] = result;
+  AutomationTreeCache.idToAutomationRootNode[treeID] = result;
   return result;
 });
 
@@ -1404,7 +1493,7 @@ utils.defineProperty(
 });
 
 utils.defineProperty(AutomationRootNodeImpl, 'destroy', function(treeID) {
-  delete AutomationRootNodeImpl.idToAutomationRootNode_[treeID];
+  delete AutomationTreeCache.idToAutomationRootNode[treeID];
 });
 
 /**
@@ -1668,6 +1757,7 @@ function AutomationNode() {
 }
 utils.expose(AutomationNode, AutomationNodeImpl, {
   functions: [
+    'createPosition',
     'doDefault',
     'find',
     'findAll',
@@ -1705,40 +1795,44 @@ utils.expose(AutomationNode, AutomationNodeImpl, {
   readonly: $Array.concat(
       publicAttributes,
       [
-        'parent',
-        'firstChild',
-        'lastChild',
-        'children',
-        'previousSibling',
-        'nextSibling',
-        'isRootNode',
-        'role',
+        'bold',
         'checked',
+        'children',
+        'customActions',
         'defaultActionVerb',
+        'descriptionFrom',
+        'detectedLanguage',
+        'firstChild',
         'hasPopup',
-        'restriction',
-        'state',
-        'location',
+        'htmlAttributes',
         'imageAnnotation',
         'indexInParent',
-        'lineStartOffsets',
-        'root',
-        'htmlAttributes',
-        'nameFrom',
-        'bold',
+        'isRootNode',
         'italic',
-        'underline',
+        'lastChild',
+        'lineStartOffsets',
         'lineThrough',
-        'detectedLanguage',
-        'customActions',
-        'standardActions',
-        'unclippedLocation',
-        'tableCellColumnHeaders',
-        'tableCellRowHeaders',
-        'tableCellColumnIndex',
-        'tableCellRowIndex',
-        'nonInlineTextWordStarts',
+        'location',
+        'markers',
+        'nameFrom',
+        'nextSibling',
         'nonInlineTextWordEnds',
+        'nonInlineTextWordStarts',
+        'parent',
+        'previousSibling',
+        'restriction',
+        'role',
+        'root',
+        'standardActions',
+        'state',
+        'tableCellAriaColumnIndex',
+        'tableCellAriaRowIndex',
+        'tableCellColumnHeaders',
+        'tableCellColumnIndex',
+        'tableCellRowHeaders',
+        'tableCellRowIndex',
+        'unclippedLocation',
+        'underline',
       ]),
 });
 

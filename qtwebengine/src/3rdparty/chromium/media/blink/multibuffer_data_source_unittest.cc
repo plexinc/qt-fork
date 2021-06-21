@@ -184,8 +184,8 @@ class MockMultibufferDataSource : public MultibufferDataSource {
             std::move(url_data),
             &media_log_,
             host,
-            base::Bind(&MockMultibufferDataSource::set_downloading,
-                       base::Unretained(this))),
+            base::BindRepeating(&MockMultibufferDataSource::set_downloading,
+                                base::Unretained(this))),
         downloading_(false) {}
 
   bool downloading() { return downloading_; }
@@ -235,7 +235,7 @@ class MultibufferDataSourceTest : public testing::Test {
 
     response_generator_.reset(new TestResponseGenerator(gurl, file_size));
     EXPECT_CALL(*this, OnInitialize(expected));
-    data_source_->Initialize(base::Bind(
+    data_source_->Initialize(base::BindOnce(
         &MultibufferDataSourceTest::OnInitialize, base::Unretained(this)));
     base::RunLoop().RunUntilIdle();
 
@@ -336,8 +336,8 @@ class MultibufferDataSourceTest : public testing::Test {
 
   void ReadAt(int64_t position, int64_t howmuch = kDataSize) {
     data_source_->Read(position, howmuch, buffer_,
-                       base::Bind(&MultibufferDataSourceTest::ReadCallback,
-                                  base::Unretained(this)));
+                       base::BindOnce(&MultibufferDataSourceTest::ReadCallback,
+                                      base::Unretained(this)));
     base::RunLoop().RunUntilIdle();
   }
 
@@ -888,8 +888,8 @@ TEST_F(MultibufferDataSourceTest, StopDuringRead) {
 
   uint8_t buffer[256];
   data_source_->Read(kDataSize, base::size(buffer), buffer,
-                     base::Bind(&MultibufferDataSourceTest::ReadCallback,
-                                base::Unretained(this)));
+                     base::BindOnce(&MultibufferDataSourceTest::ReadCallback,
+                                    base::Unretained(this)));
 
   // The outstanding read should fail before the stop callback runs.
   {
@@ -1000,8 +1000,8 @@ TEST_F(MultibufferDataSourceTest, Http_ShareData) {
   // This call would not be expected if we were not sharing data.
   EXPECT_CALL(host2, SetTotalBytes(response_generator_->content_length()));
   EXPECT_CALL(host2, AddBufferedByteRange(0, kDataSize * 2));
-  source2.Initialize(base::Bind(&MultibufferDataSourceTest::OnInitialize,
-                                base::Unretained(this)));
+  source2.Initialize(base::BindOnce(&MultibufferDataSourceTest::OnInitialize,
+                                    base::Unretained(this)));
   base::RunLoop().RunUntilIdle();
 
   // Always loading after initialize.
@@ -1282,8 +1282,8 @@ TEST_F(MultibufferDataSourceTest,
   ReceiveData(kDataSize);
   EXPECT_EQ(data_source_->downloading(), false);
   data_source_->Read(kDataSize * 10, kDataSize, buffer_,
-                     base::Bind(&MultibufferDataSourceTest::ReadCallback,
-                                base::Unretained(this)));
+                     base::BindOnce(&MultibufferDataSourceTest::ReadCallback,
+                                    base::Unretained(this)));
   data_source_->OnBufferingHaveEnough(false);
   EXPECT_TRUE(active_loader_allownull());
   EXPECT_CALL(*this, ReadCallback(-1));
@@ -1305,6 +1305,7 @@ TEST_F(MultibufferDataSourceTest,
 
   // Marking the media as playing should prevent deferral. It also tells the
   // data source to start buffering beyond the initial load.
+  EXPECT_FALSE(data_source_->cancel_on_defer_for_testing());
   data_source_->MediaIsPlaying();
   data_source_->OnBufferingHaveEnough(false);
   CheckCapacityDefer();
@@ -1316,6 +1317,7 @@ TEST_F(MultibufferDataSourceTest,
   ReceiveData(kDataSize);
   ASSERT_TRUE(active_loader());
   data_source_->OnBufferingHaveEnough(true);
+  EXPECT_TRUE(data_source_->cancel_on_defer_for_testing());
   ASSERT_TRUE(active_loader());
   ASSERT_FALSE(data_provider()->deferred());
 
@@ -1329,6 +1331,26 @@ TEST_F(MultibufferDataSourceTest,
   EXPECT_GT(bytes_received, 0);
   EXPECT_LT(bytes_received + kDataSize, kFileSize);
   EXPECT_FALSE(active_loader_allownull());
+
+  // Verify playback resumes correctly too.
+  data_source_->MediaIsPlaying();
+  EXPECT_FALSE(data_source_->cancel_on_defer_for_testing());
+
+  // A read from a previously buffered range won't create a new loader yet.
+  EXPECT_CALL(*this, ReadCallback(kDataSize));
+  ReadAt(kDataSize);
+  EXPECT_FALSE(active_loader_allownull());
+
+  // Reads from an unbuffered range will though...
+  EXPECT_CALL(*this, ReadCallback(kDataSize));
+  ReadAt(kFarReadPosition);
+
+  // Receive enough data to exhaust current capacity which would destroy the
+  // loader upon deferral if the flag hasn't been cleared properly.
+  for (int i = 0; i <= (preload_high() / kDataSize) + 1; ++i) {
+    ReceiveData(kDataSize);
+    ASSERT_TRUE(active_loader());
+  }
 }
 
 TEST_F(MultibufferDataSourceTest, SeekPastEOF) {
@@ -1340,8 +1362,8 @@ TEST_F(MultibufferDataSourceTest, SeekPastEOF) {
 
   response_generator_.reset(new TestResponseGenerator(gurl, kDataSize + 1));
   EXPECT_CALL(*this, OnInitialize(true));
-  data_source_->Initialize(base::Bind(&MultibufferDataSourceTest::OnInitialize,
-                                      base::Unretained(this)));
+  data_source_->Initialize(base::BindOnce(
+      &MultibufferDataSourceTest::OnInitialize, base::Unretained(this)));
   base::RunLoop().RunUntilIdle();
 
   // Not really loading until after OnInitialize is called.
@@ -1716,8 +1738,8 @@ TEST_F(MultibufferDataSourceTest, Http_CheckLoadingTransition) {
 
   response_generator_.reset(new TestResponseGenerator(gurl, kDataSize * 1));
   EXPECT_CALL(*this, OnInitialize(true));
-  data_source_->Initialize(base::Bind(&MultibufferDataSourceTest::OnInitialize,
-                                      base::Unretained(this)));
+  data_source_->Initialize(base::BindOnce(
+      &MultibufferDataSourceTest::OnInitialize, base::Unretained(this)));
   base::RunLoop().RunUntilIdle();
 
   // Not really loading until after OnInitialize is called.
@@ -1736,8 +1758,8 @@ TEST_F(MultibufferDataSourceTest, Http_CheckLoadingTransition) {
 
   EXPECT_CALL(*this, ReadCallback(1));
   data_source_->Read(kDataSize, 2, buffer_,
-                     base::Bind(&MultibufferDataSourceTest::ReadCallback,
-                                base::Unretained(this)));
+                     base::BindOnce(&MultibufferDataSourceTest::ReadCallback,
+                                    base::Unretained(this)));
   base::RunLoop().RunUntilIdle();
 
   // Make sure we're not downloading anymore.

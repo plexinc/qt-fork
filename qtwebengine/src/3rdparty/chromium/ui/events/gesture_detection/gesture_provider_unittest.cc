@@ -13,7 +13,7 @@
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/test/metrics/histogram_tester.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -21,6 +21,7 @@
 #include "ui/events/gesture_detection/gesture_event_data.h"
 #include "ui/events/gesture_detection/motion_event.h"
 #include "ui/events/test/motion_event_test_utils.h"
+#include "ui/events/types/event_type.h"
 #include "ui/gfx/geometry/point_f.h"
 
 using base::TimeDelta;
@@ -66,8 +67,8 @@ gfx::RectF BoundsForSingleMockTouchAtLocation(float x, float y) {
 class GestureProviderTest : public testing::Test, public GestureProviderClient {
  public:
   GestureProviderTest()
-      : scoped_task_environment_(
-            base::test::ScopedTaskEnvironment::MainThreadType::UI) {}
+      : task_environment_(
+            base::test::SingleThreadTaskEnvironment::MainThreadType::UI) {}
   ~GestureProviderTest() override {}
 
   static MockMotionEvent ObtainMotionEvent(base::TimeTicks event_time,
@@ -145,7 +146,7 @@ class GestureProviderTest : public testing::Test, public GestureProviderClient {
     EXPECT_EQ(GestureDeviceType::DEVICE_TOUCHSCREEN,
               gesture.details.device_type());
     if (gesture.type() == ET_GESTURE_SCROLL_BEGIN)
-      active_scroll_begin_event_.reset(new GestureEventData(gesture));
+      active_scroll_begin_event_ = std::make_unique<GestureEventData>(gesture);
     gestures_.push_back(gesture);
   }
 
@@ -154,7 +155,7 @@ class GestureProviderTest : public testing::Test, public GestureProviderClient {
   }
 
   void SetUpWithConfig(const GestureProvider::Config& config) {
-    gesture_provider_.reset(new GestureProvider(config, this));
+    gesture_provider_ = std::make_unique<GestureProvider>(config, this);
     gesture_provider_->SetMultiTouchZoomSupportEnabled(false);
   }
 
@@ -294,6 +295,13 @@ class GestureProviderTest : public testing::Test, public GestureProviderClient {
   void SetSingleTapRepeatInterval(int repeat_interval) {
     GestureProvider::Config config = GetDefaultConfig();
     config.gesture_detector_config.single_tap_repeat_interval = repeat_interval;
+    SetUpWithConfig(config);
+  }
+
+  void SetStylusButtonAcceleratedLongPress(bool enabled) {
+    GestureProvider::Config config = GetDefaultConfig();
+    config.gesture_detector_config.stylus_button_accelerated_longpress_enabled =
+        enabled;
     SetUpWithConfig(config);
   }
 
@@ -438,7 +446,7 @@ class GestureProviderTest : public testing::Test, public GestureProviderClient {
   std::vector<GestureEventData> gestures_;
   std::unique_ptr<GestureProvider> gesture_provider_;
   std::unique_ptr<GestureEventData> active_scroll_begin_event_;
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::SingleThreadTaskEnvironment task_environment_;
   bool should_process_double_tap_events_ = true;
 };
 
@@ -682,6 +690,25 @@ TEST_F(GestureProviderTest, GestureCancelledOnDetectionReset) {
   EXPECT_FALSE(gesture_provider_->OnTouchEvent(event));
 }
 
+TEST_F(GestureProviderTest, TapPendingConfirmationCancelledOnCancelEvent) {
+  const base::TimeTicks event_time = TimeTicks::Now();
+  MockMotionEvent event =
+      ObtainMotionEvent(event_time, MotionEvent::Action::DOWN);
+  EXPECT_TRUE(gesture_provider_->OnTouchEvent(event));
+  EXPECT_EQ(ET_GESTURE_TAP_DOWN, GetMostRecentGestureEventType());
+
+  event =
+      ObtainMotionEvent(event_time + kOneMicrosecond, MotionEvent::Action::UP);
+  gesture_provider_->OnTouchEvent(event);
+  EXPECT_EQ(ET_GESTURE_TAP_UNCONFIRMED, GetMostRecentGestureEventType());
+  EXPECT_EQ(1, GetMostRecentGestureEvent().details.touch_points());
+
+  event = ObtainMotionEvent(event_time + kOneMicrosecond * 2,
+                            MotionEvent::Action::CANCEL);
+  gesture_provider_->OnTouchEvent(event);
+  EXPECT_EQ(ET_GESTURE_TAP_CANCEL, GetMostRecentGestureEventType());
+}
+
 TEST_F(GestureProviderTest, NoTapAfterScrollBegins) {
   base::TimeTicks event_time = base::TimeTicks::Now();
 
@@ -703,38 +730,6 @@ TEST_F(GestureProviderTest, NoTapAfterScrollBegins) {
   EXPECT_TRUE(gesture_provider_->OnTouchEvent(event));
   EXPECT_EQ(ET_GESTURE_SCROLL_END, GetMostRecentGestureEventType());
   EXPECT_FALSE(HasReceivedGesture(ET_GESTURE_LONG_TAP));
-}
-
-TEST_F(GestureProviderTest, ScrollBeginLatencyUMA) {
-  auto histogram_tester = std::make_unique<base::HistogramTester>();
-  base::TimeTicks event_time = base::TimeTicks::Now();
-
-  // Send in a DOWN and MOVE that exceeds the slop threshold, and validate
-  // that the UMA fires.
-  MockMotionEvent event =
-      ObtainMotionEvent(event_time, MotionEvent::Action::DOWN);
-  EXPECT_TRUE(gesture_provider_->OnTouchEvent(event));
-  EXPECT_EQ(ET_GESTURE_TAP_DOWN, GetMostRecentGestureEventType());
-  EXPECT_EQ(1, GetMostRecentGestureEvent().details.touch_points());
-
-  const float touch_slop = GetTouchSlop();
-  event =
-      ObtainMotionEvent(event_time + kOneMicrosecond, MotionEvent::Action::MOVE,
-                        kFakeCoordX + 2 * touch_slop, kFakeCoordY);
-  EXPECT_TRUE(gesture_provider_->OnTouchEvent(event));
-  EXPECT_EQ(ET_GESTURE_SCROLL_UPDATE, GetMostRecentGestureEventType());
-
-  base::TimeTicks complete_time = base::TimeTicks::Now();
-  std::vector<base::Bucket> buckets =
-      histogram_tester->GetAllSamples("Event.Scroll.TouchGestureLatency");
-
-  EXPECT_EQ(buckets.size(), 1ULL);
-  EXPECT_LE(buckets.front().min, (complete_time - event_time).InMilliseconds());
-
-  event = ObtainMotionEvent(event_time + kOneSecond, MotionEvent::Action::UP,
-                            kFakeCoordX + 2 * touch_slop, kFakeCoordY);
-  EXPECT_TRUE(gesture_provider_->OnTouchEvent(event));
-  EXPECT_EQ(ET_GESTURE_SCROLL_END, GetMostRecentGestureEventType());
 }
 
 TEST_F(GestureProviderTest, DoubleTap) {
@@ -1005,7 +1000,6 @@ TEST_F(GestureProviderTest, SlopRegionCheckOnTwoFingerScroll) {
   EnableTwoFingerTap(kMaxTwoFingerTapSeparation, base::TimeDelta());
   const float scaled_touch_slop = GetTouchSlop();
 
-  auto histogram_tester = std::make_unique<base::HistogramTester>();
   base::TimeTicks event_time = base::TimeTicks::Now();
 
   MockMotionEvent event =
@@ -1053,10 +1047,6 @@ TEST_F(GestureProviderTest, SlopRegionCheckOnTwoFingerScroll) {
   EXPECT_EQ(ET_GESTURE_SCROLL_UPDATE, GetReceivedGesture(3).type());
   EXPECT_EQ(ET_GESTURE_SCROLL_END, GetReceivedGesture(4).type());
   EXPECT_EQ(5U, GetReceivedGestureCount());
-
-  // Even when there are two pointers, we should only log the gesture latency
-  // one time.
-  histogram_tester->ExpectTotalCount("Event.Scroll.TouchGestureLatency", 1);
 }
 
 // This test simulates cases like (crbug.com/704426) in which some of the events
@@ -1264,6 +1254,36 @@ TEST_F(GestureProviderTest, GestureLongPressDoesNotPreventScrolling) {
                             MotionEvent::Action::UP);
   gesture_provider_->OnTouchEvent(event);
   EXPECT_FALSE(HasReceivedGesture(ET_GESTURE_LONG_TAP));
+}
+
+TEST_F(GestureProviderTest, StylusButtonCausesLongPress) {
+  SetStylusButtonAcceleratedLongPress(true);
+  base::TimeTicks event_time = base::TimeTicks::Now();
+
+  MockMotionEvent event =
+      ObtainMotionEvent(event_time, MotionEvent::Action::DOWN);
+  EXPECT_TRUE(gesture_provider_->OnTouchEvent(event));
+
+  event = ObtainMotionEvent(event_time + kOneMicrosecond,
+                            MotionEvent::Action::MOVE);
+  event.set_flags(EF_LEFT_MOUSE_BUTTON);
+  EXPECT_TRUE(gesture_provider_->OnTouchEvent(event));
+  EXPECT_EQ(ET_GESTURE_LONG_PRESS, GetMostRecentGestureEventType());
+}
+
+TEST_F(GestureProviderTest, DisabledStylusButtonDoesNotCauseLongPress) {
+  SetStylusButtonAcceleratedLongPress(false);
+  base::TimeTicks event_time = base::TimeTicks::Now();
+
+  MockMotionEvent event =
+      ObtainMotionEvent(event_time, MotionEvent::Action::DOWN);
+  EXPECT_TRUE(gesture_provider_->OnTouchEvent(event));
+
+  event = ObtainMotionEvent(event_time + kOneMicrosecond,
+                            MotionEvent::Action::MOVE);
+  event.set_flags(EF_LEFT_MOUSE_BUTTON);
+  EXPECT_TRUE(gesture_provider_->OnTouchEvent(event));
+  EXPECT_NE(ET_GESTURE_LONG_PRESS, GetMostRecentGestureEventType());
 }
 
 TEST_F(GestureProviderTest, NoGestureLongPressDuringDoubleTap) {

@@ -13,12 +13,18 @@ MediaStubLocalFrameClient::MediaStubLocalFrameClient(
     std::unique_ptr<WebMediaPlayer> player)
     : player_(std::move(player)) {}
 
+MediaStubLocalFrameClient::MediaStubLocalFrameClient(
+    std::unique_ptr<WebMediaPlayer> player,
+    bool allow_empty_player)
+    : player_(std::move(player)), allow_empty_player_(allow_empty_player) {}
+
 std::unique_ptr<WebMediaPlayer> MediaStubLocalFrameClient::CreateWebMediaPlayer(
     HTMLMediaElement&,
     const WebMediaPlayerSource&,
-    WebMediaPlayerClient*,
-    WebLayerTreeView*) {
-  DCHECK(player_) << " Empty injected player - already used?";
+    WebMediaPlayerClient*) {
+  if (!allow_empty_player_)
+    DCHECK(player_) << " Empty injected player - already used?";
+
   return std::move(player_);
 }
 

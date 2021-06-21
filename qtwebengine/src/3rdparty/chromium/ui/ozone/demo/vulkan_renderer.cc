@@ -93,8 +93,7 @@ VulkanRenderer::VulkanRenderer(
       window_surface_(std::move(window_surface)),
       vulkan_implementation_(vulkan_implementation),
       vulkan_surface_(std::move(vulkan_surface)),
-      size_(size),
-      weak_ptr_factory_(this) {}
+      size_(size) {}
 
 VulkanRenderer::~VulkanRenderer() {
   DestroyFramebuffers();
@@ -170,7 +169,7 @@ bool VulkanRenderer::Initialize() {
            VK_SUCCESS);
 
   command_pool_ = std::make_unique<gpu::VulkanCommandPool>(device_queue_.get());
-  CHECK(command_pool_->Initialize());
+  CHECK(command_pool_->Initialize(false /* use_protected_memory */));
 
   RecreateFramebuffers();
 
@@ -223,9 +222,10 @@ void VulkanRenderer::RenderFrame() {
       /* .color = */ {/* .float32 = */ {.5f, 1.f - NextFraction(), .5f, 1.f}}};
 
   gpu::VulkanSwapChain* vulkan_swap_chain = vulkan_surface_->swap_chain();
-  gpu::VulkanSwapChain::ScopedWrite scoped_write(vulkan_swap_chain);
-  const uint32_t image = scoped_write.image_index();
   {
+    gpu::VulkanSwapChain::ScopedWrite scoped_write(vulkan_swap_chain);
+    const uint32_t image = scoped_write.image_index();
+
     auto& framebuffer = framebuffers_[image];
     if (!framebuffer) {
       framebuffer = Framebuffer::Create(
@@ -294,14 +294,8 @@ void VulkanRenderer::RenderFrame() {
       vkCmdEndRenderPass(recorder.handle());
     }
     VkSemaphore begin_semaphore = scoped_write.TakeBeginSemaphore();
-    VkSemaphoreCreateInfo vk_semaphore_create_info = {
-        VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
-    VkSemaphore end_semaphore;
-    CHECK(vkCreateSemaphore(device_queue_->GetVulkanDevice(),
-                            &vk_semaphore_create_info, nullptr /* pAllocator */,
-                            &end_semaphore) == VK_SUCCESS);
+    VkSemaphore end_semaphore = scoped_write.GetEndSemaphore();
     CHECK(command_buffer.Submit(1, &begin_semaphore, 1, &end_semaphore));
-    scoped_write.SetEndSemaphore(end_semaphore);
     device_queue_->GetFenceHelper()->EnqueueSemaphoreCleanupForSubmittedWork(
         begin_semaphore);
   }
@@ -385,7 +379,8 @@ VulkanRenderer::Framebuffer::Create(gpu::VulkanDeviceQueue* vulkan_device_queue,
   }
 
   auto command_buffer = std::make_unique<gpu::VulkanCommandBuffer>(
-      vulkan_device_queue, vulkan_command_pool, true /* primary */);
+      vulkan_device_queue, vulkan_command_pool, true /* primary */,
+      false /* use_protected_memory */);
   CHECK(command_buffer->Initialize());
 
   return std::make_unique<VulkanRenderer::Framebuffer>(

@@ -42,6 +42,7 @@ static_library("variations") {
     "synthetic_trials_active_group_id_provider.h",
     "variations_associated_data.cc",
     "variations_associated_data.h",
+    "variations_client.h",
     "variations_crash_keys.cc",
     "variations_crash_keys.h",
     "variations_http_header_provider.cc",
@@ -95,16 +96,12 @@ if (is_android) {
   }
 
   android_library("load_seed_result_enum_java") {
-    deps = [
-      "//base:base_java",
-    ]
+    deps = [ "//base:base_java" ]
     srcjar_deps = [ ":load_seed_result_enum_srcjar" ]
   }
 
   java_cpp_enum("load_seed_result_enum_srcjar") {
-    sources = [
-      "metrics.h",
-    ]
+    sources = [ "metrics.h" ]
   }
 }
 
@@ -115,9 +112,7 @@ static_library("test_support") {
     "variations_params_manager.h",
   ]
 
-  public_deps = [
-    ":variations",
-  ]
+  public_deps = [ ":variations" ]
 
   deps = [
     "field_trial_config:field_trial_config",
@@ -130,6 +125,7 @@ source_set("unit_tests") {
   sources = [
     "active_field_trials_unittest.cc",
     "child_process_field_trial_syncer_unittest.cc",
+    "client_filterable_state_unittest.cc",
     "entropy_provider_unittest.cc",
     "hashing_unittest.cc",
     "net/variations_command_line_unittest.cc",
@@ -169,9 +165,7 @@ source_set("unit_tests") {
 
 # Convenience testing target
 test("variations_unittests") {
-  sources = [
-    "//components/test/run_all_unittests.cc",
-  ]
+  sources = [ "//components/test/run_all_unittests.cc" ]
   deps = [
     ":unit_tests",
     "//components/test:test_support",

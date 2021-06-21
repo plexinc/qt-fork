@@ -50,7 +50,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityIpcErrorBrowserTest,
       "</div>"
       "<button id='button'>Button</button>";
   GURL url(url_str);
-  NavigateToURL(shell(), url);
+  EXPECT_TRUE(NavigateToURL(shell(), url));
 
   // Simulate a condition where the RFH can't create a
   // BrowserAccessibilityManager - like if there's no view.
@@ -145,7 +145,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityIpcErrorBrowserTest,
       "data:text/html,"
       "<button id='button'>Button</button>";
   GURL url(url_str);
-  NavigateToURL(shell(), url);
+  EXPECT_TRUE(NavigateToURL(shell(), url));
   RenderFrameHostImpl* frame = static_cast<RenderFrameHostImpl*>(
       shell()->web_contents()->GetMainFrame());
 
@@ -160,7 +160,10 @@ IN_PROC_BROWSER_TEST_F(AccessibilityIpcErrorBrowserTest,
   }
 
   // Construct a bad accessibility message that BrowserAccessibilityManager
-  // will reject.
+  // will reject.  Note that BrowserAccessibilityManager is hosted in a
+  // renderer process - the test verifies that the renderer process will crash
+  // (i.e. the scenario under test does not involve mojo::ReportBadMessage
+  // or content::bad_message::ReceivedBadMessage).
   AXEventNotificationDetails bad_accessibility_event;
   bad_accessibility_event.updates.resize(1);
   bad_accessibility_event.updates[0].root_id = 1;

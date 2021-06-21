@@ -18,7 +18,7 @@ namespace blink {
 class ContentSecurityPolicy;
 class KURL;
 
-class CORE_EXPORT CSPSource : public GarbageCollectedFinalized<CSPSource> {
+class CORE_EXPORT CSPSource final : public GarbageCollected<CSPSource> {
  public:
   enum WildcardDisposition { kNoWildcard, kHasWildcard };
 
@@ -65,9 +65,9 @@ class CORE_EXPORT CSPSource : public GarbageCollectedFinalized<CSPSource> {
   static bool FirstSubsumesSecond(const HeapVector<Member<CSPSource>>&,
                                   const HeapVector<Member<CSPSource>>&);
 
-  WebContentSecurityPolicySourceExpression ExposeForNavigationalChecks() const;
+  network::mojom::blink::CSPSourcePtr ExposeForNavigationalChecks() const;
 
-  void Trace(blink::Visitor*);
+  void Trace(Visitor*);
 
  private:
   FRIEND_TEST_ALL_PREFIXES(CSPSourceTest, IsSimilar);

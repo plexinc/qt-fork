@@ -10,6 +10,7 @@
 #include "third_party/blink/renderer/core/animation/animation_test_helper.h"
 #include "third_party/blink/renderer/core/animation/document_timeline.h"
 #include "third_party/blink/renderer/core/animation/element_animations.h"
+#include "third_party/blink/renderer/core/animation/interpolable_length.h"
 #include "third_party/blink/renderer/core/animation/invalidatable_interpolation.h"
 #include "third_party/blink/renderer/core/animation/keyframe_effect_model.h"
 #include "third_party/blink/renderer/core/animation/pending_animations.h"
@@ -81,14 +82,14 @@ class AnimationEffectStackTest : public PageTestBase {
         active_interpolations.at(PropertyHandle(GetCSSPropertyFontSize()));
     EnsureInterpolatedValueCached(interpolations, GetDocument(), element);
 
-    const TypedInterpolationValue* typed_value =
-        ToInvalidatableInterpolation(*interpolations.at(0))
+    const auto* typed_value =
+        To<InvalidatableInterpolation>(*interpolations.at(0))
             .GetCachedValueForTesting();
-    // font-size is stored as an array of length values; here we assume pixels.
-    EXPECT_TRUE(typed_value->GetInterpolableValue().IsList());
-    const InterpolableList* list =
-        ToInterpolableList(&typed_value->GetInterpolableValue());
-    return ToInterpolableNumber(list->Get(0))->Value();
+    // font-size is stored as an |InterpolableLength|; here we assume pixels.
+    EXPECT_TRUE(typed_value->GetInterpolableValue().IsLength());
+    const InterpolableLength& length =
+        To<InterpolableLength>(typed_value->GetInterpolableValue());
+    return length.CreateCSSValue(kValueRangeAll)->GetDoubleValue();
   }
 
   double GetZIndexValue(const ActiveInterpolationsMap& active_interpolations) {
@@ -96,12 +97,13 @@ class AnimationEffectStackTest : public PageTestBase {
         active_interpolations.at(PropertyHandle(GetCSSPropertyZIndex()));
     EnsureInterpolatedValueCached(interpolations, GetDocument(), element);
 
-    const TypedInterpolationValue* typed_value =
-        ToInvalidatableInterpolation(*interpolations.at(0))
+    const auto* typed_value =
+        To<InvalidatableInterpolation>(*interpolations.at(0))
             .GetCachedValueForTesting();
     // z-index is stored as a straight number value.
     EXPECT_TRUE(typed_value->GetInterpolableValue().IsNumber());
-    return ToInterpolableNumber(&typed_value->GetInterpolableValue())->Value();
+    return To<InterpolableNumber>(&typed_value->GetInterpolableValue())
+        ->Value();
   }
 
   Persistent<DocumentTimeline> timeline;

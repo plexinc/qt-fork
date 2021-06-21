@@ -40,6 +40,7 @@
 #include "third_party/blink/renderer/bindings/core/v8/js_based_event_listener.h"
 #include "third_party/blink/renderer/bindings/core/v8/js_event_listener.h"
 #include "third_party/blink/renderer/bindings/core/v8/source_location.h"
+#include "third_party/blink/renderer/core/dom/events/add_event_listener_options_resolved.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
 #include "third_party/blink/renderer/core/dom/events/event_dispatch_forbidden_scope.h"
 #include "third_party/blink/renderer/core/dom/events/event_target_impl.h"
@@ -50,6 +51,7 @@
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/performance_monitor.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
+#include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/inspector/console_message.h"
 #include "third_party/blink/renderer/core/probe/core_probes.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
@@ -150,15 +152,72 @@ void ReportBlockedEvent(EventTarget& target,
 bool CheckTypeThenUseCount(const Event& event,
                            const AtomicString& event_type_to_count,
                            const WebFeature feature,
-                           Document* document) {
+                           Document& document) {
   if (event.type() != event_type_to_count)
     return false;
-  UseCounter::Count(*document, feature);
+  UseCounter::Count(document, feature);
   return true;
 }
+
+void CountFiringEventListeners(const Event& event,
+                               const LocalDOMWindow* executing_window) {
+  if (!executing_window)
+    return;
+  if (!executing_window->document())
+    return;
+  Document& document = *executing_window->document();
+
+  if (event.type() == event_type_names::kToggle &&
+      document.ToggleDuringParsing()) {
+    UseCounter::Count(document, WebFeature::kToggleEventHandlerDuringParsing);
+    return;
+  }
+  if (CheckTypeThenUseCount(event, event_type_names::kBeforeunload,
+                            WebFeature::kDocumentBeforeUnloadFired, document)) {
+    if (executing_window != executing_window->top())
+      UseCounter::Count(document, WebFeature::kSubFrameBeforeUnloadFired);
+    return;
+  }
+  if (CheckTypeThenUseCount(event, event_type_names::kPointerdown,
+                            WebFeature::kPointerDownFired, document)) {
+    if (IsA<PointerEvent>(event) &&
+        static_cast<const PointerEvent&>(event).pointerType() == "touch") {
+      UseCounter::Count(document, WebFeature::kPointerDownFiredForTouch);
+    }
+    return;
+  }
+
+  struct CountedEvent {
+    const AtomicString& event_type;
+    const WebFeature feature;
+  };
+  static const CountedEvent counted_events[] = {
+      {event_type_names::kUnload, WebFeature::kDocumentUnloadFired},
+      {event_type_names::kPagehide, WebFeature::kDocumentPageHideFired},
+      {event_type_names::kPageshow, WebFeature::kDocumentPageShowFired},
+      {event_type_names::kDOMFocusIn, WebFeature::kDOMFocusInOutEvent},
+      {event_type_names::kDOMFocusOut, WebFeature::kDOMFocusInOutEvent},
+      {event_type_names::kFocusin, WebFeature::kFocusInOutEvent},
+      {event_type_names::kFocusout, WebFeature::kFocusInOutEvent},
+      {event_type_names::kTextInput, WebFeature::kTextInputFired},
+      {event_type_names::kTouchstart, WebFeature::kTouchStartFired},
+      {event_type_names::kMousedown, WebFeature::kMouseDownFired},
+      {event_type_names::kPointerenter, WebFeature::kPointerEnterLeaveFired},
+      {event_type_names::kPointerleave, WebFeature::kPointerEnterLeaveFired},
+      {event_type_names::kPointerover, WebFeature::kPointerOverOutFired},
+      {event_type_names::kPointerout, WebFeature::kPointerOverOutFired},
+      {event_type_names::kSearch, WebFeature::kSearchEventFired},
+  };
+  for (const auto& counted_event : counted_events) {
+    if (CheckTypeThenUseCount(event, counted_event.event_type,
+                              counted_event.feature, document))
+      return;
+  }
+}
+
 void RegisterWithScheduler(ExecutionContext* execution_context,
                            const AtomicString& event_type) {
-  if (!execution_context)
+  if (!execution_context || !execution_context->GetScheduler())
     return;
   // TODO(altimin): Ideally we would also support tracking unregistration of
   // event listeners, but we don't do this for performance reasons.
@@ -318,8 +377,7 @@ void EventTarget::SetDefaultAddEventListenerOptions(
   // For mousewheel event listeners that have the target as the window and
   // a bound function name of "ssc_wheel" treat and no passive value default
   // passive to true. See crbug.com/501568.
-  if (RuntimeEnabledFeatures::SmoothScrollJSInterventionEnabled() &&
-      event_type == event_type_names::kMousewheel && ToLocalDOMWindow() &&
+  if (event_type == event_type_names::kMousewheel && ToLocalDOMWindow() &&
       event_listener && !options->hasPassive()) {
     JSBasedEventListener* v8_listener =
         DynamicTo<JSBasedEventListener>(event_listener);
@@ -340,7 +398,7 @@ void EventTarget::SetDefaultAddEventListenerOptions(
                           WebFeature::kSmoothScrollJSInterventionActivated);
 
         executing_window->GetFrame()->Console().AddMessage(
-            ConsoleMessage::Create(
+            MakeGarbageCollected<ConsoleMessage>(
                 mojom::ConsoleMessageSource::kIntervention,
                 mojom::ConsoleMessageLevel::kWarning,
                 "Registering mousewheel event as passive due to "
@@ -472,7 +530,8 @@ bool EventTarget::AddEventListenerInternal(
     AddedEventListener(event_type, registered_listener);
     if (IsA<JSBasedEventListener>(listener) &&
         IsInstrumentedForAsyncStack(event_type)) {
-      probe::AsyncTaskScheduled(GetExecutionContext(), event_type, listener);
+      probe::AsyncTaskScheduled(GetExecutionContext(), event_type,
+                                listener->async_task_id());
     }
   }
   return added;
@@ -621,7 +680,8 @@ bool EventTarget::SetAttributeEventListener(const AtomicString& event_type,
   if (registered_listener) {
     if (IsA<JSBasedEventListener>(listener) &&
         IsInstrumentedForAsyncStack(event_type)) {
-      probe::AsyncTaskScheduled(GetExecutionContext(), event_type, listener);
+      probe::AsyncTaskScheduled(GetExecutionContext(), event_type,
+                                listener->async_task_id());
     }
     registered_listener->SetCallback(listener);
     return true;
@@ -795,73 +855,11 @@ bool EventTarget::FireEventListeners(Event& event,
   // index |size|, so iterating up to (but not including) |size| naturally
   // excludes new event listeners.
 
-  struct CountedEvent {
-    const AtomicString& event_type;
-    const WebFeature feature;
-  };
-  static const CountedEvent counted_events[] = {
-      {event_type_names::kUnload, WebFeature::kDocumentUnloadFired},
-      {event_type_names::kPagehide, WebFeature::kDocumentPageHideFired},
-      {event_type_names::kPageshow, WebFeature::kDocumentPageShowFired},
-      {event_type_names::kDOMFocusIn, WebFeature::kDOMFocusInOutEvent},
-      {event_type_names::kDOMFocusOut, WebFeature::kDOMFocusInOutEvent},
-      {event_type_names::kFocusin, WebFeature::kFocusInOutEvent},
-      {event_type_names::kFocusout, WebFeature::kFocusInOutEvent},
-      {event_type_names::kTextInput, WebFeature::kTextInputFired},
-      {event_type_names::kTouchstart, WebFeature::kTouchStartFired},
-      {event_type_names::kMousedown, WebFeature::kMouseDownFired},
-      {event_type_names::kPointerenter, WebFeature::kPointerEnterLeaveFired},
-      {event_type_names::kPointerleave, WebFeature::kPointerEnterLeaveFired},
-      {event_type_names::kPointerover, WebFeature::kPointerOverOutFired},
-      {event_type_names::kPointerout, WebFeature::kPointerOverOutFired},
-      {event_type_names::kSearch, WebFeature::kSearchEventFired},
-  };
-
-  if (const LocalDOMWindow* executing_window = ExecutingWindow()) {
-    if (Document* document = executing_window->document()) {
-      if (CheckTypeThenUseCount(event, event_type_names::kBeforeunload,
-                                WebFeature::kDocumentBeforeUnloadFired,
-                                document)) {
-        if (executing_window != executing_window->top())
-          UseCounter::Count(*document, WebFeature::kSubFrameBeforeUnloadFired);
-      } else if (CheckTypeThenUseCount(event, event_type_names::kPointerdown,
-                                       WebFeature::kPointerDownFired,
-                                       document)) {
-        if (event.IsPointerEvent() &&
-            static_cast<PointerEvent&>(event).pointerType() == "touch") {
-          UseCounter::Count(*document, WebFeature::kPointerDownFiredForTouch);
-        }
-      } else {
-        bool did_count = false;
-        for (const auto& counted_event : counted_events) {
-          if (CheckTypeThenUseCount(event, counted_event.event_type,
-                                    counted_event.feature, document)) {
-            did_count = true;
-            break;
-          }
-        }
-
-        if (!did_count && (event.eventPhase() == Event::kCapturingPhase ||
-                           event.eventPhase() == Event::kBubblingPhase)) {
-          if (CheckTypeThenUseCount(
-                  event, event_type_names::kDOMNodeRemoved,
-                  WebFeature::kDOMNodeRemovedEventListenedAtNonTarget,
-                  document)) {
-          } else if (
-              CheckTypeThenUseCount(
-                  event, event_type_names::kDOMNodeRemovedFromDocument,
-                  WebFeature::
-                      kDOMNodeRemovedFromDocumentEventListenedAtNonTarget,
-                  document)) {
-          }
-        }
-      }
-    }
-  }
-
   ExecutionContext* context = GetExecutionContext();
   if (!context)
     return false;
+
+  CountFiringEventListeners(event, ExecutingWindow());
 
   wtf_size_t i = 0;
   wtf_size_t size = entry.size();
@@ -908,7 +906,7 @@ bool EventTarget::FireEventListeners(Event& event,
     event.SetHandlingPassive(EventPassiveMode(registered_listener));
 
     probe::UserCallback probe(context, nullptr, event.type(), false, this);
-    probe::AsyncTask async_task(context, listener, "event",
+    probe::AsyncTask async_task(context, listener->async_task_id(), "event",
                                 IsInstrumentedForAsyncStack(event.type()));
 
     // To match Mozilla, the AT_TARGET phase fires both capturing and bubbling
@@ -975,7 +973,7 @@ void EventTarget::EnqueueEvent(Event& event, TaskType task_type) {
   ExecutionContext* context = GetExecutionContext();
   if (!context)
     return;
-  probe::AsyncTaskScheduled(context, event.type(), &event);
+  probe::AsyncTaskScheduled(context, event.type(), event.async_task_id());
   context->GetTaskRunner(task_type)->PostTask(
       FROM_HERE,
       WTF::Bind(&EventTarget::DispatchEnqueuedEvent, WrapPersistent(this),
@@ -985,10 +983,10 @@ void EventTarget::EnqueueEvent(Event& event, TaskType task_type) {
 void EventTarget::DispatchEnqueuedEvent(Event* event,
                                         ExecutionContext* context) {
   if (!GetExecutionContext()) {
-    probe::AsyncTaskCanceled(context, event);
+    probe::AsyncTaskCanceled(context, event->async_task_id());
     return;
   }
-  probe::AsyncTask async_task(context, event);
+  probe::AsyncTask async_task(context, event->async_task_id());
   DispatchEvent(*event);
 }
 

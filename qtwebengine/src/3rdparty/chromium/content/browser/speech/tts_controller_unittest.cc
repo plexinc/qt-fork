@@ -9,8 +9,10 @@
 #include "content/browser/speech/tts_controller_impl.h"
 #include "content/public/browser/tts_controller_delegate.h"
 #include "content/public/browser/tts_platform.h"
+#include "content/public/test/browser_task_environment.h"
+#include "content/public/test/test_browser_context.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/blink/public/platform/web_speech_synthesis_constants.h"
+#include "third_party/blink/public/mojom/speech/speech_synthesis.mojom.h"
 
 namespace content {
 
@@ -50,9 +52,15 @@ class MockTtsControllerDelegate : public TtsControllerDelegate {
   MockTtsControllerDelegate() {}
   ~MockTtsControllerDelegate() override {}
 
+  BrowserContext* GetLastBrowserContext() {
+    BrowserContext* result = last_browser_context_;
+    last_browser_context_ = nullptr;
+    return result;
+  }
+
   int GetMatchingVoice(content::TtsUtterance* utterance,
                        std::vector<content::VoiceData>& voices) override {
-    // Below 0 implies a "native" voice.
+    last_browser_context_ = utterance->GetBrowserContext();
     return -1;
   }
 
@@ -66,6 +74,9 @@ class MockTtsControllerDelegate : public TtsControllerDelegate {
   content::TtsEngineDelegate* GetTtsEngineDelegate() override {
     return nullptr;
   }
+
+ private:
+  BrowserContext* last_browser_context_ = nullptr;
 };
 
 // Subclass of TtsController with a public ctor and dtor.
@@ -83,15 +94,15 @@ TEST_F(TtsControllerTest, TestTtsControllerShutdown) {
 
   controller->SetTtsPlatform(&platform_impl);
 
-  TtsUtterance* utterance1 = TtsUtterance::Create(nullptr);
+  std::unique_ptr<TtsUtterance> utterance1 = TtsUtterance::Create(nullptr);
   utterance1->SetCanEnqueue(true);
   utterance1->SetSrcId(1);
-  controller->SpeakOrEnqueue(utterance1);
+  controller->SpeakOrEnqueue(std::move(utterance1));
 
-  TtsUtterance* utterance2 = TtsUtterance::Create(nullptr);
+  std::unique_ptr<TtsUtterance> utterance2 = TtsUtterance::Create(nullptr);
   utterance2->SetCanEnqueue(true);
   utterance2->SetSrcId(2);
-  controller->SpeakOrEnqueue(utterance2);
+  controller->SpeakOrEnqueue(std::move(utterance2));
 
   // Make sure that deleting the controller when there are pending
   // utterances doesn't cause a crash.
@@ -101,28 +112,67 @@ TEST_F(TtsControllerTest, TestTtsControllerShutdown) {
   delete delegate;
 }
 
+TEST_F(TtsControllerTest, TestBrowserContextRemoved) {
+  // Create a controller, mock other stuff, and create a test
+  // browser context.
+  TtsControllerImpl* controller = TtsControllerImpl::GetInstance();
+  MockTtsPlatformImpl platform_impl;
+  MockTtsControllerDelegate delegate;
+  controller->delegate_ = &delegate;
+  controller->SetTtsPlatform(&platform_impl);
+  content::BrowserTaskEnvironment task_environment;
+  auto browser_context = std::make_unique<TestBrowserContext>();
+
+  // Speak an utterances associated with this test browser context.
+  std::unique_ptr<TtsUtterance> utterance1 =
+      TtsUtterance::Create(browser_context.get());
+  utterance1->SetCanEnqueue(true);
+  utterance1->SetSrcId(1);
+  controller->SpeakOrEnqueue(std::move(utterance1));
+
+  // Assert that the delegate was called and it got our browser context.
+  ASSERT_EQ(browser_context.get(), delegate.GetLastBrowserContext());
+
+  // Now queue up a second utterance to be spoken, also associated with
+  // this browser context.
+  std::unique_ptr<TtsUtterance> utterance2 =
+      TtsUtterance::Create(browser_context.get());
+  utterance2->SetCanEnqueue(true);
+  utterance2->SetSrcId(2);
+  controller->SpeakOrEnqueue(std::move(utterance2));
+
+  // Destroy the browser context before the utterance is spoken.
+  browser_context.reset();
+
+  // Now speak the next utterance, and ensure that we don't get the
+  // destroyed browser context.
+  controller->FinishCurrentUtterance();
+  controller->SpeakNextUtterance();
+  ASSERT_EQ(nullptr, delegate.GetLastBrowserContext());
+}
+
 #if !defined(OS_CHROMEOS)
 TEST_F(TtsControllerTest, TestTtsControllerUtteranceDefaults) {
   std::unique_ptr<TtsControllerForTesting> controller =
       std::make_unique<TtsControllerForTesting>();
 
   std::unique_ptr<TtsUtterance> utterance1 =
-      base::WrapUnique(content::TtsUtterance::Create(nullptr));
+      content::TtsUtterance::Create(nullptr);
   // Initialized to default (unset constant) values.
-  EXPECT_EQ(blink::kWebSpeechSynthesisDoublePrefNotSet,
+  EXPECT_EQ(blink::mojom::kSpeechSynthesisDoublePrefNotSet,
             utterance1->GetContinuousParameters().rate);
-  EXPECT_EQ(blink::kWebSpeechSynthesisDoublePrefNotSet,
+  EXPECT_EQ(blink::mojom::kSpeechSynthesisDoublePrefNotSet,
             utterance1->GetContinuousParameters().pitch);
-  EXPECT_EQ(blink::kWebSpeechSynthesisDoublePrefNotSet,
+  EXPECT_EQ(blink::mojom::kSpeechSynthesisDoublePrefNotSet,
             utterance1->GetContinuousParameters().volume);
 
   controller->UpdateUtteranceDefaults(utterance1.get());
   // Updated to global defaults.
-  EXPECT_EQ(blink::kWebSpeechSynthesisDefaultTextToSpeechRate,
+  EXPECT_EQ(blink::mojom::kSpeechSynthesisDefaultRate,
             utterance1->GetContinuousParameters().rate);
-  EXPECT_EQ(blink::kWebSpeechSynthesisDefaultTextToSpeechPitch,
+  EXPECT_EQ(blink::mojom::kSpeechSynthesisDefaultPitch,
             utterance1->GetContinuousParameters().pitch);
-  EXPECT_EQ(blink::kWebSpeechSynthesisDefaultTextToSpeechVolume,
+  EXPECT_EQ(blink::mojom::kSpeechSynthesisDefaultVolume,
             utterance1->GetContinuousParameters().volume);
 }
 #endif  // !defined(OS_CHROMEOS)

@@ -297,7 +297,7 @@ struct PatchView : public Sample {
         return SkPoint::Length(pt.fX - x, pt.fY - y) < SkIntToScalar(5);
     }
 
-    Sample::Click* onFindClickHandler(SkScalar x, SkScalar y, ModifierKey modi) override {
+    Sample::Click* onFindClickHandler(SkScalar x, SkScalar y, skui::ModifierKey modi) override {
         x -= DX;
         y -= DY;
         for (size_t i = 0; i < SK_ARRAY_COUNT(fPts); i++) {
@@ -345,8 +345,7 @@ static sk_sp<SkVertices> make_verts(const SkPath& path, SkScalar width) {
 
     int vertCount = pts.count();
     int indexCount = 0; // no texture
-    unsigned flags = SkVertices::kHasColors_BuilderFlag |
-                     SkVertices::kIsNonVolatile_BuilderFlag;
+    unsigned flags = SkVertices::kHasColors_BuilderFlag;
     SkVertices::Builder builder(SkVertices::kTriangleStrip_VertexMode,
                                 vertCount, indexCount, flags);
     memcpy(builder.positions(), pts.begin(), vertCount * sizeof(SkPoint));
@@ -396,7 +395,7 @@ protected:
  //       canvas->drawPath(fPath, fSkeletonP);
     }
 
-    Click* onFindClickHandler(SkScalar x, SkScalar y, ModifierKey modi) override {
+    Click* onFindClickHandler(SkScalar x, SkScalar y, skui::ModifierKey modi) override {
         Click* click = new Click();
         fPath.reset();
         fPath.moveTo(x, y);
@@ -405,7 +404,7 @@ protected:
 
     bool onClick(Click* click) override {
         switch (click->fState) {
-            case InputState::kMove:
+            case skui::InputState::kMove:
                 fPath.lineTo(click->fCurr);
                 fDirty = true;
                 break;
@@ -484,7 +483,7 @@ protected:
         this->dodraw(canvas, nullptr, 600, 0, &p);
     }
 
-    Click* onFindClickHandler(SkScalar x, SkScalar y, ModifierKey modi) override {
+    Click* onFindClickHandler(SkScalar x, SkScalar y, skui::ModifierKey modi) override {
         Click* click = new Click();
         fPath.reset();
         fPath.moveTo(x, y);
@@ -493,7 +492,7 @@ protected:
 
     bool onClick(Click* click) override {
         switch (click->fState) {
-            case InputState::kMove:
+            case skui::InputState::kMove:
                 fPath.lineTo(click->fCurr);
                 break;
             default:

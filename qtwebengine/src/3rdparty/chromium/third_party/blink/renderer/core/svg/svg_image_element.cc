@@ -24,10 +24,8 @@
 #include "third_party/blink/public/mojom/feature_policy/feature_policy.mojom-blink.h"
 #include "third_party/blink/renderer/core/css/css_property_names.h"
 #include "third_party/blink/renderer/core/css/style_change_reason.h"
-#include "third_party/blink/renderer/core/html/media/media_element_parser_helpers.h"
-#include "third_party/blink/renderer/core/inspector/console_message.h"
+#include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/layout/layout_image_resource.h"
-#include "third_party/blink/renderer/core/layout/layout_replaced.h"
 #include "third_party/blink/renderer/core/layout/svg/layout_svg_image.h"
 #include "third_party/blink/renderer/core/svg_names.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
@@ -38,7 +36,8 @@ namespace blink {
 SVGImageElement::SVGImageElement(Document& document)
     : SVGGraphicsElement(svg_names::kImageTag, document),
       SVGURIReference(this),
-      is_default_overridden_intrinsic_size_(false),
+      is_default_overridden_intrinsic_size_(!document.IsFeatureEnabled(
+          mojom::blink::DocumentPolicyFeature::kUnsizedMedia)),
       x_(MakeGarbageCollected<SVGAnimatedLength>(
           this,
           svg_names::kXAttr,
@@ -73,16 +72,9 @@ SVGImageElement::SVGImageElement(Document& document)
   AddToPropertyMap(width_);
   AddToPropertyMap(height_);
   AddToPropertyMap(preserve_aspect_ratio_);
-
-  if (media_element_parser_helpers::IsMediaElement(this) &&
-      !document.IsFeatureEnabled(mojom::FeaturePolicyFeature::kUnsizedMedia)) {
-    is_default_overridden_intrinsic_size_ = true;
-    overridden_intrinsic_size_ =
-        IntSize(LayoutReplaced::kDefaultWidth, LayoutReplaced::kDefaultHeight);
-  }
 }
 
-void SVGImageElement::Trace(blink::Visitor* visitor) {
+void SVGImageElement::Trace(Visitor* visitor) {
   visitor->Trace(x_);
   visitor->Trace(y_);
   visitor->Trace(width_);
@@ -176,24 +168,6 @@ void SVGImageElement::ParseAttribute(
   if (params.name == svg_names::kDecodingAttr) {
     UseCounter::Count(GetDocument(), WebFeature::kImageDecodingAttribute);
     decoding_mode_ = ParseImageDecodingMode(params.new_value);
-  } else if (params.name == svg_names::kIntrinsicsizeAttr &&
-             RuntimeEnabledFeatures::
-                 ExperimentalProductivityFeaturesEnabled()) {
-    String message;
-    bool intrinsic_size_changed =
-        media_element_parser_helpers::ParseIntrinsicSizeAttribute(
-            params.new_value, this, &overridden_intrinsic_size_,
-            &is_default_overridden_intrinsic_size_, &message);
-    if (!message.IsEmpty()) {
-      GetDocument().AddConsoleMessage(ConsoleMessage::Create(
-          mojom::ConsoleMessageSource::kOther,
-          mojom::ConsoleMessageLevel::kWarning, message));
-    }
-
-    if (intrinsic_size_changed) {
-      if (LayoutSVGImage* layout_obj = ToLayoutSVGImage(GetLayoutObject()))
-        MarkForLayoutAndParentResourceInvalidation(*layout_obj);
-    }
   } else {
     SVGElement::ParseAttribute(params);
   }
@@ -241,9 +215,9 @@ const AtomicString SVGImageElement::ImageSourceURL() const {
 }
 
 void SVGImageElement::DidMoveToNewDocument(Document& old_document) {
-  GetImageLoader().UpdateFromElement(ImageLoader::kUpdateIgnorePreviousError);
   GetImageLoader().ElementDidMoveToNewDocument();
   SVGGraphicsElement::DidMoveToNewDocument(old_document);
+  GetImageLoader().UpdateFromElement(ImageLoader::kUpdateIgnorePreviousError);
 }
 
 }  // namespace blink

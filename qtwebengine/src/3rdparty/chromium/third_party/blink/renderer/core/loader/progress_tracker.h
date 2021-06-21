@@ -48,11 +48,11 @@ struct ProgressItem;
 // browser which shows a progress bar during loading.
 // We should find a better way for Android to get this data and remove this!
 class CORE_EXPORT ProgressTracker final
-    : public GarbageCollectedFinalized<ProgressTracker> {
+    : public GarbageCollected<ProgressTracker> {
  public:
   explicit ProgressTracker(LocalFrame*);
   ~ProgressTracker();
-  void Trace(blink::Visitor*);
+  void Trace(Visitor*);
   void Dispose();
 
   double EstimatedProgress() const;

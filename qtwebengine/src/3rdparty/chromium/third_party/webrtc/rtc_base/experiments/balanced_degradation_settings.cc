@@ -21,12 +21,39 @@ namespace webrtc {
 namespace {
 constexpr char kFieldTrial[] = "WebRTC-Video-BalancedDegradationSettings";
 constexpr int kMinFps = 1;
-constexpr int kMaxFps = 100;
+constexpr int kMaxFps = 100;  // 100 means unlimited fps.
 
 std::vector<BalancedDegradationSettings::Config> DefaultConfigs() {
-  return {{320 * 240, 7, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}},
-          {480 * 270, 10, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}},
-          {640 * 480, 15, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}}};
+  return {{320 * 240,
+           7,
+           0,
+           0,
+           BalancedDegradationSettings::kNoFpsDiff,
+           {0, 0, 0, 0, 0},
+           {0, 0, 0, 0, 0},
+           {0, 0, 0, 0, 0},
+           {0, 0, 0, 0, 0},
+           {0, 0, 0, 0, 0}},
+          {480 * 270,
+           10,
+           0,
+           0,
+           BalancedDegradationSettings::kNoFpsDiff,
+           {0, 0, 0, 0, 0},
+           {0, 0, 0, 0, 0},
+           {0, 0, 0, 0, 0},
+           {0, 0, 0, 0, 0},
+           {0, 0, 0, 0, 0}},
+          {640 * 480,
+           15,
+           0,
+           0,
+           BalancedDegradationSettings::kNoFpsDiff,
+           {0, 0, 0, 0, 0},
+           {0, 0, 0, 0, 0},
+           {0, 0, 0, 0, 0},
+           {0, 0, 0, 0, 0},
+           {0, 0, 0, 0, 0}}};
 }
 
 bool IsValidConfig(
@@ -75,6 +102,16 @@ bool IsValid(const std::vector<BalancedDegradationSettings::Config>& configs) {
       return false;
     }
   }
+  int last_kbps = configs[0].kbps;
+  for (size_t i = 1; i < configs.size(); ++i) {
+    if (configs[i].kbps > 0) {
+      if (configs[i].kbps < last_kbps) {
+        RTC_LOG(LS_WARNING) << "Invalid bitrate value provided.";
+        return false;
+      }
+      last_kbps = configs[i].kbps;
+    }
+  }
   for (size_t i = 1; i < configs.size(); ++i) {
     if (configs[i].pixels < configs[i - 1].pixels ||
         configs[i].fps < configs[i - 1].fps) {
@@ -84,13 +121,15 @@ bool IsValid(const std::vector<BalancedDegradationSettings::Config>& configs) {
     if (!IsValid(configs[i].vp8, configs[i - 1].vp8) ||
         !IsValid(configs[i].vp9, configs[i - 1].vp9) ||
         !IsValid(configs[i].h264, configs[i - 1].h264) ||
+        !IsValid(configs[i].av1, configs[i - 1].av1) ||
         !IsValid(configs[i].generic, configs[i - 1].generic)) {
       return false;
     }
   }
   for (const auto& config : configs) {
     if (!IsValidConfig(config.vp8) || !IsValidConfig(config.vp9) ||
-        !IsValidConfig(config.h264) || !IsValidConfig(config.generic)) {
+        !IsValidConfig(config.h264) || !IsValidConfig(config.av1) ||
+        !IsValidConfig(config.generic)) {
       return false;
     }
   }
@@ -123,6 +162,10 @@ absl::optional<VideoEncoder::QpThresholds> GetThresholds(
     case kVideoCodecH264:
       low = config.h264.GetQpLow();
       high = config.h264.GetQpHigh();
+      break;
+    case kVideoCodecAV1:
+      low = config.av1.GetQpLow();
+      high = config.av1.GetQpHigh();
       break;
     case kVideoCodecGeneric:
       low = config.generic.GetQpLow();
@@ -157,6 +200,9 @@ int GetFps(VideoCodecType type,
     case kVideoCodecH264:
       fps = config->h264.GetFps();
       break;
+    case kVideoCodecAV1:
+      fps = config->av1.GetFps();
+      break;
     case kVideoCodecGeneric:
       fps = config->generic.GetFps();
       break;
@@ -164,7 +210,76 @@ int GetFps(VideoCodecType type,
       break;
   }
 
-  return fps.value_or(config->fps);
+  const int framerate = fps.value_or(config->fps);
+
+  return (framerate == kMaxFps) ? std::numeric_limits<int>::max() : framerate;
+}
+
+absl::optional<int> GetKbps(
+    VideoCodecType type,
+    const absl::optional<BalancedDegradationSettings::Config>& config) {
+  if (!config.has_value())
+    return absl::nullopt;
+
+  absl::optional<int> kbps;
+  switch (type) {
+    case kVideoCodecVP8:
+      kbps = config->vp8.GetKbps();
+      break;
+    case kVideoCodecVP9:
+      kbps = config->vp9.GetKbps();
+      break;
+    case kVideoCodecH264:
+      kbps = config->h264.GetKbps();
+      break;
+    case kVideoCodecAV1:
+      kbps = config->av1.GetKbps();
+      break;
+    case kVideoCodecGeneric:
+      kbps = config->generic.GetKbps();
+      break;
+    default:
+      break;
+  }
+
+  if (kbps.has_value())
+    return kbps;
+
+  return config->kbps > 0 ? absl::optional<int>(config->kbps) : absl::nullopt;
+}
+
+absl::optional<int> GetKbpsRes(
+    VideoCodecType type,
+    const absl::optional<BalancedDegradationSettings::Config>& config) {
+  if (!config.has_value())
+    return absl::nullopt;
+
+  absl::optional<int> kbps_res;
+  switch (type) {
+    case kVideoCodecVP8:
+      kbps_res = config->vp8.GetKbpsRes();
+      break;
+    case kVideoCodecVP9:
+      kbps_res = config->vp9.GetKbpsRes();
+      break;
+    case kVideoCodecH264:
+      kbps_res = config->h264.GetKbpsRes();
+      break;
+    case kVideoCodecAV1:
+      kbps_res = config->av1.GetKbpsRes();
+      break;
+    case kVideoCodecGeneric:
+      kbps_res = config->generic.GetKbpsRes();
+      break;
+    default:
+      break;
+  }
+
+  if (kbps_res.has_value())
+    return kbps_res;
+
+  return config->kbps_res > 0 ? absl::optional<int>(config->kbps_res)
+                              : absl::nullopt;
 }
 }  // namespace
 
@@ -183,47 +298,95 @@ absl::optional<int> BalancedDegradationSettings::CodecTypeSpecific::GetFps()
   return (fps > 0) ? absl::optional<int>(fps) : absl::nullopt;
 }
 
+absl::optional<int> BalancedDegradationSettings::CodecTypeSpecific::GetKbps()
+    const {
+  return (kbps > 0) ? absl::optional<int>(kbps) : absl::nullopt;
+}
+
+absl::optional<int> BalancedDegradationSettings::CodecTypeSpecific::GetKbpsRes()
+    const {
+  return (kbps_res > 0) ? absl::optional<int>(kbps_res) : absl::nullopt;
+}
+
 BalancedDegradationSettings::Config::Config() = default;
 
 BalancedDegradationSettings::Config::Config(int pixels,
                                             int fps,
+                                            int kbps,
+                                            int kbps_res,
+                                            int fps_diff,
                                             CodecTypeSpecific vp8,
                                             CodecTypeSpecific vp9,
                                             CodecTypeSpecific h264,
+                                            CodecTypeSpecific av1,
                                             CodecTypeSpecific generic)
     : pixels(pixels),
       fps(fps),
+      kbps(kbps),
+      kbps_res(kbps_res),
+      fps_diff(fps_diff),
       vp8(vp8),
       vp9(vp9),
       h264(h264),
+      av1(av1),
       generic(generic) {}
 
 BalancedDegradationSettings::BalancedDegradationSettings() {
   FieldTrialStructList<Config> configs(
       {FieldTrialStructMember("pixels", [](Config* c) { return &c->pixels; }),
        FieldTrialStructMember("fps", [](Config* c) { return &c->fps; }),
+       FieldTrialStructMember("kbps", [](Config* c) { return &c->kbps; }),
+       FieldTrialStructMember("kbps_res",
+                              [](Config* c) { return &c->kbps_res; }),
+       FieldTrialStructMember("fps_diff",
+                              [](Config* c) { return &c->fps_diff; }),
        FieldTrialStructMember("vp8_qp_low",
                               [](Config* c) { return &c->vp8.qp_low; }),
        FieldTrialStructMember("vp8_qp_high",
                               [](Config* c) { return &c->vp8.qp_high; }),
        FieldTrialStructMember("vp8_fps", [](Config* c) { return &c->vp8.fps; }),
+       FieldTrialStructMember("vp8_kbps",
+                              [](Config* c) { return &c->vp8.kbps; }),
+       FieldTrialStructMember("vp8_kbps_res",
+                              [](Config* c) { return &c->vp8.kbps_res; }),
        FieldTrialStructMember("vp9_qp_low",
                               [](Config* c) { return &c->vp9.qp_low; }),
        FieldTrialStructMember("vp9_qp_high",
                               [](Config* c) { return &c->vp9.qp_high; }),
        FieldTrialStructMember("vp9_fps", [](Config* c) { return &c->vp9.fps; }),
+       FieldTrialStructMember("vp9_kbps",
+                              [](Config* c) { return &c->vp9.kbps; }),
+       FieldTrialStructMember("vp9_kbps_res",
+                              [](Config* c) { return &c->vp9.kbps_res; }),
        FieldTrialStructMember("h264_qp_low",
                               [](Config* c) { return &c->h264.qp_low; }),
        FieldTrialStructMember("h264_qp_high",
                               [](Config* c) { return &c->h264.qp_high; }),
        FieldTrialStructMember("h264_fps",
                               [](Config* c) { return &c->h264.fps; }),
+       FieldTrialStructMember("h264_kbps",
+                              [](Config* c) { return &c->h264.kbps; }),
+       FieldTrialStructMember("h264_kbps_res",
+                              [](Config* c) { return &c->h264.kbps_res; }),
+       FieldTrialStructMember("av1_qp_low",
+                              [](Config* c) { return &c->av1.qp_low; }),
+       FieldTrialStructMember("av1_qp_high",
+                              [](Config* c) { return &c->av1.qp_high; }),
+       FieldTrialStructMember("av1_fps", [](Config* c) { return &c->av1.fps; }),
+       FieldTrialStructMember("av1_kbps",
+                              [](Config* c) { return &c->av1.kbps; }),
+       FieldTrialStructMember("av1_kbps_res",
+                              [](Config* c) { return &c->av1.kbps_res; }),
        FieldTrialStructMember("generic_qp_low",
                               [](Config* c) { return &c->generic.qp_low; }),
        FieldTrialStructMember("generic_qp_high",
                               [](Config* c) { return &c->generic.qp_high; }),
        FieldTrialStructMember("generic_fps",
-                              [](Config* c) { return &c->generic.fps; })},
+                              [](Config* c) { return &c->generic.fps; }),
+       FieldTrialStructMember("generic_kbps",
+                              [](Config* c) { return &c->generic.kbps; }),
+       FieldTrialStructMember("generic_kbps_res",
+                              [](Config* c) { return &c->generic.kbps_res; })},
       {});
 
   ParseFieldTrial({&configs}, field_trial::FindFullName(kFieldTrial));
@@ -261,6 +424,38 @@ BalancedDegradationSettings::GetMaxFpsConfig(int pixels) const {
   for (size_t i = 0; i < configs_.size() - 1; ++i) {
     if (pixels <= configs_[i].pixels)
       return configs_[i + 1];
+  }
+  return absl::nullopt;
+}
+
+bool BalancedDegradationSettings::CanAdaptUp(VideoCodecType type,
+                                             int pixels,
+                                             uint32_t bitrate_bps) const {
+  absl::optional<int> min_kbps = GetKbps(type, GetMaxFpsConfig(pixels));
+  if (!min_kbps.has_value() || bitrate_bps == 0) {
+    return true;  // No limit configured or bitrate provided.
+  }
+  return bitrate_bps >= static_cast<uint32_t>(min_kbps.value() * 1000);
+}
+
+bool BalancedDegradationSettings::CanAdaptUpResolution(
+    VideoCodecType type,
+    int pixels,
+    uint32_t bitrate_bps) const {
+  absl::optional<int> min_kbps = GetKbpsRes(type, GetMaxFpsConfig(pixels));
+  if (!min_kbps.has_value() || bitrate_bps == 0) {
+    return true;  // No limit configured or bitrate provided.
+  }
+  return bitrate_bps >= static_cast<uint32_t>(min_kbps.value() * 1000);
+}
+
+absl::optional<int> BalancedDegradationSettings::MinFpsDiff(int pixels) const {
+  for (const auto& config : configs_) {
+    if (pixels <= config.pixels) {
+      return (config.fps_diff > kNoFpsDiff)
+                 ? absl::optional<int>(config.fps_diff)
+                 : absl::nullopt;
+    }
   }
   return absl::nullopt;
 }

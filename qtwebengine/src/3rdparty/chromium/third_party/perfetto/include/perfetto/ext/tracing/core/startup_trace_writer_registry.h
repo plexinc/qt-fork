@@ -26,6 +26,7 @@
 #include "perfetto/ext/base/weak_ptr.h"
 #include "perfetto/ext/tracing/core/basic_types.h"
 #include "perfetto/ext/tracing/core/shared_memory_arbiter.h"
+#include "perfetto/tracing/buffer_exhausted_policy.h"
 
 namespace perfetto {
 
@@ -64,18 +65,26 @@ class StartupTraceWriterRegistryHandle {
 
 // Embedders can use this registry to create unbound StartupTraceWriters during
 // startup, and later bind them all safely to an arbiter and target buffer.
+//
+// DEPRECATED. See SharedMemoryArbiter::CreateUnboundInstance() for a
+// replacement.
+//
+// TODO(eseckler): Remove StartupTraceWriter support.
 class PERFETTO_EXPORT StartupTraceWriterRegistry {
  public:
   StartupTraceWriterRegistry();
   ~StartupTraceWriterRegistry();
+
+  // Buffer size defaults to 1 mB per writer.
+  static constexpr size_t kDefaultMaxBufferSizeBytes = 1024 * 1024;
 
   // Returns a new unbound StartupTraceWriter. Should only be called while
   // unbound. Usually called on a writer thread. The writer should never be
   // destroyed by the caller directly, but instead returned to the registry by
   // calling StartupTraceWriter::ReturnToRegistry.
   std::unique_ptr<StartupTraceWriter> CreateUnboundTraceWriter(
-      SharedMemoryArbiter::BufferExhaustedPolicy =
-          SharedMemoryArbiter::BufferExhaustedPolicy::kDefault);
+      BufferExhaustedPolicy = BufferExhaustedPolicy::kDefault,
+      size_t max_buffer_size_bytes = kDefaultMaxBufferSizeBytes);
 
   // Binds all StartupTraceWriters created by this registry to the given arbiter
   // and target buffer. Should only be called once and on the passed
@@ -134,7 +143,7 @@ class PERFETTO_EXPORT StartupTraceWriterRegistry {
 
   SharedMemoryArbiterImpl* arbiter_ = nullptr;  // |nullptr| while unbound.
   BufferID target_buffer_ = 0;
-  base::TaskRunner* task_runner_;
+  base::TaskRunner* task_runner_ = nullptr;
   size_t chunks_per_batch_ = 0;
   std::function<void(StartupTraceWriterRegistry*)> on_bound_callback_ = nullptr;
 

@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2012-2013 The ANGLE Project Authors. All rights reserved.
+// Copyright 2012 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -127,6 +127,7 @@ struct RasterizerState final
 {
     // This will zero-initialize the struct, including padding.
     RasterizerState();
+    RasterizerState(const RasterizerState &other);
 
     bool cullFace;
     CullFaceMode cullMode;
@@ -140,6 +141,8 @@ struct RasterizerState final
     bool multiSample;
 
     bool rasterizerDiscard;
+
+    bool dither;
 };
 
 bool operator==(const RasterizerState &a, const RasterizerState &b);
@@ -150,8 +153,6 @@ struct BlendState final
     // This will zero-initialize the struct, including padding.
     BlendState();
     BlendState(const BlendState &other);
-
-    bool allChannelsMasked() const;
 
     bool blend;
     GLenum sourceBlendRGB;
@@ -165,14 +166,12 @@ struct BlendState final
     bool colorMaskGreen;
     bool colorMaskBlue;
     bool colorMaskAlpha;
-
-    bool sampleAlphaToCoverage;
-
-    bool dither;
 };
 
 bool operator==(const BlendState &a, const BlendState &b);
 bool operator!=(const BlendState &a, const BlendState &b);
+
+using BlendStateArray = std::array<BlendState, IMPLEMENTATION_MAX_DRAW_BUFFERS>;
 
 struct DepthStencilState final
 {
@@ -387,6 +386,9 @@ using UniformBlockBindingMask = angle::BitSet<IMPLEMENTATION_MAX_COMBINED_SHADER
 // Used in Framebuffer / Program
 using DrawBufferMask = angle::BitSet<IMPLEMENTATION_MAX_DRAW_BUFFERS>;
 
+// Used in StateCache
+using StorageBuffersMask = angle::BitSet<IMPLEMENTATION_MAX_SHADER_STORAGE_BUFFER_BINDINGS>;
+
 template <typename T>
 using TexLevelArray = std::array<T, IMPLEMENTATION_MAX_TEXTURE_LEVELS>;
 
@@ -459,7 +461,9 @@ using ContextID = uintptr_t;
 
 constexpr size_t kCubeFaceCount = 6;
 
-using TextureMap = angle::PackedEnumMap<TextureType, BindingPointer<Texture>>;
+template <typename T>
+using TextureTypeMap = angle::PackedEnumMap<TextureType, T>;
+using TextureMap     = TextureTypeMap<BindingPointer<Texture>>;
 
 // ShaderVector can contain one item per shader.  It differs from ShaderMap in that the values are
 // not indexed by ShaderType.
@@ -483,8 +487,7 @@ using ActiveTextureMask = angle::BitSet<IMPLEMENTATION_MAX_ACTIVE_TEXTURES>;
 template <typename T>
 using ActiveTextureArray = std::array<T, IMPLEMENTATION_MAX_ACTIVE_TEXTURES>;
 
-using ActiveTexturePointerArray = ActiveTextureArray<Texture *>;
-using ActiveTextureTypeArray    = ActiveTextureArray<TextureType>;
+using ActiveTextureTypeArray = ActiveTextureArray<TextureType>;
 
 template <typename T>
 using UniformBuffersArray = std::array<T, IMPLEMENTATION_MAX_UNIFORM_BUFFER_BINDINGS>;
@@ -492,6 +495,9 @@ template <typename T>
 using StorageBuffersArray = std::array<T, IMPLEMENTATION_MAX_SHADER_STORAGE_BUFFER_BINDINGS>;
 template <typename T>
 using AtomicCounterBuffersArray = std::array<T, IMPLEMENTATION_MAX_ATOMIC_COUNTER_BUFFERS>;
+using AtomicCounterBufferMask   = angle::BitSet<IMPLEMENTATION_MAX_ATOMIC_COUNTER_BUFFERS>;
+template <typename T>
+using ImagesArray = std::array<T, IMPLEMENTATION_MAX_IMAGE_UNITS>;
 
 using ImageUnitMask = angle::BitSet<IMPLEMENTATION_MAX_IMAGE_UNITS>;
 
@@ -502,14 +508,18 @@ using TransformFeedbackBuffersArray =
     std::array<T, gl::IMPLEMENTATION_MAX_TRANSFORM_FEEDBACK_BUFFERS>;
 
 constexpr size_t kBarrierVectorDefaultSize = 16;
-using BufferBarrierVector                  = angle::FastVector<Buffer *, kBarrierVectorDefaultSize>;
+
+template <typename T>
+using BarrierVector = angle::FastVector<T, kBarrierVectorDefaultSize>;
+
+using BufferBarrierVector = BarrierVector<Buffer *>;
 
 struct TextureAndLayout
 {
     Texture *texture;
     GLenum layout;
 };
-using TextureBarrierVector = angle::FastVector<TextureAndLayout, kBarrierVectorDefaultSize>;
+using TextureBarrierVector = BarrierVector<TextureAndLayout>;
 
 // OffsetBindingPointer.getSize() returns the size specified by the user, which may be larger than
 // the size of the bound buffer. This function reduces the returned size to fit the bound buffer if

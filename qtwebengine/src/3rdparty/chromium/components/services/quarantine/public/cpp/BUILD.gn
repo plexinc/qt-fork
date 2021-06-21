@@ -4,23 +4,6 @@
 
 import("//mojo/public/tools/bindings/mojom.gni")
 
-source_set("manifest") {
-  sources = [
-    "manifest.cc",
-    "manifest.h",
-  ]
-
-  deps = [
-    "//base",
-    "//components/services/quarantine/public/mojom",
-    "//services/service_manager/public/cpp",
-  ]
-
-  if (is_win) {
-    deps += [ ":features" ]
-  }
-}
-
 if (is_win) {
   source_set("features") {
     sources = [
@@ -28,8 +11,6 @@ if (is_win) {
       "quarantine_features_win.h",
     ]
 
-    public_deps = [
-      "//base",
-    ]
+    public_deps = [ "//base" ]
   }
 }

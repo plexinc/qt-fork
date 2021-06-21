@@ -13,37 +13,29 @@
 namespace blink {
 
 class Document;
-class XR;
+class XRSystem;
 
-class MODULES_EXPORT NavigatorXR final
-    : public GarbageCollectedFinalized<NavigatorXR>,
-      public Supplement<Navigator> {
+class MODULES_EXPORT NavigatorXR final : public GarbageCollected<NavigatorXR>,
+                                         public Supplement<Navigator> {
   USING_GARBAGE_COLLECTED_MIXIN(NavigatorXR);
 
  public:
   static const char kSupplementName[];
-
-  // Returns whether WebXR has beeen used in the document.
-  // If no supplement has been created, it returns false without creating one.
-  // TODO(https://crbug.com/960132): Remove when WebVR is removed.
-  static bool HasWebXrBeenUsed(Document&);
 
   static NavigatorXR* From(Document&);
   static NavigatorXR& From(Navigator&);
 
   explicit NavigatorXR(Navigator&);
 
-  static XR* xr(Navigator&);
-  XR* xr();
+  static XRSystem* xr(Navigator&);
+  XRSystem* xr();
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
 
  private:
   Document* GetDocument();
 
-  Member<XR> xr_;
-
-  bool did_use_webxr_ = false;
+  Member<XRSystem> xr_;
 
   // Gates metrics collection once per local DOM window frame.
   bool did_log_navigator_xr_ = false;

@@ -7,6 +7,7 @@
 #include "base/auto_reset.h"
 #include "base/bind.h"
 #include "base/files/file_path.h"
+#include "base/optional.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
@@ -27,6 +28,7 @@
 #include "components/printing/browser/features.h"
 #include "components/printing/browser/print_composite_client.h"
 #include "components/printing/browser/print_manager_utils.h"
+#include "components/printing/common/print.mojom.h"
 #include "components/printing/common/print_messages.h"
 #include "content/public/browser/browser_message_filter.h"
 #include "content/public/browser/render_frame_host.h"
@@ -35,8 +37,10 @@
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/no_renderer_crashes_assertion.h"
 #include "extensions/common/extension.h"
+#include "mojo/public/cpp/bindings/associated_remote.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
+#include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
 
 namespace printing {
 
@@ -46,7 +50,12 @@ constexpr int kDefaultDocumentCookie = 1234;
 
 class PrintPreviewObserver : PrintPreviewUI::TestDelegate {
  public:
-  PrintPreviewObserver() { PrintPreviewUI::SetDelegateForTesting(this); }
+  explicit PrintPreviewObserver(bool wait_for_loaded) {
+    if (wait_for_loaded)
+      queue_.emplace();  // DOMMessageQueue doesn't allow assignment
+    PrintPreviewUI::SetDelegateForTesting(this);
+  }
+
   ~PrintPreviewObserver() override {
     PrintPreviewUI::SetDelegateForTesting(nullptr);
   }
@@ -58,6 +67,12 @@ class PrintPreviewObserver : PrintPreviewUI::TestDelegate {
     base::RunLoop run_loop;
     base::AutoReset<base::RunLoop*> auto_reset(&run_loop_, &run_loop);
     run_loop.Run();
+
+    if (queue_.has_value()) {
+      std::string message;
+      EXPECT_TRUE(queue_->WaitForMessage(&message));
+      EXPECT_EQ("\"success\"", message);
+    }
   }
 
  private:
@@ -72,9 +87,20 @@ class PrintPreviewObserver : PrintPreviewUI::TestDelegate {
     CHECK(rendered_page_count_ <= total_page_count_);
     if (rendered_page_count_ == total_page_count_ && run_loop_) {
       run_loop_->Quit();
+
+      if (queue_.has_value()) {
+        content::ExecuteScriptAsync(
+            preview_dialog,
+            "window.addEventListener('message', event => {"
+            "  if (event.data.type === 'documentLoaded') {"
+            "    domAutomationController.send(event.data.load_state);"
+            "  }"
+            "});");
+      }
     }
   }
 
+  base::Optional<content::DOMMessageQueue> queue_;
   int total_page_count_ = 1;
   int rendered_page_count_ = 0;
   base::RunLoop* run_loop_ = nullptr;
@@ -192,9 +218,20 @@ class PrintBrowserTest : public InProcessBrowserTest {
   }
 
   void PrintAndWaitUntilPreviewIsReady(bool print_only_selection) {
-    PrintPreviewObserver print_preview_observer;
+    PrintPreviewObserver print_preview_observer(/*wait_for_loaded=*/false);
 
     StartPrint(browser()->tab_strip_model()->GetActiveWebContents(),
+               /*print_renderer=*/mojo::NullAssociatedRemote(),
+               /*print_preview_disabled=*/false, print_only_selection);
+
+    print_preview_observer.WaitUntilPreviewIsReady();
+  }
+
+  void PrintAndWaitUntilPreviewIsReadyAndLoaded(bool print_only_selection) {
+    PrintPreviewObserver print_preview_observer(/*wait_for_loaded=*/true);
+
+    StartPrint(browser()->tab_strip_model()->GetActiveWebContents(),
+               /*print_renderer=*/mojo::NullAssociatedRemote(),
                /*print_preview_disabled=*/false, print_only_selection);
 
     print_preview_observer.WaitUntilPreviewIsReady();
@@ -225,11 +262,16 @@ class PrintBrowserTest : public InProcessBrowserTest {
     frame_host->GetProcess()->AddFilter(filter.get());
   }
 
-  static PrintMsg_PrintFrame_Params GetDefaultPrintFrameParams() {
-    PrintMsg_PrintFrame_Params params;
-    params.printable_area = gfx::Rect(800, 600);
-    params.document_cookie = kDefaultDocumentCookie;
-    return params;
+  static mojom::PrintFrameContentParamsPtr GetDefaultPrintFrameParams() {
+    return mojom::PrintFrameContentParams::New(gfx::Rect(800, 600),
+                                               kDefaultDocumentCookie);
+  }
+
+  static const mojo::AssociatedRemote<mojom::PrintRenderFrame>
+  GetPrintRenderFrame(content::RenderFrameHost* rfh) {
+    mojo::AssociatedRemote<mojom::PrintRenderFrame> remote;
+    rfh->GetRemoteAssociatedInterfaces()->GetInterface(&remote);
+    return remote;
   }
 
  private:
@@ -278,9 +320,10 @@ class PrintExtensionBrowserTest : public extensions::ExtensionBrowserTest {
   ~PrintExtensionBrowserTest() override = default;
 
   void PrintAndWaitUntilPreviewIsReady(bool print_only_selection) {
-    PrintPreviewObserver print_preview_observer;
+    PrintPreviewObserver print_preview_observer(/*wait_for_loaded=*/false);
 
     StartPrint(browser()->tab_strip_model()->GetActiveWebContents(),
+               /*print_renderer=*/mojo::NullAssociatedRemote(),
                /*print_preview_disabled=*/false, print_only_selection);
 
     print_preview_observer.WaitUntilPreviewIsReady();
@@ -341,8 +384,7 @@ IN_PROC_BROWSER_TEST_F(PrintBrowserTest, PrintFrameContent) {
   content::RenderFrameHost* rfh = original_contents->GetMainFrame();
   AddFilterForFrame(rfh);
 
-  rfh->Send(new PrintMsg_PrintFrameContent(rfh->GetRoutingID(),
-                                           GetDefaultPrintFrameParams()));
+  GetPrintRenderFrame(rfh)->PrintFrameContent(GetDefaultPrintFrameParams());
 
   // The printed result will be received and checked in
   // TestPrintFrameContentMsgFilter.
@@ -366,8 +408,8 @@ IN_PROC_BROWSER_TEST_F(PrintBrowserTest, PrintSubframeContent) {
 
   AddFilterForFrame(test_frame);
 
-  test_frame->Send(new PrintMsg_PrintFrameContent(
-      test_frame->GetRoutingID(), GetDefaultPrintFrameParams()));
+  GetPrintRenderFrame(test_frame)
+      ->PrintFrameContent(GetDefaultPrintFrameParams());
 
   // The printed result will be received and checked in
   // TestPrintFrameContentMsgFilter.
@@ -411,8 +453,8 @@ IN_PROC_BROWSER_TEST_F(PrintBrowserTest, PrintSubframeChain) {
     AddFilterForFrame(grandchild_frame);
   }
 
-  main_frame->Send(new PrintMsg_PrintFrameContent(
-      main_frame->GetRoutingID(), GetDefaultPrintFrameParams()));
+  GetPrintRenderFrame(main_frame)
+      ->PrintFrameContent(GetDefaultPrintFrameParams());
 
   // The printed result will be received and checked in
   // TestPrintFrameContentMsgFilter.
@@ -455,8 +497,8 @@ IN_PROC_BROWSER_TEST_F(PrintBrowserTest, PrintSubframeABA) {
   if (oopif_enabled)
     AddFilterForFrame(child_frame);
 
-  main_frame->Send(new PrintMsg_PrintFrameContent(
-      main_frame->GetRoutingID(), GetDefaultPrintFrameParams()));
+  GetPrintRenderFrame(main_frame)
+      ->PrintFrameContent(GetDefaultPrintFrameParams());
 
   // The printed result will be received and checked in
   // TestPrintFrameContentMsgFilter.
@@ -533,7 +575,8 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessPrintBrowserTest,
 // Printing preview a web page with an iframe from an isolated origin.
 // This test passes whenever the print preview is rendered. This should not be
 // a timed out test which indicates the print preview hung or crash.
-IN_PROC_BROWSER_TEST_F(IsolateOriginsPrintBrowserTest, PrintIsolatedSubframe) {
+IN_PROC_BROWSER_TEST_F(IsolateOriginsPrintBrowserTest,
+                       DISABLED_PrintIsolatedSubframe) {
   ASSERT_TRUE(embedded_test_server()->Started());
   GURL url(embedded_test_server()->GetURL(
       "/printing/content_with_same_site_iframe.html"));
@@ -607,6 +650,22 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessPrintBrowserTest, PrintNup) {
   ui_test_utils::NavigateToURL(browser(), url);
 
   PrintAndWaitUntilPreviewIsReady(/*print_only_selection=*/false);
+}
+
+IN_PROC_BROWSER_TEST_F(PrintBrowserTest, MultipagePrint) {
+  ASSERT_TRUE(embedded_test_server()->Started());
+  GURL url(embedded_test_server()->GetURL("/printing/multipage.html"));
+  ui_test_utils::NavigateToURL(browser(), url);
+
+  PrintAndWaitUntilPreviewIsReadyAndLoaded(/*print_only_selection=*/false);
+}
+
+IN_PROC_BROWSER_TEST_F(SitePerProcessPrintBrowserTest, MultipagePrint) {
+  ASSERT_TRUE(embedded_test_server()->Started());
+  GURL url(embedded_test_server()->GetURL("/printing/multipage.html"));
+  ui_test_utils::NavigateToURL(browser(), url);
+
+  PrintAndWaitUntilPreviewIsReadyAndLoaded(/*print_only_selection=*/false);
 }
 
 }  // namespace printing

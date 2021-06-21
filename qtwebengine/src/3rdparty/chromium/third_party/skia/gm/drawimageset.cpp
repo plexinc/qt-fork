@@ -9,6 +9,7 @@
 #include "include/core/SkBlendMode.h"
 #include "include/core/SkCanvas.h"
 #include "include/core/SkColor.h"
+#include "include/core/SkColorFilter.h"
 #include "include/core/SkFilterQuality.h"
 #include "include/core/SkImage.h"
 #include "include/core/SkImageInfo.h"
@@ -173,10 +174,10 @@ private:
                 canvas->restore();
             }
             // A more exotic case with an unusual blend mode, mixed aa flags set, and alpha,
-            // subsets the image
+            // subsets the image. And another with all the above plus a color filter.
             SkCanvas::ImageSetEntry entry;
             entry.fSrcRect = SkRect::MakeWH(kTileW, kTileH).makeInset(kTileW / 4.f, kTileH / 4.f);
-            entry.fDstRect = SkRect::MakeWH(2 * kTileW, 2 * kTileH).makeOffset(d / 4, 2 * d);
+            entry.fDstRect = SkRect::MakeWH(1.5 * kTileW, 1.5 * kTileH).makeOffset(d / 4, 2 * d);
             entry.fImage = fSet[0].fImage;
             entry.fAlpha = 0.7f;
             entry.fAAFlags = SkCanvas::kLeft_QuadAAFlag | SkCanvas::kTop_QuadAAFlag;
@@ -185,6 +186,11 @@ private:
 
             setPaint.setBlendMode(SkBlendMode::kExclusion);
             canvas->experimental_DrawEdgeAAImageSet(&entry, 1, nullptr, nullptr, &setPaint,
+                                                    SkCanvas::kFast_SrcRectConstraint);
+            canvas->translate(entry.fDstRect.width() + 8.f, 0);
+            SkPaint cfPaint = setPaint;
+            cfPaint.setColorFilter(SkColorFilters::LinearToSRGBGamma());
+            canvas->experimental_DrawEdgeAAImageSet(&entry, 1, nullptr, nullptr, &cfPaint,
                                                     SkCanvas::kFast_SrcRectConstraint);
             canvas->restore();
             canvas->translate(2 * d, 0);
@@ -233,7 +239,7 @@ private:
         paint.setFilterQuality(kLow_SkFilterQuality);
         paint.setBlendMode(SkBlendMode::kSrcOver);
 
-        static constexpr SkScalar kTranslate = SkTMax(kW, kH) * 2.f + 10.f;
+        static constexpr SkScalar kTranslate = std::max(kW, kH) * 2.f + 10.f;
         canvas->translate(5.f, 5.f);
         canvas->save();
         for (SkScalar frac : {0.f, 0.5f}) {

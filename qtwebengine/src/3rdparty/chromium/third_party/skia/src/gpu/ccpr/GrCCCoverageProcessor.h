@@ -14,11 +14,11 @@
 #include "src/gpu/GrPipeline.h"
 #include "src/gpu/GrShaderCaps.h"
 #include "src/gpu/glsl/GrGLSLGeometryProcessor.h"
+#include "src/gpu/glsl/GrGLSLShaderBuilder.h"
 #include "src/gpu/glsl/GrGLSLVarying.h"
 
 class GrGLSLFPFragmentBuilder;
 class GrGLSLVertexGeoBuilder;
-class GrMesh;
 class GrOpFlushState;
 
 /**
@@ -72,8 +72,6 @@ public:
         void setW(const Sk2f& P0, const Sk2f& P1, const Sk2f& P2, const Sk2f& trans, float w);
     };
 
-    virtual void reset(PrimitiveType, GrResourceProvider*) = 0;
-
     PrimitiveType primitiveType() const { return fPrimitiveType; }
 
     // Number of bezier points for curves, or 3 for triangles.
@@ -114,14 +112,13 @@ public:
     }
 #endif
 
-    // Appends a GrMesh that will draw the provided instances. The instanceBuffer must be an array
-    // of either TriPointInstance or QuadPointInstance, depending on this processor's RendererPass,
-    // with coordinates in the desired shape's final atlas-space position.
-    virtual void appendMesh(sk_sp<const GrGpuBuffer> instanceBuffer, int instanceCount,
-                            int baseInstance, SkTArray<GrMesh>* out) const = 0;
-
-    virtual void draw(GrOpFlushState*, const GrPipeline&, const SkIRect scissorRects[],
-                      const GrMesh[], int meshCount, const SkRect& drawBounds) const;
+    // The caller uses these methods to actualy draw the coverage PrimitiveTypes. For each
+    // subpassIdx of each PrimitiveType, it calls reset/bind*/drawInstances.
+    virtual int numSubpasses() const = 0;
+    virtual void reset(PrimitiveType, int subpassIdx, GrResourceProvider*) = 0;
+    void bindPipeline(GrOpFlushState*, const GrPipeline&, const SkRect& drawBounds) const;
+    virtual void bindBuffers(GrOpsRenderPass*, const GrBuffer* instanceBuffer) const = 0;
+    virtual void drawInstances(GrOpsRenderPass*, int instanceCount, int baseInstance) const = 0;
 
     // The Shader provides code to calculate each pixel's coverage in a RenderPass. It also
     // provides details about shape-specific geometry.
@@ -218,6 +215,8 @@ protected:
 
     GrCCCoverageProcessor(ClassID classID) : INHERITED(classID) {}
 
+    virtual GrPrimitiveType primType() const = 0;
+
     virtual GrGLSLPrimitiveProcessor* onCreateGLSLInstance(std::unique_ptr<Shader>) const = 0;
 
     // Our friendship with GrGLSLShaderBuilder does not propagate to subclasses.
@@ -240,7 +239,6 @@ inline const char* GrCCCoverageProcessor::PrimitiveTypeName(PrimitiveType type) 
         case PrimitiveType::kConics: return "kConics";
     }
     SK_ABORT("Invalid PrimitiveType");
-    return "";
 }
 
 inline void GrCCCoverageProcessor::TriPointInstance::set(

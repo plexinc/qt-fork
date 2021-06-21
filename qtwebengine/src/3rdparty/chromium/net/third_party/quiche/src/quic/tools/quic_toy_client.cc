@@ -45,6 +45,7 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "net/third_party/quiche/src/quic/core/quic_packets.h"
@@ -52,21 +53,18 @@
 #include "net/third_party/quiche/src/quic/core/quic_utils.h"
 #include "net/third_party/quiche/src/quic/core/quic_versions.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_default_proof_providers.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_ptr_util.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_socket_address.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_str_cat.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_string_piece.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_system_event_loop.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_text_utils.h"
 #include "net/third_party/quiche/src/quic/tools/fake_proof_verifier.h"
 #include "net/third_party/quiche/src/quic/tools/quic_url.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_text_utils.h"
 
 namespace {
 
-using quic::QuicSocketAddress;
-using quic::QuicStringPiece;
-using quic::QuicTextUtils;
 using quic::QuicUrl;
+using quiche::QuicheStringPiece;
+using quiche::QuicheTextUtils;
 
 }  // namespace
 
@@ -111,13 +109,11 @@ DEFINE_QUIC_COMMAND_LINE_FLAG(
     "versions are offered in the handshake. Also supports wire versions "
     "such as Q043 or T099.");
 
-DEFINE_QUIC_COMMAND_LINE_FLAG(
-    int32_t,
-    quic_ietf_draft,
-    0,
-    "QUIC IETF draft number to use over the wire, e.g. 18. "
-    "By default this sets quic_version to T099. "
-    "This also enables required internal QUIC flags.");
+DEFINE_QUIC_COMMAND_LINE_FLAG(bool,
+                              quic_ietf_draft,
+                              false,
+                              "Use the IETF draft version. This also enables "
+                              "required internal QUIC flags.");
 
 DEFINE_QUIC_COMMAND_LINE_FLAG(
     bool,
@@ -163,6 +159,12 @@ DEFINE_QUIC_COMMAND_LINE_FLAG(
     false,
     "If true, drop response body immediately after it is received.");
 
+DEFINE_QUIC_COMMAND_LINE_FLAG(
+    bool,
+    disable_port_changes,
+    false,
+    "If true, do not change local port after each request.");
+
 namespace quic {
 
 QuicToyClient::QuicToyClient(ClientFactory* client_factory)
@@ -182,28 +184,29 @@ int QuicToyClient::SendRequestsAndPrintResponses(
 
   quic::ParsedQuicVersionVector versions = quic::CurrentSupportedVersions();
 
-  std::string quic_version_string = GetQuicFlag(FLAGS_quic_version);
-  const int32_t quic_ietf_draft = GetQuicFlag(FLAGS_quic_ietf_draft);
-  if (quic_ietf_draft > 0) {
-    quic::QuicVersionInitializeSupportForIetfDraft(quic_ietf_draft);
-    if (quic_version_string.length() == 0) {
-      quic_version_string = "T099";
+  if (GetQuicFlag(FLAGS_quic_ietf_draft)) {
+    quic::QuicVersionInitializeSupportForIetfDraft();
+    versions = {};
+    for (const ParsedQuicVersion& version : AllSupportedVersions()) {
+      if (version.HasIetfQuicFrames() &&
+          version.handshake_protocol == quic::PROTOCOL_TLS1_3) {
+        versions.push_back(version);
+      }
     }
   }
-  if (quic_version_string.length() > 0) {
-    if (quic_version_string[0] == 'T') {
-      // ParseQuicVersionString checks quic_supports_tls_handshake.
-      SetQuicFlag(FLAGS_quic_supports_tls_handshake, true);
-    }
-    quic::ParsedQuicVersion parsed_quic_version =
-        quic::ParseQuicVersionString(quic_version_string);
-    if (parsed_quic_version.transport_version ==
-        quic::QUIC_VERSION_UNSUPPORTED) {
-      return 1;
-    }
-    versions.clear();
-    versions.push_back(parsed_quic_version);
-    quic::QuicEnableVersion(parsed_quic_version);
+
+  std::string quic_version_string = GetQuicFlag(FLAGS_quic_version);
+  if (!quic_version_string.empty()) {
+    versions = quic::ParseQuicVersionVectorString(quic_version_string);
+  }
+
+  if (versions.empty()) {
+    std::cerr << "No known version selected." << std::endl;
+    return 1;
+  }
+
+  for (const quic::ParsedQuicVersion& version : versions) {
+    quic::QuicEnableVersion(version);
   }
 
   if (GetQuicFlag(FLAGS_force_version_negotiation)) {
@@ -214,14 +217,19 @@ int QuicToyClient::SendRequestsAndPrintResponses(
   const int32_t num_requests(GetQuicFlag(FLAGS_num_requests));
   std::unique_ptr<quic::ProofVerifier> proof_verifier;
   if (GetQuicFlag(FLAGS_disable_certificate_verification)) {
-    proof_verifier = quic::QuicMakeUnique<FakeProofVerifier>();
+    proof_verifier = std::make_unique<FakeProofVerifier>();
   } else {
-    proof_verifier = quic::CreateDefaultProofVerifier();
+    proof_verifier = quic::CreateDefaultProofVerifier(url.host());
   }
 
   // Build the client, and try to connect.
   std::unique_ptr<QuicSpdyClientBase> client = client_factory_->CreateClient(
       url.host(), host, port, versions, std::move(proof_verifier));
+
+  if (client == nullptr) {
+    std::cerr << "Failed to create client." << std::endl;
+    return 1;
+  }
 
   int32_t initial_mtu = GetQuicFlag(FLAGS_initial_mtu);
   client->set_initial_max_packet_length(
@@ -234,15 +242,15 @@ int QuicToyClient::SendRequestsAndPrintResponses(
   if (!client->Connect()) {
     quic::QuicErrorCode error = client->session()->error();
     if (error == quic::QUIC_INVALID_VERSION) {
-      std::cerr << "Server talks QUIC, but none of the versions supported by "
-                << "this client: " << ParsedQuicVersionVectorToString(versions)
-                << std::endl;
+      std::cerr << "Failed to negotiate version with " << host << ":" << port
+                << ". " << client->session()->error_details() << std::endl;
       // 0: No error.
       // 20: Failed to connect due to QUIC_INVALID_VERSION.
       return GetQuicFlag(FLAGS_version_mismatch_ok) ? 0 : 20;
     }
-    std::cerr << "Failed to connect to " << host << ":" << port
-              << ". Error: " << quic::QuicErrorCodeToString(error) << std::endl;
+    std::cerr << "Failed to connect to " << host << ":" << port << ". "
+              << quic::QuicErrorCodeToString(error) << " "
+              << client->session()->error_details() << std::endl;
     return 1;
   }
   std::cerr << "Connected to " << host << ":" << port << std::endl;
@@ -252,7 +260,7 @@ int QuicToyClient::SendRequestsAndPrintResponses(
   if (!GetQuicFlag(FLAGS_body_hex).empty()) {
     DCHECK(GetQuicFlag(FLAGS_body).empty())
         << "Only set one of --body and --body_hex.";
-    body = QuicTextUtils::HexDecode(GetQuicFlag(FLAGS_body_hex));
+    body = QuicheTextUtils::HexDecode(GetQuicFlag(FLAGS_body_hex));
   }
 
   // Construct a GET or POST request for supplied URL.
@@ -264,14 +272,14 @@ int QuicToyClient::SendRequestsAndPrintResponses(
 
   // Append any additional headers supplied on the command line.
   const std::string headers = GetQuicFlag(FLAGS_headers);
-  for (QuicStringPiece sp : QuicTextUtils::Split(headers, ';')) {
-    QuicTextUtils::RemoveLeadingAndTrailingWhitespace(&sp);
+  for (QuicheStringPiece sp : QuicheTextUtils::Split(headers, ';')) {
+    QuicheTextUtils::RemoveLeadingAndTrailingWhitespace(&sp);
     if (sp.empty()) {
       continue;
     }
-    std::vector<QuicStringPiece> kv = QuicTextUtils::Split(sp, ':');
-    QuicTextUtils::RemoveLeadingAndTrailingWhitespace(&kv[0]);
-    QuicTextUtils::RemoveLeadingAndTrailingWhitespace(&kv[1]);
+    std::vector<QuicheStringPiece> kv = QuicheTextUtils::Split(sp, ':');
+    QuicheTextUtils::RemoveLeadingAndTrailingWhitespace(&kv[0]);
+    QuicheTextUtils::RemoveLeadingAndTrailingWhitespace(&kv[1]);
     header_block[kv[0]] = kv[1];
   }
 
@@ -289,8 +297,8 @@ int QuicToyClient::SendRequestsAndPrintResponses(
       if (!GetQuicFlag(FLAGS_body_hex).empty()) {
         // Print the user provided hex, rather than binary body.
         std::cout << "body:\n"
-                  << QuicTextUtils::HexDump(
-                         QuicTextUtils::HexDecode(GetQuicFlag(FLAGS_body_hex)))
+                  << QuicheTextUtils::HexDump(QuicheTextUtils::HexDecode(
+                         GetQuicFlag(FLAGS_body_hex)))
                   << std::endl;
       } else {
         std::cout << "body: " << body << std::endl;
@@ -310,7 +318,7 @@ int QuicToyClient::SendRequestsAndPrintResponses(
       if (!GetQuicFlag(FLAGS_body_hex).empty()) {
         // Assume response is binary data.
         std::cout << "body:\n"
-                  << QuicTextUtils::HexDump(response_body) << std::endl;
+                  << QuicheTextUtils::HexDump(response_body) << std::endl;
       } else {
         std::cout << "body: " << response_body << std::endl;
       }
@@ -343,7 +351,7 @@ int QuicToyClient::SendRequestsAndPrintResponses(
     }
 
     // Change the ephemeral port if there are more requests to do.
-    if (i + 1 < num_requests) {
+    if (!GetQuicFlag(FLAGS_disable_port_changes) && i + 1 < num_requests) {
       if (!client->ChangeEphemeralPort()) {
         std::cerr << "Failed to change ephemeral port." << std::endl;
         return 1;

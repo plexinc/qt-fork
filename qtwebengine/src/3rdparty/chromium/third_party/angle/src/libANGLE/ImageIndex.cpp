@@ -40,6 +40,8 @@ GLint TextureTargetToLayer(TextureTarget target)
             return ImageIndex::kEntireLevel;
         case TextureTarget::_2D:
             return ImageIndex::kEntireLevel;
+        case TextureTarget::VideoImage:
+            return ImageIndex::kEntireLevel;
         case TextureTarget::_2DArray:
             return ImageIndex::kEntireLevel;
         case TextureTarget::_2DMultisample:
@@ -51,21 +53,6 @@ GLint TextureTargetToLayer(TextureTarget target)
         default:
             UNREACHABLE();
             return 0;
-    }
-}
-
-TextureTarget TextureTypeToTarget(TextureType type, GLint layerIndex)
-{
-    if (type == TextureType::CubeMap)
-    {
-        // As GL_TEXTURE_CUBE_MAP cannot be a texture target in texImage*D APIs, so we don't allow
-        // an entire cube map to have a texture target.
-        ASSERT(layerIndex != ImageIndex::kEntireLevel);
-        return CubeFaceIndexToTextureTarget(layerIndex);
-    }
-    else
-    {
-        return NonCubeTextureTypeToTarget(type);
     }
 }
 
@@ -81,6 +68,21 @@ bool IsArrayTarget(TextureTarget target)
     }
 }
 }  // anonymous namespace
+
+TextureTarget TextureTypeToTarget(TextureType type, GLint layerIndex)
+{
+    if (type == TextureType::CubeMap)
+    {
+        // As GL_TEXTURE_CUBE_MAP cannot be a texture target in texImage*D APIs, so we don't allow
+        // an entire cube map to have a texture target.
+        ASSERT(layerIndex != ImageIndex::kEntireLevel);
+        return CubeFaceIndexToTextureTarget(layerIndex);
+    }
+    else
+    {
+        return NonCubeTextureTypeToTarget(type);
+    }
+}
 
 ImageIndex::ImageIndex()
     : mType(TextureType::InvalidEnum), mLevelIndex(0), mLayerIndex(0), mLayerCount(kEntireLevel)
@@ -126,6 +128,18 @@ bool ImageIndex::usesTex3D() const
 TextureTarget ImageIndex::getTarget() const
 {
     return TextureTypeToTarget(mType, mLayerIndex);
+}
+
+gl::TextureTarget ImageIndex::getTargetOrFirstCubeFace() const
+{
+    if (isEntireLevelCubeMap())
+    {
+        return gl::kCubeMapTextureTargetMin;
+    }
+    else
+    {
+        return getTarget();
+    }
 }
 
 GLint ImageIndex::cubeMapFaceIndex() const

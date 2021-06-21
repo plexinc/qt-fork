@@ -35,6 +35,13 @@ static constexpr uint32_t kMaxColorAttachments = 4u;
 static constexpr uint32_t kTextureRowPitchAlignment = 256u;
 // Dynamic buffer offsets require offset to be divisible by 256
 static constexpr uint64_t kMinDynamicBufferOffsetAlignment = 256u;
+// Max numbers of dynamic uniform buffers
+static constexpr uint32_t kMaxDynamicUniformBufferCount = 8u;
+// Max numbers of dynamic storage buffers
+static constexpr uint32_t kMaxDynamicStorageBufferCount = 4u;
+// Max numbers of dynamic buffers
+static constexpr uint32_t kMaxDynamicBufferCount =
+    kMaxDynamicUniformBufferCount + kMaxDynamicStorageBufferCount;
 // Indirect command sizes
 static constexpr uint64_t kDispatchIndirectSize = 3 * sizeof(uint32_t);
 static constexpr uint64_t kDrawIndirectSize = 4 * sizeof(uint32_t);
@@ -43,13 +50,6 @@ static constexpr uint64_t kDrawIndexedIndirectSize = 5 * sizeof(uint32_t);
 // Non spec defined constants.
 static constexpr float kLodMin = 0.0;
 static constexpr float kLodMax = 1000.0;
-
-static constexpr uint32_t kVendorID_AMD = 0x1002;
-static constexpr uint32_t kVendorID_ARM = 0x13B5;
-static constexpr uint32_t kVendorID_ImgTec = 0x1010;
-static constexpr uint32_t kVendorID_Intel = 0x8086;
-static constexpr uint32_t kVendorID_Nvidia = 0x10DE;
-static constexpr uint32_t kVendorID_Qualcomm = 0x5143;
 
 // Max texture size constants
 static constexpr uint32_t kMaxTextureSize = 8192u;

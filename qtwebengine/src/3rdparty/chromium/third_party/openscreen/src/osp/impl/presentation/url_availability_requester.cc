@@ -10,13 +10,12 @@
 
 #include "osp/impl/presentation/presentation_common.h"
 #include "osp/public/network_service_manager.h"
-#include "platform/api/logging.h"
+#include "util/logging.h"
 
-using openscreen::platform::Clock;
 using std::chrono::seconds;
 
 namespace openscreen {
-namespace presentation {
+namespace osp {
 namespace {
 
 static constexpr Clock::duration kWatchDuration = seconds(20);
@@ -48,7 +47,7 @@ uint64_t GetNextRequestId(const uint64_t endpoint_id) {
 }  // namespace
 
 UrlAvailabilityRequester::UrlAvailabilityRequester(
-    platform::ClockNowFunctionPtr now_function)
+    ClockNowFunctionPtr now_function)
     : now_function_(now_function) {
   OSP_DCHECK(now_function_);
 }
@@ -487,5 +486,5 @@ ErrorOr<size_t> UrlAvailabilityRequester::ReceiverRequester::OnStreamMessage(
   return Error::Code::kCborParsing;
 }
 
-}  // namespace presentation
+}  // namespace osp
 }  // namespace openscreen

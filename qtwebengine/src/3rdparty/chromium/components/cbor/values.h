@@ -31,10 +31,12 @@ class CBOR_EXPORT Value {
     // https://tools.ietf.org/html/rfc7049#section-3.9
     // TODO(808022): Clarify where this stands.
     bool operator()(const Value& a, const Value& b) const {
-      // The current implementation only supports integer, text string,
-      // and byte string keys.
-      DCHECK((a.is_integer() || a.is_string() || a.is_bytestring()) &&
-             (b.is_integer() || b.is_string() || b.is_bytestring()));
+      // The current implementation only supports integer, text string, byte
+      // string and invalid UTF8 keys.
+      DCHECK((a.is_integer() || a.is_string() || a.is_bytestring() ||
+              a.is_invalid_utf8()) &&
+             (b.is_integer() || b.is_string() || b.is_bytestring() ||
+              b.is_invalid_utf8()));
 
       // Below text from https://tools.ietf.org/html/rfc7049 errata 4409:
       // *  If the major types are different, the one with the lower value
@@ -66,6 +68,13 @@ class CBOR_EXPORT Value {
           const auto& a_str = a.GetBytestring();
           const size_t a_length = a_str.size();
           const auto& b_str = b.GetBytestring();
+          const size_t b_length = b_str.size();
+          return std::tie(a_length, a_str) < std::tie(b_length, b_str);
+        }
+        case Type::INVALID_UTF8: {
+          const auto& a_str = a.GetInvalidUTF8();
+          const size_t a_length = a_str.size();
+          const auto& b_str = b.GetInvalidUTF8();
           const size_t b_length = b_str.size();
           return std::tie(a_length, a_str) < std::tie(b_length, b_str);
         }
@@ -117,22 +126,22 @@ class CBOR_EXPORT Value {
   explicit Value(SimpleValue in_simple);
   explicit Value(bool boolean_value);
 
-  explicit Value(int integer_value);
-  explicit Value(int64_t integer_value);
-  explicit Value(uint64_t integer_value) = delete;
+  Value(int integer_value);
+  Value(int64_t integer_value);
+  Value(uint64_t integer_value) = delete;
 
-  explicit Value(base::span<const uint8_t> in_bytes);
-  explicit Value(BinaryValue&& in_bytes) noexcept;
+  Value(base::span<const uint8_t> in_bytes);
+  Value(BinaryValue&& in_bytes) noexcept;
 
-  explicit Value(const char* in_string, Type type = Type::STRING);
-  explicit Value(std::string&& in_string, Type type = Type::STRING) noexcept;
-  explicit Value(base::StringPiece in_string, Type type = Type::STRING);
+  Value(const char* in_string, Type type = Type::STRING);
+  Value(std::string&& in_string, Type type = Type::STRING) noexcept;
+  Value(base::StringPiece in_string, Type type = Type::STRING);
 
   explicit Value(const ArrayValue& in_array);
-  explicit Value(ArrayValue&& in_array) noexcept;
+  Value(ArrayValue&& in_array) noexcept;
 
   explicit Value(const MapValue& in_map);
-  explicit Value(MapValue&& in_map) noexcept;
+  Value(MapValue&& in_map) noexcept;
 
   Value& operator=(Value&& that) noexcept;
 

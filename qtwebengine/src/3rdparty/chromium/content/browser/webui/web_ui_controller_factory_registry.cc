@@ -10,6 +10,7 @@
 #include "content/browser/frame_host/debug_urls.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/web_ui_controller.h"
+#include "content/public/common/content_client.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/common/url_utils.h"
 #include "url/gurl.h"
@@ -98,17 +99,11 @@ bool WebUIControllerFactoryRegistry::IsURLAcceptableForWebUI(
          // See http://crbug.com/42547
          url.spec() == url::kAboutBlankURL ||
          // javascript: and debug URLs like chrome://kill are allowed.
-         IsRendererDebugURL(url) ||
-         // Temporarily allow the embedder to whitelist URLs allowed in WebUI
-         // until crbug.com/768526 is resolved.
-         GetContentClient()->browser()->IsURLAcceptableForWebUI(browser_context,
-                                                                url);
+         IsRendererDebugURL(url);
 }
 
-WebUIControllerFactoryRegistry::WebUIControllerFactoryRegistry() {
-}
+WebUIControllerFactoryRegistry::WebUIControllerFactoryRegistry() = default;
 
-WebUIControllerFactoryRegistry::~WebUIControllerFactoryRegistry() {
-}
+WebUIControllerFactoryRegistry::~WebUIControllerFactoryRegistry() = default;
 
 }  // namespace content

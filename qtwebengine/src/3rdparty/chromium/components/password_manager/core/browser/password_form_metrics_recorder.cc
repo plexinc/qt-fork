@@ -10,11 +10,13 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
 #include "base/numerics/safe_conversions.h"
+#include "base/stl_util.h"
 #include "components/autofill/core/common/form_data.h"
 #include "components/autofill/core/common/password_generation_util.h"
 #include "components/password_manager/core/browser/form_fetcher.h"
 #include "components/password_manager/core/browser/password_bubble_experiment.h"
 #include "components/password_manager/core/browser/password_manager_metrics_util.h"
+#include "components/password_manager/core/browser/password_manager_util.h"
 #include "components/password_manager/core/browser/statistics_table.h"
 
 using autofill::FieldPropertiesFlags;
@@ -107,15 +109,25 @@ UsernamePasswordsState CalculateUsernamePasswordsState(
     bool automatically_filled =
         field.properties_mask & FieldPropertiesFlags::AUTOFILLED_ON_PAGELOAD;
 
-    if (saved_usernames.count(value)) {
+    // The typed `value` could appear in `saved_usernames`, `saved_passwords`,
+    // or both. In the last case we use the control type of the form as a
+    // tie-break, if this is `password`, the user likely typed a password,
+    // otherwise a username.
+    bool is_possibly_saved_username = base::Contains(saved_usernames, value);
+    bool is_possibly_saved_password = base::Contains(saved_passwords, value);
+    bool field_has_password_type = field.form_control_type == "password";
+
+    if (is_possibly_saved_username &&
+        (!is_possibly_saved_password || !field_has_password_type)) {
       result.saved_username_typed |= user_typed;
       result.username_manually_filled |= manually_filled;
       result.username_automatically_filled |= automatically_filled;
-    } else if (saved_passwords.count(value)) {
+    } else if (is_possibly_saved_password &&
+               (!is_possibly_saved_username || field_has_password_type)) {
       result.saved_password_typed |= user_typed;
       result.password_manually_filled |= manually_filled;
       result.password_automatically_filled |= automatically_filled;
-    } else if (user_typed && field.form_control_type == "password") {
+    } else if (user_typed && field_has_password_type) {
       result.unknown_password_typed = true;
     }
   }
@@ -153,19 +165,6 @@ PasswordFormMetricsRecorder::PasswordFormMetricsRecorder(
       ukm_entry_builder_(source_id) {}
 
 PasswordFormMetricsRecorder::~PasswordFormMetricsRecorder() {
-  UMA_HISTOGRAM_ENUMERATION("PasswordManager.ActionsTakenV3", GetActionsTaken(),
-                            kMaxNumActionsTaken);
-  ukm_entry_builder_.SetUser_ActionSimplified(
-      static_cast<int64_t>(user_action_));
-
-  // Use the visible main frame URL at the time the PasswordFormManager
-  // is created, in case a navigation has already started and the
-  // visible URL has changed.
-  if (!is_main_frame_secure_) {
-    UMA_HISTOGRAM_ENUMERATION("PasswordManager.ActionsTakenOnNonSecureForm",
-                              GetActionsTaken(), kMaxNumActionsTaken);
-  }
-
   if (submit_result_ == kSubmitResultNotSubmitted) {
     if (HasGeneratedPassword(generated_password_status_)) {
       metrics_util::LogPasswordGenerationSubmissionEvent(
@@ -233,10 +232,6 @@ PasswordFormMetricsRecorder::~PasswordFormMetricsRecorder() {
     ukm_entry_builder_.SetGeneration_PopupShown(
         static_cast<int64_t>(password_generation_popup_shown_));
   }
-  if (spec_priority_of_generated_password_) {
-    ukm_entry_builder_.SetGeneration_SpecPriority(
-        spec_priority_of_generated_password_.value());
-  }
 
   if (showed_manual_fallback_for_saving_) {
     ukm_entry_builder_.SetSaving_ShowedManualFallbackForSaving(
@@ -267,6 +262,20 @@ PasswordFormMetricsRecorder::~PasswordFormMetricsRecorder() {
     }
   }
 
+  if (submit_result_ == kSubmitResultPassed && js_only_input_) {
+    UMA_HISTOGRAM_ENUMERATION(
+        "PasswordManager.JavaScriptOnlyValueInSubmittedForm", *js_only_input_);
+  }
+
+  if (user_typed_password_on_chrome_sign_in_page_ ||
+      password_hash_saved_on_chrome_sing_in_page_) {
+    auto value = password_hash_saved_on_chrome_sing_in_page_
+                     ? ChromeSignInPageHashSaved::kHashSaved
+                     : ChromeSignInPageHashSaved::kPasswordTypedHashNotSaved;
+    UMA_HISTOGRAM_ENUMERATION("PasswordManager.ChromeSignInPageHashSaved",
+                              value);
+  }
+
   ukm_entry_builder_.Record(ukm::UkmRecorder::Get());
 }
 
@@ -279,82 +288,9 @@ void PasswordFormMetricsRecorder::SetGeneratedPasswordStatus(
   generated_password_status_ = status;
 }
 
-void PasswordFormMetricsRecorder::ReportSpecPriorityForGeneratedPassword(
-    uint32_t spec_priority) {
-  spec_priority_of_generated_password_ = spec_priority;
-}
-
 void PasswordFormMetricsRecorder::SetManagerAction(
     ManagerAction manager_action) {
   manager_action_ = manager_action;
-}
-
-void PasswordFormMetricsRecorder::CalculateUserAction(
-    const std::map<base::string16, const autofill::PasswordForm*>& best_matches,
-    const autofill::PasswordForm& submitted_form) {
-  const base::string16& submitted_password =
-      !submitted_form.new_password_value.empty()
-          ? submitted_form.new_password_value
-          : submitted_form.password_value;
-
-  if (submitted_form.username_value.empty()) {
-    // In case the submitted form does not have a username field we do not
-    // autofill. Thus the user either explicitly chose this credential from the
-    // dropdown, or created a new password.
-    for (const auto& match : best_matches) {
-      if (match.second->password_value == submitted_password) {
-        user_action_ = UserAction::kChoose;
-        return;
-      }
-    }
-
-    user_action_ = UserAction::kOverridePassword;
-    return;
-  }
-
-  // In case the submitted form has a username value, check if there is an
-  // existing match with the same username. If not, the user created a new
-  // credential.
-  auto found = best_matches.find(submitted_form.username_value);
-  if (found == best_matches.end()) {
-    user_action_ = UserAction::kOverrideUsernameAndPassword;
-    return;
-  }
-
-  // Otherwise check if the user changed the password.
-  const autofill::PasswordForm* existing_match = found->second;
-  if (existing_match->password_value != submitted_password) {
-    user_action_ = UserAction::kOverridePassword;
-    return;
-  }
-
-  // If the existing match is a PSL match, the user purposefully chose it, since
-  // PSL credentials are not autofilled.
-  if (existing_match->is_public_suffix_match) {
-    user_action_ = UserAction::kChoosePslMatch;
-    return;
-  }
-
-  // Lastly, in case the existing match is not a preferred match, or the form
-  // was not filled on page load, the user purposefully chose a credential.
-  // Otherwise the user either did not do anything, or re-selected the default
-  // option.
-  if (!existing_match->preferred ||
-      manager_action_ != kManagerActionAutofilled) {
-    user_action_ = UserAction::kChoose;
-    return;
-  }
-
-  user_action_ = UserAction::kNone;
-}
-
-void PasswordFormMetricsRecorder::SetUserActionForTesting(
-    UserAction user_action) {
-  user_action_ = user_action;
-}
-
-UserAction PasswordFormMetricsRecorder::GetUserAction() const {
-  return user_action_;
 }
 
 void PasswordFormMetricsRecorder::LogSubmitPassed() {
@@ -408,19 +344,6 @@ void PasswordFormMetricsRecorder::SetSubmissionIndicatorEvent(
   ukm_entry_builder_.SetSubmission_Indicator(static_cast<int>(event));
 }
 
-int PasswordFormMetricsRecorder::GetActionsTakenNew() const {
-  // Merge kManagerActionNone and kManagerActionBlacklisted_Obsolete. This
-  // lowers the number of histogram buckets used by 33%.
-  ManagerActionNew manager_action_new =
-      (manager_action_ == kManagerActionAutofilled)
-          ? kManagerActionNewAutofilled
-          : kManagerActionNewNone;
-
-  return static_cast<int>(user_action_) +
-         static_cast<int>(UserAction::kMax) *
-             (manager_action_new + kManagerActionNewMax * submit_result_);
-}
-
 void PasswordFormMetricsRecorder::RecordDetailedUserAction(
     PasswordFormMetricsRecorder::DetailedUserAction action) {
   detailed_user_actions_counts_[action]++;
@@ -437,17 +360,6 @@ void PasswordFormMetricsRecorder::RecordFormSignature(
     autofill::FormSignature form_signature) {
   ukm_entry_builder_.SetContext_FormSignature(
       HashFormSignature(form_signature));
-}
-
-void PasswordFormMetricsRecorder::RecordParsingsComparisonResult(
-    ParsingComparisonResult comparison_result) {
-  ukm_entry_builder_.SetParsingComparison(
-      static_cast<uint64_t>(comparison_result));
-}
-
-void PasswordFormMetricsRecorder::RecordParsingOnSavingDifference(
-    uint64_t comparison_result) {
-  ukm_entry_builder_.SetParsingOnSavingDifference(comparison_result);
 }
 
 void PasswordFormMetricsRecorder::RecordReadonlyWhenFilling(uint64_t value) {
@@ -496,6 +408,8 @@ void PasswordFormMetricsRecorder::CalculateFillingAssistanceMetric(
     const std::set<base::string16>& saved_passwords,
     bool is_blacklisted,
     const std::vector<InteractionsStats>& interactions_stats) {
+  CalculateJsOnlyInput(submitted_form);
+
   if (saved_passwords.empty() && is_blacklisted) {
     filling_assistance_ = FillingAssistance::kNoSavedCredentialsAndBlacklisted;
     return;
@@ -552,10 +466,23 @@ void PasswordFormMetricsRecorder::CalculateFillingAssistanceMetric(
   NOTREACHED();
 }
 
-int PasswordFormMetricsRecorder::GetActionsTaken() const {
-  return static_cast<int>(user_action_) +
-         static_cast<int>(UserAction::kMax) *
-             (manager_action_ + kManagerActionMax * submit_result_);
+void PasswordFormMetricsRecorder::CalculateJsOnlyInput(
+    const FormData& submitted_form) {
+  bool had_focus = false;
+  bool had_user_input_or_autofill_on_password = false;
+  for (const auto& field : submitted_form.fields) {
+    if (field.HadFocus())
+      had_focus = true;
+    if (field.IsPasswordInputElement() &&
+        (field.DidUserType() || field.WasAutofilled())) {
+      had_user_input_or_autofill_on_password = true;
+    }
+  }
+
+  js_only_input_ = had_user_input_or_autofill_on_password
+                       ? JsOnlyInput::kAutofillOrUserInput
+                       : (had_focus ? JsOnlyInput::kOnlyJsInputWithFocus
+                                    : JsOnlyInput::kOnlyJsInputNoFocus);
 }
 
 void PasswordFormMetricsRecorder::RecordPasswordBubbleShown(
@@ -605,6 +532,8 @@ void PasswordFormMetricsRecorder::RecordPasswordBubbleShown(
       break;
 
     // Other reasons to show a bubble:
+    // TODO(crbug.com/1063853): Decide how to collect metrics for this new UI.
+    case metrics_util::AUTOMATIC_SAVE_UNSYNCED_CREDENTIALS_LOCALLY:
     case metrics_util::MANUAL_MANAGE_PASSWORDS:
     case metrics_util::AUTOMATIC_GENERATED_PASSWORD_CONFIRMATION:
     case metrics_util::MANUAL_GENERATED_PASSWORD_CONFIRMATION:
@@ -634,6 +563,19 @@ void PasswordFormMetricsRecorder::RecordUIDismissalReason(
     } else {
       ukm_entry_builder_.SetSaving_Prompt_Interaction(
           static_cast<int64_t>(bubble_dismissal_reason));
+    }
+
+    // Record saving on username first flow metric.
+    if (possible_username_used_) {
+      auto saving_on_username_first_flow = SavingOnUsernameFirstFlow::kNotSaved;
+      if (bubble_dismissal_reason == BubbleDismissalReason::kAccepted) {
+        saving_on_username_first_flow =
+            username_updated_in_bubble_
+                ? SavingOnUsernameFirstFlow::kSavedWithEditedUsername
+                : SavingOnUsernameFirstFlow::kSaved;
+      }
+      UMA_HISTOGRAM_ENUMERATION("PasswordManager.SavingOnUsernameFirstFlow",
+                                saving_on_username_first_flow);
     }
   }
 

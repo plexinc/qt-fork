@@ -20,6 +20,7 @@
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/task_runner_util.h"
 #include "base/threading/scoped_blocking_call.h"
 #ifndef TOOLKIT_QT
@@ -233,7 +234,7 @@ int SpellcheckCustomDictionary::Change::Sanitize(
 SpellcheckCustomDictionary::SpellcheckCustomDictionary(
     const base::FilePath& dictionary_directory_name)
     : task_runner_(
-          base::CreateSequencedTaskRunnerWithTraits({base::MayBlock()})),
+          base::ThreadPool::CreateSequencedTaskRunner({base::MayBlock()})),
       custom_dictionary_path_(
           dictionary_directory_name.Append(chrome::kCustomDictionaryFileName)),
       is_loaded_(false) {}
@@ -366,7 +367,7 @@ void SpellcheckCustomDictionary::StopSyncing(syncer::ModelType type) {
   sync_error_handler_.reset();
 }
 
-syncer::SyncDataList SpellcheckCustomDictionary::GetAllSyncData(
+syncer::SyncDataList SpellcheckCustomDictionary::GetAllSyncDataForTesting(
     syncer::ModelType type) const {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK_EQ(syncer::DICTIONARY, type);
@@ -472,7 +473,7 @@ void SpellcheckCustomDictionary::OnLoaded(
     fix_invalid_file_.Reset(
         base::BindOnce(&SpellcheckCustomDictionary::FixInvalidFile,
                        weak_ptr_factory_.GetWeakPtr(), std::move(result)));
-    base::PostTaskWithTraits(
+    base::PostTask(
         FROM_HERE,
         {content::BrowserThread::UI, base::TaskPriority::BEST_EFFORT},
         fix_invalid_file_.callback());

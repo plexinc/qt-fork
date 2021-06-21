@@ -212,6 +212,8 @@ void ControllerImpl::StartDownload(const DownloadParams& params) {
 void ControllerImpl::PauseDownload(const std::string& guid) {
   DCHECK(controller_state_ == State::READY ||
          controller_state_ == State::UNAVAILABLE);
+  stats::LogServiceApiAction(GetOwnerOfDownload(guid),
+                             stats::ServiceApiAction::PAUSE_DOWNLOAD);
   if (controller_state_ != State::READY)
     return;
 
@@ -234,6 +236,8 @@ void ControllerImpl::PauseDownload(const std::string& guid) {
 void ControllerImpl::ResumeDownload(const std::string& guid) {
   DCHECK(controller_state_ == State::READY ||
          controller_state_ == State::UNAVAILABLE);
+  stats::LogServiceApiAction(GetOwnerOfDownload(guid),
+                             stats::ServiceApiAction::RESUME_DOWNLOAD);
   if (controller_state_ != State::READY)
     return;
 
@@ -252,6 +256,8 @@ void ControllerImpl::ResumeDownload(const std::string& guid) {
 void ControllerImpl::CancelDownload(const std::string& guid) {
   DCHECK(controller_state_ == State::READY ||
          controller_state_ == State::UNAVAILABLE);
+  stats::LogServiceApiAction(GetOwnerOfDownload(guid),
+                             stats::ServiceApiAction::CANCEL_DOWNLOAD);
   if (controller_state_ != State::READY)
     return;
 
@@ -274,6 +280,8 @@ void ControllerImpl::ChangeDownloadCriteria(const std::string& guid,
                                             const SchedulingParams& params) {
   DCHECK(controller_state_ == State::READY ||
          controller_state_ == State::UNAVAILABLE);
+  stats::LogServiceApiAction(GetOwnerOfDownload(guid),
+                             stats::ServiceApiAction::CHANGE_CRITERIA);
   if (controller_state_ != State::READY)
     return;
 
@@ -360,7 +368,6 @@ void ControllerImpl::RemoveCleanupEligibleDownloads() {
     DCHECK(client);
     bool client_ok =
         client->CanServiceRemoveDownloadedFile(entry->guid, mandatory_cleanup);
-    entry->cleanup_attempt_count++;
 
     if (client_ok || mandatory_cleanup) {
       entries_to_remove.push_back(entry);
@@ -958,7 +965,6 @@ void ControllerImpl::UpdateDriverState(Entry* entry) {
         entry->resumption_count++;
         model_->Update(*entry);
 
-        stats::LogEntryResumptionCount(entry->resumption_count);
         stats::LogEntryEvent(stats::DownloadEvent::RESUME);
 
         if (entry->resumption_count > config_->max_resumption_count) {
@@ -1107,7 +1113,7 @@ void ControllerImpl::HandleStartDownloadResponse(
     DownloadClient client,
     const std::string& guid,
     DownloadParams::StartResult result,
-    const DownloadParams::StartCallback& callback) {
+    DownloadParams::StartCallback callback) {
   stats::LogStartDownloadResult(client, result);
 
   // UNEXPECTED_GUID means the guid was already in use.  Don't remove this entry
@@ -1123,7 +1129,7 @@ void ControllerImpl::HandleStartDownloadResponse(
   if (callback.is_null())
     return;
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::BindOnce(callback, guid, result));
+      FROM_HERE, base::BindOnce(std::move(callback), guid, result));
 }
 
 void ControllerImpl::HandleCompleteDownload(CompletionType type,
@@ -1145,7 +1151,6 @@ void ControllerImpl::HandleCompleteDownload(CompletionType type,
     DCHECK(driver_entry.has_value());
     stats::LogFilePathRenamed(driver_entry->current_file_path !=
                               entry->target_file_path);
-    stats::LogHashPresence(!driver_entry->hash256.empty());
     entry->target_file_path = driver_entry->current_file_path;
     entry->completion_time = driver_entry->completion_time;
     entry->bytes_downloaded = driver_entry->bytes_downloaded;

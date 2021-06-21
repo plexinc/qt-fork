@@ -24,11 +24,13 @@
 #include "base/sequenced_task_runner.h"
 #include "base/synchronization/lock.h"
 #include "mojo/public/cpp/bindings/associated_group_controller.h"
+#include "mojo/public/cpp/bindings/async_flusher.h"
 #include "mojo/public/cpp/bindings/connection_group.h"
 #include "mojo/public/cpp/bindings/connector.h"
-#include "mojo/public/cpp/bindings/filter_chain.h"
 #include "mojo/public/cpp/bindings/interface_id.h"
+#include "mojo/public/cpp/bindings/message_dispatcher.h"
 #include "mojo/public/cpp/bindings/message_header_validator.h"
+#include "mojo/public/cpp/bindings/pending_flush.h"
 #include "mojo/public/cpp/bindings/pipe_control_message_handler.h"
 #include "mojo/public/cpp/bindings/pipe_control_message_handler_delegate.h"
 #include "mojo/public/cpp/bindings/pipe_control_message_proxy.h"
@@ -79,9 +81,9 @@ class COMPONENT_EXPORT(MOJO_CPP_BINDINGS) MultiplexRouter
                   bool set_interface_id_namespace_bit,
                   scoped_refptr<base::SequencedTaskRunner> runner);
 
-  // Adds a MessageReceiver which can filter a message after validation but
+  // Sets a MessageReceiver which can filter a message after validation but
   // before dispatch.
-  void AddIncomingMessageFilter(std::unique_ptr<MessageReceiver> filter);
+  void SetIncomingMessageFilter(std::unique_ptr<MessageFilter> filter);
 
   // Sets the master interface name for this router. Only used when reporting
   // message header or control message validation errors.
@@ -139,6 +141,14 @@ class COMPONENT_EXPORT(MOJO_CPP_BINDINGS) MultiplexRouter
   void PauseIncomingMethodCallProcessing();
   void ResumeIncomingMethodCallProcessing();
 
+  // Initiates an async flush operation. |flusher| signals its corresponding
+  // PendingFlush when the flush is actually complete.
+  void FlushAsync(AsyncFlusher flusher);
+
+  // Pauses the peer endpoint's message processing until a (potentially remote)
+  // flush operation corresponding to |flush| is completed.
+  void PausePeerUntilFlushCompletes(PendingFlush flush);
+
   // Whether there are any associated interfaces running currently.
   bool HasAssociatedEndpoints() const;
 
@@ -163,7 +173,7 @@ class COMPONENT_EXPORT(MOJO_CPP_BINDINGS) MultiplexRouter
   }
 
   bool SimulateReceivingMessageForTesting(Message* message) {
-    return filters_.Accept(message);
+    return dispatcher_.Accept(message);
   }
 
  private:
@@ -180,8 +190,11 @@ class COMPONENT_EXPORT(MOJO_CPP_BINDINGS) MultiplexRouter
   bool OnPeerAssociatedEndpointClosed(
       InterfaceId id,
       const base::Optional<DisconnectReason>& reason) override;
+  bool WaitForFlushToComplete(ScopedMessagePipeHandle flush_pipe) override;
 
   void OnPipeConnectionError(bool force_async_dispatch);
+  void OnFlushPipeSignaled(MojoResult result, const HandleSignalsState& state);
+  void PauseInternal(bool must_resume_manually);
 
   // Specifies whether we are allowed to directly call into
   // InterfaceEndpointClient (given that we are already on the same sequence as
@@ -251,11 +264,15 @@ class COMPONENT_EXPORT(MOJO_CPP_BINDINGS) MultiplexRouter
 
   scoped_refptr<base::SequencedTaskRunner> task_runner_;
 
-  // Owned by |filters_| below.
+  // Owned by |dispatcher_| below.
   MessageHeaderValidator* header_validator_ = nullptr;
 
-  FilterChain filters_;
+  MessageDispatcher dispatcher_;
   Connector connector_;
+
+  // Active whenever dispatch is blocked by a pending remote flush.
+  ScopedMessagePipeHandle active_flush_pipe_;
+  base::Optional<mojo::SimpleWatcher> flush_pipe_watcher_;
 
   SEQUENCE_CHECKER(sequence_checker_);
 
@@ -280,7 +297,15 @@ class COMPONENT_EXPORT(MOJO_CPP_BINDINGS) MultiplexRouter
 
   bool encountered_error_ = false;
 
+  // Indicates whether this router is paused, meaning it is not currently
+  // listening for or dispatching available inbound messages.
   bool paused_ = false;
+
+  // If this router is paused, this indicates whether the pause is due to an
+  // explicit call to |PauseIncomingMethodCallProcessing()| when |true|, or
+  // due implicit pause when waiting on an async flush operation when |false|.
+  // When |paused_| is |false|, this value is ignored.
+  bool must_resume_manually_ = false;
 
   bool testing_mode_ = false;
 

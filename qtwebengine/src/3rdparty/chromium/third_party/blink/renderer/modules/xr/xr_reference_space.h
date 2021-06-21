@@ -30,29 +30,37 @@ class XRReferenceSpace : public XRSpace {
 
   static Type StringToReferenceSpaceType(const String& reference_space_type);
 
-  XRReferenceSpace(XRSession*, Type);
-  XRReferenceSpace(XRSession*, XRRigidTransform*, Type);
+  XRReferenceSpace(XRSession* session, Type type);
+  XRReferenceSpace(XRSession* session,
+                   XRRigidTransform* origin_offset,
+                   Type type);
   ~XRReferenceSpace() override;
 
-  XRPose* getPose(XRSpace* other_space,
-                  const TransformationMatrix* base_pose_matrix) override;
-  std::unique_ptr<TransformationMatrix> DefaultPose() override;
-  std::unique_ptr<TransformationMatrix> TransformBasePose(
-      const TransformationMatrix& base_pose) override;
-  std::unique_ptr<TransformationMatrix> TransformBaseInputPose(
-      const TransformationMatrix& base_input_pose,
-      const TransformationMatrix& base_pose) override;
+  std::unique_ptr<TransformationMatrix> NativeFromMojo() override;
+  std::unique_ptr<TransformationMatrix> NativeFromViewer(
+      const TransformationMatrix* mojo_from_viewer) override;
 
-  std::unique_ptr<TransformationMatrix> GetTransformToMojoSpace() override;
+  // MojoFromNative is final to enforce that children should be returning
+  // NativeFromMojo, since this is simply written to always provide the inverse
+  // of NativeFromMojo
+  std::unique_ptr<TransformationMatrix> MojoFromNative() final;
 
-  TransformationMatrix OriginOffsetMatrix() override;
-  TransformationMatrix InverseOriginOffsetMatrix() override;
+  TransformationMatrix NativeFromOffsetMatrix() override;
+  TransformationMatrix OffsetFromNativeMatrix() override;
+
+  // We override getPose to ensure that the viewer pose in viewer space returns
+  // the identity pose instead of the result of multiplying inverse matrices.
+  XRPose* getPose(XRSpace* other_space) override;
+
+  Type GetType() const;
 
   XRReferenceSpace* getOffsetReferenceSpace(XRRigidTransform* transform);
 
   DEFINE_ATTRIBUTE_EVENT_LISTENER(reset, kReset)
 
-  void Trace(blink::Visitor*) override;
+  base::Optional<XRNativeOriginInformation> NativeOrigin() const override;
+
+  void Trace(Visitor*) override;
 
   virtual void OnReset();
 
@@ -60,11 +68,11 @@ class XRReferenceSpace : public XRSpace {
   virtual XRReferenceSpace* cloneWithOriginOffset(
       XRRigidTransform* origin_offset);
 
-  void UpdateFloorLevelTransform();
+  void SetFloorFromMojo();
 
   unsigned int display_info_id_ = 0;
 
-  std::unique_ptr<TransformationMatrix> floor_level_transform_;
+  std::unique_ptr<TransformationMatrix> floor_from_mojo_;
   Member<XRRigidTransform> origin_offset_;
   Type type_;
 };

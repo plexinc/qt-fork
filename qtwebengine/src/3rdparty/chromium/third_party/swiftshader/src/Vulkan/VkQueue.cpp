@@ -12,19 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "VkQueue.hpp"
 #include "VkCommandBuffer.hpp"
 #include "VkFence.hpp"
-#include "VkQueue.hpp"
 #include "VkSemaphore.hpp"
-#include "WSI/VkSwapchainKHR.hpp"
 #include "Device/Renderer.hpp"
+#include "WSI/VkSwapchainKHR.hpp"
+
+#include "marl/defer.h"
+#include "marl/scheduler.h"
+#include "marl/thread.h"
+#include "marl/trace.h"
 
 #include <cstring>
 
-namespace
-{
+namespace {
 
-VkSubmitInfo* DeepCopySubmitInfo(uint32_t submitCount, const VkSubmitInfo* pSubmits)
+VkSubmitInfo *DeepCopySubmitInfo(uint32_t submitCount, const VkSubmitInfo *pSubmits)
 {
 	size_t submitSize = sizeof(VkSubmitInfo) * submitCount;
 	size_t totalSize = submitSize;
@@ -36,32 +40,32 @@ VkSubmitInfo* DeepCopySubmitInfo(uint32_t submitCount, const VkSubmitInfo* pSubm
 		totalSize += pSubmits[i].commandBufferCount * sizeof(VkCommandBuffer);
 	}
 
-	uint8_t* mem = static_cast<uint8_t*>(
-		vk::allocate(totalSize, vk::REQUIRED_MEMORY_ALIGNMENT, vk::DEVICE_MEMORY, vk::Fence::GetAllocationScope()));
+	uint8_t *mem = static_cast<uint8_t *>(
+	    vk::allocate(totalSize, vk::REQUIRED_MEMORY_ALIGNMENT, vk::DEVICE_MEMORY, vk::Fence::GetAllocationScope()));
 
-	auto submits = new (mem) VkSubmitInfo[submitCount];
+	auto submits = new(mem) VkSubmitInfo[submitCount];
 	memcpy(mem, pSubmits, submitSize);
 	mem += submitSize;
 
 	for(uint32_t i = 0; i < submitCount; i++)
 	{
 		size_t size = pSubmits[i].waitSemaphoreCount * sizeof(VkSemaphore);
-		submits[i].pWaitSemaphores = reinterpret_cast<const VkSemaphore*>(mem);
+		submits[i].pWaitSemaphores = reinterpret_cast<const VkSemaphore *>(mem);
 		memcpy(mem, pSubmits[i].pWaitSemaphores, size);
 		mem += size;
 
 		size = pSubmits[i].waitSemaphoreCount * sizeof(VkPipelineStageFlags);
-		submits[i].pWaitDstStageMask = reinterpret_cast<const VkPipelineStageFlags*>(mem);
+		submits[i].pWaitDstStageMask = reinterpret_cast<const VkPipelineStageFlags *>(mem);
 		memcpy(mem, pSubmits[i].pWaitDstStageMask, size);
 		mem += size;
 
 		size = pSubmits[i].signalSemaphoreCount * sizeof(VkSemaphore);
-		submits[i].pSignalSemaphores = reinterpret_cast<const VkSemaphore*>(mem);
+		submits[i].pSignalSemaphores = reinterpret_cast<const VkSemaphore *>(mem);
 		memcpy(mem, pSubmits[i].pSignalSemaphores, size);
 		mem += size;
 
 		size = pSubmits[i].commandBufferCount * sizeof(VkCommandBuffer);
-		submits[i].pCommandBuffers = reinterpret_cast<const VkCommandBuffer*>(mem);
+		submits[i].pCommandBuffers = reinterpret_cast<const VkCommandBuffer *>(mem);
 		memcpy(mem, pSubmits[i].pCommandBuffers, size);
 		mem += size;
 	}
@@ -69,14 +73,14 @@ VkSubmitInfo* DeepCopySubmitInfo(uint32_t submitCount, const VkSubmitInfo* pSubm
 	return submits;
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
-namespace vk
-{
+namespace vk {
 
-Queue::Queue() : renderer()
+Queue::Queue(Device *device, marl::Scheduler *scheduler)
+    : device(device)
 {
-	queueThread = std::thread(TaskLoop, this);
+	queueThread = std::thread(&Queue::taskLoop, this, scheduler);
 }
 
 Queue::~Queue()
@@ -91,7 +95,7 @@ Queue::~Queue()
 	garbageCollect();
 }
 
-VkResult Queue::submit(uint32_t submitCount, const VkSubmitInfo* pSubmits, Fence* fence)
+VkResult Queue::submit(uint32_t submitCount, const VkSubmitInfo *pSubmits, Fence *fence)
 {
 	garbageCollect();
 
@@ -110,16 +114,16 @@ VkResult Queue::submit(uint32_t submitCount, const VkSubmitInfo* pSubmits, Fence
 	return VK_SUCCESS;
 }
 
-void Queue::TaskLoop(vk::Queue* queue)
+void Queue::submitQueue(const Task &task)
 {
-	queue->taskLoop();
-}
+	if(renderer == nullptr)
+	{
+		renderer.reset(new sw::Renderer(device));
+	}
 
-void Queue::submitQueue(const Task& task)
-{
 	for(uint32_t i = 0; i < task.submitCount; i++)
 	{
-		auto& submitInfo = task.pSubmits[i];
+		auto &submitInfo = task.pSubmits[i];
 		for(uint32_t j = 0; j < submitInfo.waitSemaphoreCount; j++)
 		{
 			vk::Cast(submitInfo.pWaitSemaphores[j])->wait(submitInfo.pWaitDstStageMask[j]);
@@ -127,7 +131,7 @@ void Queue::submitQueue(const Task& task)
 
 		{
 			CommandBuffer::ExecutionState executionState;
-			executionState.renderer = &renderer;
+			executionState.renderer = renderer.get();
 			executionState.events = task.events;
 			for(uint32_t j = 0; j < submitInfo.commandBufferCount; j++)
 			{
@@ -141,7 +145,7 @@ void Queue::submitQueue(const Task& task)
 		}
 	}
 
-	if (task.pSubmits)
+	if(task.pSubmits)
 	{
 		toDelete.put(task.pSubmits);
 	}
@@ -150,28 +154,32 @@ void Queue::submitQueue(const Task& task)
 	{
 		// TODO: fix renderer signaling so that work submitted separately from (but before) a fence
 		// is guaranteed complete by the time the fence signals.
-		renderer.synchronize();
+		renderer->synchronize();
 		task.events->finish();
 	}
 }
 
-void Queue::taskLoop()
+void Queue::taskLoop(marl::Scheduler *scheduler)
 {
+	marl::Thread::setName("Queue<%p>", this);
+	scheduler->bind();
+	defer(scheduler->unbind());
+
 	while(true)
 	{
 		Task task = pending.take();
 
 		switch(task.type)
 		{
-		case Task::KILL_THREAD:
-			ASSERT_MSG(pending.count() == 0, "queue has remaining work!");
-			return;
-		case Task::SUBMIT_QUEUE:
-			submitQueue(task);
-			break;
-		default:
-			UNIMPLEMENTED("task.type %d", static_cast<int>(task.type));
-			break;
+			case Task::KILL_THREAD:
+				ASSERT_MSG(pending.count() == 0, "queue has remaining work!");
+				return;
+			case Task::SUBMIT_QUEUE:
+				submitQueue(task);
+				break;
+			default:
+				UNREACHABLE("task.type %d", static_cast<int>(task.type));
+				break;
 		}
 	}
 }
@@ -195,16 +203,16 @@ VkResult Queue::waitIdle()
 
 void Queue::garbageCollect()
 {
-	while (true)
+	while(true)
 	{
 		auto v = toDelete.tryTake();
-		if (!v.second) { break; }
+		if(!v.second) { break; }
 		vk::deallocate(v.first, DEVICE_MEMORY);
 	}
 }
 
 #ifndef __ANDROID__
-void Queue::present(const VkPresentInfoKHR* presentInfo)
+VkResult Queue::present(const VkPresentInfoKHR *presentInfo)
 {
 	// This is a hack to deal with screen tearing for now.
 	// Need to correctly implement threading using VkSemaphore
@@ -216,11 +224,30 @@ void Queue::present(const VkPresentInfoKHR* presentInfo)
 		vk::Cast(presentInfo->pWaitSemaphores[i])->wait();
 	}
 
+	VkResult commandResult = VK_SUCCESS;
+
 	for(uint32_t i = 0; i < presentInfo->swapchainCount; i++)
 	{
-		vk::Cast(presentInfo->pSwapchains[i])->present(presentInfo->pImageIndices[i]);
+		VkResult perSwapchainResult = vk::Cast(presentInfo->pSwapchains[i])->present(presentInfo->pImageIndices[i]);
+
+		if(presentInfo->pResults)
+		{
+			presentInfo->pResults[i] = perSwapchainResult;
+		}
+
+		// Keep track of the worst result code. VK_SUBOPTIMAL_KHR is a success code so it should
+		// not override failure codes, but should not get replaced by a VK_SUCCESS result itself.
+		if(perSwapchainResult != VK_SUCCESS)
+		{
+			if(commandResult == VK_SUCCESS || commandResult == VK_SUBOPTIMAL_KHR)
+			{
+				commandResult = perSwapchainResult;
+			}
+		}
 	}
+
+	return commandResult;
 }
 #endif
 
-} // namespace vk
+}  // namespace vk

@@ -16,7 +16,7 @@ namespace blink {
 
 // Associates the results of sampling an EffectModel with metadata used for
 // effect ordering and managing composited animations.
-class SampledEffect : public GarbageCollectedFinalized<SampledEffect> {
+class SampledEffect final : public GarbageCollected<SampledEffect> {
  public:
   SampledEffect(KeyframeEffect*, unsigned sequence_number);
 
@@ -36,7 +36,7 @@ class SampledEffect : public GarbageCollectedFinalized<SampledEffect> {
   void RemoveReplacedInterpolations(const HashSet<PropertyHandle>&);
   void UpdateReplacedProperties(HashSet<PropertyHandle>&);
 
-  void Trace(blink::Visitor*);
+  void Trace(Visitor*);
 
  private:
   WeakMember<KeyframeEffect> effect_;

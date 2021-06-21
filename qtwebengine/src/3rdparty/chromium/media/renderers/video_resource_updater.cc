@@ -67,10 +67,16 @@ VideoFrameResourceType ExternalResourceTypeForHardwarePlanes(
   switch (format) {
     case PIXEL_FORMAT_ARGB:
     case PIXEL_FORMAT_XRGB:
-    case PIXEL_FORMAT_UYVY:
     case PIXEL_FORMAT_ABGR:
+    case PIXEL_FORMAT_BGRA:
       DCHECK_EQ(num_textures, 1);
-      buffer_formats[0] = gfx::BufferFormat::RGBA_8888;
+      // This maps VideoPixelFormat back to GMB BufferFormat
+      // NOTE: ABGR == RGBA and ARGB == BGRA, they differ only byte order
+      // See: VideoFormat function in gpu_memory_buffer_video_frame_pool
+      // https://cs.chromium.org/chromium/src/media/video/gpu_memory_buffer_video_frame_pool.cc?type=cs&g=0&l=281
+      buffer_formats[0] = (format == PIXEL_FORMAT_ABGR)
+                              ? gfx::BufferFormat::RGBA_8888
+                              : gfx::BufferFormat::BGRA_8888;
       switch (target) {
         case GL_TEXTURE_EXTERNAL_OES:
           if (use_stream_video_draw_quad)
@@ -86,27 +92,38 @@ VideoFrameResourceType ExternalResourceTypeForHardwarePlanes(
           break;
       }
       break;
+    case PIXEL_FORMAT_XR30:
+    case PIXEL_FORMAT_XB30:
+      buffer_formats[0] = (format == PIXEL_FORMAT_XR30)
+                              ? gfx::BufferFormat::BGRA_1010102
+                              : gfx::BufferFormat::RGBA_1010102;
+      return VideoFrameResourceType::RGB;
     case PIXEL_FORMAT_I420:
-      DCHECK(num_textures == 3);
+      DCHECK_EQ(num_textures, 3);
       buffer_formats[0] = gfx::BufferFormat::R_8;
       buffer_formats[1] = gfx::BufferFormat::R_8;
       buffer_formats[2] = gfx::BufferFormat::R_8;
       return VideoFrameResourceType::YUV;
-    case PIXEL_FORMAT_NV12:
-      DCHECK(target == GL_TEXTURE_EXTERNAL_OES || target == GL_TEXTURE_2D ||
-             target == GL_TEXTURE_RECTANGLE_ARB)
-          << "Unsupported target " << gl::GLEnums::GetStringEnum(target);
-      DCHECK(num_textures <= 2);
 
-      // Single plane textures can be sampled as RGB.
-      if (num_textures == 2) {
-        buffer_formats[0] = gfx::BufferFormat::R_8;
-        buffer_formats[1] = gfx::BufferFormat::RG_88;
-        return VideoFrameResourceType::YUV;
+    case PIXEL_FORMAT_NV12:
+      // |target| is set to 0 for Vulkan textures.
+      DCHECK(target == 0 || target == GL_TEXTURE_EXTERNAL_OES ||
+             target == GL_TEXTURE_2D || target == GL_TEXTURE_RECTANGLE_ARB)
+          << "Unsupported target " << gl::GLEnums::GetStringEnum(target);
+
+      if (num_textures == 1) {
+        // Single-texture multi-planar frames can be sampled as RGB.
+        buffer_formats[0] = gfx::BufferFormat::YUV_420_BIPLANAR;
+        return VideoFrameResourceType::RGB;
       }
 
-      buffer_formats[0] = gfx::BufferFormat::YUV_420_BIPLANAR;
-      return VideoFrameResourceType::RGB;
+      buffer_formats[0] = gfx::BufferFormat::R_8;
+      buffer_formats[1] = gfx::BufferFormat::RG_88;
+      return VideoFrameResourceType::YUV;
+
+    case PIXEL_FORMAT_UYVY:
+      NOTREACHED();
+      FALLTHROUGH;
     case PIXEL_FORMAT_YV12:
     case PIXEL_FORMAT_I422:
     case PIXEL_FORMAT_I444:
@@ -115,7 +132,6 @@ VideoFrameResourceType ExternalResourceTypeForHardwarePlanes(
     case PIXEL_FORMAT_YUY2:
     case PIXEL_FORMAT_RGB24:
     case PIXEL_FORMAT_MJPEG:
-    case PIXEL_FORMAT_MT21:
     case PIXEL_FORMAT_YUV420P9:
     case PIXEL_FORMAT_YUV422P9:
     case PIXEL_FORMAT_YUV444P9:
@@ -604,13 +620,17 @@ void VideoResourceUpdater::AppendQuads(viz::RenderPass* render_pass,
           protected_video_type = gfx::ProtectedVideoType::kSoftwareProtected;
       }
 
+      const gfx::Vector2dF offset(
+          static_cast<float>(visible_rect.x()) / coded_size.width(),
+          static_cast<float>(visible_rect.y()) / coded_size.height());
+
       auto* texture_quad =
           render_pass->CreateAndAppendDrawQuad<viz::TextureDrawQuad>();
-      texture_quad->SetNew(shared_quad_state, quad_rect, visible_quad_rect,
-                           needs_blending, frame_resources_[0].id,
-                           premultiplied_alpha, uv_top_left, uv_bottom_right,
-                           SK_ColorTRANSPARENT, opacity, flipped,
-                           nearest_neighbor, false, protected_video_type);
+      texture_quad->SetNew(
+          shared_quad_state, quad_rect, visible_quad_rect, needs_blending,
+          frame_resources_[0].id, premultiplied_alpha, uv_top_left + offset,
+          uv_bottom_right + offset, SK_ColorTRANSPARENT, opacity, flipped,
+          nearest_neighbor, false, protected_video_type);
       texture_quad->set_resource_size_in_pixels(coded_size);
       for (viz::ResourceId resource_id : texture_quad->resources) {
         resource_provider_->ValidateResource(resource_id);
@@ -627,7 +647,7 @@ void VideoResourceUpdater::AppendQuads(viz::RenderPass* render_pass,
       stream_video_quad->SetNew(shared_quad_state, quad_rect, visible_quad_rect,
                                 needs_blending, frame_resources_[0].id,
                                 frame_resources_[0].size_in_pixels, uv_top_left,
-                                uv_bottom_right, frame->ycbcr_info());
+                                uv_bottom_right);
       for (viz::ResourceId resource_id : stream_video_quad->resources) {
         resource_provider_->ValidateResource(resource_id);
       }
@@ -752,10 +772,16 @@ void VideoResourceUpdater::CopyHardwarePlane(
                                       : context_provider_->ContextGL();
 
   gl->WaitSyncTokenCHROMIUM(mailbox_holder.sync_token.GetConstData());
-  // TODO(piman): convert to CreateAndTexStorage2DSharedImageCHROMIUM once
-  // VideoFrame is all converted to SharedImage.
+
+  // This is only used on Android where all video mailboxes already use shared
+  // images.
+  DCHECK(mailbox_holder.mailbox.IsSharedImage());
+
+  // TODO(vikassoni): Use raster interface instead of gl interface eventually.
   GLuint src_texture_id =
-      gl->CreateAndConsumeTextureCHROMIUM(mailbox_holder.mailbox.name);
+      gl->CreateAndTexStorage2DSharedImageCHROMIUM(mailbox_holder.mailbox.name);
+  gl->BeginSharedImageAccessDirectCHROMIUM(
+      src_texture_id, GL_SHARED_IMAGE_ACCESS_MODE_READ_CHROMIUM);
   {
     HardwarePlaneResource::ScopedTexture scope(gl, hardware_resource);
     gl->CopySubTextureCHROMIUM(
@@ -763,6 +789,7 @@ void VideoResourceUpdater::CopyHardwarePlane(
         output_plane_resource_size.width(), output_plane_resource_size.height(),
         false, false, false);
   }
+  gl->EndSharedImageAccessDirectCHROMIUM(src_texture_id);
   gl->DeleteTextures(1, &src_texture_id);
 
   // Pass an empty sync token to force generation of a new sync token.
@@ -840,6 +867,7 @@ VideoFrameExternalResources VideoResourceUpdater::CreateForHardwarePlanes(
           video_frame->metadata()->IsTrue(
               VideoFrameMetadata::READ_LOCK_FENCES_ENABLED);
       transfer_resource.format = viz::GetResourceFormat(buffer_formats[i]);
+      transfer_resource.ycbcr_info = video_frame->ycbcr_info();
 
 #if defined(OS_ANDROID)
       transfer_resource.is_backed_by_surface_texture =

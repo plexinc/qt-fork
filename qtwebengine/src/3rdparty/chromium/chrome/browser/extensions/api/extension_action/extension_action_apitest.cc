@@ -13,15 +13,16 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/extensions/api/extension_action/test_extension_action_api_observer.h"
+#include "chrome/browser/extensions/api/extension_action/test_icon_image_observer.h"
 #include "chrome/browser/extensions/extension_action.h"
 #include "chrome/browser/extensions/extension_action_manager.h"
 #include "chrome/browser/extensions/extension_apitest.h"
-#include "chrome/browser/sessions/session_tab_helper.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/browser/ui/extensions/browser_action_test_util.h"
+#include "chrome/browser/ui/extensions/extension_action_test_helper.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/extensions/extension_test_util.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/sessions/content/session_tab_helper.h"
 #include "components/version_info/channel.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
@@ -253,7 +254,7 @@ class MultiActionAPITest
   // Returns the id of the currently-active tab.
   int GetActiveTabId() const {
     content::WebContents* web_contents = GetActiveTab();
-    return SessionTabHelper::IdForTab(web_contents).id();
+    return sessions::SessionTabHelper::IdForTab(web_contents).id();
   }
 
   content::WebContents* GetActiveTab() const {
@@ -264,39 +265,6 @@ class MultiActionAPITest
   ExtensionAction* GetExtensionAction(const Extension& extension) {
     auto* action_manager = ExtensionActionManager::Get(profile());
     return action_manager->GetExtensionAction(extension);
-  }
-
-  // Waits for the given |icon| to finish it's first load.
-  // TODO(devlin): It's unfortunate we need this here. Ideally, either this
-  // would be less convoluted, or would even be taken care of by the extension
-  // loading methods.
-  void WaitForIconLoaded(IconImage* icon) {
-    class IconImageWaiter : public IconImage::Observer {
-     public:
-      IconImageWaiter() : observer_(this) {}
-      ~IconImageWaiter() override = default;
-
-      void Wait(IconImage* icon) {
-        if (!icon->did_complete_initial_load()) {
-          observer_.Add(icon);
-          run_loop_.Run();
-        }
-      }
-
-     private:
-      // IconImage::Observer:
-      void OnExtensionIconImageChanged(IconImage* icon) override {
-        DCHECK(icon->did_complete_initial_load());
-        run_loop_.Quit();
-      }
-
-      base::RunLoop run_loop_;
-      ScopedObserver<IconImage, IconImage::Observer> observer_;
-
-      DISALLOW_COPY_AND_ASSIGN(IconImageWaiter);
-    };
-
-    IconImageWaiter().Wait(icon);
   }
 
  private:
@@ -344,7 +312,7 @@ IN_PROC_BROWSER_TEST_F(BrowserActionAPITest, TestNoUnnecessaryIO) {
          domAutomationController.send('pass');)";
   content::WebContents* web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
-  SessionID tab_id = SessionTabHelper::IdForTab(web_contents);
+  SessionID tab_id = sessions::SessionTabHelper::IdForTab(web_contents);
   constexpr char kBrowserActionKey[] = "browser_action";
   TestStateStoreObserver test_state_store_observer(profile(), extension->id());
 
@@ -413,11 +381,11 @@ IN_PROC_BROWSER_TEST_P(MultiActionAPITest,
   GURL initial_url = embedded_test_server()->GetURL("/title1.html");
   ui_test_utils::NavigateToURLWithDisposition(
       browser(), initial_url, WindowOpenDisposition::NEW_FOREGROUND_TAB,
-      ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+      ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP);
 
   TabStripModel* tab_strip_model = browser()->tab_strip_model();
   content::WebContents* web_contents = tab_strip_model->GetActiveWebContents();
-  int tab_id = SessionTabHelper::IdForTab(web_contents).id();
+  int tab_id = sessions::SessionTabHelper::IdForTab(web_contents).id();
 
   // There should be no explicit title to start, but should be one if we set
   // one.
@@ -472,7 +440,7 @@ IN_PROC_BROWSER_TEST_P(MultiActionAPITest, TitleLocalization) {
   EXPECT_EQ(base::WideToUTF8(L"Hreggvi\u00F0ur is my name"), extension->name());
   content::WebContents* web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
-  int tab_id = SessionTabHelper::IdForTab(web_contents).id();
+  int tab_id = sessions::SessionTabHelper::IdForTab(web_contents).id();
   EXPECT_EQ(base::WideToUTF8(L"Hreggvi\u00F0ur"), action->GetTitle(tab_id));
   EXPECT_EQ(base::WideToUTF8(L"Hreggvi\u00F0ur"),
             action->GetTitle(ExtensionAction::kDefaultTabId));
@@ -505,11 +473,11 @@ IN_PROC_BROWSER_TEST_P(MultiActionAPITest, OnClickedDispatching) {
       FILE_PATH_LITERAL("background.js"),
       base::StringPrintf(kBackgroundJsTemplate, GetAPIName(GetParam())));
 
-  // Though this says "BrowserActionTestUtil", it's actually used for all
+  // Though this says "ExtensionActionTestHelper", it's actually used for all
   // toolbar actions.
   // TODO(devlin): Rename it to ToolbarActionTestUtil.
-  std::unique_ptr<BrowserActionTestUtil> toolbar_helper =
-      BrowserActionTestUtil::Create(browser());
+  std::unique_ptr<ExtensionActionTestHelper> toolbar_helper =
+      ExtensionActionTestHelper::Create(browser());
   EXPECT_EQ(0, toolbar_helper->NumberOfBrowserActions());
   const Extension* extension = LoadExtension(test_dir.UnpackedPath());
   ASSERT_TRUE(extension);
@@ -558,8 +526,8 @@ IN_PROC_BROWSER_TEST_P(MultiActionAPITest, PopupCreation) {
   const Extension* extension = LoadExtension(test_dir.UnpackedPath());
   ASSERT_TRUE(extension);
 
-  std::unique_ptr<BrowserActionTestUtil> toolbar_helper =
-      BrowserActionTestUtil::Create(browser());
+  std::unique_ptr<ExtensionActionTestHelper> toolbar_helper =
+      ExtensionActionTestHelper::Create(browser());
 
   ExtensionAction* action = GetExtensionAction(*extension);
   ASSERT_TRUE(action);
@@ -641,14 +609,14 @@ IN_PROC_BROWSER_TEST_P(MultiActionAPICanvasTest, DynamicSetIcon) {
   ASSERT_TRUE(action->default_icon());
   // Wait for the default icon to finish loading; otherwise it may be empty
   // when we check it.
-  WaitForIconLoaded(action->default_icon_image());
+  TestIconImageObserver::WaitForIcon(action->default_icon_image());
 
   int tab_id = GetActiveTabId();
   EXPECT_TRUE(ActionHasDefaultState(*action, tab_id));
   EnsureActionIsEnabledOnActiveTab(action);
 
-  std::unique_ptr<BrowserActionTestUtil> toolbar_helper =
-      BrowserActionTestUtil::Create(browser());
+  std::unique_ptr<ExtensionActionTestHelper> toolbar_helper =
+      ExtensionActionTestHelper::Create(browser());
 
   ASSERT_EQ(1, toolbar_helper->NumberOfBrowserActions());
   EXPECT_EQ(extension->id(), toolbar_helper->GetExtensionId(0));
@@ -669,7 +637,7 @@ IN_PROC_BROWSER_TEST_P(MultiActionAPICanvasTest, DynamicSetIcon) {
   ui_test_utils::NavigateToURLWithDisposition(
       browser(), GURL("chrome://newtab"),
       WindowOpenDisposition::NEW_FOREGROUND_TAB,
-      ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+      ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP);
 
   const int new_tab_id = GetActiveTabId();
   EXPECT_NE(new_tab_id, tab_id);
@@ -759,7 +727,7 @@ IN_PROC_BROWSER_TEST_P(MultiActionAPITest, GettersAndSetters) {
   ui_test_utils::NavigateToURLWithDisposition(
       browser(), GURL("chrome://newtab"),
       WindowOpenDisposition::NEW_FOREGROUND_TAB,
-      ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+      ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP);
   int second_tab_id = GetActiveTabId();
 
   // A simple structure to hold different representations of values (one JS,
@@ -889,7 +857,7 @@ IN_PROC_BROWSER_TEST_P(MultiActionAPITest, GettersAndSetters) {
     ValuePair custom_badge_text2{"custom badge2", "'custom badge2'"};
 
     auto get_badge_text = [](ExtensionAction* action, int tab_id) {
-      return action->GetBadgeText(tab_id);
+      return action->GetExplicitlySetBadgeText(tab_id);
     };
 
     ActionTestHelper badge_text_helper(kApiName, "setBadgeText", "getBadgeText",
@@ -943,7 +911,7 @@ IN_PROC_BROWSER_TEST_P(MultiActionAPITest, EnableAndDisable) {
   ui_test_utils::NavigateToURLWithDisposition(
       browser(), GURL("chrome://newtab"),
       WindowOpenDisposition::NEW_FOREGROUND_TAB,
-      ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
+      ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP);
 
   const int tab_id2 = GetActiveTabId();
   EnsureActionIsEnabledOnTab(action, tab_id2);
@@ -1031,13 +999,13 @@ IN_PROC_BROWSER_TEST_P(MultiActionAPITest, EnableAndDisable) {
   }
 }
 
-INSTANTIATE_TEST_SUITE_P(,
+INSTANTIATE_TEST_SUITE_P(All,
                          MultiActionAPITest,
                          testing::Values(ActionInfo::TYPE_ACTION,
                                          ActionInfo::TYPE_PAGE,
                                          ActionInfo::TYPE_BROWSER));
 
-INSTANTIATE_TEST_SUITE_P(,
+INSTANTIATE_TEST_SUITE_P(All,
                          MultiActionAPICanvasTest,
                          testing::Values(ActionInfo::TYPE_ACTION,
                                          ActionInfo::TYPE_PAGE,

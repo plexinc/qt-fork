@@ -29,7 +29,7 @@
 #include "perfetto/ext/tracing/core/tracing_service.h"
 #include "perfetto/ext/tracing/ipc/producer_ipc_client.h"
 
-#include "perfetto/ipc/producer_port.ipc.h"
+#include "protos/perfetto/ipc/producer_port.ipc.h"
 
 namespace perfetto {
 
@@ -42,7 +42,6 @@ class Client;
 }  // namespace ipc
 
 class Producer;
-class PosixSharedMemory;
 class SharedMemoryArbiter;
 
 // Exposes a Service endpoint to Producer(s), proxying all requests through a
@@ -52,13 +51,16 @@ class SharedMemoryArbiter;
 class ProducerIPCClientImpl : public TracingService::ProducerEndpoint,
                               public ipc::ServiceProxy::EventListener {
  public:
-  ProducerIPCClientImpl(const char* service_sock_name,
-                        Producer*,
-                        const std::string& producer_name,
-                        base::TaskRunner*,
-                        TracingService::ProducerSMBScrapingMode,
-                        size_t shared_memory_size_hint_bytes = 0,
-                        size_t shared_memory_page_size_hint_bytes = 0);
+  ProducerIPCClientImpl(
+      const char* service_sock_name,
+      Producer*,
+      const std::string& producer_name,
+      base::TaskRunner*,
+      TracingService::ProducerSMBScrapingMode,
+      size_t shared_memory_size_hint_bytes = 0,
+      size_t shared_memory_page_size_hint_bytes = 0,
+      std::unique_ptr<SharedMemory> shm = nullptr,
+      std::unique_ptr<SharedMemoryArbiter> shm_arbiter = nullptr);
   ~ProducerIPCClientImpl() override;
 
   // TracingService::ProducerEndpoint implementation.
@@ -74,8 +76,10 @@ class ProducerIPCClientImpl : public TracingService::ProducerEndpoint,
   void ActivateTriggers(const std::vector<std::string>&) override;
 
   std::unique_ptr<TraceWriter> CreateTraceWriter(
-      BufferID target_buffer) override;
-  SharedMemoryArbiter* GetInProcessShmemArbiter() override;
+      BufferID target_buffer,
+      BufferExhaustedPolicy) override;
+  SharedMemoryArbiter* MaybeSharedMemoryArbiter() override;
+  bool IsShmemProvidedByProducer() const override;
   void NotifyFlushComplete(FlushRequestID) override;
   SharedMemory* shared_memory() const override;
   size_t shared_buffer_page_size_kb() const override;
@@ -88,11 +92,12 @@ class ProducerIPCClientImpl : public TracingService::ProducerEndpoint,
 
  private:
   // Invoked soon after having established the connection with the service.
-  void OnConnectionInitialized(bool connection_succeeded);
+  void OnConnectionInitialized(bool connection_succeeded,
+                               bool using_shmem_provided_by_producer);
 
   // Invoked when the remote Service sends an IPC to tell us to do something
   // (e.g. start/stop a data source).
-  void OnServiceRequest(const protos::GetAsyncCommandResponse&);
+  void OnServiceRequest(const protos::gen::GetAsyncCommandResponse&);
 
   // TODO think to destruction order, do we rely on any specific dtor sequence?
   Producer* const producer_;
@@ -103,9 +108,9 @@ class ProducerIPCClientImpl : public TracingService::ProducerEndpoint,
 
   // The proxy interface for the producer port of the service. It is bound
   // to |ipc_channel_| and (de)serializes method invocations over the wire.
-  protos::ProducerPortProxy producer_port_;
+  protos::gen::ProducerPortProxy producer_port_;
 
-  std::unique_ptr<PosixSharedMemory> shared_memory_;
+  std::unique_ptr<SharedMemory> shared_memory_;
   std::unique_ptr<SharedMemoryArbiter> shared_memory_arbiter_;
   size_t shared_buffer_page_size_kb_ = 0;
   std::set<DataSourceInstanceID> data_sources_setup_;
@@ -114,6 +119,7 @@ class ProducerIPCClientImpl : public TracingService::ProducerEndpoint,
   size_t shared_memory_page_size_hint_bytes_ = 0;
   size_t shared_memory_size_hint_bytes_ = 0;
   TracingService::ProducerSMBScrapingMode const smb_scraping_mode_;
+  bool is_shmem_provided_by_producer_ = false;
   PERFETTO_THREAD_CHECKER(thread_checker_)
 };
 

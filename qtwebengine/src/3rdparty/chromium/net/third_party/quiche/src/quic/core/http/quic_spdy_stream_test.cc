@@ -4,10 +4,12 @@
 
 #include "net/third_party/quiche/src/quic/core/http/quic_spdy_stream.h"
 
+#include <cstring>
 #include <memory>
 #include <string>
 #include <utility>
 
+#include "net/third_party/quiche/src/quic/core/crypto/null_encrypter.h"
 #include "net/third_party/quiche/src/quic/core/http/http_encoder.h"
 #include "net/third_party/quiche/src/quic/core/http/spdy_utils.h"
 #include "net/third_party/quiche/src/quic/core/quic_connection.h"
@@ -15,19 +17,22 @@
 #include "net/third_party/quiche/src/quic/core/quic_utils.h"
 #include "net/third_party/quiche/src/quic/core/quic_versions.h"
 #include "net/third_party/quiche/src/quic/core/quic_write_blocked_list.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_arraysize.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_expect_bug.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_map_util.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_ptr_util.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_string_piece.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_text_utils.h"
+#include "net/third_party/quiche/src/quic/test_tools/qpack/qpack_test_utils.h"
+#include "net/third_party/quiche/src/quic/test_tools/quic_config_peer.h"
+#include "net/third_party/quiche/src/quic/test_tools/quic_connection_peer.h"
 #include "net/third_party/quiche/src/quic/test_tools/quic_flow_controller_peer.h"
 #include "net/third_party/quiche/src/quic/test_tools/quic_session_peer.h"
 #include "net/third_party/quiche/src/quic/test_tools/quic_spdy_session_peer.h"
 #include "net/third_party/quiche/src/quic/test_tools/quic_spdy_stream_peer.h"
 #include "net/third_party/quiche/src/quic/test_tools/quic_stream_peer.h"
 #include "net/third_party/quiche/src/quic/test_tools/quic_test_utils.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_arraysize.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_text_utils.h"
 
 using spdy::kV3HighestPriority;
 using spdy::kV3LowestPriority;
@@ -50,6 +55,89 @@ namespace {
 const bool kShouldProcessData = true;
 const char kDataFramePayload[] = "some data";
 
+class TestCryptoStream : public QuicCryptoStream, public QuicCryptoHandshaker {
+ public:
+  explicit TestCryptoStream(QuicSession* session)
+      : QuicCryptoStream(session),
+        QuicCryptoHandshaker(this, session),
+        encryption_established_(false),
+        one_rtt_keys_available_(false),
+        params_(new QuicCryptoNegotiatedParameters) {
+    // Simulate a negotiated cipher_suite with a fake value.
+    params_->cipher_suite = 1;
+  }
+
+  void OnHandshakeMessage(const CryptoHandshakeMessage& /*message*/) override {
+    encryption_established_ = true;
+    one_rtt_keys_available_ = true;
+    QuicErrorCode error;
+    std::string error_details;
+    session()->config()->SetInitialStreamFlowControlWindowToSend(
+        kInitialStreamFlowControlWindowForTest);
+    session()->config()->SetInitialSessionFlowControlWindowToSend(
+        kInitialSessionFlowControlWindowForTest);
+    if (session()->connection()->version().handshake_protocol ==
+        PROTOCOL_TLS1_3) {
+      TransportParameters transport_parameters;
+      EXPECT_TRUE(
+          session()->config()->FillTransportParameters(&transport_parameters));
+      error = session()->config()->ProcessTransportParameters(
+          transport_parameters, CLIENT, &error_details);
+    } else {
+      CryptoHandshakeMessage msg;
+      session()->config()->ToHandshakeMessage(&msg, transport_version());
+      error =
+          session()->config()->ProcessPeerHello(msg, CLIENT, &error_details);
+    }
+    EXPECT_THAT(error, IsQuicNoError());
+    session()->OnNewEncryptionKeyAvailable(
+        ENCRYPTION_FORWARD_SECURE,
+        std::make_unique<NullEncrypter>(session()->perspective()));
+    session()->OnConfigNegotiated();
+    if (session()->connection()->version().handshake_protocol ==
+        PROTOCOL_TLS1_3) {
+      session()->OnOneRttKeysAvailable();
+    } else {
+      session()->SetDefaultEncryptionLevel(ENCRYPTION_FORWARD_SECURE);
+    }
+    session()->DiscardOldEncryptionKey(ENCRYPTION_INITIAL);
+  }
+
+  // QuicCryptoStream implementation
+  bool encryption_established() const override {
+    return encryption_established_;
+  }
+  bool one_rtt_keys_available() const override {
+    return one_rtt_keys_available_;
+  }
+  HandshakeState GetHandshakeState() const override {
+    return one_rtt_keys_available() ? HANDSHAKE_COMPLETE : HANDSHAKE_START;
+  }
+  const QuicCryptoNegotiatedParameters& crypto_negotiated_params()
+      const override {
+    return *params_;
+  }
+  CryptoMessageParser* crypto_message_parser() override {
+    return QuicCryptoHandshaker::crypto_message_parser();
+  }
+  void OnPacketDecrypted(EncryptionLevel /*level*/) override {}
+  void OnOneRttPacketAcknowledged() override {}
+  void OnHandshakeDoneReceived() override {}
+
+  MOCK_METHOD0(OnCanWrite, void());
+
+  bool HasPendingCryptoRetransmission() const override { return false; }
+
+  MOCK_CONST_METHOD0(HasPendingRetransmission, bool());
+
+ private:
+  using QuicCryptoStream::session;
+
+  bool encryption_established_;
+  bool one_rtt_keys_available_;
+  QuicReferenceCountedPointer<QuicCryptoNegotiatedParameters> params_;
+};
+
 class TestStream : public QuicSpdyStream {
  public:
   TestStream(QuicStreamId id,
@@ -70,7 +158,7 @@ class TestStream : public QuicSpdyStream {
     char buffer[2048];
     struct iovec vec;
     vec.iov_base = buffer;
-    vec.iov_len = QUIC_ARRAYSIZE(buffer);
+    vec.iov_len = QUICHE_ARRAYSIZE(buffer);
     size_t bytes_read = Readv(&vec, 1);
     data_ += std::string(buffer, bytes_read);
   }
@@ -83,7 +171,7 @@ class TestStream : public QuicSpdyStream {
                           /*ack_listener*/) override {
     saved_headers_ = std::move(header_block);
     WriteHeadersMock(fin);
-    if (VersionUsesQpack(transport_version())) {
+    if (VersionUsesHttp3(transport_version())) {
       // In this case, call QuicSpdyStream::WriteHeadersImpl() that does the
       // actual work of closing the stream.
       QuicSpdyStream::WriteHeadersImpl(saved_headers_.Clone(), fin, nullptr);
@@ -105,25 +193,47 @@ class TestStream : public QuicSpdyStream {
   std::string data_;
 };
 
+class TestSession : public MockQuicSpdySession {
+ public:
+  explicit TestSession(QuicConnection* connection)
+      : MockQuicSpdySession(connection, /*create_mock_crypto_stream=*/false),
+        crypto_stream_(this) {}
+
+  TestCryptoStream* GetMutableCryptoStream() override {
+    return &crypto_stream_;
+  }
+
+  const TestCryptoStream* GetCryptoStream() const override {
+    return &crypto_stream_;
+  }
+
+ private:
+  StrictMock<TestCryptoStream> crypto_stream_;
+};
+
 class TestMockUpdateStreamSession : public MockQuicSpdySession {
  public:
   explicit TestMockUpdateStreamSession(QuicConnection* connection)
-      : MockQuicSpdySession(connection) {}
+      : MockQuicSpdySession(connection),
+        expected_precedence_(
+            spdy::SpdyStreamPrecedence(QuicStream::kDefaultPriority)) {}
 
-  void UpdateStreamPriority(QuicStreamId id, SpdyPriority priority) override {
+  void UpdateStreamPriority(
+      QuicStreamId id,
+      const spdy::SpdyStreamPrecedence& precedence) override {
     EXPECT_EQ(id, expected_stream_->id());
-    EXPECT_EQ(expected_priority_, priority);
-    EXPECT_EQ(expected_priority_, expected_stream_->priority());
+    EXPECT_EQ(expected_precedence_, precedence);
+    EXPECT_EQ(expected_precedence_, expected_stream_->precedence());
   }
 
   void SetExpectedStream(QuicSpdyStream* stream) { expected_stream_ = stream; }
-  void SetExpectedPriority(SpdyPriority priority) {
-    expected_priority_ = priority;
+  void SetExpectedPriority(const spdy::SpdyStreamPrecedence& precedence) {
+    expected_precedence_ = precedence;
   }
 
  private:
   QuicSpdyStream* expected_stream_;
-  SpdyPriority expected_priority_;
+  spdy::SpdyStreamPrecedence expected_precedence_;
 };
 
 class QuicSpdyStreamTest : public QuicTestWithParam<ParsedQuicVersion> {
@@ -160,11 +270,29 @@ class QuicSpdyStreamTest : public QuicTestWithParam<ParsedQuicVersion> {
 
   ~QuicSpdyStreamTest() override = default;
 
-  std::string EncodeQpackHeaders(QuicStreamId id, SpdyHeaderBlock* header) {
+  // Return QPACK-encoded header block without using the dynamic table.
+  std::string EncodeQpackHeaders(
+      std::vector<std::pair<quiche::QuicheStringPiece,
+                            quiche::QuicheStringPiece>> headers) {
+    SpdyHeaderBlock header_block;
+    for (const auto& header_field : headers) {
+      header_block.AppendValueOrAddHeader(header_field.first,
+                                          header_field.second);
+    }
+
+    return EncodeQpackHeaders(header_block);
+  }
+
+  // Return QPACK-encoded header block without using the dynamic table.
+  std::string EncodeQpackHeaders(const SpdyHeaderBlock& header) {
     NoopQpackStreamSenderDelegate encoder_stream_sender_delegate;
-    auto qpack_encoder = QuicMakeUnique<QpackEncoder>(
-        session_.get(), &encoder_stream_sender_delegate);
-    return qpack_encoder->EncodeHeaderList(id, header);
+    auto qpack_encoder = std::make_unique<QpackEncoder>(session_.get());
+    qpack_encoder->set_qpack_stream_sender_delegate(
+        &encoder_stream_sender_delegate);
+    // QpackEncoder does not use the dynamic table by default,
+    // therefore the value of |stream_id| does not matter.
+    return qpack_encoder->EncodeHeaderList(/* stream_id = */ 0, header,
+                                           nullptr);
   }
 
   void Initialize(bool stream_should_process_data) {
@@ -176,10 +304,11 @@ class QuicSpdyStreamTest : public QuicTestWithParam<ParsedQuicVersion> {
                                  Perspective perspective) {
     connection_ = new StrictMock<MockQuicConnection>(
         &helper_, &alarm_factory_, perspective, SupportedVersions(GetParam()));
-    session_ = QuicMakeUnique<StrictMock<MockQuicSpdySession>>(connection_);
+    session_ = std::make_unique<StrictMock<TestSession>>(connection_);
     session_->Initialize();
-    ON_CALL(*session_, WritevData(_, _, _, _, _))
-        .WillByDefault(Invoke(MockQuicSession::ConsumeData));
+    ON_CALL(*session_, WritevData(_, _, _, _, _, _))
+        .WillByDefault(
+            Invoke(session_.get(), &MockQuicSpdySession::ConsumeData));
 
     stream_ =
         new StrictMock<TestStream>(GetNthClientInitiatedBidirectionalId(0),
@@ -189,6 +318,45 @@ class QuicSpdyStreamTest : public QuicTestWithParam<ParsedQuicVersion> {
         new StrictMock<TestStream>(GetNthClientInitiatedBidirectionalId(1),
                                    session_.get(), stream_should_process_data);
     session_->ActivateStream(QuicWrapUnique(stream2_));
+    QuicConfigPeer::SetReceivedInitialSessionFlowControlWindow(
+        session_->config(), kMinimumFlowControlSendWindow);
+    QuicConfigPeer::SetReceivedInitialMaxStreamDataBytesUnidirectional(
+        session_->config(), kMinimumFlowControlSendWindow);
+    QuicConfigPeer::SetReceivedInitialMaxStreamDataBytesIncomingBidirectional(
+        session_->config(), kMinimumFlowControlSendWindow);
+    QuicConfigPeer::SetReceivedInitialMaxStreamDataBytesOutgoingBidirectional(
+        session_->config(), kMinimumFlowControlSendWindow);
+    QuicConfigPeer::SetReceivedMaxUnidirectionalStreams(session_->config(), 10);
+    session_->OnConfigNegotiated();
+    if (UsesHttp3()) {
+      // The control stream will write the stream type, a greased frame, and
+      // SETTINGS frame.
+      int num_control_stream_writes = 3;
+      auto send_control_stream =
+          QuicSpdySessionPeer::GetSendControlStream(session_.get());
+      EXPECT_CALL(*session_,
+                  WritevData(send_control_stream->id(), _, _, _, _, _))
+          .Times(num_control_stream_writes);
+      auto qpack_decoder_stream =
+          QuicSpdySessionPeer::GetQpackDecoderSendStream(session_.get());
+      EXPECT_CALL(*session_,
+                  WritevData(qpack_decoder_stream->id(), 1, 0, _, _, _));
+      auto qpack_encoder_stream =
+          QuicSpdySessionPeer::GetQpackEncoderSendStream(session_.get());
+      EXPECT_CALL(*session_,
+                  WritevData(qpack_encoder_stream->id(), 1, 0, _, _, _));
+    }
+    TestCryptoStream* crypto_stream = session_->GetMutableCryptoStream();
+    EXPECT_CALL(*crypto_stream, HasPendingRetransmission())
+        .Times(testing::AnyNumber());
+
+    if (connection_->version().HasHandshakeDone() &&
+        session_->perspective() == Perspective::IS_SERVER) {
+      EXPECT_CALL(*connection_, SendControlFrame(_))
+          .WillOnce(Invoke(&ClearControlFrame));
+    }
+    CryptoHandshakeMessage message;
+    session_->GetMutableCryptoStream()->OnHandshakeMessage(message);
   }
 
   QuicHeaderList ProcessHeaders(bool fin, const SpdyHeaderBlock& headers) {
@@ -202,50 +370,85 @@ class QuicSpdyStreamTest : public QuicTestWithParam<ParsedQuicVersion> {
         connection_->transport_version(), n);
   }
 
-  bool HasFrameHeader() const {
-    return VersionHasDataFrameHeader(GetParam().transport_version);
+  bool UsesHttp3() const {
+    return VersionUsesHttp3(GetParam().transport_version);
   }
 
-  std::string HeadersFrame(QuicStringPiece payload) {
+  // Construct HEADERS frame with QPACK-encoded |headers| without using the
+  // dynamic table.
+  std::string HeadersFrame(
+      std::vector<std::pair<quiche::QuicheStringPiece,
+                            quiche::QuicheStringPiece>> headers) {
+    return HeadersFrame(EncodeQpackHeaders(headers));
+  }
+
+  // Construct HEADERS frame with QPACK-encoded |headers| without using the
+  // dynamic table.
+  std::string HeadersFrame(const SpdyHeaderBlock& headers) {
+    return HeadersFrame(EncodeQpackHeaders(headers));
+  }
+
+  // Construct HEADERS frame with given payload.
+  std::string HeadersFrame(quiche::QuicheStringPiece payload) {
     std::unique_ptr<char[]> headers_buffer;
     QuicByteCount headers_frame_header_length =
-        encoder_.SerializeHeadersFrameHeader(payload.length(), &headers_buffer);
-    QuicStringPiece headers_frame_header(headers_buffer.get(),
-                                         headers_frame_header_length);
-    return QuicStrCat(headers_frame_header, payload);
+        HttpEncoder::SerializeHeadersFrameHeader(payload.length(),
+                                                 &headers_buffer);
+    quiche::QuicheStringPiece headers_frame_header(headers_buffer.get(),
+                                                   headers_frame_header_length);
+    return quiche::QuicheStrCat(headers_frame_header, payload);
   }
 
-  std::string DataFrame(QuicStringPiece payload) {
+  std::string DataFrame(quiche::QuicheStringPiece payload) {
     std::unique_ptr<char[]> data_buffer;
     QuicByteCount data_frame_header_length =
-        encoder_.SerializeDataFrameHeader(payload.length(), &data_buffer);
-    QuicStringPiece data_frame_header(data_buffer.get(),
-                                      data_frame_header_length);
-    return QuicStrCat(data_frame_header, payload);
+        HttpEncoder::SerializeDataFrameHeader(payload.length(), &data_buffer);
+    quiche::QuicheStringPiece data_frame_header(data_buffer.get(),
+                                                data_frame_header_length);
+    return quiche::QuicheStrCat(data_frame_header, payload);
+  }
+
+  std::string UnknownFrame(uint64_t frame_type,
+                           quiche::QuicheStringPiece payload) {
+    std::string frame;
+    const size_t length = QuicDataWriter::GetVarInt62Len(frame_type) +
+                          QuicDataWriter::GetVarInt62Len(payload.size()) +
+                          payload.size();
+    frame.resize(length);
+
+    QuicDataWriter writer(length, const_cast<char*>(frame.data()));
+    writer.WriteVarInt62(frame_type);
+    writer.WriteStringPieceVarInt62(payload);
+    // Even though integers can be encoded with different lengths,
+    // QuicDataWriter is expected to produce an encoding in Write*() of length
+    // promised in GetVarInt62Len().
+    DCHECK_EQ(length, writer.length());
+
+    return frame;
   }
 
   MockQuicConnectionHelper helper_;
   MockAlarmFactory alarm_factory_;
   MockQuicConnection* connection_;
-  std::unique_ptr<MockQuicSpdySession> session_;
+  std::unique_ptr<TestSession> session_;
 
   // Owned by the |session_|.
   TestStream* stream_;
   TestStream* stream2_;
 
   SpdyHeaderBlock headers_;
-
-  HttpEncoder encoder_;
 };
 
 INSTANTIATE_TEST_SUITE_P(Tests,
                          QuicSpdyStreamTest,
-                         ::testing::ValuesIn(AllSupportedVersions()));
+                         ::testing::ValuesIn(AllSupportedVersions()),
+                         ::testing::PrintToStringParamName());
 
 TEST_P(QuicSpdyStreamTest, ProcessHeaderList) {
   Initialize(kShouldProcessData);
 
-  stream_->OnStreamHeadersPriority(kV3HighestPriority);
+  stream_->OnStreamHeadersPriority(
+      spdy::SpdyStreamPrecedence(kV3HighestPriority));
   ProcessHeaders(false, headers_);
   EXPECT_EQ("", stream_->data());
   EXPECT_FALSE(stream_->header_list().empty());
@@ -255,28 +458,36 @@ TEST_P(QuicSpdyStreamTest, ProcessHeaderList) {
 TEST_P(QuicSpdyStreamTest, ProcessTooLargeHeaderList) {
   Initialize(kShouldProcessData);
 
-  QuicHeaderList headers;
-  stream_->OnStreamHeadersPriority(kV3HighestPriority);
+  if (!UsesHttp3()) {
+    QuicHeaderList headers;
+    stream_->OnStreamHeadersPriority(
+        spdy::SpdyStreamPrecedence(kV3HighestPriority));
 
-  const bool version_uses_qpack =
-      VersionUsesQpack(GetParam().transport_version);
-
-  if (version_uses_qpack) {
-    EXPECT_CALL(
-        *connection_,
-        CloseConnection(
-            QUIC_HEADERS_STREAM_DATA_DECOMPRESS_FAILURE,
-            MatchesRegex("Too large headers received on stream \\d+"), _));
-  } else {
     EXPECT_CALL(*session_,
                 SendRstStream(stream_->id(), QUIC_HEADERS_TOO_LARGE, 0));
+    stream_->OnStreamHeaderList(false, 1 << 20, headers);
+
+    EXPECT_THAT(stream_->stream_error(), IsStreamError(QUIC_HEADERS_TOO_LARGE));
+
+    return;
   }
 
-  stream_->OnStreamHeaderList(false, 1 << 20, headers);
+  // Header list size includes 32 bytes for overhead per header field.
+  session_->set_max_inbound_header_list_size(40);
+  std::string headers =
+      HeadersFrame({std::make_pair("foo", "too long headers")});
 
-  if (!version_uses_qpack) {
-    EXPECT_EQ(QUIC_HEADERS_TOO_LARGE, stream_->stream_error());
-  }
+  QuicStreamFrame frame(stream_->id(), false, 0, headers);
+
+  EXPECT_CALL(
+      *connection_,
+      CloseConnection(QUIC_HEADERS_STREAM_DATA_DECOMPRESS_FAILURE,
+                      MatchesRegex("Too large headers received on stream \\d+"),
+                      _));
+
+  stream_->OnStreamFrame(frame);
+
+  EXPECT_TRUE(stream_->header_list().empty());
 }
 
 TEST_P(QuicSpdyStreamTest, ProcessHeaderListWithFin) {
@@ -288,12 +499,13 @@ TEST_P(QuicSpdyStreamTest, ProcessHeaderListWithFin) {
     headers.OnHeader(p.first, p.second);
     total_bytes += p.first.size() + p.second.size();
   }
-  stream_->OnStreamHeadersPriority(kV3HighestPriority);
+  stream_->OnStreamHeadersPriority(
+      spdy::SpdyStreamPrecedence(kV3HighestPriority));
   stream_->OnStreamHeaderList(true, total_bytes, headers);
   EXPECT_EQ("", stream_->data());
   EXPECT_FALSE(stream_->header_list().empty());
   EXPECT_FALSE(stream_->IsDoneReading());
-  EXPECT_TRUE(stream_->HasFinalReceivedByteOffset());
+  EXPECT_TRUE(stream_->HasReceivedFinalOffset());
 }
 
 // A valid status code should be 3-digit integer. The first digit should be in
@@ -366,17 +578,18 @@ TEST_P(QuicSpdyStreamTest, MarkHeadersConsumed) {
 }
 
 TEST_P(QuicSpdyStreamTest, ProcessWrongFramesOnSpdyStream) {
-  if (!HasFrameHeader()) {
+  if (!UsesHttp3()) {
     return;
   }
 
-  testing::InSequence s;
   Initialize(kShouldProcessData);
+  testing::InSequence s;
   connection_->AdvanceTime(QuicTime::Delta::FromSeconds(1));
   GoAwayFrame goaway;
   goaway.stream_id = 0x1;
   std::unique_ptr<char[]> buffer;
-  QuicByteCount header_length = encoder_.SerializeGoAwayFrame(goaway, &buffer);
+  QuicByteCount header_length =
+      HttpEncoder::SerializeGoAwayFrame(goaway, &buffer);
   std::string data = std::string(buffer.get(), header_length);
 
   EXPECT_EQ("", stream_->data());
@@ -384,9 +597,10 @@ TEST_P(QuicSpdyStreamTest, ProcessWrongFramesOnSpdyStream) {
   EXPECT_EQ(headers, stream_->header_list());
   stream_->ConsumeHeaderList();
   QuicStreamFrame frame(GetNthClientInitiatedBidirectionalId(0), false, 0,
-                        QuicStringPiece(data));
+                        quiche::QuicheStringPiece(data));
 
-  EXPECT_CALL(*connection_, CloseConnection(QUIC_HTTP_DECODER_ERROR, _, _))
+  EXPECT_CALL(*connection_,
+              CloseConnection(QUIC_HTTP_FRAME_UNEXPECTED_ON_SPDY_STREAM, _, _))
       .WillOnce(
           (Invoke([this](QuicErrorCode error, const std::string& error_details,
                          ConnectionCloseBehavior connection_close_behavior) {
@@ -405,18 +619,51 @@ TEST_P(QuicSpdyStreamTest, ProcessWrongFramesOnSpdyStream) {
   stream_->OnStreamFrame(frame);
 }
 
+TEST_P(QuicSpdyStreamTest, Http3FrameError) {
+  if (!UsesHttp3()) {
+    return;
+  }
+
+  Initialize(kShouldProcessData);
+
+  // PUSH_PROMISE frame with empty payload is considered invalid.
+  std::string invalid_http3_frame = quiche::QuicheTextUtils::HexDecode("0500");
+  QuicStreamFrame stream_frame(stream_->id(), /* fin = */ false,
+                               /* offset = */ 0, invalid_http3_frame);
+
+  EXPECT_CALL(*connection_, CloseConnection(QUIC_HTTP_FRAME_ERROR, _, _));
+  stream_->OnStreamFrame(stream_frame);
+}
+
+TEST_P(QuicSpdyStreamTest, UnexpectedHttp3Frame) {
+  if (!UsesHttp3()) {
+    return;
+  }
+
+  Initialize(kShouldProcessData);
+
+  // SETTINGS frame with empty payload.
+  std::string settings = quiche::QuicheTextUtils::HexDecode("0400");
+  QuicStreamFrame stream_frame(stream_->id(), /* fin = */ false,
+                               /* offset = */ 0, settings);
+
+  EXPECT_CALL(*connection_,
+              CloseConnection(QUIC_HTTP_FRAME_UNEXPECTED_ON_SPDY_STREAM, _, _));
+  stream_->OnStreamFrame(stream_frame);
+}
+
 TEST_P(QuicSpdyStreamTest, ProcessHeadersAndBody) {
   Initialize(kShouldProcessData);
 
   std::string body = "this is the body";
-  std::string data = HasFrameHeader() ? DataFrame(body) : body;
+  std::string data = UsesHttp3() ? DataFrame(body) : body;
 
   EXPECT_EQ("", stream_->data());
   QuicHeaderList headers = ProcessHeaders(false, headers_);
   EXPECT_EQ(headers, stream_->header_list());
   stream_->ConsumeHeaderList();
   QuicStreamFrame frame(GetNthClientInitiatedBidirectionalId(0), false, 0,
-                        QuicStringPiece(data));
+                        quiche::QuicheStringPiece(data));
   stream_->OnStreamFrame(frame);
   EXPECT_EQ(QuicHeaderList(), stream_->header_list());
   EXPECT_EQ(body, stream_->data());
@@ -424,7 +671,7 @@ TEST_P(QuicSpdyStreamTest, ProcessHeadersAndBody) {
 
 TEST_P(QuicSpdyStreamTest, ProcessHeadersAndBodyFragments) {
   std::string body = "this is the body";
-  std::string data = HasFrameHeader() ? DataFrame(body) : body;
+  std::string data = UsesHttp3() ? DataFrame(body) : body;
 
   for (size_t fragment_size = 1; fragment_size < data.size(); ++fragment_size) {
     Initialize(kShouldProcessData);
@@ -433,10 +680,10 @@ TEST_P(QuicSpdyStreamTest, ProcessHeadersAndBodyFragments) {
     stream_->ConsumeHeaderList();
     for (size_t offset = 0; offset < data.size(); offset += fragment_size) {
       size_t remaining_data = data.size() - offset;
-      QuicStringPiece fragment(data.data() + offset,
-                               std::min(fragment_size, remaining_data));
+      quiche::QuicheStringPiece fragment(
+          data.data() + offset, std::min(fragment_size, remaining_data));
       QuicStreamFrame frame(GetNthClientInitiatedBidirectionalId(0), false,
-                            offset, QuicStringPiece(fragment));
+                            offset, quiche::QuicheStringPiece(fragment));
       stream_->OnStreamFrame(frame);
     }
     ASSERT_EQ(body, stream_->data()) << "fragment_size: " << fragment_size;
@@ -445,7 +692,7 @@ TEST_P(QuicSpdyStreamTest, ProcessHeadersAndBodyFragments) {
 
 TEST_P(QuicSpdyStreamTest, ProcessHeadersAndBodyFragmentsSplit) {
   std::string body = "this is the body";
-  std::string data = HasFrameHeader() ? DataFrame(body) : body;
+  std::string data = UsesHttp3() ? DataFrame(body) : body;
 
   for (size_t split_point = 1; split_point < data.size() - 1; ++split_point) {
     Initialize(kShouldProcessData);
@@ -453,15 +700,15 @@ TEST_P(QuicSpdyStreamTest, ProcessHeadersAndBodyFragmentsSplit) {
     ASSERT_EQ(headers, stream_->header_list());
     stream_->ConsumeHeaderList();
 
-    QuicStringPiece fragment1(data.data(), split_point);
+    quiche::QuicheStringPiece fragment1(data.data(), split_point);
     QuicStreamFrame frame1(GetNthClientInitiatedBidirectionalId(0), false, 0,
-                           QuicStringPiece(fragment1));
+                           quiche::QuicheStringPiece(fragment1));
     stream_->OnStreamFrame(frame1);
 
-    QuicStringPiece fragment2(data.data() + split_point,
-                              data.size() - split_point);
+    quiche::QuicheStringPiece fragment2(data.data() + split_point,
+                                        data.size() - split_point);
     QuicStreamFrame frame2(GetNthClientInitiatedBidirectionalId(0), false,
-                           split_point, QuicStringPiece(fragment2));
+                           split_point, quiche::QuicheStringPiece(fragment2));
     stream_->OnStreamFrame(frame2);
 
     ASSERT_EQ(body, stream_->data()) << "split_point: " << split_point;
@@ -472,19 +719,19 @@ TEST_P(QuicSpdyStreamTest, ProcessHeadersAndBodyReadv) {
   Initialize(!kShouldProcessData);
 
   std::string body = "this is the body";
-  std::string data = HasFrameHeader() ? DataFrame(body) : body;
+  std::string data = UsesHttp3() ? DataFrame(body) : body;
 
   ProcessHeaders(false, headers_);
   QuicStreamFrame frame(GetNthClientInitiatedBidirectionalId(0), false, 0,
-                        QuicStringPiece(data));
+                        quiche::QuicheStringPiece(data));
   stream_->OnStreamFrame(frame);
   stream_->ConsumeHeaderList();
 
   char buffer[2048];
-  ASSERT_LT(data.length(), QUIC_ARRAYSIZE(buffer));
+  ASSERT_LT(data.length(), QUICHE_ARRAYSIZE(buffer));
   struct iovec vec;
   vec.iov_base = buffer;
-  vec.iov_len = QUIC_ARRAYSIZE(buffer);
+  vec.iov_len = QUICHE_ARRAYSIZE(buffer);
 
   size_t bytes_read = stream_->Readv(&vec, 1);
   QuicStreamPeer::CloseReadSide(stream_);
@@ -495,20 +742,20 @@ TEST_P(QuicSpdyStreamTest, ProcessHeadersAndBodyReadv) {
 TEST_P(QuicSpdyStreamTest, ProcessHeadersAndLargeBodySmallReadv) {
   Initialize(kShouldProcessData);
   std::string body(12 * 1024, 'a');
-  std::string data = HasFrameHeader() ? DataFrame(body) : body;
+  std::string data = UsesHttp3() ? DataFrame(body) : body;
 
   ProcessHeaders(false, headers_);
   QuicStreamFrame frame(GetNthClientInitiatedBidirectionalId(0), false, 0,
-                        QuicStringPiece(data));
+                        quiche::QuicheStringPiece(data));
   stream_->OnStreamFrame(frame);
   stream_->ConsumeHeaderList();
   char buffer[2048];
   char buffer2[2048];
   struct iovec vec[2];
   vec[0].iov_base = buffer;
-  vec[0].iov_len = QUIC_ARRAYSIZE(buffer);
+  vec[0].iov_len = QUICHE_ARRAYSIZE(buffer);
   vec[1].iov_base = buffer2;
-  vec[1].iov_len = QUIC_ARRAYSIZE(buffer2);
+  vec[1].iov_len = QUICHE_ARRAYSIZE(buffer2);
   size_t bytes_read = stream_->Readv(vec, 2);
   EXPECT_EQ(2048u * 2, bytes_read);
   EXPECT_EQ(body.substr(0, 2048), std::string(buffer, 2048));
@@ -519,11 +766,11 @@ TEST_P(QuicSpdyStreamTest, ProcessHeadersAndBodyMarkConsumed) {
   Initialize(!kShouldProcessData);
 
   std::string body = "this is the body";
-  std::string data = HasFrameHeader() ? DataFrame(body) : body;
+  std::string data = UsesHttp3() ? DataFrame(body) : body;
 
   ProcessHeaders(false, headers_);
   QuicStreamFrame frame(GetNthClientInitiatedBidirectionalId(0), false, 0,
-                        QuicStringPiece(data));
+                        quiche::QuicheStringPiece(data));
   stream_->OnStreamFrame(frame);
   stream_->ConsumeHeaderList();
 
@@ -540,15 +787,15 @@ TEST_P(QuicSpdyStreamTest, ProcessHeadersAndBodyMarkConsumed) {
 TEST_P(QuicSpdyStreamTest, ProcessHeadersAndConsumeMultipleBody) {
   Initialize(!kShouldProcessData);
   std::string body1 = "this is body 1";
-  std::string data1 = HasFrameHeader() ? DataFrame(body1) : body1;
+  std::string data1 = UsesHttp3() ? DataFrame(body1) : body1;
   std::string body2 = "body 2";
-  std::string data2 = HasFrameHeader() ? DataFrame(body2) : body2;
+  std::string data2 = UsesHttp3() ? DataFrame(body2) : body2;
 
   ProcessHeaders(false, headers_);
   QuicStreamFrame frame1(GetNthClientInitiatedBidirectionalId(0), false, 0,
-                         QuicStringPiece(data1));
+                         quiche::QuicheStringPiece(data1));
   QuicStreamFrame frame2(GetNthClientInitiatedBidirectionalId(0), false,
-                         data1.length(), QuicStringPiece(data2));
+                         data1.length(), quiche::QuicheStringPiece(data2));
   stream_->OnStreamFrame(frame1);
   stream_->OnStreamFrame(frame2);
   stream_->ConsumeHeaderList();
@@ -562,18 +809,18 @@ TEST_P(QuicSpdyStreamTest, ProcessHeadersAndBodyIncrementalReadv) {
   Initialize(!kShouldProcessData);
 
   std::string body = "this is the body";
-  std::string data = HasFrameHeader() ? DataFrame(body) : body;
+  std::string data = UsesHttp3() ? DataFrame(body) : body;
 
   ProcessHeaders(false, headers_);
   QuicStreamFrame frame(GetNthClientInitiatedBidirectionalId(0), false, 0,
-                        QuicStringPiece(data));
+                        quiche::QuicheStringPiece(data));
   stream_->OnStreamFrame(frame);
   stream_->ConsumeHeaderList();
 
   char buffer[1];
   struct iovec vec;
   vec.iov_base = buffer;
-  vec.iov_len = QUIC_ARRAYSIZE(buffer);
+  vec.iov_len = QUICHE_ARRAYSIZE(buffer);
 
   for (size_t i = 0; i < body.length(); ++i) {
     size_t bytes_read = stream_->Readv(&vec, 1);
@@ -586,11 +833,11 @@ TEST_P(QuicSpdyStreamTest, ProcessHeadersUsingReadvWithMultipleIovecs) {
   Initialize(!kShouldProcessData);
 
   std::string body = "this is the body";
-  std::string data = HasFrameHeader() ? DataFrame(body) : body;
+  std::string data = UsesHttp3() ? DataFrame(body) : body;
 
   ProcessHeaders(false, headers_);
   QuicStreamFrame frame(GetNthClientInitiatedBidirectionalId(0), false, 0,
-                        QuicStringPiece(data));
+                        quiche::QuicheStringPiece(data));
   stream_->OnStreamFrame(frame);
   stream_->ConsumeHeaderList();
 
@@ -598,9 +845,9 @@ TEST_P(QuicSpdyStreamTest, ProcessHeadersUsingReadvWithMultipleIovecs) {
   char buffer2[1];
   struct iovec vec[2];
   vec[0].iov_base = buffer1;
-  vec[0].iov_len = QUIC_ARRAYSIZE(buffer1);
+  vec[0].iov_len = QUICHE_ARRAYSIZE(buffer1);
   vec[1].iov_base = buffer2;
-  vec[1].iov_len = QUIC_ARRAYSIZE(buffer2);
+  vec[1].iov_len = QUICHE_ARRAYSIZE(buffer2);
 
   for (size_t i = 0; i < body.length(); i += 2) {
     size_t bytes_read = stream_->Readv(vec, 2);
@@ -613,14 +860,8 @@ TEST_P(QuicSpdyStreamTest, ProcessHeadersUsingReadvWithMultipleIovecs) {
 // Tests that we send a BLOCKED frame to the peer when we attempt to write, but
 // are flow control blocked.
 TEST_P(QuicSpdyStreamTest, StreamFlowControlBlocked) {
-  if (GetParam().handshake_protocol == PROTOCOL_TLS1_3) {
-    // TODO(nharper, b/112643533): Figure out why this test fails when TLS is
-    // enabled and fix it.
-    return;
-  }
-
-  testing::InSequence seq;
   Initialize(kShouldProcessData);
+  testing::InSequence seq;
 
   // Set a small flow control limit.
   const uint64_t kWindow = 36;
@@ -633,11 +874,11 @@ TEST_P(QuicSpdyStreamTest, StreamFlowControlBlocked) {
   const uint64_t kOverflow = 15;
   std::string body(kWindow + kOverflow, 'a');
 
-  const uint64_t kHeaderLength = HasFrameHeader() ? 2 : 0;
-  if (HasFrameHeader()) {
-    EXPECT_CALL(*session_, WritevData(_, _, kHeaderLength, _, NO_FIN));
+  const uint64_t kHeaderLength = UsesHttp3() ? 2 : 0;
+  if (UsesHttp3()) {
+    EXPECT_CALL(*session_, WritevData(_, kHeaderLength, _, NO_FIN, _, _));
   }
-  EXPECT_CALL(*session_, WritevData(_, _, _, _, _))
+  EXPECT_CALL(*session_, WritevData(_, _, _, _, _, _))
       .WillOnce(Return(QuicConsumedData(kWindow - kHeaderLength, true)));
   EXPECT_CALL(*connection_, SendControlFrame(_));
   stream_->WriteOrBufferBody(body, false);
@@ -674,9 +915,10 @@ TEST_P(QuicSpdyStreamTest, StreamFlowControlNoWindowUpdateIfNotConsumed) {
   QuicByteCount header_length = 0;
   std::string data;
 
-  if (HasFrameHeader()) {
+  if (UsesHttp3()) {
     std::unique_ptr<char[]> buffer;
-    header_length = encoder_.SerializeDataFrameHeader(body.length(), &buffer);
+    header_length =
+        HttpEncoder::SerializeDataFrameHeader(body.length(), &buffer);
     std::string header = std::string(buffer.get(), header_length);
     data = header + body;
   } else {
@@ -686,7 +928,7 @@ TEST_P(QuicSpdyStreamTest, StreamFlowControlNoWindowUpdateIfNotConsumed) {
   ProcessHeaders(false, headers_);
 
   QuicStreamFrame frame1(GetNthClientInitiatedBidirectionalId(0), false, 0,
-                         QuicStringPiece(data));
+                         quiche::QuicheStringPiece(data));
   stream_->OnStreamFrame(frame1);
   EXPECT_EQ(
       kWindow - (kWindow / 3) - header_length,
@@ -696,7 +938,8 @@ TEST_P(QuicSpdyStreamTest, StreamFlowControlNoWindowUpdateIfNotConsumed) {
   // half full. This should all be buffered, decreasing the receive window but
   // not sending WINDOW_UPDATE.
   QuicStreamFrame frame2(GetNthClientInitiatedBidirectionalId(0), false,
-                         kWindow / 3 + header_length, QuicStringPiece(data));
+                         kWindow / 3 + header_length,
+                         quiche::QuicheStringPiece(data));
   stream_->OnStreamFrame(frame2);
   EXPECT_EQ(
       kWindow - (2 * kWindow / 3) - 2 * header_length,
@@ -723,9 +966,10 @@ TEST_P(QuicSpdyStreamTest, StreamFlowControlWindowUpdate) {
   QuicByteCount header_length = 0;
   std::string data;
 
-  if (HasFrameHeader()) {
+  if (UsesHttp3()) {
     std::unique_ptr<char[]> buffer;
-    header_length = encoder_.SerializeDataFrameHeader(body.length(), &buffer);
+    header_length =
+        HttpEncoder::SerializeDataFrameHeader(body.length(), &buffer);
     std::string header = std::string(buffer.get(), header_length);
     data = header + body;
   } else {
@@ -736,7 +980,7 @@ TEST_P(QuicSpdyStreamTest, StreamFlowControlWindowUpdate) {
   stream_->ConsumeHeaderList();
 
   QuicStreamFrame frame1(GetNthClientInitiatedBidirectionalId(0), false, 0,
-                         QuicStringPiece(data));
+                         quiche::QuicheStringPiece(data));
   stream_->OnStreamFrame(frame1);
   EXPECT_EQ(
       kWindow - (kWindow / 3) - header_length,
@@ -747,7 +991,8 @@ TEST_P(QuicSpdyStreamTest, StreamFlowControlWindowUpdate) {
   // offset and send a WINDOW_UPDATE. The result will be again an available
   // window of kWindow bytes.
   QuicStreamFrame frame2(GetNthClientInitiatedBidirectionalId(0), false,
-                         kWindow / 3 + header_length, QuicStringPiece(data));
+                         kWindow / 3 + header_length,
+                         quiche::QuicheStringPiece(data));
   EXPECT_CALL(*connection_, SendControlFrame(_));
   stream_->OnStreamFrame(frame2);
   EXPECT_EQ(kWindow, QuicFlowControllerPeer::ReceiveWindowSize(
@@ -792,15 +1037,16 @@ TEST_P(QuicSpdyStreamTest, ConnectionFlowControlWindowUpdate) {
   std::string data2;
   std::string body2(1, 'a');
 
-  if (HasFrameHeader()) {
+  if (UsesHttp3()) {
     body = std::string(kWindow / 4 - 2, 'a');
     std::unique_ptr<char[]> buffer;
-    header_length = encoder_.SerializeDataFrameHeader(body.length(), &buffer);
+    header_length =
+        HttpEncoder::SerializeDataFrameHeader(body.length(), &buffer);
     std::string header = std::string(buffer.get(), header_length);
     data = header + body;
     std::unique_ptr<char[]> buffer2;
     QuicByteCount header_length2 =
-        encoder_.SerializeDataFrameHeader(body2.length(), &buffer2);
+        HttpEncoder::SerializeDataFrameHeader(body2.length(), &buffer2);
     std::string header2 = std::string(buffer2.get(), header_length2);
     data2 = header2 + body2;
   } else {
@@ -810,10 +1056,10 @@ TEST_P(QuicSpdyStreamTest, ConnectionFlowControlWindowUpdate) {
   }
 
   QuicStreamFrame frame1(GetNthClientInitiatedBidirectionalId(0), false, 0,
-                         QuicStringPiece(data));
+                         quiche::QuicheStringPiece(data));
   stream_->OnStreamFrame(frame1);
   QuicStreamFrame frame2(GetNthClientInitiatedBidirectionalId(1), false, 0,
-                         QuicStringPiece(data));
+                         quiche::QuicheStringPiece(data));
   stream2_->OnStreamFrame(frame2);
 
   // Now receive a further single byte on one stream - again this does not
@@ -821,7 +1067,8 @@ TEST_P(QuicSpdyStreamTest, ConnectionFlowControlWindowUpdate) {
   // is over half full and thus a connection WINDOW_UPDATE is sent.
   EXPECT_CALL(*connection_, SendControlFrame(_));
   QuicStreamFrame frame3(GetNthClientInitiatedBidirectionalId(0), false,
-                         body.length() + header_length, QuicStringPiece(data2));
+                         body.length() + header_length,
+                         quiche::QuicheStringPiece(data2));
   stream_->OnStreamFrame(frame3);
 }
 
@@ -841,9 +1088,9 @@ TEST_P(QuicSpdyStreamTest, StreamFlowControlViolation) {
 
   // Receive data to overflow the window, violating flow control.
   std::string body(kWindow + 1, 'a');
-  std::string data = HasFrameHeader() ? DataFrame(body) : body;
+  std::string data = UsesHttp3() ? DataFrame(body) : body;
   QuicStreamFrame frame(GetNthClientInitiatedBidirectionalId(0), false, 0,
-                        QuicStringPiece(data));
+                        quiche::QuicheStringPiece(data));
   EXPECT_CALL(*connection_,
               CloseConnection(QUIC_FLOW_CONTROL_RECEIVED_TOO_MUCH_DATA, _, _));
   stream_->OnStreamFrame(frame);
@@ -879,11 +1126,11 @@ TEST_P(QuicSpdyStreamTest, ConnectionFlowControlViolation) {
 
   // Send enough data to overflow the connection level flow control window.
   std::string body(kConnectionWindow + 1, 'a');
-  std::string data = HasFrameHeader() ? DataFrame(body) : body;
+  std::string data = UsesHttp3() ? DataFrame(body) : body;
 
   EXPECT_LT(data.size(), kStreamWindow);
   QuicStreamFrame frame(GetNthClientInitiatedBidirectionalId(0), false, 0,
-                        QuicStringPiece(data));
+                        quiche::QuicheStringPiece(data));
 
   EXPECT_CALL(*connection_,
               CloseConnection(QUIC_FLOW_CONTROL_RECEIVED_TOO_MUCH_DATA, _, _));
@@ -907,7 +1154,7 @@ TEST_P(QuicSpdyStreamTest, StreamFlowControlFinNotBlocked) {
   EXPECT_CALL(*connection_,
               SendBlocked(GetNthClientInitiatedBidirectionalId(0)))
       .Times(0);
-  EXPECT_CALL(*session_, WritevData(_, _, 0, _, FIN));
+  EXPECT_CALL(*session_, WritevData(_, 0, _, FIN, _, _));
 
   stream_->WriteOrBufferBody(body, fin);
 }
@@ -925,7 +1172,8 @@ TEST_P(QuicSpdyStreamTest, ReceivingTrailersViaHeaderList) {
     total_bytes += p.first.size() + p.second.size();
   }
 
-  stream_->OnStreamHeadersPriority(kV3HighestPriority);
+  stream_->OnStreamHeadersPriority(
+      spdy::SpdyStreamPrecedence(kV3HighestPriority));
   stream_->OnStreamHeaderList(/*fin=*/false, total_bytes, headers);
   stream_->ConsumeHeaderList();
 
@@ -935,7 +1183,7 @@ TEST_P(QuicSpdyStreamTest, ReceivingTrailersViaHeaderList) {
   trailers_block["key2"] = "value2";
   trailers_block["key3"] = "value3";
   SpdyHeaderBlock trailers_block_with_final_offset = trailers_block.Clone();
-  if (!VersionUsesQpack(GetParam().transport_version)) {
+  if (!UsesHttp3()) {
     // :final-offset pseudo-header is only added if trailers are sent
     // on the headers stream.
     trailers_block_with_final_offset[kFinalOffsetHeaderKey] = "0";
@@ -963,7 +1211,7 @@ TEST_P(QuicSpdyStreamTest, ReceivingTrailersViaHeaderList) {
 TEST_P(QuicSpdyStreamTest, ReceivingTrailersWithOffset) {
   // kFinalOffsetHeaderKey is not used when HEADERS are sent on the
   // request/response stream.
-  if (VersionUsesQpack(GetParam().transport_version)) {
+  if (UsesHttp3()) {
     return;
   }
 
@@ -974,7 +1222,7 @@ TEST_P(QuicSpdyStreamTest, ReceivingTrailersWithOffset) {
   stream_->ConsumeHeaderList();
 
   const std::string body = "this is the body";
-  std::string data = HasFrameHeader() ? DataFrame(body) : body;
+  std::string data = UsesHttp3() ? DataFrame(body) : body;
 
   // Receive trailing headers.
   SpdyHeaderBlock trailers_block;
@@ -982,7 +1230,7 @@ TEST_P(QuicSpdyStreamTest, ReceivingTrailersWithOffset) {
   trailers_block["key2"] = "value2";
   trailers_block["key3"] = "value3";
   trailers_block[kFinalOffsetHeaderKey] =
-      QuicTextUtils::Uint64ToString(data.size());
+      quiche::QuicheTextUtils::Uint64ToString(data.size());
 
   QuicHeaderList trailers = ProcessHeaders(true, trailers_block);
 
@@ -1010,7 +1258,7 @@ TEST_P(QuicSpdyStreamTest, ReceivingTrailersWithOffset) {
 TEST_P(QuicSpdyStreamTest, ReceivingTrailersWithoutOffset) {
   // kFinalOffsetHeaderKey is not used when HEADERS are sent on the
   // request/response stream.
-  if (VersionUsesQpack(GetParam().transport_version)) {
+  if (UsesHttp3()) {
     return;
   }
 
@@ -1042,7 +1290,7 @@ TEST_P(QuicSpdyStreamTest, ReceivingTrailersWithoutOffset) {
 TEST_P(QuicSpdyStreamTest, ReceivingTrailersWithoutFin) {
   // In IETF QUIC, there is no such thing as FIN flag on HTTP/3 frames like the
   // HEADERS frame.
-  if (VersionUsesQpack(GetParam().transport_version)) {
+  if (UsesHttp3()) {
     return;
   }
 
@@ -1073,7 +1321,7 @@ TEST_P(QuicSpdyStreamTest, ReceivingTrailersAfterHeadersWithFin) {
   // If HEADERS frames are sent on the request/response stream, then the
   // sequencer will signal an error if any stream data arrives after a FIN,
   // so QuicSpdyStream does not need to.
-  if (VersionUsesQpack(GetParam().transport_version)) {
+  if (UsesHttp3()) {
     return;
   }
 
@@ -1095,7 +1343,7 @@ TEST_P(QuicSpdyStreamTest, ReceivingTrailersAfterBodyWithFin) {
   // If HEADERS frames are sent on the request/response stream,
   // then the sequencer will block them from reaching QuicSpdyStream
   // after the stream is closed.
-  if (VersionUsesQpack(GetParam().transport_version)) {
+  if (UsesHttp3()) {
     return;
   }
 
@@ -1131,7 +1379,7 @@ TEST_P(QuicSpdyStreamTest, ClosingStreamWithNoTrailers) {
 
   // Receive and consume body with FIN set, and no trailers.
   std::string body(1024, 'x');
-  std::string data = HasFrameHeader() ? DataFrame(body) : body;
+  std::string data = UsesHttp3() ? DataFrame(body) : body;
 
   QuicStreamFrame frame(GetNthClientInitiatedBidirectionalId(0), /*fin=*/true,
                         0, data);
@@ -1143,18 +1391,13 @@ TEST_P(QuicSpdyStreamTest, ClosingStreamWithNoTrailers) {
 // Test that writing trailers will send a FIN, as Trailers are the last thing to
 // be sent on a stream.
 TEST_P(QuicSpdyStreamTest, WritingTrailersSendsAFin) {
-  if (GetParam().handshake_protocol == PROTOCOL_TLS1_3) {
-    // TODO(nharper, b/112643533): Figure out why this test fails when TLS is
-    // enabled and fix it.
-    return;
-  }
-
   Initialize(kShouldProcessData);
 
-  if (VersionUsesQpack(GetParam().transport_version)) {
+  if (UsesHttp3()) {
     // In this case, TestStream::WriteHeadersImpl() does not prevent writes.
-    EXPECT_CALL(*session_, WritevData(stream_, stream_->id(), _, _, _))
-        .Times(AtLeast(1));
+    // Four writes on the request stream: HEADERS frame header and payload both
+    // for headers and trailers.
+    EXPECT_CALL(*session_, WritevData(stream_->id(), _, _, _, _, _)).Times(4);
   }
 
   // Write the initial headers, without a FIN.
@@ -1169,57 +1412,98 @@ TEST_P(QuicSpdyStreamTest, WritingTrailersSendsAFin) {
   EXPECT_TRUE(stream_->fin_sent());
 }
 
-TEST_P(QuicSpdyStreamTest, ClientWritesPriority) {
-  if (GetParam().handshake_protocol == PROTOCOL_TLS1_3) {
-    // TODO(nharper, b/112643533): Figure out why this test fails when TLS is
-    // enabled and fix it.
+TEST_P(QuicSpdyStreamTest, DoNotSendPriorityUpdateWithDefaultUrgency) {
+  if (!UsesHttp3()) {
+    return;
+  }
+
+  InitializeWithPerspective(kShouldProcessData, Perspective::IS_CLIENT);
+  StrictMock<MockHttp3DebugVisitor> debug_visitor;
+  session_->set_debug_visitor(&debug_visitor);
+
+  // Four writes on the request stream: HEADERS frame header and payload both
+  // for headers and trailers.
+  EXPECT_CALL(*session_, WritevData(stream_->id(), _, _, _, _, _)).Times(4);
+
+  // No PRIORITY_UPDATE frames on the control stream,
+  // because the stream has default priority.
+  auto send_control_stream =
+      QuicSpdySessionPeer::GetSendControlStream(session_.get());
+  EXPECT_CALL(*session_, WritevData(send_control_stream->id(), _, _, _, _, _))
+      .Times(0);
+
+  // Write the initial headers, without a FIN.
+  EXPECT_CALL(*stream_, WriteHeadersMock(false));
+  EXPECT_CALL(debug_visitor, OnHeadersFrameSent(stream_->id(), _));
+  stream_->WriteHeaders(SpdyHeaderBlock(), /*fin=*/false, nullptr);
+
+  // Writing trailers implicitly sends a FIN.
+  SpdyHeaderBlock trailers;
+  trailers["trailer key"] = "trailer value";
+  EXPECT_CALL(*stream_, WriteHeadersMock(true));
+  EXPECT_CALL(debug_visitor, OnHeadersFrameSent(stream_->id(), _));
+  stream_->WriteTrailers(std::move(trailers), nullptr);
+  EXPECT_TRUE(stream_->fin_sent());
+}
+
+TEST_P(QuicSpdyStreamTest, ChangePriority) {
+  if (!UsesHttp3()) {
+    return;
+  }
+
+  InitializeWithPerspective(kShouldProcessData, Perspective::IS_CLIENT);
+  StrictMock<MockHttp3DebugVisitor> debug_visitor;
+  session_->set_debug_visitor(&debug_visitor);
+
+  // Two writes on the request stream: HEADERS frame header and payload.
+  EXPECT_CALL(*session_, WritevData(stream_->id(), _, _, _, _, _)).Times(2);
+  EXPECT_CALL(*stream_, WriteHeadersMock(false));
+  EXPECT_CALL(debug_visitor, OnHeadersFrameSent(stream_->id(), _));
+  stream_->WriteHeaders(SpdyHeaderBlock(), /*fin=*/false, nullptr);
+
+  // PRIORITY_UPDATE frame on the control stream.
+  auto send_control_stream =
+      QuicSpdySessionPeer::GetSendControlStream(session_.get());
+  EXPECT_CALL(*session_, WritevData(send_control_stream->id(), _, _, _, _, _));
+  PriorityUpdateFrame priority_update;
+  priority_update.prioritized_element_id = 0;
+  priority_update.priority_field_value = "u=0";
+  EXPECT_CALL(debug_visitor, OnPriorityUpdateFrameSent(priority_update));
+  stream_->SetPriority(spdy::SpdyStreamPrecedence(kV3HighestPriority));
+}
+
+TEST_P(QuicSpdyStreamTest, ChangePriorityBeforeWritingHeaders) {
+  if (!UsesHttp3()) {
     return;
   }
 
   InitializeWithPerspective(kShouldProcessData, Perspective::IS_CLIENT);
 
-  if (VersionUsesQpack(GetParam().transport_version)) {
-    // In this case, TestStream::WriteHeadersImpl() does not prevent writes.
-    // Six writes include priority for headers, headers frame header, headers
-    // frame, priority of trailers, trailing headers frame header, and trailers.
-    EXPECT_CALL(*session_, WritevData(stream_, stream_->id(), _, _, _))
-        .Times(4);
-    auto send_control_stream =
-        QuicSpdySessionPeer::GetSendControlStream(session_.get());
-    // The control stream will write 3 times, including stream type, settings
-    // frame, priority for headers.
-    EXPECT_CALL(*session_, WritevData(send_control_stream,
-                                      send_control_stream->id(), _, _, _))
-        .Times(3);
-  }
+  // PRIORITY_UPDATE frame sent on the control stream as soon as SetPriority()
+  // is called, before HEADERS frame is sent.
+  auto send_control_stream =
+      QuicSpdySessionPeer::GetSendControlStream(session_.get());
+  EXPECT_CALL(*session_, WritevData(send_control_stream->id(), _, _, _, _, _));
 
-  // Write the initial headers, without a FIN.
-  EXPECT_CALL(*stream_, WriteHeadersMock(false));
-  stream_->WriteHeaders(SpdyHeaderBlock(), /*fin=*/false, nullptr);
+  stream_->SetPriority(spdy::SpdyStreamPrecedence(kV3HighestPriority));
+  testing::Mock::VerifyAndClearExpectations(session_.get());
 
-  // Writing trailers implicitly sends a FIN.
-  SpdyHeaderBlock trailers;
-  trailers["trailer key"] = "trailer value";
+  // Two writes on the request stream: HEADERS frame header and payload.
+  // PRIORITY_UPDATE frame is not sent this time, because one is already sent.
+  EXPECT_CALL(*session_, WritevData(stream_->id(), _, _, _, _, _)).Times(2);
   EXPECT_CALL(*stream_, WriteHeadersMock(true));
-  stream_->WriteTrailers(std::move(trailers), nullptr);
-  EXPECT_TRUE(stream_->fin_sent());
+  stream_->WriteHeaders(SpdyHeaderBlock(), /*fin=*/true, nullptr);
 }
 
 // Test that when writing trailers, the trailers that are actually sent to the
 // peer contain the final offset field indicating last byte of data.
 TEST_P(QuicSpdyStreamTest, WritingTrailersFinalOffset) {
-  if (GetParam().handshake_protocol == PROTOCOL_TLS1_3) {
-    // TODO(nharper, b/112643533): Figure out why this test fails when TLS is
-    // enabled and fix it.
-    return;
-  }
-
   Initialize(kShouldProcessData);
 
-  if (VersionUsesQpack(GetParam().transport_version)) {
+  if (UsesHttp3()) {
     // In this case, TestStream::WriteHeadersImpl() does not prevent writes.
-    EXPECT_CALL(*session_, WritevData(stream_, stream_->id(), _, _, _))
-        .Times(AtLeast(1));
+    // HEADERS frame header and payload on the request stream.
+    EXPECT_CALL(*session_, WritevData(stream_->id(), _, _, _, _, _)).Times(2);
   }
 
   // Write the initial headers.
@@ -1227,12 +1511,12 @@ TEST_P(QuicSpdyStreamTest, WritingTrailersFinalOffset) {
   stream_->WriteHeaders(SpdyHeaderBlock(), /*fin=*/false, nullptr);
 
   // Write non-zero body data to force a non-zero final offset.
-  EXPECT_CALL(*session_, WritevData(_, _, _, _, _)).Times(AtLeast(1));
+  EXPECT_CALL(*session_, WritevData(_, _, _, _, _, _)).Times(AtLeast(1));
   std::string body(1024, 'x');  // 1 kB
   QuicByteCount header_length = 0;
-  if (HasFrameHeader()) {
+  if (UsesHttp3()) {
     std::unique_ptr<char[]> buf;
-    header_length = encoder_.SerializeDataFrameHeader(body.length(), &buf);
+    header_length = HttpEncoder::SerializeDataFrameHeader(body.length(), &buf);
   }
 
   stream_->WriteOrBufferBody(body, false);
@@ -1245,9 +1529,9 @@ TEST_P(QuicSpdyStreamTest, WritingTrailersFinalOffset) {
   SpdyHeaderBlock expected_trailers(trailers.Clone());
   // :final-offset pseudo-header is only added if trailers are sent
   // on the headers stream.
-  if (!VersionUsesQpack(GetParam().transport_version)) {
+  if (!UsesHttp3()) {
     expected_trailers[kFinalOffsetHeaderKey] =
-        QuicTextUtils::Uint64ToString(body.length() + header_length);
+        quiche::QuicheTextUtils::Uint64ToString(body.length() + header_length);
   }
 
   EXPECT_CALL(*stream_, WriteHeadersMock(true));
@@ -1258,17 +1542,11 @@ TEST_P(QuicSpdyStreamTest, WritingTrailersFinalOffset) {
 // Test that if trailers are written after all other data has been written
 // (headers and body), that this closes the stream for writing.
 TEST_P(QuicSpdyStreamTest, WritingTrailersClosesWriteSide) {
-  if (GetParam().handshake_protocol == PROTOCOL_TLS1_3) {
-    // TODO(nharper, b/112643533): Figure out why this test fails when TLS is
-    // enabled and fix it.
-    return;
-  }
-
   Initialize(kShouldProcessData);
 
   // Expect data being written on the stream.  In addition to that, headers are
   // also written on the stream in case of IETF QUIC.
-  EXPECT_CALL(*session_, WritevData(stream_, stream_->id(), _, _, _))
+  EXPECT_CALL(*session_, WritevData(stream_->id(), _, _, _, _, _))
       .Times(AtLeast(1));
 
   // Write the initial headers.
@@ -1293,7 +1571,7 @@ TEST_P(QuicSpdyStreamTest, WritingTrailersWithQueuedBytes) {
   // This test exercises sending trailers on the headers stream while data is
   // still queued on the response/request stream.  In IETF QUIC, data and
   // trailers are sent on the same stream, so this test does not apply.
-  if (VersionUsesQpack(GetParam().transport_version)) {
+  if (UsesHttp3()) {
     return;
   }
 
@@ -1306,10 +1584,10 @@ TEST_P(QuicSpdyStreamTest, WritingTrailersWithQueuedBytes) {
 
   // Write non-zero body data, but only consume partially, ensuring queueing.
   const int kBodySize = 1 * 1024;  // 1 kB
-  if (HasFrameHeader()) {
-    EXPECT_CALL(*session_, WritevData(_, _, 3, _, NO_FIN));
+  if (UsesHttp3()) {
+    EXPECT_CALL(*session_, WritevData(_, 3, _, NO_FIN, _, _));
   }
-  EXPECT_CALL(*session_, WritevData(_, _, kBodySize, _, NO_FIN))
+  EXPECT_CALL(*session_, WritevData(_, kBodySize, _, NO_FIN, _, _))
       .WillOnce(Return(QuicConsumedData(kBodySize - 1, false)));
   stream_->WriteOrBufferBody(std::string(kBodySize, 'x'), false);
   EXPECT_EQ(1u, stream_->BufferedDataBytes());
@@ -1322,18 +1600,16 @@ TEST_P(QuicSpdyStreamTest, WritingTrailersWithQueuedBytes) {
   EXPECT_FALSE(stream_->write_side_closed());
 
   // Writing the queued bytes will close the write side of the stream.
-  EXPECT_CALL(*session_, WritevData(_, _, 1, _, NO_FIN));
+  EXPECT_CALL(*session_, WritevData(_, 1, _, NO_FIN, _, _));
   stream_->OnCanWrite();
   EXPECT_TRUE(stream_->write_side_closed());
 }
 
 // Test that it is not possible to write Trailers after a FIN has been sent.
 TEST_P(QuicSpdyStreamTest, WritingTrailersAfterFIN) {
-  // EXPECT_QUIC_BUG tests are expensive so only run one instance of them.
   // In IETF QUIC, there is no such thing as FIN flag on HTTP/3 frames like the
-  // HEADERS frame.  That is version 99, which is element 0 of the array, so
-  // pick another element.
-  if (GetParam() != AllSupportedVersions()[1]) {
+  // HEADERS frame.
+  if (UsesHttp3()) {
     return;
   }
 
@@ -1352,13 +1628,7 @@ TEST_P(QuicSpdyStreamTest, WritingTrailersAfterFIN) {
 
 TEST_P(QuicSpdyStreamTest, HeaderStreamNotiferCorrespondingSpdyStream) {
   // There is no headers stream if QPACK is used.
-  if (!VersionUsesQpack(GetParam().transport_version)) {
-    return;
-  }
-
-  if (GetParam().handshake_protocol == PROTOCOL_TLS1_3) {
-    // TODO(nharper, b/112643533): Figure out why this test fails when TLS is
-    // enabled and fix it.
+  if (UsesHttp3()) {
     return;
   }
 
@@ -1368,7 +1638,7 @@ TEST_P(QuicSpdyStreamTest, HeaderStreamNotiferCorrespondingSpdyStream) {
   const char kBody2[] = "Test2";
 
   Initialize(kShouldProcessData);
-  EXPECT_CALL(*session_, WritevData(_, _, _, _, _)).Times(AtLeast(1));
+  EXPECT_CALL(*session_, WritevData(_, _, _, _, _, _)).Times(AtLeast(1));
   testing::InSequence s;
   QuicReferenceCountedPointer<MockAckListener> ack_listener1(
       new MockAckListener());
@@ -1387,12 +1657,12 @@ TEST_P(QuicSpdyStreamTest, HeaderStreamNotiferCorrespondingSpdyStream) {
       QuicUtils::GetHeadersStreamId(connection_->transport_version()), false, 0,
       kHeader1);
 
-  std::string data1 = HasFrameHeader() ? DataFrame(kBody1) : kBody1;
+  std::string data1 = UsesHttp3() ? DataFrame(kBody1) : kBody1;
   QuicStreamFrame frame2(stream_->id(), true, 0, data1);
   QuicStreamFrame frame3(
       QuicUtils::GetHeadersStreamId(connection_->transport_version()), false, 7,
       kHeader2);
-  std::string data2 = HasFrameHeader() ? DataFrame(kBody2) : kBody2;
+  std::string data2 = UsesHttp3() ? DataFrame(kBody2) : kBody2;
   QuicStreamFrame frame4(stream2_->id(), false, 0, data2);
 
   EXPECT_CALL(*ack_listener1, OnPacketRetransmitted(7));
@@ -1413,14 +1683,8 @@ TEST_P(QuicSpdyStreamTest, HeaderStreamNotiferCorrespondingSpdyStream) {
 }
 
 TEST_P(QuicSpdyStreamTest, StreamBecomesZombieWithWriteThatCloses) {
-  if (GetParam().handshake_protocol == PROTOCOL_TLS1_3) {
-    // TODO(nharper, b/112643533): Figure out why this test fails when TLS is
-    // enabled and fix it.
-    return;
-  }
-
   Initialize(kShouldProcessData);
-  EXPECT_CALL(*session_, WritevData(_, _, _, _, _)).Times(AtLeast(1));
+  EXPECT_CALL(*session_, WritevData(_, _, _, _, _, _)).Times(AtLeast(1));
   QuicStreamPeer::CloseReadSide(stream_);
   // This write causes stream to be closed.
   stream_->WriteOrBufferBody("Test1", true);
@@ -1432,27 +1696,23 @@ TEST_P(QuicSpdyStreamTest, StreamBecomesZombieWithWriteThatCloses) {
 
 TEST_P(QuicSpdyStreamTest, OnPriorityFrame) {
   Initialize(kShouldProcessData);
-  stream_->OnPriorityFrame(kV3HighestPriority);
-  EXPECT_EQ(kV3HighestPriority, stream_->priority());
+  stream_->OnPriorityFrame(spdy::SpdyStreamPrecedence(kV3HighestPriority));
+  EXPECT_EQ(spdy::SpdyStreamPrecedence(kV3HighestPriority),
+            stream_->precedence());
 }
 
 TEST_P(QuicSpdyStreamTest, OnPriorityFrameAfterSendingData) {
-  if (GetParam().handshake_protocol == PROTOCOL_TLS1_3) {
-    // TODO(nharper, b/112643533): Figure out why this test fails when TLS is
-    // enabled and fix it.
-    return;
-  }
-
-  testing::InSequence seq;
   Initialize(kShouldProcessData);
+  testing::InSequence seq;
 
-  if (HasFrameHeader()) {
-    EXPECT_CALL(*session_, WritevData(_, _, 2, _, NO_FIN));
+  if (UsesHttp3()) {
+    EXPECT_CALL(*session_, WritevData(_, 2, _, NO_FIN, _, _));
   }
-  EXPECT_CALL(*session_, WritevData(_, _, 4, _, FIN));
+  EXPECT_CALL(*session_, WritevData(_, 4, _, FIN, _, _));
   stream_->WriteOrBufferBody("data", true);
-  stream_->OnPriorityFrame(kV3HighestPriority);
-  EXPECT_EQ(kV3HighestPriority, stream_->priority());
+  stream_->OnPriorityFrame(spdy::SpdyStreamPrecedence(kV3HighestPriority));
+  EXPECT_EQ(spdy::SpdyStreamPrecedence(kV3HighestPriority),
+            stream_->precedence());
 }
 
 TEST_P(QuicSpdyStreamTest, SetPriorityBeforeUpdateStreamPriority) {
@@ -1461,11 +1721,11 @@ TEST_P(QuicSpdyStreamTest, SetPriorityBeforeUpdateStreamPriority) {
       SupportedVersions(GetParam()));
   std::unique_ptr<TestMockUpdateStreamSession> session(
       new StrictMock<TestMockUpdateStreamSession>(connection));
-  auto stream = new StrictMock<TestStream>(
-      GetNthClientInitiatedBidirectionalStreamId(
-          session->connection()->transport_version(), 0),
-      session.get(),
-      /*should_process_data=*/true);
+  auto stream =
+      new StrictMock<TestStream>(GetNthClientInitiatedBidirectionalStreamId(
+                                     session->transport_version(), 0),
+                                 session.get(),
+                                 /*should_process_data=*/true);
   session->ActivateStream(QuicWrapUnique(stream));
 
   // QuicSpdyStream::SetPriority() should eventually call UpdateStreamPriority()
@@ -1473,25 +1733,19 @@ TEST_P(QuicSpdyStreamTest, SetPriorityBeforeUpdateStreamPriority) {
   // if called within UpdateStreamPriority(). This expectation is enforced in
   // TestMockUpdateStreamSession::UpdateStreamPriority().
   session->SetExpectedStream(stream);
-  session->SetExpectedPriority(kV3HighestPriority);
-  stream->SetPriority(kV3HighestPriority);
+  session->SetExpectedPriority(spdy::SpdyStreamPrecedence(kV3HighestPriority));
+  stream->SetPriority(spdy::SpdyStreamPrecedence(kV3HighestPriority));
 
-  session->SetExpectedPriority(kV3LowestPriority);
-  stream->SetPriority(kV3LowestPriority);
+  session->SetExpectedPriority(spdy::SpdyStreamPrecedence(kV3LowestPriority));
+  stream->SetPriority(spdy::SpdyStreamPrecedence(kV3LowestPriority));
 }
 
 TEST_P(QuicSpdyStreamTest, StreamWaitsForAcks) {
-  if (GetParam().handshake_protocol == PROTOCOL_TLS1_3) {
-    // TODO(nharper, b/112643533): Figure out why this test fails when TLS is
-    // enabled and fix it.
-    return;
-  }
-
   Initialize(kShouldProcessData);
   QuicReferenceCountedPointer<MockAckListener> mock_ack_listener(
       new StrictMock<MockAckListener>);
   stream_->set_ack_listener(mock_ack_listener);
-  EXPECT_CALL(*session_, WritevData(_, _, _, _, _)).Times(AtLeast(1));
+  EXPECT_CALL(*session_, WritevData(_, _, _, _, _, _)).Times(AtLeast(1));
   // Stream is not waiting for acks initially.
   EXPECT_FALSE(stream_->IsWaitingForAcks());
   EXPECT_EQ(0u, QuicStreamPeer::SendBuffer(stream_).size());
@@ -1503,6 +1757,7 @@ TEST_P(QuicSpdyStreamTest, StreamWaitsForAcks) {
   EXPECT_CALL(*mock_ack_listener, OnPacketAcked(9, _));
   QuicByteCount newly_acked_length = 0;
   EXPECT_TRUE(stream_->OnStreamFrameAcked(0, 9, false, QuicTime::Delta::Zero(),
+                                          QuicTime::Zero(),
                                           &newly_acked_length));
   // Stream is not waiting for acks as all sent data is acked.
   EXPECT_FALSE(stream_->IsWaitingForAcks());
@@ -1524,6 +1779,7 @@ TEST_P(QuicSpdyStreamTest, StreamWaitsForAcks) {
   // kData2 is acked.
   EXPECT_CALL(*mock_ack_listener, OnPacketAcked(9, _));
   EXPECT_TRUE(stream_->OnStreamFrameAcked(9, 9, false, QuicTime::Delta::Zero(),
+                                          QuicTime::Zero(),
                                           &newly_acked_length));
   // Stream is waiting for acks as FIN is not acked.
   EXPECT_TRUE(stream_->IsWaitingForAcks());
@@ -1532,23 +1788,18 @@ TEST_P(QuicSpdyStreamTest, StreamWaitsForAcks) {
   // FIN is acked.
   EXPECT_CALL(*mock_ack_listener, OnPacketAcked(0, _));
   EXPECT_TRUE(stream_->OnStreamFrameAcked(18, 0, true, QuicTime::Delta::Zero(),
+                                          QuicTime::Zero(),
                                           &newly_acked_length));
   EXPECT_FALSE(stream_->IsWaitingForAcks());
   EXPECT_EQ(0u, QuicStreamPeer::SendBuffer(stream_).size());
 }
 
 TEST_P(QuicSpdyStreamTest, StreamDataGetAckedMultipleTimes) {
-  if (GetParam().handshake_protocol == PROTOCOL_TLS1_3) {
-    // TODO(nharper, b/112643533): Figure out why this test fails when TLS is
-    // enabled and fix it.
-    return;
-  }
-
   Initialize(kShouldProcessData);
   QuicReferenceCountedPointer<MockAckListener> mock_ack_listener(
       new StrictMock<MockAckListener>);
   stream_->set_ack_listener(mock_ack_listener);
-  EXPECT_CALL(*session_, WritevData(_, _, _, _, _)).Times(AtLeast(1));
+  EXPECT_CALL(*session_, WritevData(_, _, _, _, _, _)).Times(AtLeast(1));
   // Send [0, 27) and fin.
   stream_->WriteOrBufferData("FooAndBar", false, nullptr);
   stream_->WriteOrBufferData("FooAndBar", false, nullptr);
@@ -1559,16 +1810,19 @@ TEST_P(QuicSpdyStreamTest, StreamDataGetAckedMultipleTimes) {
   QuicByteCount newly_acked_length = 0;
   EXPECT_CALL(*mock_ack_listener, OnPacketAcked(9, _));
   EXPECT_TRUE(stream_->OnStreamFrameAcked(0, 9, false, QuicTime::Delta::Zero(),
+                                          QuicTime::Zero(),
                                           &newly_acked_length));
   EXPECT_EQ(2u, QuicStreamPeer::SendBuffer(stream_).size());
   // Verify [9, 22) 13 bytes are acked.
   EXPECT_CALL(*mock_ack_listener, OnPacketAcked(13, _));
   EXPECT_TRUE(stream_->OnStreamFrameAcked(5, 17, false, QuicTime::Delta::Zero(),
+                                          QuicTime::Zero(),
                                           &newly_acked_length));
   EXPECT_EQ(1u, QuicStreamPeer::SendBuffer(stream_).size());
   // Verify [22, 26) 4 bytes are acked.
   EXPECT_CALL(*mock_ack_listener, OnPacketAcked(4, _));
   EXPECT_TRUE(stream_->OnStreamFrameAcked(18, 8, false, QuicTime::Delta::Zero(),
+                                          QuicTime::Zero(),
                                           &newly_acked_length));
   EXPECT_EQ(1u, QuicStreamPeer::SendBuffer(stream_).size());
   EXPECT_TRUE(stream_->IsWaitingForAcks());
@@ -1577,6 +1831,7 @@ TEST_P(QuicSpdyStreamTest, StreamDataGetAckedMultipleTimes) {
   // Verify [26, 27) 1 byte is acked.
   EXPECT_CALL(*mock_ack_listener, OnPacketAcked(1, _));
   EXPECT_TRUE(stream_->OnStreamFrameAcked(26, 1, false, QuicTime::Delta::Zero(),
+                                          QuicTime::Zero(),
                                           &newly_acked_length));
   EXPECT_EQ(0u, QuicStreamPeer::SendBuffer(stream_).size());
   EXPECT_TRUE(stream_->IsWaitingForAcks());
@@ -1584,6 +1839,7 @@ TEST_P(QuicSpdyStreamTest, StreamDataGetAckedMultipleTimes) {
   // Ack Fin. Verify OnPacketAcked is called.
   EXPECT_CALL(*mock_ack_listener, OnPacketAcked(0, _));
   EXPECT_TRUE(stream_->OnStreamFrameAcked(27, 0, true, QuicTime::Delta::Zero(),
+                                          QuicTime::Zero(),
                                           &newly_acked_length));
   EXPECT_EQ(0u, QuicStreamPeer::SendBuffer(stream_).size());
   EXPECT_FALSE(stream_->IsWaitingForAcks());
@@ -1591,21 +1847,16 @@ TEST_P(QuicSpdyStreamTest, StreamDataGetAckedMultipleTimes) {
   // Ack [10, 27) and fin.
   // No new data is acked, verify OnPacketAcked is not called.
   EXPECT_CALL(*mock_ack_listener, OnPacketAcked(_, _)).Times(0);
-  EXPECT_FALSE(stream_->OnStreamFrameAcked(
-      10, 17, true, QuicTime::Delta::Zero(), &newly_acked_length));
+  EXPECT_FALSE(
+      stream_->OnStreamFrameAcked(10, 17, true, QuicTime::Delta::Zero(),
+                                  QuicTime::Zero(), &newly_acked_length));
   EXPECT_EQ(0u, QuicStreamPeer::SendBuffer(stream_).size());
   EXPECT_FALSE(stream_->IsWaitingForAcks());
 }
 
 // HTTP/3 only.
 TEST_P(QuicSpdyStreamTest, HeadersAckNotReportedWriteOrBufferBody) {
-  if (GetParam().handshake_protocol == PROTOCOL_TLS1_3) {
-    // TODO(nharper, b/112643533): Figure out why this test fails when TLS is
-    // enabled and fix it.
-    return;
-  }
-
-  if (!HasFrameHeader()) {
+  if (!UsesHttp3()) {
     return;
   }
 
@@ -1616,16 +1867,17 @@ TEST_P(QuicSpdyStreamTest, HeadersAckNotReportedWriteOrBufferBody) {
   std::string body = "Test1";
   std::string body2(100, 'x');
 
-  EXPECT_CALL(*session_, WritevData(_, _, _, _, _)).Times(AtLeast(1));
+  EXPECT_CALL(*session_, WritevData(_, _, _, _, _, _)).Times(AtLeast(1));
   stream_->WriteOrBufferBody(body, false);
   stream_->WriteOrBufferBody(body2, true);
 
   std::unique_ptr<char[]> buffer;
   QuicByteCount header_length =
-      encoder_.SerializeDataFrameHeader(body.length(), &buffer);
+      HttpEncoder::SerializeDataFrameHeader(body.length(), &buffer);
   std::string header = std::string(buffer.get(), header_length);
 
-  header_length = encoder_.SerializeDataFrameHeader(body2.length(), &buffer);
+  header_length =
+      HttpEncoder::SerializeDataFrameHeader(body2.length(), &buffer);
   std::string header2 = std::string(buffer.get(), header_length);
 
   EXPECT_CALL(*mock_ack_listener, OnPacketAcked(body.length(), _));
@@ -1652,13 +1904,7 @@ TEST_P(QuicSpdyStreamTest, HeadersAckNotReportedWriteOrBufferBody) {
 
 // HTTP/3 only.
 TEST_P(QuicSpdyStreamTest, HeadersAckNotReportedWriteBodySlices) {
-  if (GetParam().handshake_protocol == PROTOCOL_TLS1_3) {
-    // TODO(nharper, b/112643533): Figure out why this test fails when TLS is
-    // enabled and fix it.
-    return;
-  }
-
-  if (!HasFrameHeader()) {
+  if (!UsesHttp3()) {
     return;
   }
 
@@ -1674,7 +1920,7 @@ TEST_P(QuicSpdyStreamTest, HeadersAckNotReportedWriteBodySlices) {
                               helper_.GetStreamSendBufferAllocator(), 1024);
   QuicMemSliceStorage storage2(&body2_iov, 1,
                                helper_.GetStreamSendBufferAllocator(), 1024);
-  EXPECT_CALL(*session_, WritevData(_, _, _, _, _)).Times(AtLeast(1));
+  EXPECT_CALL(*session_, WritevData(_, _, _, _, _, _)).Times(AtLeast(1));
   stream_->WriteBodySlices(storage.ToSpan(), false);
   stream_->WriteBodySlices(storage2.ToSpan(), true);
 
@@ -1693,12 +1939,7 @@ TEST_P(QuicSpdyStreamTest, HeadersAckNotReportedWriteBodySlices) {
 
 // HTTP/3 only.
 TEST_P(QuicSpdyStreamTest, HeaderBytesNotReportedOnRetransmission) {
-  if (GetParam().handshake_protocol == PROTOCOL_TLS1_3) {
-    // TODO(nharper, b/112643533): Figure out why this test fails when TLS is
-    // enabled and fix it.
-    return;
-  }
-  if (!HasFrameHeader()) {
+  if (!UsesHttp3()) {
     return;
   }
 
@@ -1709,7 +1950,7 @@ TEST_P(QuicSpdyStreamTest, HeaderBytesNotReportedOnRetransmission) {
   std::string body1 = "Test1";
   std::string body2(100, 'x');
 
-  EXPECT_CALL(*session_, WritevData(_, _, _, _, _)).Times(AtLeast(1));
+  EXPECT_CALL(*session_, WritevData(_, _, _, _, _, _)).Times(AtLeast(1));
   stream_->WriteOrBufferBody(body1, false);
   stream_->WriteOrBufferBody(body2, true);
 
@@ -1729,22 +1970,19 @@ TEST_P(QuicSpdyStreamTest, HeaderBytesNotReportedOnRetransmission) {
 }
 
 TEST_P(QuicSpdyStreamTest, HeadersFrameOnRequestStream) {
-  if (!VersionUsesQpack(GetParam().transport_version)) {
+  if (!UsesHttp3()) {
     return;
   }
 
   Initialize(kShouldProcessData);
 
-  // HEADERS frame with QPACK encoded single header field "foo: bar".
-  std::string headers =
-      HeadersFrame(QuicTextUtils::HexDecode("00002a94e703626172"));
+  std::string headers = HeadersFrame({std::make_pair("foo", "bar")});
   std::string data = DataFrame(kDataFramePayload);
-  // HEADERS frame with QPACK encoded single header
-  // field "custom-key: custom-value".
-  std::string trailers = HeadersFrame(
-      QuicTextUtils::HexDecode("00002f0125a849e95ba97d7f8925a849e95bb8e8b4bf"));
+  std::string trailers =
+      HeadersFrame({std::make_pair("custom-key", "custom-value")});
 
-  std::string stream_frame_payload = QuicStrCat(headers, data, trailers);
+  std::string stream_frame_payload =
+      quiche::QuicheStrCat(headers, data, trailers);
   QuicStreamFrame frame(stream_->id(), false, 0, stream_frame_payload);
   stream_->OnStreamFrame(frame);
 
@@ -1761,17 +1999,13 @@ TEST_P(QuicSpdyStreamTest, HeadersFrameOnRequestStream) {
 }
 
 TEST_P(QuicSpdyStreamTest, ProcessBodyAfterTrailers) {
-  if (!VersionUsesQpack(GetParam().transport_version)) {
+  if (!UsesHttp3()) {
     return;
   }
 
   Initialize(!kShouldProcessData);
 
-  // HEADERS frame with QPACK encoded single header field "foo: bar".
-  std::string headers =
-      HeadersFrame(QuicTextUtils::HexDecode("00002a94e703626172"));
-
-  // DATA frame.
+  std::string headers = HeadersFrame({std::make_pair("foo", "bar")});
   std::string data = DataFrame(kDataFramePayload);
 
   // A header block that will take more than one block of sequencer buffer.
@@ -1779,12 +2013,11 @@ TEST_P(QuicSpdyStreamTest, ProcessBodyAfterTrailers) {
   // be freed.
   SpdyHeaderBlock trailers_block;
   trailers_block["key1"] = std::string(10000, 'x');
-  std::string trailers_frame_payload =
-      EncodeQpackHeaders(stream_->id(), &trailers_block);
-  std::string trailers = HeadersFrame(trailers_frame_payload);
+  std::string trailers = HeadersFrame(trailers_block);
 
   // Feed all three HTTP/3 frames in a single stream frame.
-  std::string stream_frame_payload = QuicStrCat(headers, data, trailers);
+  std::string stream_frame_payload =
+      quiche::QuicheStrCat(headers, data, trailers);
   QuicStreamFrame frame(stream_->id(), false, 0, stream_frame_payload);
   stream_->OnStreamFrame(frame);
 
@@ -1800,9 +2033,9 @@ TEST_P(QuicSpdyStreamTest, ProcessBodyAfterTrailers) {
   char buffer[2048];
   struct iovec vec;
   vec.iov_base = buffer;
-  vec.iov_len = QUIC_ARRAYSIZE(buffer);
+  vec.iov_len = QUICHE_ARRAYSIZE(buffer);
   size_t bytes_read = stream_->Readv(&vec, 1);
-  EXPECT_EQ(kDataFramePayload, QuicStringPiece(buffer, bytes_read));
+  EXPECT_EQ(kDataFramePayload, quiche::QuicheStringPiece(buffer, bytes_read));
 
   EXPECT_FALSE(stream_->HasBytesToRead());
 }
@@ -1811,30 +2044,28 @@ TEST_P(QuicSpdyStreamTest, ProcessBodyAfterTrailers) {
 // normal body. Make sure the http decoder stops processing body after the
 // connection shuts down.
 TEST_P(QuicSpdyStreamTest, MalformedHeadersStopHttpDecoder) {
-  if (!VersionUsesQpack(GetParam().transport_version)) {
+  if (!UsesHttp3()) {
     return;
   }
 
-  testing::InSequence s;
-
   Initialize(kShouldProcessData);
+  testing::InSequence s;
   connection_->AdvanceTime(QuicTime::Delta::FromSeconds(1));
 
   // Random bad headers.
   std::string headers =
-      HeadersFrame(QuicTextUtils::HexDecode("00002a94e7036261"));
+      HeadersFrame(quiche::QuicheTextUtils::HexDecode("00002a94e7036261"));
   std::string data = DataFrame(kDataFramePayload);
 
-  std::string stream_frame_payload = QuicStrCat(headers, data);
+  std::string stream_frame_payload = quiche::QuicheStrCat(headers, data);
   QuicStreamFrame frame(stream_->id(), false, 0, stream_frame_payload);
 
   EXPECT_CALL(
       *connection_,
-      CloseConnection(
-          QUIC_DECOMPRESSION_FAILURE,
-          MatchesRegex("Error decompressing header block on stream \\d+: "
-                       "Incomplete header block."),
-          _))
+      CloseConnection(QUIC_QPACK_DECOMPRESSION_FAILED,
+                      MatchesRegex("Error decoding headers on stream \\d+: "
+                                   "Incomplete header block."),
+                      _))
       .WillOnce(
           (Invoke([this](QuicErrorCode error, const std::string& error_details,
                          ConnectionCloseBehavior connection_close_behavior) {
@@ -1852,18 +2083,74 @@ TEST_P(QuicSpdyStreamTest, MalformedHeadersStopHttpDecoder) {
   stream_->OnStreamFrame(frame);
 }
 
-TEST_P(QuicSpdyStreamTest, ImmediateHeaderDecodingWithDynamicTableEntries) {
-  if (!VersionUsesQpack(GetParam().transport_version)) {
+// Regression test for https://crbug.com/1027895: a HEADERS frame triggers an
+// error in QuicSpdyStream::OnHeadersFramePayload().  This closes the
+// connection, freeing the buffer of QuicStreamSequencer.  Therefore
+// QuicStreamSequencer::MarkConsumed() must not be called from
+// QuicSpdyStream::OnHeadersFramePayload().
+TEST_P(QuicSpdyStreamTest, DoNotMarkConsumedAfterQpackDecodingError) {
+  if (!UsesHttp3()) {
     return;
   }
 
   Initialize(kShouldProcessData);
+  connection_->AdvanceTime(QuicTime::Delta::FromSeconds(1));
+
+  testing::InSequence s;
+  EXPECT_CALL(
+      *connection_,
+      CloseConnection(QUIC_QPACK_DECOMPRESSION_FAILED,
+                      MatchesRegex("Error decoding headers on stream \\d+: "
+                                   "Invalid relative index."),
+                      _))
+      .WillOnce(
+          (Invoke([this](QuicErrorCode error, const std::string& error_details,
+                         ConnectionCloseBehavior connection_close_behavior) {
+            connection_->ReallyCloseConnection(error, error_details,
+                                               connection_close_behavior);
+          })));
+  EXPECT_CALL(*connection_, SendConnectionClosePacket(_, _));
+  EXPECT_CALL(*session_, OnConnectionClosed(_, _))
+      .WillOnce(Invoke([this](const QuicConnectionCloseFrame& frame,
+                              ConnectionCloseSource source) {
+        session_->ReallyOnConnectionClosed(frame, source);
+      }));
+  EXPECT_CALL(*session_, SendRstStream(stream_->id(), _, _));
+  EXPECT_CALL(*session_, SendRstStream(stream2_->id(), _, _));
+
+  // Invalid headers: Required Insert Count is zero, but the header block
+  // contains a dynamic table reference.
+  std::string headers =
+      HeadersFrame(quiche::QuicheTextUtils::HexDecode("000080"));
+  QuicStreamFrame frame(stream_->id(), false, 0, headers);
+  stream_->OnStreamFrame(frame);
+}
+
+TEST_P(QuicSpdyStreamTest, ImmediateHeaderDecodingWithDynamicTableEntries) {
+  if (!UsesHttp3()) {
+    return;
+  }
+
+  Initialize(kShouldProcessData);
+  testing::InSequence s;
+  session_->qpack_decoder()->OnSetDynamicTableCapacity(1024);
+  StrictMock<MockHttp3DebugVisitor> debug_visitor;
+  session_->set_debug_visitor(&debug_visitor);
+
+  auto decoder_send_stream =
+      QuicSpdySessionPeer::GetQpackDecoderSendStream(session_.get());
 
   // Deliver dynamic table entry to decoder.
   session_->qpack_decoder()->OnInsertWithoutNameReference("foo", "bar");
 
   // HEADERS frame referencing first dynamic table entry.
-  std::string headers = HeadersFrame(QuicTextUtils::HexDecode("020080"));
+  std::string encoded_headers = quiche::QuicheTextUtils::HexDecode("020080");
+  std::string headers = HeadersFrame(encoded_headers);
+  EXPECT_CALL(debug_visitor,
+              OnHeadersFrameReceived(stream_->id(), encoded_headers.length()));
+  // Decoder stream type and header acknowledgement.
+  EXPECT_CALL(*session_, WritevData(decoder_send_stream->id(), _, _, _, _, _));
+  EXPECT_CALL(debug_visitor, OnHeadersDecoded(stream_->id(), _));
   stream_->OnStreamFrame(QuicStreamFrame(stream_->id(), false, 0, headers));
 
   // Headers can be decoded immediately.
@@ -1875,6 +2162,8 @@ TEST_P(QuicSpdyStreamTest, ImmediateHeaderDecodingWithDynamicTableEntries) {
 
   // DATA frame.
   std::string data = DataFrame(kDataFramePayload);
+  EXPECT_CALL(debug_visitor,
+              OnDataFrameReceived(stream_->id(), strlen(kDataFramePayload)));
   stream_->OnStreamFrame(QuicStreamFrame(stream_->id(), false, /* offset = */
                                          headers.length(), data));
   EXPECT_EQ(kDataFramePayload, stream_->data());
@@ -1883,7 +2172,13 @@ TEST_P(QuicSpdyStreamTest, ImmediateHeaderDecodingWithDynamicTableEntries) {
   session_->qpack_decoder()->OnInsertWithoutNameReference("trailing", "foobar");
 
   // Trailing HEADERS frame referencing second dynamic table entry.
-  std::string trailers = HeadersFrame(QuicTextUtils::HexDecode("030080"));
+  std::string encoded_trailers = quiche::QuicheTextUtils::HexDecode("030080");
+  std::string trailers = HeadersFrame(encoded_trailers);
+  EXPECT_CALL(debug_visitor,
+              OnHeadersFrameReceived(stream_->id(), encoded_trailers.length()));
+  // Header acknowledgement.
+  EXPECT_CALL(*session_, WritevData(decoder_send_stream->id(), _, _, _, _, _));
+  EXPECT_CALL(debug_visitor, OnHeadersDecoded(stream_->id(), _));
   stream_->OnStreamFrame(QuicStreamFrame(stream_->id(), true, /* offset = */
                                          headers.length() + data.length(),
                                          trailers));
@@ -1898,19 +2193,32 @@ TEST_P(QuicSpdyStreamTest, ImmediateHeaderDecodingWithDynamicTableEntries) {
 }
 
 TEST_P(QuicSpdyStreamTest, BlockedHeaderDecoding) {
-  if (!VersionUsesQpack(GetParam().transport_version)) {
+  if (!UsesHttp3()) {
     return;
   }
 
   Initialize(kShouldProcessData);
+  testing::InSequence s;
+  session_->qpack_decoder()->OnSetDynamicTableCapacity(1024);
+  StrictMock<MockHttp3DebugVisitor> debug_visitor;
+  session_->set_debug_visitor(&debug_visitor);
 
   // HEADERS frame referencing first dynamic table entry.
-  std::string headers = HeadersFrame(QuicTextUtils::HexDecode("020080"));
+  std::string encoded_headers = quiche::QuicheTextUtils::HexDecode("020080");
+  std::string headers = HeadersFrame(encoded_headers);
+  EXPECT_CALL(debug_visitor,
+              OnHeadersFrameReceived(stream_->id(), encoded_headers.length()));
   stream_->OnStreamFrame(QuicStreamFrame(stream_->id(), false, 0, headers));
 
   // Decoding is blocked because dynamic table entry has not been received yet.
   EXPECT_FALSE(stream_->headers_decompressed());
 
+  auto decoder_send_stream =
+      QuicSpdySessionPeer::GetQpackDecoderSendStream(session_.get());
+
+  // Decoder stream type and header acknowledgement.
+  EXPECT_CALL(*session_, WritevData(decoder_send_stream->id(), _, _, _, _, _));
+  EXPECT_CALL(debug_visitor, OnHeadersDecoded(stream_->id(), _));
   // Deliver dynamic table entry to decoder.
   session_->qpack_decoder()->OnInsertWithoutNameReference("foo", "bar");
   EXPECT_TRUE(stream_->headers_decompressed());
@@ -1921,12 +2229,17 @@ TEST_P(QuicSpdyStreamTest, BlockedHeaderDecoding) {
 
   // DATA frame.
   std::string data = DataFrame(kDataFramePayload);
+  EXPECT_CALL(debug_visitor,
+              OnDataFrameReceived(stream_->id(), strlen(kDataFramePayload)));
   stream_->OnStreamFrame(QuicStreamFrame(stream_->id(), false, /* offset = */
                                          headers.length(), data));
   EXPECT_EQ(kDataFramePayload, stream_->data());
 
   // Trailing HEADERS frame referencing second dynamic table entry.
-  std::string trailers = HeadersFrame(QuicTextUtils::HexDecode("030080"));
+  std::string encoded_trailers = quiche::QuicheTextUtils::HexDecode("030080");
+  std::string trailers = HeadersFrame(encoded_trailers);
+  EXPECT_CALL(debug_visitor,
+              OnHeadersFrameReceived(stream_->id(), encoded_trailers.length()));
   stream_->OnStreamFrame(QuicStreamFrame(stream_->id(), true, /* offset = */
                                          headers.length() + data.length(),
                                          trailers));
@@ -1934,6 +2247,8 @@ TEST_P(QuicSpdyStreamTest, BlockedHeaderDecoding) {
   // Decoding is blocked because dynamic table entry has not been received yet.
   EXPECT_FALSE(stream_->trailers_decompressed());
 
+  EXPECT_CALL(*session_, WritevData(decoder_send_stream->id(), _, _, _, _, _));
+  EXPECT_CALL(debug_visitor, OnHeadersDecoded(stream_->id(), _));
   // Deliver second dynamic table entry to decoder.
   session_->qpack_decoder()->OnInsertWithoutNameReference("trailing", "foobar");
   EXPECT_TRUE(stream_->trailers_decompressed());
@@ -1945,15 +2260,17 @@ TEST_P(QuicSpdyStreamTest, BlockedHeaderDecoding) {
 }
 
 TEST_P(QuicSpdyStreamTest, AsyncErrorDecodingHeaders) {
-  if (!VersionUsesQpack(GetParam().transport_version)) {
+  if (!UsesHttp3()) {
     return;
   }
 
   Initialize(kShouldProcessData);
+  session_->qpack_decoder()->OnSetDynamicTableCapacity(1024);
 
   // HEADERS frame only referencing entry with absolute index 0 but with
   // Required Insert Count = 2, which is incorrect.
-  std::string headers = HeadersFrame(QuicTextUtils::HexDecode("030081"));
+  std::string headers =
+      HeadersFrame(quiche::QuicheTextUtils::HexDecode("030081"));
   stream_->OnStreamFrame(QuicStreamFrame(stream_->id(), false, 0, headers));
 
   // Even though entire header block is received and every referenced entry is
@@ -1963,11 +2280,10 @@ TEST_P(QuicSpdyStreamTest, AsyncErrorDecodingHeaders) {
 
   EXPECT_CALL(
       *connection_,
-      CloseConnection(
-          QUIC_DECOMPRESSION_FAILURE,
-          MatchesRegex("Error during async decoding of headers on stream \\d+: "
-                       "Required Insert Count too large."),
-          ConnectionCloseBehavior::SEND_CONNECTION_CLOSE_PACKET));
+      CloseConnection(QUIC_QPACK_DECOMPRESSION_FAILED,
+                      MatchesRegex("Error decoding headers on stream \\d+: "
+                                   "Required Insert Count too large."),
+                      ConnectionCloseBehavior::SEND_CONNECTION_CLOSE_PACKET));
 
   // Deliver two dynamic table entries to decoder
   // to trigger decoding of header block.
@@ -1975,20 +2291,58 @@ TEST_P(QuicSpdyStreamTest, AsyncErrorDecodingHeaders) {
   session_->qpack_decoder()->OnInsertWithoutNameReference("foo", "bar");
 }
 
-TEST_P(QuicSpdyStreamTest, AsyncErrorDecodingTrailers) {
-  if (!VersionUsesQpack(GetParam().transport_version)) {
+// Regression test for https://crbug.com/1024263 and for
+// https://crbug.com/1025209#c11.
+TEST_P(QuicSpdyStreamTest, BlockedHeaderDecodingUnblockedWithBufferedError) {
+  if (!UsesHttp3()) {
     return;
   }
 
   Initialize(kShouldProcessData);
+  session_->qpack_decoder()->OnSetDynamicTableCapacity(1024);
+
+  // Relative index 2 is invalid because it is larger than or equal to the Base.
+  std::string headers =
+      HeadersFrame(quiche::QuicheTextUtils::HexDecode("020082"));
+  stream_->OnStreamFrame(QuicStreamFrame(stream_->id(), false, 0, headers));
+
+  // Decoding is blocked.
+  EXPECT_FALSE(stream_->headers_decompressed());
+
+  EXPECT_CALL(
+      *connection_,
+      CloseConnection(QUIC_QPACK_DECOMPRESSION_FAILED,
+                      MatchesRegex("Error decoding headers on stream \\d+: "
+                                   "Invalid relative index."),
+                      ConnectionCloseBehavior::SEND_CONNECTION_CLOSE_PACKET));
+
+  // Deliver one dynamic table entry to decoder
+  // to trigger decoding of header block.
+  session_->qpack_decoder()->OnInsertWithoutNameReference("foo", "bar");
+}
+
+TEST_P(QuicSpdyStreamTest, AsyncErrorDecodingTrailers) {
+  if (!UsesHttp3()) {
+    return;
+  }
+
+  Initialize(kShouldProcessData);
+  testing::InSequence s;
+  session_->qpack_decoder()->OnSetDynamicTableCapacity(1024);
 
   // HEADERS frame referencing first dynamic table entry.
-  std::string headers = HeadersFrame(QuicTextUtils::HexDecode("020080"));
+  std::string headers =
+      HeadersFrame(quiche::QuicheTextUtils::HexDecode("020080"));
   stream_->OnStreamFrame(QuicStreamFrame(stream_->id(), false, 0, headers));
 
   // Decoding is blocked because dynamic table entry has not been received yet.
   EXPECT_FALSE(stream_->headers_decompressed());
 
+  auto decoder_send_stream =
+      QuicSpdySessionPeer::GetQpackDecoderSendStream(session_.get());
+
+  // The stream byte will be written in the first byte.
+  EXPECT_CALL(*session_, WritevData(decoder_send_stream->id(), _, _, _, _, _));
   // Deliver dynamic table entry to decoder.
   session_->qpack_decoder()->OnInsertWithoutNameReference("foo", "bar");
   EXPECT_TRUE(stream_->headers_decompressed());
@@ -2005,7 +2359,8 @@ TEST_P(QuicSpdyStreamTest, AsyncErrorDecodingTrailers) {
 
   // Trailing HEADERS frame only referencing entry with absolute index 0 but
   // with Required Insert Count = 2, which is incorrect.
-  std::string trailers = HeadersFrame(QuicTextUtils::HexDecode("030081"));
+  std::string trailers =
+      HeadersFrame(quiche::QuicheTextUtils::HexDecode("030081"));
   stream_->OnStreamFrame(QuicStreamFrame(stream_->id(), true, /* offset = */
                                          headers.length() + data.length(),
                                          trailers));
@@ -2015,13 +2370,12 @@ TEST_P(QuicSpdyStreamTest, AsyncErrorDecodingTrailers) {
   // Insert Count value advertised in the header block prefix.
   EXPECT_FALSE(stream_->trailers_decompressed());
 
-  EXPECT_CALL(*connection_,
-              CloseConnection(
-                  QUIC_DECOMPRESSION_FAILURE,
-                  MatchesRegex(
-                      "Error during async decoding of trailers on stream \\d+: "
-                      "Required Insert Count too large."),
-                  ConnectionCloseBehavior::SEND_CONNECTION_CLOSE_PACKET));
+  EXPECT_CALL(
+      *connection_,
+      CloseConnection(QUIC_QPACK_DECOMPRESSION_FAILED,
+                      MatchesRegex("Error decoding trailers on stream \\d+: "
+                                   "Required Insert Count too large."),
+                      ConnectionCloseBehavior::SEND_CONNECTION_CLOSE_PACKET));
 
   // Deliver second dynamic table entry to decoder
   // to trigger decoding of trailing header block.
@@ -2035,7 +2389,7 @@ class QuicSpdyStreamIncrementalConsumptionTest : public QuicSpdyStreamTest {
 
   // Create QuicStreamFrame with |payload|
   // and pass it to stream_->OnStreamFrame().
-  void OnStreamFrame(QuicStringPiece payload) {
+  void OnStreamFrame(quiche::QuicheStringPiece payload) {
     QuicStreamFrame frame(stream_->id(), /* fin = */ false, offset_, payload);
     stream_->OnStreamFrame(frame);
     offset_ += payload.size();
@@ -2071,30 +2425,28 @@ class QuicSpdyStreamIncrementalConsumptionTest : public QuicSpdyStreamTest {
 
 INSTANTIATE_TEST_SUITE_P(Tests,
                          QuicSpdyStreamIncrementalConsumptionTest,
-                         ::testing::Values(ParsedQuicVersion{PROTOCOL_TLS1_3,
-                                                             QUIC_VERSION_99}));
+                         ::testing::ValuesIn(AllSupportedVersions()),
+                         ::testing::PrintToStringParamName());
 
 // Test that stream bytes are consumed (by calling
 // sequencer()->MarkConsumed()) incrementally, as soon as possible.
-TEST_P(QuicSpdyStreamIncrementalConsumptionTest, IncrementalConsumptionTest) {
-  if (!VersionUsesQpack(GetParam().transport_version)) {
+TEST_P(QuicSpdyStreamIncrementalConsumptionTest, OnlyKnownFrames) {
+  if (!UsesHttp3()) {
     return;
   }
 
   Initialize(!kShouldProcessData);
 
-  // HEADERS frame with QPACK encoded single header field "foo: bar".
-  std::string headers =
-      HeadersFrame(QuicTextUtils::HexDecode("00002a94e703626172"));
+  std::string headers = HeadersFrame({std::make_pair("foo", "bar")});
 
   // All HEADERS frame bytes are consumed even if the frame is not received
-  // completely (as long as at least some of the payload is received, which is
-  // an implementation detail that should not be tested).
-  OnStreamFrame(QuicStringPiece(headers).substr(0, headers.size() - 1));
+  // completely.
+  OnStreamFrame(
+      quiche::QuicheStringPiece(headers).substr(0, headers.size() - 1));
   EXPECT_EQ(headers.size() - 1, NewlyConsumedBytes());
 
   // The rest of the HEADERS frame is also consumed immediately.
-  OnStreamFrame(QuicStringPiece(headers).substr(headers.size() - 1));
+  OnStreamFrame(quiche::QuicheStringPiece(headers).substr(headers.size() - 1));
   EXPECT_EQ(1u, NewlyConsumedBytes());
 
   // Verify headers.
@@ -2102,26 +2454,27 @@ TEST_P(QuicSpdyStreamIncrementalConsumptionTest, IncrementalConsumptionTest) {
   stream_->ConsumeHeaderList();
 
   // DATA frame.
-  QuicStringPiece data_payload(kDataFramePayload);
+  quiche::QuicheStringPiece data_payload(kDataFramePayload);
   std::string data_frame = DataFrame(data_payload);
+  QuicByteCount data_frame_header_length =
+      data_frame.size() - data_payload.size();
 
-  // DATA frame is not consumed because payload has to be buffered.
-  // TODO(bnc): Consume frame header as soon as possible.
+  // DATA frame header is consumed.
+  // DATA frame payload is not consumed because payload has to be buffered.
   OnStreamFrame(data_frame);
-  EXPECT_EQ(0u, NewlyConsumedBytes());
+  EXPECT_EQ(data_frame_header_length, NewlyConsumedBytes());
 
   // Consume all but last byte of data.
   EXPECT_EQ(data_payload.substr(0, data_payload.size() - 1),
             ReadFromStream(data_payload.size() - 1));
-  EXPECT_EQ(data_frame.size() - 1, NewlyConsumedBytes());
+  EXPECT_EQ(data_payload.size() - 1, NewlyConsumedBytes());
 
-  // Trailing HEADERS frame with QPACK encoded
-  // single header field "custom-key: custom-value".
-  std::string trailers = HeadersFrame(
-      QuicTextUtils::HexDecode("00002f0125a849e95ba97d7f8925a849e95bb8e8b4bf"));
+  std::string trailers =
+      HeadersFrame({std::make_pair("custom-key", "custom-value")});
 
   // No bytes are consumed, because last byte of DATA payload is still buffered.
-  OnStreamFrame(QuicStringPiece(trailers).substr(0, trailers.size() - 1));
+  OnStreamFrame(
+      quiche::QuicheStringPiece(trailers).substr(0, trailers.size() - 1));
   EXPECT_EQ(0u, NewlyConsumedBytes());
 
   // Reading last byte of DATA payload triggers consumption of all data received
@@ -2130,7 +2483,8 @@ TEST_P(QuicSpdyStreamIncrementalConsumptionTest, IncrementalConsumptionTest) {
   EXPECT_EQ(1 + trailers.size() - 1, NewlyConsumedBytes());
 
   // Last byte of trailers is immediately consumed.
-  OnStreamFrame(QuicStringPiece(trailers).substr(trailers.size() - 1));
+  OnStreamFrame(
+      quiche::QuicheStringPiece(trailers).substr(trailers.size() - 1));
   EXPECT_EQ(1u, NewlyConsumedBytes());
 
   // Verify trailers.
@@ -2138,30 +2492,144 @@ TEST_P(QuicSpdyStreamIncrementalConsumptionTest, IncrementalConsumptionTest) {
               ElementsAre(Pair("custom-key", "custom-value")));
 }
 
-TEST_P(QuicSpdyStreamTest, PushPromiseOnDataStreamShouldClose) {
-  Initialize(kShouldProcessData);
-  if (!HasFrameHeader()) {
+TEST_P(QuicSpdyStreamIncrementalConsumptionTest, ReceiveUnknownFrame) {
+  if (!UsesHttp3()) {
     return;
   }
-  PushPromiseFrame push_promise;
-  push_promise.push_id = 0x01;
-  push_promise.headers = "Headers";
-  std::unique_ptr<char[]> buffer;
-  HttpEncoder encoder;
-  uint64_t length =
-      encoder.SerializePushPromiseFrameWithOnlyPushId(push_promise, &buffer);
-  QuicStreamFrame frame(stream_->id(), false, 0, buffer.get(), length);
-  // TODO(lassey): Check for HTTP_WRONG_STREAM error code.
-  EXPECT_CALL(*connection_, CloseConnection(QUIC_HTTP_DECODER_ERROR, _, _));
-  stream_->OnStreamHeadersPriority(kV3HighestPriority);
-  ProcessHeaders(false, headers_);
+
+  Initialize(kShouldProcessData);
+  StrictMock<MockHttp3DebugVisitor> debug_visitor;
+  session_->set_debug_visitor(&debug_visitor);
+
+  EXPECT_CALL(debug_visitor,
+              OnUnknownFrameReceived(stream_->id(), /* frame_type = */ 0x21,
+                                     /* payload_length = */ 3));
+  std::string unknown_frame = UnknownFrame(0x21, "foo");
+  OnStreamFrame(unknown_frame);
+}
+
+TEST_P(QuicSpdyStreamIncrementalConsumptionTest, UnknownFramesInterleaved) {
+  if (!UsesHttp3()) {
+    return;
+  }
+
+  Initialize(!kShouldProcessData);
+
+  // Unknown frame of reserved type before HEADERS is consumed immediately.
+  std::string unknown_frame1 = UnknownFrame(0x21, "foo");
+  OnStreamFrame(unknown_frame1);
+  EXPECT_EQ(unknown_frame1.size(), NewlyConsumedBytes());
+
+  std::string headers = HeadersFrame({std::make_pair("foo", "bar")});
+
+  // All HEADERS frame bytes are consumed even if the frame is not received
+  // completely.
+  OnStreamFrame(
+      quiche::QuicheStringPiece(headers).substr(0, headers.size() - 1));
+  EXPECT_EQ(headers.size() - 1, NewlyConsumedBytes());
+
+  // The rest of the HEADERS frame is also consumed immediately.
+  OnStreamFrame(quiche::QuicheStringPiece(headers).substr(headers.size() - 1));
+  EXPECT_EQ(1u, NewlyConsumedBytes());
+
+  // Verify headers.
+  EXPECT_THAT(stream_->header_list(), ElementsAre(Pair("foo", "bar")));
   stream_->ConsumeHeaderList();
+
+  // Frame of unknown, not reserved type between HEADERS and DATA is consumed
+  // immediately.
+  std::string unknown_frame2 = UnknownFrame(0x3a, "");
+  OnStreamFrame(unknown_frame2);
+  EXPECT_EQ(unknown_frame2.size(), NewlyConsumedBytes());
+
+  // DATA frame.
+  quiche::QuicheStringPiece data_payload(kDataFramePayload);
+  std::string data_frame = DataFrame(data_payload);
+  QuicByteCount data_frame_header_length =
+      data_frame.size() - data_payload.size();
+
+  // DATA frame header is consumed.
+  // DATA frame payload is not consumed because payload has to be buffered.
+  OnStreamFrame(data_frame);
+  EXPECT_EQ(data_frame_header_length, NewlyConsumedBytes());
+
+  // Frame of unknown, not reserved type is not consumed because DATA payload is
+  // still buffered.
+  std::string unknown_frame3 = UnknownFrame(0x39, "bar");
+  OnStreamFrame(unknown_frame3);
+  EXPECT_EQ(0u, NewlyConsumedBytes());
+
+  // Consume all but last byte of data.
+  EXPECT_EQ(data_payload.substr(0, data_payload.size() - 1),
+            ReadFromStream(data_payload.size() - 1));
+  EXPECT_EQ(data_payload.size() - 1, NewlyConsumedBytes());
+
+  std::string trailers =
+      HeadersFrame({std::make_pair("custom-key", "custom-value")});
+
+  // No bytes are consumed, because last byte of DATA payload is still buffered.
+  OnStreamFrame(
+      quiche::QuicheStringPiece(trailers).substr(0, trailers.size() - 1));
+  EXPECT_EQ(0u, NewlyConsumedBytes());
+
+  // Reading last byte of DATA payload triggers consumption of all data received
+  // so far, even though last HEADERS frame has not been received completely.
+  EXPECT_EQ(data_payload.substr(data_payload.size() - 1), ReadFromStream(1));
+  EXPECT_EQ(1 + unknown_frame3.size() + trailers.size() - 1,
+            NewlyConsumedBytes());
+
+  // Last byte of trailers is immediately consumed.
+  OnStreamFrame(
+      quiche::QuicheStringPiece(trailers).substr(trailers.size() - 1));
+  EXPECT_EQ(1u, NewlyConsumedBytes());
+
+  // Verify trailers.
+  EXPECT_THAT(stream_->received_trailers(),
+              ElementsAre(Pair("custom-key", "custom-value")));
+
+  // Unknown frame of reserved type after trailers is consumed immediately.
+  std::string unknown_frame4 = UnknownFrame(0x40, "");
+  OnStreamFrame(unknown_frame4);
+  EXPECT_EQ(unknown_frame4.size(), NewlyConsumedBytes());
+}
+
+TEST_P(QuicSpdyStreamTest, PushPromiseOnDataStream) {
+  Initialize(kShouldProcessData);
+  if (!UsesHttp3()) {
+    return;
+  }
+
+  StrictMock<MockHttp3DebugVisitor> debug_visitor;
+  session_->set_debug_visitor(&debug_visitor);
+
+  SpdyHeaderBlock pushed_headers;
+  pushed_headers["foo"] = "bar";
+  std::string headers = EncodeQpackHeaders(pushed_headers);
+
+  const QuicStreamId push_id = 1;
+  PushPromiseFrame push_promise;
+  push_promise.push_id = push_id;
+  push_promise.headers = headers;
+  std::unique_ptr<char[]> buffer;
+  uint64_t length = HttpEncoder::SerializePushPromiseFrameWithOnlyPushId(
+      push_promise, &buffer);
+  std::string data = std::string(buffer.get(), length) + headers;
+  QuicStreamFrame frame(stream_->id(), false, 0, data);
+
+  EXPECT_CALL(debug_visitor, OnPushPromiseFrameReceived(stream_->id(), push_id,
+                                                        headers.length()));
+  EXPECT_CALL(debug_visitor,
+              OnPushPromiseDecoded(stream_->id(), push_id,
+                                   AsHeaderList(pushed_headers)));
+  EXPECT_CALL(*session_,
+              OnPromiseHeaderList(stream_->id(), push_promise.push_id,
+                                  headers.length(), _));
   stream_->OnStreamFrame(frame);
 }
 
 // Close connection if a DATA frame is received before a HEADERS frame.
 TEST_P(QuicSpdyStreamTest, DataBeforeHeaders) {
-  if (!VersionUsesQpack(GetParam().transport_version)) {
+  if (!UsesHttp3()) {
     return;
   }
 
@@ -2169,10 +2637,9 @@ TEST_P(QuicSpdyStreamTest, DataBeforeHeaders) {
 
   // Closing the connection is mocked out in tests.  Instead, simply stop
   // reading data at the stream level to prevent QuicSpdyStream from blowing up.
-  // TODO(b/124216424): Change error code to HTTP_UNEXPECTED_FRAME.
   EXPECT_CALL(
       *connection_,
-      CloseConnection(QUIC_INVALID_HEADERS_STREAM_DATA,
+      CloseConnection(QUIC_HTTP_INVALID_FRAME_SEQUENCE_ON_SPDY_STREAM,
                       "Unexpected DATA frame received.",
                       ConnectionCloseBehavior::SEND_CONNECTION_CLOSE_PACKET))
       .WillOnce(InvokeWithoutArgs([this]() { stream_->StopReading(); }));
@@ -2183,15 +2650,14 @@ TEST_P(QuicSpdyStreamTest, DataBeforeHeaders) {
 
 // Close connection if a HEADERS frame is received after the trailing HEADERS.
 TEST_P(QuicSpdyStreamTest, TrailersAfterTrailers) {
-  if (!VersionUsesQpack(GetParam().transport_version)) {
+  if (!UsesHttp3()) {
     return;
   }
 
   Initialize(kShouldProcessData);
 
-  // Receive and consume headers, with single header field "foo: bar".
-  std::string headers =
-      HeadersFrame(QuicTextUtils::HexDecode("00002a94e703626172"));
+  // Receive and consume headers.
+  std::string headers = HeadersFrame({std::make_pair("foo", "bar")});
   QuicStreamOffset offset = 0;
   stream_->OnStreamFrame(
       QuicStreamFrame(stream_->id(), false, offset, headers));
@@ -2207,10 +2673,9 @@ TEST_P(QuicSpdyStreamTest, TrailersAfterTrailers) {
 
   EXPECT_EQ(kDataFramePayload, stream_->data());
 
-  // Receive and consume trailers, with single header field
-  // "custom-key: custom-value".
-  std::string trailers1 = HeadersFrame(
-      QuicTextUtils::HexDecode("00002f0125a849e95ba97d7f8925a849e95bb8e8b4bf"));
+  // Receive and consume trailers.
+  std::string trailers1 =
+      HeadersFrame({std::make_pair("custom-key", "custom-value")});
   stream_->OnStreamFrame(
       QuicStreamFrame(stream_->id(), false, offset, trailers1));
   offset += trailers1.size();
@@ -2221,16 +2686,15 @@ TEST_P(QuicSpdyStreamTest, TrailersAfterTrailers) {
 
   // Closing the connection is mocked out in tests.  Instead, simply stop
   // reading data at the stream level to prevent QuicSpdyStream from blowing up.
-  // TODO(b/124216424): Change error code to HTTP_UNEXPECTED_FRAME.
   EXPECT_CALL(
       *connection_,
-      CloseConnection(QUIC_INVALID_HEADERS_STREAM_DATA,
+      CloseConnection(QUIC_HTTP_INVALID_FRAME_SEQUENCE_ON_SPDY_STREAM,
                       "HEADERS frame received after trailing HEADERS.",
                       ConnectionCloseBehavior::SEND_CONNECTION_CLOSE_PACKET))
       .WillOnce(InvokeWithoutArgs([this]() { stream_->StopReading(); }));
 
   // Receive another HEADERS frame, with no header fields.
-  std::string trailers2 = HeadersFrame(QuicTextUtils::HexDecode("0000"));
+  std::string trailers2 = HeadersFrame(SpdyHeaderBlock());
   stream_->OnStreamFrame(
       QuicStreamFrame(stream_->id(), false, offset, trailers2));
 }
@@ -2238,15 +2702,14 @@ TEST_P(QuicSpdyStreamTest, TrailersAfterTrailers) {
 // Regression test for https://crbug.com/978733.
 // Close connection if a DATA frame is received after the trailing HEADERS.
 TEST_P(QuicSpdyStreamTest, DataAfterTrailers) {
-  if (!VersionUsesQpack(GetParam().transport_version)) {
+  if (!UsesHttp3()) {
     return;
   }
 
   Initialize(kShouldProcessData);
 
-  // Receive and consume headers, with single header field "foo: bar".
-  std::string headers =
-      HeadersFrame(QuicTextUtils::HexDecode("00002a94e703626172"));
+  // Receive and consume headers.
+  std::string headers = HeadersFrame({std::make_pair("foo", "bar")});
   QuicStreamOffset offset = 0;
   stream_->OnStreamFrame(
       QuicStreamFrame(stream_->id(), false, offset, headers));
@@ -2262,8 +2725,8 @@ TEST_P(QuicSpdyStreamTest, DataAfterTrailers) {
   EXPECT_EQ(kDataFramePayload, stream_->data());
 
   // Receive trailers, with single header field "custom-key: custom-value".
-  std::string trailers = HeadersFrame(
-      QuicTextUtils::HexDecode("00002f0125a849e95ba97d7f8925a849e95bb8e8b4bf"));
+  std::string trailers =
+      HeadersFrame({std::make_pair("custom-key", "custom-value")});
   stream_->OnStreamFrame(
       QuicStreamFrame(stream_->id(), false, offset, trailers));
   offset += trailers.size();
@@ -2273,10 +2736,9 @@ TEST_P(QuicSpdyStreamTest, DataAfterTrailers) {
 
   // Closing the connection is mocked out in tests.  Instead, simply stop
   // reading data at the stream level to prevent QuicSpdyStream from blowing up.
-  // TODO(b/124216424): Change error code to HTTP_UNEXPECTED_FRAME.
   EXPECT_CALL(
       *connection_,
-      CloseConnection(QUIC_INVALID_HEADERS_STREAM_DATA,
+      CloseConnection(QUIC_HTTP_INVALID_FRAME_SEQUENCE_ON_SPDY_STREAM,
                       "Unexpected DATA frame received.",
                       ConnectionCloseBehavior::SEND_CONNECTION_CLOSE_PACKET))
       .WillOnce(InvokeWithoutArgs([this]() { stream_->StopReading(); }));
@@ -2289,26 +2751,27 @@ TEST_P(QuicSpdyStreamTest, DataAfterTrailers) {
 // SETTINGS frames are invalid on bidirectional streams.  If one is received,
 // the connection is closed.  No more data should be processed.
 TEST_P(QuicSpdyStreamTest, StopProcessingIfConnectionClosed) {
-  if (!VersionUsesQpack(GetParam().transport_version)) {
+  if (!UsesHttp3()) {
     return;
   }
 
   Initialize(kShouldProcessData);
 
   // SETTINGS frame with empty payload.
-  std::string settings = QuicTextUtils::HexDecode("0400");
-  // HEADERS frame with QPACK encoded single header field "foo: bar".
+  std::string settings = quiche::QuicheTextUtils::HexDecode("0400");
+
+  // HEADERS frame.
   // Since it arrives after a SETTINGS frame, it should never be read.
-  std::string headers =
-      HeadersFrame(QuicTextUtils::HexDecode("00002a94e703626172"));
+  std::string headers = HeadersFrame({std::make_pair("foo", "bar")});
 
   // Combine the two frames to make sure they are processed in a single
   // QuicSpdyStream::OnDataAvailable() call.
-  std::string frames = QuicStrCat(settings, headers);
+  std::string frames = quiche::QuicheStrCat(settings, headers);
 
   EXPECT_EQ(0u, stream_->sequencer()->NumBytesConsumed());
 
-  EXPECT_CALL(*connection_, CloseConnection(QUIC_HTTP_DECODER_ERROR, _, _))
+  EXPECT_CALL(*connection_,
+              CloseConnection(QUIC_HTTP_FRAME_UNEXPECTED_ON_SPDY_STREAM, _, _))
       .WillOnce(
           Invoke(connection_, &MockQuicConnection::ReallyCloseConnection));
   EXPECT_CALL(*connection_, SendConnectionClosePacket(_, _));
@@ -2318,6 +2781,41 @@ TEST_P(QuicSpdyStreamTest, StopProcessingIfConnectionClosed) {
                                          /* offset = */ 0, frames));
 
   EXPECT_EQ(0u, stream_->sequencer()->NumBytesConsumed());
+}
+
+// Stream Cancellation instruction is sent on QPACK decoder stream
+// when stream is reset.
+TEST_P(QuicSpdyStreamTest, StreamCancellationWhenStreamReset) {
+  if (!UsesHttp3()) {
+    return;
+  }
+
+  Initialize(kShouldProcessData);
+
+  auto qpack_decoder_stream =
+      QuicSpdySessionPeer::GetQpackDecoderSendStream(session_.get());
+  EXPECT_CALL(*session_, WritevData(qpack_decoder_stream->id(), 1, 1, _, _, _));
+  EXPECT_CALL(*session_,
+              SendRstStream(stream_->id(), QUIC_STREAM_CANCELLED, 0));
+
+  stream_->Reset(QUIC_STREAM_CANCELLED);
+}
+
+// Stream Cancellation instruction is sent on QPACK decoder stream
+// when RESET_STREAM frame is received.
+TEST_P(QuicSpdyStreamTest, StreamCancellationOnResetReceived) {
+  if (!UsesHttp3()) {
+    return;
+  }
+
+  Initialize(kShouldProcessData);
+
+  auto qpack_decoder_stream =
+      QuicSpdySessionPeer::GetQpackDecoderSendStream(session_.get());
+  EXPECT_CALL(*session_, WritevData(qpack_decoder_stream->id(), 1, 1, _, _, _));
+
+  stream_->OnStreamReset(QuicRstStreamFrame(
+      kInvalidControlFrameId, stream_->id(), QUIC_STREAM_CANCELLED, 0));
 }
 
 }  // namespace

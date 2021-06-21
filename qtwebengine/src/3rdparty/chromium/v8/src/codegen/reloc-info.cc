@@ -329,7 +329,7 @@ bool RelocInfo::OffHeapTargetIsCodedSpecially() {
   return false;
 #elif defined(V8_TARGET_ARCH_IA32) || defined(V8_TARGET_ARCH_MIPS) || \
     defined(V8_TARGET_ARCH_MIPS64) || defined(V8_TARGET_ARCH_PPC) ||  \
-    defined(V8_TARGET_ARCH_S390)
+    defined(V8_TARGET_ARCH_PPC64) || defined(V8_TARGET_ARCH_S390)
   return true;
 #endif
 }
@@ -366,7 +366,7 @@ void RelocInfo::set_target_address(Address target,
   Assembler::set_target_address_at(pc_, constant_pool_, target,
                                    icache_flush_mode);
   if (write_barrier_mode == UPDATE_WRITE_BARRIER && !host().is_null() &&
-      IsCodeTargetMode(rmode_)) {
+      IsCodeTargetMode(rmode_) && !FLAG_disable_write_barriers) {
     Code target_code = Code::GetCodeFromTargetAddress(target);
     MarkingBarrierForCode(host(), this, target_code);
   }

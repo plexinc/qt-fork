@@ -29,7 +29,7 @@ GPUCanvasContext::GPUCanvasContext(
 
 GPUCanvasContext::~GPUCanvasContext() {}
 
-void GPUCanvasContext::Trace(blink::Visitor* visitor) {
+void GPUCanvasContext::Trace(Visitor* visitor) {
   visitor->Trace(swapchain_);
   CanvasRenderingContext::Trace(visitor);
 }
@@ -76,8 +76,21 @@ GPUSwapChain* GPUCanvasContext::configureSwapChain(
     // destroy all its resources (and produce errors when used).
     swapchain_->Neuter();
   }
-  swapchain_ = GPUSwapChain::Create(this, descriptor);
+  swapchain_ = MakeGarbageCollected<GPUSwapChain>(this, descriptor);
   return swapchain_;
+}
+
+ScriptPromise GPUCanvasContext::getSwapChainPreferredFormat(
+    ScriptState* script_state,
+    const GPUDevice* device) {
+  ScriptPromiseResolver* resolver =
+      MakeGarbageCollected<ScriptPromiseResolver>(script_state);
+  ScriptPromise promise = resolver->Promise();
+
+  // TODO(crbug.com/1007166): Return actual preferred format for the swap chain.
+  resolver->Resolve("bgra8unorm");
+
+  return promise;
 }
 
 }  // namespace blink

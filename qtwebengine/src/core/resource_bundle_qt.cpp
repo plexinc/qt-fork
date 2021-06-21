@@ -58,9 +58,9 @@ namespace ui {
 void ResourceBundle::LoadCommonResources()
 {
     // We repacked the resources we need and installed them. now let chromium mmap that file.
-    AddDataPackFromPath(WebEngineLibraryInfo::getPath(QT_RESOURCES_PAK), SCALE_FACTOR_NONE);
     AddDataPackFromPath(WebEngineLibraryInfo::getPath(QT_RESOURCES_100P_PAK), SCALE_FACTOR_100P);
     AddDataPackFromPath(WebEngineLibraryInfo::getPath(QT_RESOURCES_200P_PAK), SCALE_FACTOR_200P);
+    AddDataPackFromPath(WebEngineLibraryInfo::getPath(QT_RESOURCES_PAK), SCALE_FACTOR_NONE);
     AddOptionalDataPackFromPath(WebEngineLibraryInfo::getPath(QT_RESOURCES_DEVTOOLS_PAK), SCALE_FACTOR_NONE);
 }
 
@@ -87,7 +87,7 @@ bool ResourceBundle::LocaleDataPakExists(const std::string& locale)
     }
 #endif
 
-    return !GetLocaleFilePath(locale, true).empty();
+    return !GetLocaleFilePath(locale).empty();
 }
 
 std::string ResourceBundle::LoadLocaleResources(const std::string& pref_locale)
@@ -108,7 +108,7 @@ std::string ResourceBundle::LoadLocaleResources(const std::string& pref_locale)
 
     base::FilePath locale_file_path = GetOverriddenPakPath();
     if (locale_file_path.empty())
-        locale_file_path = GetLocaleFilePath(app_locale, true);
+        locale_file_path = GetLocaleFilePath(app_locale);
 
     if (locale_file_path.empty()) {
         // It's possible that there is no locale.pak.

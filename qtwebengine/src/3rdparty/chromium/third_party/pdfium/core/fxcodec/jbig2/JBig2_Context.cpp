@@ -22,6 +22,7 @@
 #include "core/fxcodec/jbig2/JBig2_PddProc.h"
 #include "core/fxcodec/jbig2/JBig2_SddProc.h"
 #include "core/fxcodec/jbig2/JBig2_TrdProc.h"
+#include "core/fxcrt/fx_memory_wrappers.h"
 #include "core/fxcrt/fx_safe_types.h"
 #include "core/fxcrt/pauseindicator_iface.h"
 #include "third_party/base/ptr_util.h"
@@ -330,7 +331,7 @@ JBig2_Result CJBig2_Context::ProcessingParseSegmentData(
       pPageInfo->m_bIsStriped = !!(wTemp & 0x8000);
       pPageInfo->m_wMaxStripeSize = wTemp & 0x7fff;
       bool bMaxHeight = (pPageInfo->m_dwHeight == 0xffffffff);
-      if (bMaxHeight && pPageInfo->m_bIsStriped != true)
+      if (bMaxHeight && !pPageInfo->m_bIsStriped)
         pPageInfo->m_bIsStriped = true;
 
       if (!m_bBufSpecified) {

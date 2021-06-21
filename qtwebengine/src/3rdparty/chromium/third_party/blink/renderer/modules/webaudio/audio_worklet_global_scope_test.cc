@@ -67,19 +67,19 @@ class AudioWorkletGlobalScopeTest : public PageTestBase {
     Document* document = &GetDocument();
     thread->Start(
         std::make_unique<GlobalScopeCreationParams>(
-            document->Url(), mojom::ScriptType::kModule,
-            OffMainThreadWorkerScriptFetchOption::kEnabled, "AudioWorklet",
-            document->UserAgent(), nullptr /* web_worker_fetch_context */,
-            Vector<CSPHeaderAndType>(), document->GetReferrerPolicy(),
-            document->GetSecurityOrigin(), document->IsSecureContext(),
-            document->GetHttpsState(), nullptr /* worker_clients */,
-            document->AddressSpace(),
-            OriginTrialContext::GetTokens(document).get(),
+            document->Url(), mojom::blink::ScriptType::kModule, "AudioWorklet",
+            document->UserAgent(),
+            document->GetFrame()->Loader().UserAgentMetadata(),
+            nullptr /* web_worker_fetch_context */, Vector<CSPHeaderAndType>(),
+            document->GetReferrerPolicy(), document->GetSecurityOrigin(),
+            document->IsSecureContext(), document->GetHttpsState(),
+            nullptr /* worker_clients */, nullptr /* content_settings_client */,
+            document->GetSecurityContext().AddressSpace(),
+            OriginTrialContext::GetTokens(document->ToExecutionContext()).get(),
             base::UnguessableToken::Create(), nullptr /* worker_settings */,
             kV8CacheOptionsDefault,
             MakeGarbageCollected<WorkletModuleResponsesMap>()),
-        base::nullopt, std::make_unique<WorkerDevToolsParams>(),
-        ParentExecutionContextTaskRunners::Create());
+        base::nullopt, std::make_unique<WorkerDevToolsParams>());
     return thread;
   }
 
@@ -136,14 +136,16 @@ class AudioWorkletGlobalScopeTest : public PageTestBase {
         global_scope->ScriptController()->GetScriptState();
     EXPECT_TRUE(script_state);
     KURL js_url("https://example.com/worklet.js");
-    ModuleRecord module = ModuleRecord::Compile(
+    v8::Local<v8::Module> module = ModuleRecord::Compile(
         script_state->GetIsolate(), source_code, js_url, js_url,
         ScriptFetchOptions(), TextPosition::MinimumPosition(),
         ASSERT_NO_EXCEPTION);
-    EXPECT_FALSE(module.IsNull());
-    ScriptValue exception = module.Instantiate(script_state);
+    EXPECT_FALSE(module.IsEmpty());
+    ScriptValue exception =
+        ModuleRecord::Instantiate(script_state, module, js_url);
     EXPECT_TRUE(exception.IsEmpty());
-    ScriptValue value = module.Evaluate(script_state);
+
+    ScriptValue value = ModuleRecord::Evaluate(script_state, module, js_url);
     return value.IsEmpty();
   }
 
@@ -289,7 +291,7 @@ class AudioWorkletGlobalScopeTest : public PageTestBase {
                                       SerializedScriptValue::NullValue());
     EXPECT_TRUE(processor);
 
-    Vector<AudioBus*> input_buses;
+    Vector<scoped_refptr<AudioBus>> input_buses;
     Vector<AudioBus*> output_buses;
     HashMap<String, std::unique_ptr<AudioFloatArray>> param_data_map;
     scoped_refptr<AudioBus> input_bus =

@@ -13,14 +13,21 @@
 #include "include/core/SkFlattenable.h"
 #include "include/core/SkRefCnt.h"
 
-class GrColorSpaceInfo;
+class GrColorInfo;
 class GrFragmentProcessor;
 class GrRecordingContext;
+class SkArenaAlloc;
 class SkBitmap;
 class SkColorMatrix;
 class SkColorSpace;
 struct SkStageRec;
-class SkString;
+
+namespace skvm {
+    class Builder;
+    struct F32;
+    struct Uniforms;
+    struct Color;
+}
 
 /**
  *  ColorFilters are optional objects in the drawing pipeline. When present in
@@ -56,6 +63,9 @@ public:
 
     bool appendStages(const SkStageRec& rec, bool shaderIsOpaque) const;
 
+    skvm::Color program(skvm::Builder*, skvm::Color,
+                        SkColorSpace* dstCS, skvm::Uniforms*, SkArenaAlloc*) const;
+
     enum Flags {
         /** If set the filter methods will not change the alpha channel of the colors.
         */
@@ -67,15 +77,18 @@ public:
     virtual uint32_t getFlags() const { return 0; }
 
     SkColor filterColor(SkColor) const;
-    SkColor4f filterColor4f(const SkColor4f&, SkColorSpace*) const;
+
+    /**
+     * Converts the src color (in src colorspace), into the dst colorspace,
+     * then applies this filter to it, returning the filtered color in the dst colorspace.
+     */
+    SkColor4f filterColor4f(const SkColor4f& srcColor, SkColorSpace* srcCS,
+                            SkColorSpace* dstCS) const;
 
     /** Construct a colorfilter whose effect is to first apply the inner filter and then apply
      *  this filter, applied to the output of the inner filter.
      *
      *  result = this(inner(...))
-     *
-     *  Due to internal limits, it is possible that this will return NULL, so the caller must
-     *  always check.
      */
     sk_sp<SkColorFilter> makeComposed(sk_sp<SkColorFilter> inner) const;
 
@@ -90,7 +103,7 @@ public:
      *  A null return indicates that the color filter isn't implemented for the GPU backend.
      */
     virtual std::unique_ptr<GrFragmentProcessor> asFragmentProcessor(
-            GrRecordingContext*, const GrColorSpaceInfo& dstColorSpaceInfo) const;
+            GrRecordingContext*, const GrColorInfo& dstColorInfo) const;
 #endif
 
     bool affectsTransparentBlack() const {
@@ -121,18 +134,10 @@ protected:
     virtual bool onAsAColorMode(SkColor* color, SkBlendMode* bmode) const;
 
 private:
-    /*
-     *  Returns 1 if this is a single filter (not a composition of other filters), otherwise it
-     *  reutrns the number of leaf-node filters in a composition. This should be the same value
-     *  as the number of GrFragmentProcessors returned by asFragmentProcessors's array parameter.
-     *
-     *  e.g. compose(filter, compose(compose(filter, filter), filter)) --> 4
-     */
-    virtual int privateComposedFilterCount() const { return 1; }
-
     virtual bool onAppendStages(const SkStageRec& rec, bool shaderIsOpaque) const = 0;
 
-    friend class SkComposeColorFilter;
+    virtual skvm::Color onProgram(skvm::Builder*, skvm::Color,
+                                  SkColorSpace* dstCS, skvm::Uniforms*, SkArenaAlloc*) const = 0;
 
     typedef SkFlattenable INHERITED;
 };
@@ -145,6 +150,10 @@ public:
     static sk_sp<SkColorFilter> Blend(SkColor c, SkBlendMode mode);
     static sk_sp<SkColorFilter> Matrix(const SkColorMatrix&);
     static sk_sp<SkColorFilter> Matrix(const float rowMajor[20]);
+
+    // A version of Matrix which operates in HSLA space instead of RGBA.
+    // I.e. HSLA-to-RGBA(Matrix(RGBA-to-HSLA(input))).
+    static sk_sp<SkColorFilter> HSLAMatrix(const float rowMajor[20]);
 
     static sk_sp<SkColorFilter> LinearToSRGBGamma();
     static sk_sp<SkColorFilter> SRGBToLinearGamma();

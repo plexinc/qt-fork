@@ -11,10 +11,10 @@
 #include "third_party/blink/public/platform/web_string.h"
 #include "third_party/blink/renderer/bindings/core/v8/callback_promise_adapter.h"
 #include "third_party/blink/renderer/bindings/core/v8/serialization/post_message_helper.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_post_message_options.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/messaging/blink_transferable_message.h"
 #include "third_party/blink/renderer/core/messaging/message_port.h"
-#include "third_party/blink/renderer/core/messaging/post_message_options.h"
 #include "third_party/blink/renderer/modules/service_worker/service_worker_global_scope.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/bindings/script_state.h"
@@ -22,17 +22,13 @@
 
 namespace blink {
 
-ServiceWorkerClient* ServiceWorkerClient::Create(
-    const mojom::blink::ServiceWorkerClientInfo& info) {
-  return MakeGarbageCollected<ServiceWorkerClient>(info);
-}
-
 ServiceWorkerClient::ServiceWorkerClient(
     const mojom::blink::ServiceWorkerClientInfo& info)
     : uuid_(info.client_uuid),
       url_(info.url.GetString()),
       type_(info.client_type),
-      frame_type_(info.frame_type) {}
+      frame_type_(info.frame_type),
+      lifecycle_state_(info.lifecycle_state) {}
 
 ServiceWorkerClient::~ServiceWorkerClient() = default;
 
@@ -57,14 +53,26 @@ String ServiceWorkerClient::frameType(ScriptState* script_state) const {
   UseCounter::Count(ExecutionContext::From(script_state),
                     WebFeature::kServiceWorkerClientFrameType);
   switch (frame_type_) {
-    case network::mojom::RequestContextFrameType::kAuxiliary:
+    case mojom::RequestContextFrameType::kAuxiliary:
       return "auxiliary";
-    case network::mojom::RequestContextFrameType::kNested:
+    case mojom::RequestContextFrameType::kNested:
       return "nested";
-    case network::mojom::RequestContextFrameType::kNone:
+    case mojom::RequestContextFrameType::kNone:
       return "none";
-    case network::mojom::RequestContextFrameType::kTopLevel:
+    case mojom::RequestContextFrameType::kTopLevel:
       return "top-level";
+  }
+
+  NOTREACHED();
+  return String();
+}
+
+String ServiceWorkerClient::lifecycleState() const {
+  switch (lifecycle_state_) {
+    case mojom::ServiceWorkerClientLifecycleState::kActive:
+      return "active";
+    case mojom::ServiceWorkerClientLifecycleState::kFrozen:
+      return "frozen";
   }
 
   NOTREACHED();
@@ -73,7 +81,7 @@ String ServiceWorkerClient::frameType(ScriptState* script_state) const {
 
 void ServiceWorkerClient::postMessage(ScriptState* script_state,
                                       const ScriptValue& message,
-                                      Vector<ScriptValue>& transfer,
+                                      HeapVector<ScriptValue>& transfer,
                                       ExceptionState& exception_state) {
   PostMessageOptions* options = PostMessageOptions::Create();
   if (!transfer.IsEmpty())
@@ -98,10 +106,17 @@ void ServiceWorkerClient::postMessage(ScriptState* script_state,
 
   BlinkTransferableMessage msg;
   msg.message = serialized_message;
+  msg.sender_origin = context->GetSecurityOrigin()->IsolatedCopy();
   msg.ports = MessagePort::DisentanglePorts(
       context, transferables.message_ports, exception_state);
   if (exception_state.HadException())
     return;
+
+  if (msg.message->IsLockedToAgentCluster()) {
+    msg.locked_agent_cluster_id = context->GetAgentClusterID();
+  } else {
+    msg.locked_agent_cluster_id = base::nullopt;
+  }
 
   To<ServiceWorkerGlobalScope>(context)
       ->GetServiceWorkerHost()

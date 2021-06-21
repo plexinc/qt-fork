@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "base/macros.h"
+#include "base/sequence_checker.h"
 #include "net/base/net_export.h"
 #include "net/dns/host_resolver.h"
 
@@ -19,10 +20,10 @@ class TickClock;
 
 namespace net {
 
-struct DnsConfig;
 class HostCache;
 class HostResolverManager;
 struct ProcTaskParams;
+class ResolveContext;
 class URLRequestContext;
 
 // Wrapper for HostResolverManager, expected to be owned by a URLRequestContext,
@@ -34,20 +35,22 @@ class NET_EXPORT ContextHostResolver : public HostResolver {
  public:
   // Creates a ContextHostResolver that forwards all of its requests through
   // |manager|. Requests will be cached using |host_cache| if not null.
-  explicit ContextHostResolver(HostResolverManager* manager,
-                               std::unique_ptr<HostCache> host_cache);
+  ContextHostResolver(HostResolverManager* manager,
+                      std::unique_ptr<ResolveContext> resolve_context);
   // Same except the created resolver will own its own HostResolverManager.
-  explicit ContextHostResolver(
-      std::unique_ptr<HostResolverManager> owned_manager,
-      std::unique_ptr<HostCache> host_cache);
+  ContextHostResolver(std::unique_ptr<HostResolverManager> owned_manager,
+                      std::unique_ptr<ResolveContext> resolve_context);
   ~ContextHostResolver() override;
 
   // HostResolver methods:
+  void OnShutdown() override;
   std::unique_ptr<ResolveHostRequest> CreateRequest(
       const HostPortPair& host,
+      const NetworkIsolationKey& network_isolation_key,
       const NetLogWithSource& net_log,
       const base::Optional<ResolveHostParameters>& optional_parameters)
       override;
+  std::unique_ptr<ProbeRequest> CreateDohProbeRequest() override;
   std::unique_ptr<MdnsListener> CreateMdnsListener(
       const HostPortPair& host,
       DnsQueryType query_type) override;
@@ -64,25 +67,33 @@ class NET_EXPORT ContextHostResolver : public HostResolver {
   size_t CacheSize() const;
 
   void SetProcParamsForTesting(const ProcTaskParams& proc_params);
-  void SetBaseDnsConfigForTesting(const DnsConfig& base_config);
   void SetTickClockForTesting(const base::TickClock* tick_clock);
 
   size_t GetNumActiveRequestsForTesting() const {
-    return active_requests_.size();
+    return handed_out_requests_.size();
   }
 
  private:
   class WrappedRequest;
+  class WrappedResolveHostRequest;
+  class WrappedProbeRequest;
 
   HostResolverManager* const manager_;
   std::unique_ptr<HostResolverManager> owned_manager_;
 
   // Requests are expected to clear themselves from this set on destruction or
-  // cancellation.
-  std::unordered_set<WrappedRequest*> active_requests_;
+  // cancellation.  Requests in an early shutdown state (from
+  // HostResolver::OnShutdown()) are still in this set, so they can be notified
+  // on resolver destruction.
+  std::unordered_set<WrappedRequest*> handed_out_requests_;
 
-  URLRequestContext* context_ = nullptr;
-  std::unique_ptr<HostCache> host_cache_;
+  std::unique_ptr<ResolveContext> resolve_context_;
+
+  // If true, the context is shutting down. Subsequent request Start() calls
+  // will always fail immediately with ERR_CONTEXT_SHUT_DOWN.
+  bool shutting_down_ = false;
+
+  SEQUENCE_CHECKER(sequence_checker_);
 
   DISALLOW_COPY_AND_ASSIGN(ContextHostResolver);
 };

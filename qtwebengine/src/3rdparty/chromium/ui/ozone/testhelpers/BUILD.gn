@@ -4,12 +4,10 @@
 
 static_library("mock_gesture_properties_service") {
   testonly = true
-  sources = [
-    "mock_gesture_properties_service.h",
-  ]
+  sources = [ "mock_gesture_properties_service.h" ]
   public_deps = [
     "//testing/gmock",
     "//third_party/googletest:gmock",
-    "//ui/ozone/public/interfaces:gesture_properties_service",
+    "//ui/ozone/public/mojom:gesture_properties_service",
   ]
 }

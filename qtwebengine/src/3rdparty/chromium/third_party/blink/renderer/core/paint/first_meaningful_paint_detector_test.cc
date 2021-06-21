@@ -5,12 +5,10 @@
 #include "third_party/blink/renderer/core/paint/first_meaningful_paint_detector.h"
 
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/blink/public/platform/web_layer_tree_view.h"
 #include "third_party/blink/renderer/core/paint/paint_event.h"
 #include "third_party/blink/renderer/core/paint/paint_timing.h"
 #include "third_party/blink/renderer/core/testing/page_test_base.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
-#include "third_party/blink/renderer/platform/wtf/time.h"
 
 namespace blink {
 
@@ -51,7 +49,7 @@ class FirstMeaningfulPaintDetectorTest : public PageTestBase {
     for (int i = 0; i < new_elements; i++)
       builder.Append("<span>a</span>");
     GetDocument().write(builder.ToString());
-    GetDocument().UpdateStyleAndLayout();
+    GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kTest);
     Detector().NotifyPaint();
   }
 
@@ -64,15 +62,14 @@ class FirstMeaningfulPaintDetectorTest : public PageTestBase {
 
   void ClearFirstPaintSwapPromise() {
     platform()->AdvanceClock(base::TimeDelta::FromMilliseconds(1));
-    GetPaintTiming().ReportSwapTime(
-        PaintEvent::kFirstPaint, WebWidgetClient::SwapResult::kDidSwap, Now());
+    GetPaintTiming().ReportSwapTime(PaintEvent::kFirstPaint,
+                                    WebSwapResult::kDidSwap, Now());
   }
 
   void ClearFirstContentfulPaintSwapPromise() {
     platform()->AdvanceClock(base::TimeDelta::FromMilliseconds(1));
     GetPaintTiming().ReportSwapTime(PaintEvent::kFirstContentfulPaint,
-                                    WebWidgetClient::SwapResult::kDidSwap,
-                                    Now());
+                                    WebSwapResult::kDidSwap, Now());
   }
 
   void ClearProvisionalFirstMeaningfulPaintSwapPromise() {
@@ -83,7 +80,7 @@ class FirstMeaningfulPaintDetectorTest : public PageTestBase {
   void ClearProvisionalFirstMeaningfulPaintSwapPromise(
       base::TimeTicks timestamp) {
     Detector().ReportSwapTime(PaintEvent::kProvisionalFirstMeaningfulPaint,
-                              WebWidgetClient::SwapResult::kDidSwap, timestamp);
+                              WebSwapResult::kDidSwap, timestamp);
   }
 
   unsigned OutstandingDetectorSwapPromiseCount() {

@@ -74,7 +74,7 @@ class RemoteSetImpl {
       return result;
     }
 
-    RemoteSetElementId id() const { return it_.first; }
+    RemoteSetElementId id() const { return it_->first; }
 
     reference operator*() const { return it_->second; }
     pointer operator->() const { return &it_->second; }
@@ -121,6 +121,8 @@ class RemoteSetImpl {
   void Clear() { storage_.clear(); }
 
   bool empty() const { return storage_.empty(); }
+  size_t size() const { return storage_.size(); }
+
   Iterator begin() { return Iterator(storage_.begin()); }
   Iterator begin() const { return Iterator(storage_.begin()); }
   Iterator end() { return Iterator(storage_.end()); }
@@ -134,7 +136,7 @@ class RemoteSetImpl {
 
  private:
   RemoteSetElementId GenerateNextElementId() {
-    return RemoteSetElementId::FromUnsafeValue(next_element_id_++);
+    return remote_set_element_id_generator_.GenerateNextId();
   }
 
   void OnDisconnect(RemoteSetElementId id) {
@@ -143,7 +145,7 @@ class RemoteSetImpl {
       disconnect_handler_.Run(id);
   }
 
-  uint32_t next_element_id_ = 1;
+  RemoteSetElementId::Generator remote_set_element_id_generator_;
   Storage storage_;
   DisconnectHandler disconnect_handler_;
 

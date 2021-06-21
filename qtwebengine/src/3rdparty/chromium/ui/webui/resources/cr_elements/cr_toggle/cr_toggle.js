@@ -22,6 +22,12 @@ Polymer({
       notify: true,
     },
 
+    dark: {
+      type: Boolean,
+      value: false,
+      reflectToAttribute: true,
+    },
+
     disabled: {
       type: Boolean,
       value: false,
@@ -41,7 +47,8 @@ Polymer({
     blur: 'hideRipple_',
     click: 'onClick_',
     focus: 'onFocus_',
-    keypress: 'onKeyPress_',
+    keydown: 'onKeyDown_',
+    keyup: 'onKeyUp_',
     pointerdown: 'onPointerDown_',
     pointerup: 'onPointerUp_',
   },
@@ -64,7 +71,7 @@ Polymer({
   handledInPointerMove_: false,
 
   /** @override */
-  attached: function() {
+  attached() {
     const direction =
         this.matches(':host-context([dir=rtl]) cr-toggle') ? -1 : 1;
 
@@ -83,34 +90,34 @@ Polymer({
       const shouldToggle = (diff * direction < 0 && this.checked) ||
           (diff * direction > 0 && !this.checked);
       if (shouldToggle) {
-        this.toggleState_(false);
+        this.toggleState_(/* fromKeyboard= */ false);
       }
     };
   },
 
   /** @private */
-  checkedChanged_: function() {
+  checkedChanged_() {
     this.setAttribute('aria-pressed', this.checked ? 'true' : 'false');
   },
 
   /** @private */
-  disabledChanged_: function() {
+  disabledChanged_() {
     this.setAttribute('tabindex', this.disabled ? -1 : 0);
     this.setAttribute('aria-disabled', this.disabled ? 'true' : 'false');
   },
 
   /** @private */
-  onFocus_: function() {
+  onFocus_() {
     this.getRipple().showAndHoldDown();
   },
 
   /** @private */
-  hideRipple_: function() {
+  hideRipple_() {
     this.getRipple().clear();
   },
 
   /** @private */
-  onPointerUp_: function() {
+  onPointerUp_() {
     this.removeEventListener('pointermove', this.boundPointerMove_);
     this.hideRipple_();
   },
@@ -119,9 +126,9 @@ Polymer({
    * @param {!PointerEvent} e
    * @private
    */
-  onPointerDown_: function(e) {
+  onPointerDown_(e) {
     // Don't do anything if this was not a primary button click or touch event.
-    if (e.button != 0) {
+    if (e.button !== 0) {
       return;
     }
 
@@ -137,17 +144,11 @@ Polymer({
    * @param {!Event} e
    * @private
    */
-  onClick_: function(e) {
+  onClick_(e) {
     // Prevent |click| event from bubbling. It can cause parents of this
     // elements to erroneously re-toggle this control.
     e.stopPropagation();
     e.preventDefault();
-
-    // Ignore case where 'click' handler is triggered while disabled. Can happen
-    // via calling the click() method.
-    if (this.disabled) {
-      return;
-    }
 
     // User gesture has already been taken care of inside |pointermove|
     // handlers, Do nothing here.
@@ -157,20 +158,25 @@ Polymer({
 
     // If no pointermove event fired, then user just clicked on the
     // toggle button and therefore it should be toggled.
-    this.toggleState_(false);
+    this.toggleState_(/* fromKeyboard= */ false);
   },
 
   /**
    * @param {boolean} fromKeyboard
    * @private
    */
-  toggleState_: function(fromKeyboard) {
-    this.checked = !this.checked;
+  toggleState_(fromKeyboard) {
+    // Ignore cases where the 'click' or 'keypress' handlers are triggered while
+    // disabled.
+    if (this.disabled) {
+      return;
+    }
 
     if (!fromKeyboard) {
       this.hideRipple_();
     }
 
+    this.checked = !this.checked;
     this.fire('change', this.checked);
   },
 
@@ -178,15 +184,41 @@ Polymer({
    * @param {!KeyboardEvent} e
    * @private
    */
-  onKeyPress_: function(e) {
-    if (e.key == ' ' || e.key == 'Enter') {
-      e.preventDefault();
-      this.toggleState_(true);
+  onKeyDown_(e) {
+    if (e.key !== ' ' && e.key !== 'Enter') {
+      return;
+    }
+
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.repeat) {
+      return;
+    }
+
+    if (e.key === 'Enter') {
+      this.toggleState_(/* fromKeyboard= */ true);
+    }
+  },
+
+  /**
+   * @param {!KeyboardEvent} e
+   * @private
+   */
+  onKeyUp_(e) {
+    if (e.key !== ' ' && e.key !== 'Enter') {
+      return;
+    }
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (e.key === ' ') {
+      this.toggleState_(/* fromKeyboard= */ true);
     }
   },
 
   // customize the element's ripple
-  _createRipple: function() {
+  _createRipple() {
     this._rippleContainer = this.$.knob;
     const ripple = Polymer.PaperRippleBehavior._createRipple();
     ripple.id = 'ink';

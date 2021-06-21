@@ -5,6 +5,7 @@
 #include "ui/views/animation/square_ink_drop_ripple.h"
 
 #include <algorithm>
+#include <utility>
 
 #include "base/logging.h"
 #include "ui/compositor/layer.h"
@@ -110,24 +111,6 @@ enum InkDropSubAnimations {
 // The scale factor used to burst the ACTION_TRIGGERED bubble as it fades out.
 constexpr float kQuickActionBurstScale = 1.3f;
 
-// Duration constants for InkDropStateSubAnimations. See the
-// InkDropStateSubAnimations enum documentation for more info.
-int kAnimationDurationInMs[] = {
-    150,  // HIDDEN_FADE_OUT
-    200,  // HIDDEN_TRANSFORM
-    0,    // ACTION_PENDING_FADE_IN
-    160,  // ACTION_PENDING_TRANSFORM
-    150,  // ACTION_TRIGGERED_FADE_OUT
-    160,  // ACTION_TRIGGERED_TRANSFORM
-    200,  // ALTERNATE_ACTION_PENDING
-    150,  // ALTERNATE_ACTION_TRIGGERED_FADE_OUT
-    200,  // ALTERNATE_ACTION_TRIGGERED_TRANSFORM
-    200,  // ACTIVATED_CIRCLE_TRANSFORM
-    160,  // ACTIVATED_RECT_TRANSFORM
-    150,  // DEACTIVATED_FADE_OUT
-    200,  // DEACTIVATED_TRANSFORM
-};
-
 // Returns the InkDropState sub animation duration for the given |state|.
 base::TimeDelta GetAnimationDuration(InkDropSubAnimations state) {
   if (!PlatformStyle::kUseRipples ||
@@ -135,7 +118,24 @@ base::TimeDelta GetAnimationDuration(InkDropSubAnimations state) {
     return base::TimeDelta();
   }
 
-  return base::TimeDelta::FromMilliseconds(kAnimationDurationInMs[state]);
+  // Duration constants for InkDropStateSubAnimations. See the
+  // InkDropStateSubAnimations enum documentation for more info.
+  constexpr base::TimeDelta kAnimationDuration[] = {
+      base::TimeDelta::FromMilliseconds(150),  // HIDDEN_FADE_OUT
+      base::TimeDelta::FromMilliseconds(200),  // HIDDEN_TRANSFORM
+      base::TimeDelta(),                       // ACTION_PENDING_FADE_IN
+      base::TimeDelta::FromMilliseconds(160),  // ACTION_PENDING_TRANSFORM
+      base::TimeDelta::FromMilliseconds(150),  // ACTION_TRIGGERED_FADE_OUT
+      base::TimeDelta::FromMilliseconds(160),  // ACTION_TRIGGERED_TRANSFORM
+      base::TimeDelta::FromMilliseconds(200),  // ALTERNATE_ACTION_PENDING
+      base::TimeDelta::FromMilliseconds(150),  // ALTERNAT..._TRIGGERED_FADE_OUT
+      base::TimeDelta::FromMilliseconds(200),  // ALTERNA..._TRIGGERED_TRANSFORM
+      base::TimeDelta::FromMilliseconds(200),  // ACTIVATED_CIRCLE_TRANSFORM
+      base::TimeDelta::FromMilliseconds(160),  // ACTIVATED_RECT_TRANSFORM
+      base::TimeDelta::FromMilliseconds(150),  // DEACTIVATED_FADE_OUT
+      base::TimeDelta::FromMilliseconds(200),  // DEACTIVATED_TRANSFORM
+  };
+  return kAnimationDuration[state];
 }
 
 }  // namespace
@@ -147,7 +147,7 @@ SquareInkDropRipple::SquareInkDropRipple(const gfx::Size& large_size,
                                          const gfx::Point& center_point,
                                          SkColor color,
                                          float visible_opacity)
-    : activated_shape_(ROUNDED_RECT),
+    : activated_shape_(ActivatedShape::kRoundedRect),
       visible_opacity_(visible_opacity),
       large_size_(large_size),
       large_corner_radius_(large_corner_radius),
@@ -160,7 +160,7 @@ SquareInkDropRipple::SquareInkDropRipple(const gfx::Size& large_size,
       rect_layer_delegate_(
           new RectangleLayerDelegate(color, gfx::SizeF(large_size_))),
       root_layer_(ui::LAYER_NOT_DRAWN) {
-  root_layer_.set_name("SquareInkDropRipple:ROOT_LAYER");
+  root_layer_.SetName("SquareInkDropRipple:ROOT_LAYER");
 
   for (int i = 0; i < PAINTED_SHAPE_COUNT; ++i)
     AddPaintLayer(static_cast<PaintedShape>(i));
@@ -310,15 +310,17 @@ void SquareInkDropRipple::AnimateStateChange(
       AnimateToOpacity(visible_opacity_, visible_duration,
                        ui::LayerAnimator::IMMEDIATELY_ANIMATE_TO_NEW_TARGET,
                        gfx::Tween::EASE_IN_OUT, animation_observer);
-      AnimateToOpacity(kHiddenOpacity, GetAnimationDuration(
-                                           ALTERNATE_ACTION_TRIGGERED_FADE_OUT),
-                       ui::LayerAnimator::ENQUEUE_NEW_ANIMATION,
-                       gfx::Tween::EASE_IN_OUT, animation_observer);
+      AnimateToOpacity(
+          kHiddenOpacity,
+          GetAnimationDuration(ALTERNATE_ACTION_TRIGGERED_FADE_OUT),
+          ui::LayerAnimator::ENQUEUE_NEW_ANIMATION, gfx::Tween::EASE_IN_OUT,
+          animation_observer);
       CalculateRectTransforms(large_size_, large_corner_radius_, &transforms);
-      AnimateToTransforms(transforms, GetAnimationDuration(
-                                          ALTERNATE_ACTION_TRIGGERED_TRANSFORM),
-                          ui::LayerAnimator::IMMEDIATELY_ANIMATE_TO_NEW_TARGET,
-                          gfx::Tween::EASE_IN_OUT, animation_observer);
+      AnimateToTransforms(
+          transforms,
+          GetAnimationDuration(ALTERNATE_ACTION_TRIGGERED_TRANSFORM),
+          ui::LayerAnimator::IMMEDIATELY_ANIMATE_TO_NEW_TARGET,
+          gfx::Tween::EASE_IN_OUT, animation_observer);
       break;
     }
     case InkDropState::ACTIVATED: {
@@ -543,10 +545,10 @@ void SquareInkDropRipple::GetCurrentTransforms(
 void SquareInkDropRipple::GetActivatedTargetTransforms(
     InkDropTransforms* transforms_out) const {
   switch (activated_shape_) {
-    case CIRCLE:
+    case ActivatedShape::kCircle:
       CalculateCircleTransforms(small_size_, transforms_out);
       break;
-    case ROUNDED_RECT:
+    case ActivatedShape::kRoundedRect:
       CalculateRectTransforms(small_size_, small_corner_radius_,
                               transforms_out);
       break;
@@ -556,10 +558,10 @@ void SquareInkDropRipple::GetActivatedTargetTransforms(
 void SquareInkDropRipple::GetDeactivatedTargetTransforms(
     InkDropTransforms* transforms_out) const {
   switch (activated_shape_) {
-    case CIRCLE:
+    case ActivatedShape::kCircle:
       CalculateCircleTransforms(large_size_, transforms_out);
       break;
-    case ROUNDED_RECT:
+    case ActivatedShape::kRoundedRect:
       CalculateRectTransforms(large_size_, small_corner_radius_,
                               transforms_out);
       break;
@@ -593,7 +595,7 @@ void SquareInkDropRipple::AddPaintLayer(PaintedShape painted_shape) {
   layer->SetVisible(true);
   layer->SetOpacity(1.0);
   layer->SetMasksToBounds(false);
-  layer->set_name("PAINTED_SHAPE_COUNT:" + ToLayerName(painted_shape));
+  layer->SetName("PAINTED_SHAPE_COUNT:" + ToLayerName(painted_shape));
 
   painted_layers_[painted_shape].reset(layer);
 }

@@ -53,7 +53,6 @@ QT_BEGIN_NAMESPACE
 using namespace QtWebEngineCore;
 
 ASSERT_ENUMS_MATCH(CertificateErrorController::SslPinnedKeyNotInCertificateChain, net::ERR_SSL_PINNED_KEY_NOT_IN_CERT_CHAIN)
-ASSERT_ENUMS_MATCH(CertificateErrorController::CertificateCommonNameInvalid, net::ERR_CERT_BEGIN)
 ASSERT_ENUMS_MATCH(CertificateErrorController::CertificateCommonNameInvalid, net::ERR_CERT_COMMON_NAME_INVALID)
 ASSERT_ENUMS_MATCH(CertificateErrorController::CertificateDateInvalid, net::ERR_CERT_DATE_INVALID)
 ASSERT_ENUMS_MATCH(CertificateErrorController::CertificateAuthorityInvalid, net::ERR_CERT_AUTHORITY_INVALID)
@@ -68,11 +67,13 @@ ASSERT_ENUMS_MATCH(CertificateErrorController::CertificateNameConstraintViolatio
 ASSERT_ENUMS_MATCH(CertificateErrorController::CertificateValidityTooLong, net::ERR_CERT_VALIDITY_TOO_LONG)
 ASSERT_ENUMS_MATCH(CertificateErrorController::CertificateTransparencyRequired, net::ERR_CERTIFICATE_TRANSPARENCY_REQUIRED)
 ASSERT_ENUMS_MATCH(CertificateErrorController::CertificateSymantecLegacy, net::ERR_CERT_SYMANTEC_LEGACY)
+ASSERT_ENUMS_MATCH(CertificateErrorController::CertificateKnownInterceptionBlocked, net::ERR_CERT_KNOWN_INTERCEPTION_BLOCKED)
+ASSERT_ENUMS_MATCH(CertificateErrorController::SslObsoleteVersion, net::ERR_SSL_OBSOLETE_VERSION)
 ASSERT_ENUMS_MATCH(CertificateErrorController::CertificateErrorEnd, net::ERR_CERT_END)
 
 void CertificateErrorControllerPrivate::accept(bool accepted)
 {
-    callback.Run(accepted ? content::CERTIFICATE_REQUEST_RESULT_TYPE_CONTINUE : content::CERTIFICATE_REQUEST_RESULT_TYPE_DENY);
+    std::move(callback).Run(accepted ? content::CERTIFICATE_REQUEST_RESULT_TYPE_CONTINUE : content::CERTIFICATE_REQUEST_RESULT_TYPE_DENY);
 }
 
 CertificateErrorControllerPrivate::CertificateErrorControllerPrivate(int cert_error,
@@ -81,14 +82,14 @@ CertificateErrorControllerPrivate::CertificateErrorControllerPrivate(int cert_er
                                                                      bool main_frame,
                                                                      bool fatal_error,
                                                                      bool strict_enforcement,
-                                                                     const base::Callback<void(content::CertificateRequestResultType)>& cb
+                                                                     base::OnceCallback<void(content::CertificateRequestResultType)> cb
                                                                     )
     : certError(CertificateErrorController::CertificateError(cert_error))
     , requestUrl(toQt(request_url))
     , resourceType(main_frame ? CertificateErrorController::ResourceTypeMainFrame : CertificateErrorController::ResourceTypeOther)
     , fatalError(fatal_error)
     , strictEnforcement(strict_enforcement)
-    , callback(cb)
+    , callback(std::move(cb))
 {
     if (auto cert = ssl_info.cert.get()) {
         validStart = toQt(cert->valid_start());
@@ -158,11 +159,13 @@ QString CertificateErrorController::errorString() const
         else
             return getQStringForMessageId(IDS_CERT_ERROR_NOT_YET_VALID_DESCRIPTION);
     case CertificateAuthorityInvalid:
+    case CertificateKnownInterceptionBlocked:
+    case CertificateSymantecLegacy:
         return getQStringForMessageId(IDS_CERT_ERROR_AUTHORITY_INVALID_DESCRIPTION);
     case CertificateContainsErrors:
         return getQStringForMessageId(IDS_CERT_ERROR_CONTAINS_ERRORS_DESCRIPTION);
     case CertificateNoRevocationMechanism:
-        return getQStringForMessageId(IDS_CERT_ERROR_NO_REVOCATION_MECHANISM_DETAILS);
+        return getQStringForMessageId(IDS_CERT_ERROR_NO_REVOCATION_MECHANISM_DESCRIPTION);
     case CertificateRevoked:
         return getQStringForMessageId(IDS_CERT_ERROR_REVOKED_CERT_DESCRIPTION);
     case CertificateInvalid:
@@ -179,6 +182,8 @@ QString CertificateErrorController::errorString() const
         return getQStringForMessageId(IDS_CERT_ERROR_VALIDITY_TOO_LONG_DESCRIPTION);
     case CertificateTransparencyRequired:
         return getQStringForMessageId(IDS_CERT_ERROR_CERTIFICATE_TRANSPARENCY_REQUIRED_DESCRIPTION);
+    case SslObsoleteVersion:
+        return getQStringForMessageId(IDS_SSL_ERROR_OBSOLETE_VERSION_DESCRIPTION);
     case CertificateUnableToCheckRevocation: // Deprecated in Chromium.
     default:
         break;

@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "base/bind_helpers.h"
 #include "content/browser/picture_in_picture/picture_in_picture_service_impl.h"
 #include "content/browser/picture_in_picture/picture_in_picture_window_controller_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
@@ -18,7 +19,6 @@ PictureInPictureSession::PictureInPictureSession(
     const base::Optional<viz::SurfaceId>& surface_id,
     const gfx::Size& natural_size,
     bool show_play_pause_button,
-    bool show_mute_button,
     mojo::PendingReceiver<blink::mojom::PictureInPictureSession> receiver,
     mojo::PendingRemote<blink::mojom::PictureInPictureSessionObserver> observer,
     gfx::Size* window_size)
@@ -32,7 +32,6 @@ PictureInPictureSession::PictureInPictureSession(
   GetController().SetActiveSession(this);
   GetController().EmbedSurface(surface_id.value(), natural_size);
   GetController().SetAlwaysHidePlayPauseButton(show_play_pause_button);
-  GetController().SetAlwaysHideMuteButton(show_mute_button);
   GetController().Show();
 
   *window_size = GetController().GetSize();
@@ -50,13 +49,11 @@ void PictureInPictureSession::Update(
     uint32_t player_id,
     const base::Optional<viz::SurfaceId>& surface_id,
     const gfx::Size& natural_size,
-    bool show_play_pause_button,
-    bool show_mute_button) {
+    bool show_play_pause_button) {
   player_id_ = MediaPlayerId(service_->render_frame_host_, player_id);
 
   GetController().EmbedSurface(surface_id.value(), natural_size);
   GetController().SetAlwaysHidePlayPauseButton(show_play_pause_button);
-  GetController().SetAlwaysHideMuteButton(show_mute_button);
   GetController().SetActiveSession(this);
 }
 
@@ -97,7 +94,8 @@ void PictureInPictureSession::OnConnectionError() {
 }
 
 WebContentsImpl* PictureInPictureSession::GetWebContentsImpl() {
-  return static_cast<WebContentsImpl*>(service_->web_contents());
+  return static_cast<WebContentsImpl*>(
+      WebContents::FromRenderFrameHost(service_->render_frame_host()));
 }
 
 PictureInPictureWindowControllerImpl& PictureInPictureSession::GetController() {

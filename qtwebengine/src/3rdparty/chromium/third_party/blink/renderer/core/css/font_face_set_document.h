@@ -70,11 +70,13 @@ class CORE_EXPORT FontFaceSetDocument final : public FontFaceSet,
   static void DidLayout(Document&);
   static size_t ApproximateBlankCharacterCount(Document&);
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
 
  protected:
   bool InActiveContext() const override;
   FontSelector* GetFontSelector() const override {
+    // TODO(Fserb): tracking down crbug.com/988125, can be DCHECK later.
+    CHECK(IsMainThread());
     return GetDocument()->GetStyleEngine().GetFontSelector();
   }
 

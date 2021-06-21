@@ -8,13 +8,15 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/callback_helpers.h"
 #include "base/run_loop.h"
 #include "base/task/post_task.h"
+#include "base/test/gmock_move_support.h"
 #include "build/build_config.h"
 #include "content/browser/frame_host/render_frame_host_delegate.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/media_stream_request.h"
-#include "content/public/test/test_browser_thread_bundle.h"
+#include "content/public/test/browser_task_environment.h"
 #include "content/test/test_render_frame_host.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -91,7 +93,7 @@ class MediaStreamUIProxyTest : public testing::Test {
   }
 
  protected:
-  TestBrowserThreadBundle thread_bundle_;
+  BrowserTaskEnvironment task_environment_;
 
   MockRenderFrameHostDelegate delegate_;
   MockResponseCallback response_callback_;
@@ -231,14 +233,14 @@ TEST_F(MediaStreamUIProxyTest, StopFromUI) {
   base::RunLoop().RunUntilIdle();
   ASSERT_FALSE(callback.is_null());
 
-  base::Closure stop_callback;
+  base::OnceClosure stop_callback;
 
   blink::MediaStreamDevices devices;
   devices.push_back(blink::MediaStreamDevice(
       blink::mojom::MediaStreamType::DEVICE_AUDIO_CAPTURE, "Mic", "Mic"));
   auto ui = std::make_unique<MockMediaStreamUI>();
   EXPECT_CALL(*ui, MockOnStarted(_, _))
-      .WillOnce(testing::DoAll(SaveArg<0>(&stop_callback), Return(0)));
+      .WillOnce(testing::DoAll(MoveArg<0>(&stop_callback), Return(0)));
   std::move(callback).Run(devices, blink::mojom::MediaStreamRequestResult::OK,
                           std::move(ui));
 
@@ -256,9 +258,9 @@ TEST_F(MediaStreamUIProxyTest, StopFromUI) {
                     MediaStreamUIProxy::WindowIdCallback());
   base::RunLoop().RunUntilIdle();
 
-  ASSERT_FALSE(stop_callback.is_null());
+  ASSERT_TRUE(stop_callback);
   EXPECT_CALL(stop_handler, OnStop());
-  stop_callback.Run();
+  std::move(stop_callback).Run();
   base::RunLoop().RunUntilIdle();
 }
 
@@ -374,9 +376,9 @@ class MediaStreamUIProxyFeaturePolicyTest
   void RefreshPageAndSetHeaderPolicy(
       blink::mojom::FeaturePolicyFeature feature) {
     NavigateAndCommit(main_rfh()->GetLastCommittedURL());
-    std::vector<url::Origin> empty_whitelist;
+    std::vector<url::Origin> empty_allowlist;
     RenderFrameHostTester::For(main_rfh())
-        ->SimulateFeaturePolicyHeader(feature, empty_whitelist);
+        ->SimulateFeaturePolicyHeader(feature, empty_allowlist);
   }
 
   void GetResultForRequest(std::unique_ptr<MediaStreamRequest> request,
@@ -385,7 +387,7 @@ class MediaStreamUIProxyFeaturePolicyTest
     DCHECK_CURRENTLY_ON(BrowserThread::UI);
     base::RunLoop run_loop;
     quit_closure_ = run_loop.QuitClosure();
-    base::PostTaskWithTraits(
+    base::PostTask(
         FROM_HERE, {BrowserThread::IO},
         base::BindOnce(
             &MediaStreamUIProxyFeaturePolicyTest::GetResultForRequestOnIOThread,
@@ -443,7 +445,7 @@ class MediaStreamUIProxyFeaturePolicyTest
       blink::mojom::MediaStreamRequestResult result) {
     DCHECK_CURRENTLY_ON(BrowserThread::IO);
     proxy_.reset();
-    base::PostTaskWithTraits(
+    base::PostTask(
         FROM_HERE, {BrowserThread::UI},
         base::BindOnce(&MediaStreamUIProxyFeaturePolicyTest::FinishedGetResult,
                        base::Unretained(this), devices, result));
@@ -454,13 +456,13 @@ class MediaStreamUIProxyFeaturePolicyTest
     DCHECK_CURRENTLY_ON(BrowserThread::UI);
     devices_ = devices;
     result_ = result;
-    quit_closure_.Run();
+    std::move(quit_closure_).Run();
   }
 
   // These should only be accessed on the UI thread.
   blink::MediaStreamDevices devices_;
   blink::mojom::MediaStreamRequestResult result_;
-  base::Closure quit_closure_;
+  base::OnceClosure quit_closure_;
 
   // These should only be accessed on the IO thread.
   TestRFHDelegate delegate_;

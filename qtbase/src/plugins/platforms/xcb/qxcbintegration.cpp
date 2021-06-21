@@ -130,14 +130,12 @@ QXcbIntegration *QXcbIntegration::m_instance = nullptr;
 
 QXcbIntegration::QXcbIntegration(const QStringList &parameters, int &argc, char **argv)
     : m_services(new QGenericUnixServices)
-    , m_instanceName(0)
+    , m_instanceName(nullptr)
     , m_canGrab(true)
     , m_defaultVisualId(UINT_MAX)
 {
     m_instance = this;
     qApp->setAttribute(Qt::AA_CompressHighFrequencyEvents, true);
-
-    QWindowSystemInterface::setPlatformFiltersEvents(true);
 
     qRegisterMetaType<QXcbWindow*>();
 #if QT_CONFIG(xcb_xlib)
@@ -146,7 +144,7 @@ QXcbIntegration::QXcbIntegration(const QStringList &parameters, int &argc, char 
     m_nativeInterface.reset(new QXcbNativeInterface);
 
     // Parse arguments
-    const char *displayName = 0;
+    const char *displayName = nullptr;
     bool noGrabArg = false;
     bool doGrabArg = false;
     if (argc) {

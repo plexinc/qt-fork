@@ -23,14 +23,14 @@
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 project('dav1d', ['c'],
-    version: '0.3.1',
+    version: '0.6.0',
     default_options: ['c_std=c99',
                       'warning_level=2',
                       'buildtype=release',
                       'b_ndebug=if-release'],
     meson_version: '>= 0.47.0')
 
-dav1d_soname_version       = '2.0.0'
+dav1d_soname_version       = '4.0.0'
 dav1d_api_version_array    = dav1d_soname_version.split('.')
 dav1d_api_version_major    = dav1d_api_version_array[0]
 dav1d_api_version_minor    = dav1d_api_version_array[1]
@@ -84,15 +84,23 @@ test_args = []
 
 optional_arguments = []
 
-# Define _POSIX_C_SOURCE to POSIX.1–2001 (IEEE Std 1003.1-2001)
-test_args  += '-D_POSIX_C_SOURCE=200112L'
-add_project_arguments('-D_POSIX_C_SOURCE=200112L', language: 'c')
+if host_machine.system() == 'linux'
+    test_args += '-D_GNU_SOURCE'
+    add_project_arguments('-D_GNU_SOURCE', language: 'c')
+elif host_machine.system() == 'darwin'
+    test_args += '-D_DARWIN_C_SOURCE'
+    add_project_arguments('-D_DARWIN_C_SOURCE', language: 'c')
+else
+    test_args += '-D_POSIX_C_SOURCE=200112L'
+    add_project_arguments('-D_POSIX_C_SOURCE=200112L', language: 'c')
+endif
 
 if host_machine.system() == 'windows'
     cdata.set('_WIN32_WINNT',           '0x0601')
     cdata.set('UNICODE',                1) # Define to 1 for Unicode (Wide Chars) APIs
     cdata.set('_UNICODE',               1) # Define to 1 for Unicode (Wide Chars) APIs
     cdata.set('__USE_MINGW_ANSI_STDIO', 1) # Define to force use of MinGW printf
+    cdata.set('_CRT_DECLARE_NONSTDC_NAMES', 1) # Define to get off_t from sys/types.h on MSVC
     if cc.has_function('fseeko', prefix : '#include <stdio.h>', args : test_args)
         cdata.set('_FILE_OFFSET_BITS', 64) # Not set by default by Meson on Windows
     else
@@ -107,9 +115,45 @@ if host_machine.system() == 'windows'
     # On Windows, we use a compatibility layer to emulate pthread
     thread_dependency = []
     thread_compat_dep = declare_dependency(sources : files('src/win32/thread.c'))
+
+    rt_dependency = []
 else
     thread_dependency = dependency('threads')
     thread_compat_dep = []
+
+    rt_dependency = []
+    if cc.has_function('clock_gettime', prefix : '#include <time.h>', args : test_args)
+        cdata.set('HAVE_CLOCK_GETTIME', 1)
+    elif host_machine.system() != 'darwin'
+        rt_dependency = cc.find_library('rt', required: false)
+        if not cc.has_function('clock_gettime', prefix : '#include <time.h>', args : test_args, dependencies : rt_dependency)
+            error('clock_gettime not found')
+        endif
+        cdata.set('HAVE_CLOCK_GETTIME', 1)
+    endif
+endif
+
+# check for fseeko on android. It is not always available if _FILE_OFFSET_BITS is defined to 64
+have_fseeko = true
+if host_machine.system() == 'android'
+    if not cc.has_function('fseeko', prefix : '#include <stdio.h>', args : test_args)
+        if cc.has_function('fseeko', prefix : '#include <stdio.h>', args : test_args + ['-U_FILE_OFFSET_BITS'])
+            warning('Files larger than 2 gigabytes might not be supported in the dav1d CLI tool.')
+            add_project_arguments('-U_FILE_OFFSET_BITS', language: 'c')
+        elif get_option('enable_tools')
+            error('dav1d CLI tool needs fseeko()')
+        else
+            have_fseeko = false
+        endif
+    endif
+endif
+
+libdl_dependency = []
+if host_machine.system() == 'linux'
+    libdl_dependency = cc.find_library('dl', required : false)
+    if cc.has_function('dlsym', prefix : '#include <dlfcn.h>', args : test_args, dependencies : libdl_dependency)
+        cdata.set('HAVE_DLSYM', 1)
+    endif
 endif
 
 
@@ -210,6 +254,12 @@ if (get_option('buildtype') != 'debug' and get_option('buildtype') != 'plain')
     optional_arguments += '-ffast-math'
 endif
 
+if (host_machine.system() == 'darwin' and cc.get_id() == 'clang' and
+    cc.version().startswith('11'))
+    # Workaround for Xcode 11 -fstack-check bug, see #301
+    optional_arguments += '-fno-stack-check'
+endif
+
 add_project_arguments(cc.get_supported_arguments(optional_arguments), language : 'c')
 
 # libFuzzer related things
@@ -233,12 +283,12 @@ if host_machine.cpu_family().startswith('x86')
     if get_option('stack_alignment') > 0
         stack_alignment = get_option('stack_alignment')
     elif host_machine.cpu_family() == 'x86_64'
-        if cc.has_argument('-mpreferred-stack-boundary=5')
-            stackalign_flag = ['-mpreferred-stack-boundary=5']
+        if cc.has_argument('-mpreferred-stack-boundary=6')
+            stackalign_flag = ['-mpreferred-stack-boundary=6']
             stackrealign_flag = ['-mincoming-stack-boundary=4']
             stack_alignment = 32
-        elif cc.has_argument('-mstack-alignment=32')
-            stackalign_flag = ['-mstack-alignment=32']
+        elif cc.has_argument('-mstack-alignment=64')
+            stackalign_flag = ['-mstack-alignment=64']
             stackrealign_flag = ['-mstackrealign']
             stack_alignment = 32
         else
@@ -312,19 +362,10 @@ if cc.symbols_have_underscore_prefix()
     cdata_asm.set10('PREFIX', true)
 endif
 
-# Generate config.h
-config_h_target = configure_file(output: 'config.h', configuration: cdata)
-
-
-
 #
 # ASM specific stuff
 #
 if is_asm_enabled and host_machine.cpu_family().startswith('x86')
-
-    # Generate config.asm
-    config_asm_target = configure_file(output: 'config.asm', output_format: 'nasm', configuration: cdata_asm)
-
 
     # NASM compiler support
 
@@ -342,11 +383,19 @@ if is_asm_enabled and host_machine.cpu_family().startswith('x86')
         if out[1].to_lower() == 'version'
             if out[2].version_compare('<2.13.02')
                 error('nasm 2.13.02 or later is required, found nasm @0@'.format(out[2]))
+            elif out[2].version_compare('<2.14') and get_option('enable_avx512')
+                error('nasm 2.14 or later is required for AVX-512 asm.\n' +
+                       'AVX-512 asm can be disabled with \'-Denable_avx512=false\'')
             endif
+            cdata.set10('HAVE_AVX512ICL', get_option('enable_avx512'))
+            cdata_asm.set10('HAVE_AVX512ICL', get_option('enable_avx512'))
         else
             error('unexpected nasm version string: @0@'.format(nasm_r.stdout()))
         endif
     endif
+
+    # Generate config.asm
+    config_asm_target = configure_file(output: 'config.asm', output_format: 'nasm', configuration: cdata_asm)
 
     if host_machine.system() == 'windows'
         nasm_format = 'win'
@@ -366,7 +415,7 @@ if is_asm_enabled and host_machine.cpu_family().startswith('x86')
         depfile: '@BASENAME@.obj.ndep',
         arguments: [
             '-f', nasm_format,
-            '-I', '@SOURCE_DIR@/src/',
+            '-I', '@0@/src/'.format(meson.current_source_dir()),
             '-I', '@0@/'.format(meson.current_build_dir()),
             '-MQ', '@OUTPUT@', '-MF', '@DEPFILE@',
             '@EXTRA_ARGS@',
@@ -374,6 +423,10 @@ if is_asm_enabled and host_machine.cpu_family().startswith('x86')
             '-o', '@OUTPUT@'
         ])
 endif
+
+
+# Generate config.h
+config_h_target = configure_file(output: 'config.h', configuration: cdata)
 
 
 
@@ -388,5 +441,7 @@ subdir('doc')
 subdir('src')
 
 subdir('tools')
+
+subdir('examples')
 
 subdir('tests')

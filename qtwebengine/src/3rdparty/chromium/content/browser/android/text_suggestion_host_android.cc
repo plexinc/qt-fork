@@ -40,18 +40,13 @@ void TextSuggestionHostAndroid::Create(JNIEnv* env, WebContents* web_contents) {
   text_suggestion_host->Initialize();
 }
 
-TextSuggestionHostAndroid::TextSuggestionHostAndroid(
-    JNIEnv* env,
-    WebContents* web_contents)
+TextSuggestionHostAndroid::TextSuggestionHostAndroid(JNIEnv* env,
+                                                     WebContents* web_contents)
     : RenderWidgetHostConnector(web_contents),
-      WebContentsObserver(web_contents),
       rwhva_(nullptr),
-      suggestion_menu_timeout_(
-          base::Bind(&TextSuggestionHostAndroid::OnSuggestionMenuTimeout,
-                     base::Unretained(this))) {
-  registry_.AddInterface(base::Bind(&TextSuggestionHostMojoImplAndroid::Create,
-                                    base::Unretained(this)));
-}
+      suggestion_menu_timeout_(base::BindRepeating(
+          &TextSuggestionHostAndroid::OnSuggestionMenuTimeout,
+          base::Unretained(this))) {}
 
 TextSuggestionHostAndroid::~TextSuggestionHostAndroid() {
   JNIEnv* env = AttachCurrentThread();
@@ -63,7 +58,7 @@ TextSuggestionHostAndroid::~TextSuggestionHostAndroid() {
 void TextSuggestionHostAndroid::UpdateRenderProcessConnection(
     RenderWidgetHostViewAndroid* old_rwhva,
     RenderWidgetHostViewAndroid* new_rwhva) {
-  text_suggestion_backend_ = nullptr;
+  text_suggestion_backend_.reset();
   if (old_rwhva)
     old_rwhva->set_text_suggestion_host(nullptr);
   if (new_rwhva)
@@ -75,8 +70,8 @@ void TextSuggestionHostAndroid::ApplySpellCheckSuggestion(
     JNIEnv* env,
     const JavaParamRef<jobject>&,
     const base::android::JavaParamRef<jstring>& replacement) {
-  const blink::mojom::TextSuggestionBackendPtr& text_suggestion_backend =
-      GetTextSuggestionBackend();
+  const mojo::Remote<blink::mojom::TextSuggestionBackend>&
+      text_suggestion_backend = GetTextSuggestionBackend();
   if (!text_suggestion_backend)
     return;
   text_suggestion_backend->ApplySpellCheckSuggestion(
@@ -88,8 +83,8 @@ void TextSuggestionHostAndroid::ApplyTextSuggestion(
     const JavaParamRef<jobject>&,
     int marker_tag,
     int suggestion_index) {
-  const blink::mojom::TextSuggestionBackendPtr& text_suggestion_backend =
-      GetTextSuggestionBackend();
+  const mojo::Remote<blink::mojom::TextSuggestionBackend>&
+      text_suggestion_backend = GetTextSuggestionBackend();
   if (!text_suggestion_backend)
     return;
   text_suggestion_backend->ApplyTextSuggestion(marker_tag, suggestion_index);
@@ -98,8 +93,8 @@ void TextSuggestionHostAndroid::ApplyTextSuggestion(
 void TextSuggestionHostAndroid::DeleteActiveSuggestionRange(
     JNIEnv*,
     const JavaParamRef<jobject>&) {
-  const blink::mojom::TextSuggestionBackendPtr& text_suggestion_backend =
-      GetTextSuggestionBackend();
+  const mojo::Remote<blink::mojom::TextSuggestionBackend>&
+      text_suggestion_backend = GetTextSuggestionBackend();
   if (!text_suggestion_backend)
     return;
   text_suggestion_backend->DeleteActiveSuggestionRange();
@@ -109,8 +104,8 @@ void TextSuggestionHostAndroid::OnNewWordAddedToDictionary(
     JNIEnv* env,
     const JavaParamRef<jobject>&,
     const base::android::JavaParamRef<jstring>& word) {
-  const blink::mojom::TextSuggestionBackendPtr& text_suggestion_backend =
-      GetTextSuggestionBackend();
+  const mojo::Remote<blink::mojom::TextSuggestionBackend>&
+      text_suggestion_backend = GetTextSuggestionBackend();
   if (!text_suggestion_backend)
     return;
   text_suggestion_backend->OnNewWordAddedToDictionary(
@@ -120,8 +115,8 @@ void TextSuggestionHostAndroid::OnNewWordAddedToDictionary(
 void TextSuggestionHostAndroid::OnSuggestionMenuClosed(
     JNIEnv*,
     const JavaParamRef<jobject>&) {
-  const blink::mojom::TextSuggestionBackendPtr& text_suggestion_backend =
-      GetTextSuggestionBackend();
+  const mojo::Remote<blink::mojom::TextSuggestionBackend>&
+      text_suggestion_backend = GetTextSuggestionBackend();
   if (!text_suggestion_backend)
     return;
   text_suggestion_backend->OnSuggestionMenuClosed();
@@ -143,7 +138,7 @@ TextSuggestionHostAndroid::GetJavaTextSuggestionHost() {
   ScopedJavaLocalRef<jobject> obj = java_text_suggestion_host_.get(env);
   if (obj.is_null()) {
     obj = Java_TextSuggestionHost_create(
-        env, WebContentsObserver::web_contents()->GetJavaWebContents(),
+        env, RenderWidgetHostConnector::web_contents()->GetJavaWebContents(),
         reinterpret_cast<intptr_t>(this));
     java_text_suggestion_host_ = JavaObjectWeakGlobalRef(env, obj);
   }
@@ -229,11 +224,10 @@ void TextSuggestionHostAndroid::StopSuggestionMenuTimer() {
   suggestion_menu_timeout_.Stop();
 }
 
-void TextSuggestionHostAndroid::OnInterfaceRequestFromFrame(
-    content::RenderFrameHost* render_frame_host,
-    const std::string& interface_name,
-    mojo::ScopedMessagePipeHandle* interface_pipe) {
-  registry_.TryBindInterface(interface_name, interface_pipe);
+void TextSuggestionHostAndroid::BindTextSuggestionHost(
+    mojo::PendingReceiver<blink::mojom::TextSuggestionHost> receiver) {
+  text_suggestion_impl_ =
+      TextSuggestionHostMojoImplAndroid::Create(this, std::move(receiver));
 }
 
 RenderFrameHost* TextSuggestionHostAndroid::GetFocusedFrame() {
@@ -254,20 +248,20 @@ RenderFrameHost* TextSuggestionHostAndroid::GetFocusedFrame() {
   return nullptr;
 }
 
-const blink::mojom::TextSuggestionBackendPtr&
+const mojo::Remote<blink::mojom::TextSuggestionBackend>&
 TextSuggestionHostAndroid::GetTextSuggestionBackend() {
   if (!text_suggestion_backend_) {
     if (RenderFrameHost* rfh = GetFocusedFrame()) {
       rfh->GetRemoteInterfaces()->GetInterface(
-          mojo::MakeRequest(&text_suggestion_backend_));
+          text_suggestion_backend_.BindNewPipeAndPassReceiver());
     }
   }
   return text_suggestion_backend_;
 }
 
 void TextSuggestionHostAndroid::OnSuggestionMenuTimeout() {
-  const blink::mojom::TextSuggestionBackendPtr& text_suggestion_backend =
-      GetTextSuggestionBackend();
+  const mojo::Remote<blink::mojom::TextSuggestionBackend>&
+      text_suggestion_backend = GetTextSuggestionBackend();
   if (!text_suggestion_backend)
     return;
   text_suggestion_backend->SuggestionMenuTimeoutCallback(

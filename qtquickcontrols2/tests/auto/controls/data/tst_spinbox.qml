@@ -549,6 +549,12 @@ TestCase {
         compare(valueFromTextCalls, data.editable ? 3 : 0)
     }
 
+    function test_callDefaultValueFromText() {
+        var control = createTemporaryObject(spinBox, testCase)
+        verify(control)
+        compare(control.valueFromText("123", control.locale), 123)
+    }
+
     function test_autoRepeat() {
         var control = createTemporaryObject(spinBox, testCase)
         verify(control)
@@ -657,5 +663,52 @@ TestCase {
             compare(control.value, data.values[i])
             compare(control.displayText, data.displayTexts[i])
         }
+    }
+
+    function test_callDefaultTextFromValue() {
+        var control = createTemporaryObject(spinBox, testCase)
+        verify(control)
+        compare(control.textFromValue(123, control.locale), "123")
+    }
+
+    Component {
+        id: overriddenSpinBox
+        SpinBox {
+            value: 50
+            up.indicator: Rectangle {
+                property string s: "this is the one"
+            }
+        }
+    }
+
+    function test_indicatorOverridden() {
+        var control = createTemporaryObject(overriddenSpinBox, testCase)
+        verify(control)
+        compare(control.up.indicator.s, "this is the one");
+    }
+
+    function test_valueEnterFromOutsideRange() {
+        // Check that changing from 2 to 99 goes to 98 then changing to 99 puts it back to 98
+        var control = createTemporaryObject(spinBox, testCase, {from: 2, to: 98, value: 2, editable: true})
+        verify(control)
+
+        control.forceActiveFocus()
+        verify(control.activeFocus)
+
+        keyClick(Qt.Key_Backspace)
+        keyClick(Qt.Key_Backspace)
+        keyClick(Qt.Key_9)
+        keyClick(Qt.Key_9)
+        keyClick(Qt.Key_Return)
+        compare(control.value, 98)
+        compare(control.displayText, "98")
+        compare(control.contentItem.text, "98")
+
+        keyClick(Qt.Key_Backspace)
+        keyClick(Qt.Key_9)
+        keyClick(Qt.Key_Return)
+        compare(control.value, 98)
+        compare(control.displayText, "98")
+        compare(control.contentItem.text, "98")
     }
 }

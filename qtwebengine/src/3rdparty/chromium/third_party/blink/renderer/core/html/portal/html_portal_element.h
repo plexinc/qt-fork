@@ -9,17 +9,18 @@
 #include "mojo/public/cpp/bindings/associated_receiver.h"
 #include "mojo/public/cpp/bindings/associated_remote.h"
 #include "mojo/public/cpp/bindings/pending_associated_receiver.h"
-#include "third_party/blink/public/mojom/portal/portal.mojom-blink.h"
+#include "third_party/blink/public/mojom/portal/portal.mojom-blink-forward.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/node.h"
 #include "third_party/blink/renderer/core/html/html_frame_owner_element.h"
+#include "third_party/blink/renderer/platform/wtf/casting.h"
 
 namespace blink {
 
 class Document;
 class PortalActivateOptions;
-class RemoteFrame;
+class PortalContents;
 class ScriptState;
 
 // The HTMLPortalElement implements the <portal> HTML element. The portal
@@ -27,28 +28,29 @@ class ScriptState;
 // activated using script. The portal element is still under development and not
 // part of the HTML standard. It can be enabled by passing
 // --enable-features=Portals. See also https://github.com/WICG/portals.
-class CORE_EXPORT HTMLPortalElement : public HTMLFrameOwnerElement,
-                                      public mojom::blink::PortalClient {
+class CORE_EXPORT HTMLPortalElement : public HTMLFrameOwnerElement {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
   explicit HTMLPortalElement(
       Document& document,
       const base::UnguessableToken& portal_token = base::UnguessableToken(),
-      mojo::AssociatedRemote<mojom::blink::Portal> remote_portal = {},
+      mojo::PendingAssociatedRemote<mojom::blink::Portal> remote_portal = {},
       mojo::PendingAssociatedReceiver<mojom::blink::PortalClient>
           portal_client_receiver = {});
   ~HTMLPortalElement() override;
+
+  bool IsHTMLPortalElement() const final { return true; }
 
   // ScriptWrappable overrides.
   void Trace(Visitor* visitor) override;
 
   // idl implementation.
-  ScriptPromise activate(ScriptState*, PortalActivateOptions*);
+  ScriptPromise activate(ScriptState*, PortalActivateOptions*, ExceptionState&);
   void postMessage(ScriptState* script_state,
                    const ScriptValue& message,
                    const String& target_origin,
-                   const Vector<ScriptValue>& transfer,
+                   const HeapVector<ScriptValue>& transfer,
                    ExceptionState& exception_state);
   void postMessage(ScriptState* script_state,
                    const ScriptValue& message,
@@ -59,38 +61,62 @@ class CORE_EXPORT HTMLPortalElement : public HTMLFrameOwnerElement,
   EventListener* onmessageerror();
   void setOnmessageerror(EventListener* listener);
 
-  // blink::mojom::PortalClient implementation
-  void ForwardMessageFromGuest(
-      BlinkTransferableMessage message,
-      const scoped_refptr<const SecurityOrigin>& source_origin,
-      const scoped_refptr<const SecurityOrigin>& target_origin) override;
-  void DispatchLoadEvent() override;
-
-  const base::UnguessableToken& GetToken() const { return portal_token_; }
+  const base::UnguessableToken& GetToken() const;
 
   FrameOwnerElementType OwnerType() const override {
     return FrameOwnerElementType::kPortal;
   }
-
-  bool IsActivating() { return is_activating_; }
 
   // Consumes the portal interface. When a Portal is activated, or if the
   // renderer receives a connection error, this function will gracefully
   // terminate the portal interface.
   void ConsumePortal();
 
+  // Invoked when this element should no longer keep its guest contents alive
+  // due to recent adoption.
+  void ExpireAdoptionLifetime();
+
+  // Called by PortalContents when it is about to be destroyed.
+  void PortalContentsWillBeDestroyed(PortalContents*);
+
  private:
+  // Checks whether the Portals feature is enabled for this document, and logs a
+  // warning to the developer if not. Doing basically anything with an
+  // HTMLPortalElement in a document which doesn't support portals is forbidden.
+  bool CheckPortalsEnabledOrWarn() const;
+  bool CheckPortalsEnabledOrThrow(ExceptionState&) const;
+
+  enum class GuestContentsEligibility {
+    // Can have a guest contents.
+    kEligible,
+
+    // Ineligible as it is not top-level.
+    kNotTopLevel,
+
+    // Ineligible as the host's protocol is not in the HTTP family.
+    kNotHTTPFamily,
+
+    // Ineligible for additional reasons.
+    kIneligible,
+  };
+  GuestContentsEligibility GetGuestContentsEligibility() const;
+  bool CanHaveGuestContents() const {
+    return GetGuestContentsEligibility() == GuestContentsEligibility::kEligible;
+  }
+
   // Navigates the portal to |url_|.
   void Navigate();
 
   // Node overrides
   InsertionNotificationRequest InsertedInto(ContainerNode&) override;
   void RemovedFrom(ContainerNode&) override;
+  void DefaultEventHandler(Event&) override;
 
   // Element overrides
   bool IsURLAttribute(const Attribute&) const override;
   void ParseAttribute(const AttributeModificationParams&) override;
   LayoutObject* CreateLayoutObject(const ComputedStyle&, LegacyLayout) override;
+  bool SupportsFocus() const override;
 
   // HTMLFrameOwnerElement overrides
   void DisconnectContentFrame() override;
@@ -100,21 +126,27 @@ class CORE_EXPORT HTMLPortalElement : public HTMLFrameOwnerElement,
   void AttachLayoutTree(AttachContext& context) override;
   network::mojom::ReferrerPolicy ReferrerPolicyAttribute() override;
 
-  // Uniquely identifies the portal, this token is used by the browser process
-  // to reference this portal when communicating with the renderer.
-  base::UnguessableToken portal_token_;
-
-  Member<RemoteFrame> portal_frame_;
-
-  // Set to true after activate() is called on the portal. It is set to false
-  // right before the promise returned by activate() is resolved or rejected.
-  bool is_activating_ = false;
+  Member<PortalContents> portal_;
 
   network::mojom::ReferrerPolicy referrer_policy_ =
       network::mojom::ReferrerPolicy::kDefault;
 
-  mojo::AssociatedRemote<mojom::blink::Portal> remote_portal_;
-  mojo::AssociatedReceiver<mojom::blink::PortalClient> portal_client_receiver_;
+  // Temporarily set to keep this element alive after adoption.
+  bool was_just_adopted_ = false;
+};
+
+// Type casting. Custom since adoption could lead to an HTMLPortalElement ending
+// up in a document that doesn't have Portals enabled.
+template <>
+struct DowncastTraits<HTMLPortalElement> {
+  static bool AllowFrom(const HTMLElement& element) {
+    return element.IsHTMLPortalElement();
+  }
+  static bool AllowFrom(const Node& node) {
+    if (const HTMLElement* html_element = DynamicTo<HTMLElement>(node))
+      return html_element->IsHTMLPortalElement();
+    return false;
+  }
 };
 
 }  // namespace blink

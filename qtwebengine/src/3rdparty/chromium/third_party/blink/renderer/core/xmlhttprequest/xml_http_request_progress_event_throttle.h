@@ -50,7 +50,7 @@ class XMLHttpRequest;
 // - ProgressEvent means an event using the ProgressEvent interface defined in
 //   the spec.
 class XMLHttpRequestProgressEventThrottle final
-    : public GarbageCollectedFinalized<XMLHttpRequestProgressEventThrottle>,
+    : public GarbageCollected<XMLHttpRequestProgressEventThrottle>,
       public TimerBase {
   // Need to promptly stop this timer when it is deemed finalizable.
   USING_PRE_FINALIZER(XMLHttpRequestProgressEventThrottle, Stop);
@@ -83,7 +83,7 @@ class XMLHttpRequestProgressEventThrottle final
   // depending on the value of the ProgressEventAction argument.
   void DispatchReadyStateChangeEvent(Event*, DeferredEventAction);
 
-  void Trace(blink::Visitor*);
+  void Trace(Visitor*);
 
  private:
   // Dispatches a "progress" progress event and usually a readyStateChange

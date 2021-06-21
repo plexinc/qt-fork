@@ -8,6 +8,7 @@
 #include <stddef.h>
 
 #include <memory>
+#include <utility>
 #include <vector>
 
 #include "base/logging.h"
@@ -134,8 +135,10 @@ class VIEWS_EXPORT GridLayout : public LayoutManager {
   void AddPaddingRow(float vertical_resize, int size);
 
   // A convenience for AddPaddingRow followed by StartRow.
-  void StartRowWithPadding(float vertical_resize, int column_set_id,
-                           float padding_resize, int padding);
+  void StartRowWithPadding(float vertical_resize,
+                           int column_set_id,
+                           float padding_resize,
+                           int padding);
 
   // Starts a new row with the specified column set and height (0 for
   // unspecified height).
@@ -332,11 +335,10 @@ class VIEWS_EXPORT ColumnSet {
                  int min_width);
 
   // Forces the specified columns to have the same size. The size of
-  // linked columns is that of the max of the specified columns. This
-  // must end with -1. For example, the following forces the first and
-  // second column to have the same size:
-  // LinkColumnSizes(0, 1, -1);
-  void LinkColumnSizes(int first, ...);
+  // linked columns is that of the max of the specified columns.
+  // For example, the following forces the first and
+  // second column to have the same size: LinkColumnSizes({0, 1});
+  void LinkColumnSizes(const std::vector<int>& columns);
 
   // When sizing linked columns, columns wider than |size_limit| are ignored.
   void set_linked_column_size_limit(int size_limit) {

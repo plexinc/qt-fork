@@ -16,7 +16,7 @@
 #include "content/public/browser/invalidate_type.h"
 #include "content/public/browser/web_contents_delegate.h"
 #include "content/public/test/test_renderer_host.h"
-#include "media/audio/audio_power_monitor.h"
+#include "media/base/audio_power_monitor.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -99,12 +99,11 @@ class AudioStreamMonitorTest : public RenderViewHostTestHarness {
     EXPECT_CALL(
         mock_web_contents_delegate_,
         NavigationStateChanged(RenderViewHostTestHarness::web_contents(),
-                               INVALIDATE_TYPE_TAB))
+                               INVALIDATE_TYPE_AUDIO))
         .WillOnce(InvokeWithoutArgs(
-            this,
-            new_recently_audible
-                ? &AudioStreamMonitorTest::ExpectWasRecentlyAudible
-                : &AudioStreamMonitorTest::ExpectNotRecentlyAudible))
+            this, new_recently_audible
+                      ? &AudioStreamMonitorTest::ExpectWasRecentlyAudible
+                      : &AudioStreamMonitorTest::ExpectNotRecentlyAudible))
         .RetiresOnSaturation();
   }
 
@@ -112,12 +111,11 @@ class AudioStreamMonitorTest : public RenderViewHostTestHarness {
     EXPECT_CALL(
         mock_web_contents_delegate_,
         NavigationStateChanged(RenderViewHostTestHarness::web_contents(),
-                               INVALIDATE_TYPE_TAB))
+                               INVALIDATE_TYPE_AUDIO))
         .WillOnce(InvokeWithoutArgs(
-            this,
-            new_audible
-                ? &AudioStreamMonitorTest::ExpectIsCurrentlyAudible
-                : &AudioStreamMonitorTest::ExpectNotCurrentlyAudible))
+            this, new_audible
+                      ? &AudioStreamMonitorTest::ExpectIsCurrentlyAudible
+                      : &AudioStreamMonitorTest::ExpectNotCurrentlyAudible))
         .RetiresOnSaturation();
   }
 

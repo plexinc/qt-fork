@@ -6,6 +6,7 @@
 #define UI_VIEWS_WIDGET_DESKTOP_AURA_DESKTOP_WINDOW_TREE_HOST_H_
 
 #include <memory>
+#include <string>
 
 #include "ui/aura/window_event_dispatcher.h"
 #include "ui/base/ui_base_types.h"
@@ -19,13 +20,13 @@ class Window;
 namespace client {
 class DragDropClient;
 class ScreenPositionClient;
-}
+}  // namespace client
 }  // namespace aura
 
 namespace gfx {
 class ImageSkia;
 class Rect;
-}
+}  // namespace gfx
 
 namespace views {
 namespace corewm {

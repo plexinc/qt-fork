@@ -31,6 +31,7 @@
 #include "third_party/blink/renderer/core/events/error_event.h"
 
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_error_event_init.h"
 #include "third_party/blink/renderer/core/event_interface_names.h"
 #include "v8/include/v8.h"
 
@@ -44,7 +45,8 @@ ErrorEvent* ErrorEvent::CreateSanitizedError(ScriptState* script_state) {
   return MakeGarbageCollected<ErrorEvent>(
       "Script error.",
       std::make_unique<SourceLocation>(String(), 0, 0, nullptr),
-      ScriptValue::CreateNull(script_state), &script_state->World());
+      ScriptValue::CreateNull(script_state->GetIsolate()),
+      &script_state->World());
 }
 
 ErrorEvent::ErrorEvent()
@@ -65,8 +67,7 @@ ErrorEvent::ErrorEvent(ScriptState* script_state,
       initializer->hasLineno() ? initializer->lineno() : 0,
       initializer->hasColno() ? initializer->colno() : 0, nullptr);
   if (initializer->hasError()) {
-    error_.Set(initializer->error().GetIsolate(),
-               initializer->error().V8Value());
+    error_.Set(script_state->GetIsolate(), initializer->error().V8Value());
   }
 }
 
@@ -109,11 +110,11 @@ ScriptValue ErrorEvent::error(ScriptState* script_state) const {
   //    thus passing it around would cause leakage.
   // 2) Errors cannot be cloned (or serialized):
   if (World() != &script_state->World() || error_.IsEmpty())
-    return ScriptValue::CreateNull(script_state);
-  return ScriptValue(script_state, error_.Get(script_state));
+    return ScriptValue::CreateNull(script_state->GetIsolate());
+  return ScriptValue(script_state->GetIsolate(), error_.Get(script_state));
 }
 
-void ErrorEvent::Trace(blink::Visitor* visitor) {
+void ErrorEvent::Trace(Visitor* visitor) {
   visitor->Trace(error_);
   Event::Trace(visitor);
 }

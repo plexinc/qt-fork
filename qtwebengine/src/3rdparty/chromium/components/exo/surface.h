@@ -35,9 +35,10 @@ namespace base {
 namespace trace_event {
 class TracedValue;
 }
-}
+}  // namespace base
 
 namespace gfx {
+class ColorSpace;
 class GpuFence;
 }
 
@@ -67,7 +68,7 @@ class Surface final : public ui::PropertyHandler {
   using PropertyDeallocator = void (*)(int64_t value);
 
   Surface();
-  ~Surface();
+  ~Surface() override;
 
   // Type-checking downcast routine.
   static Surface* AsSurface(const aura::Window* window);
@@ -77,6 +78,10 @@ class Surface final : public ui::PropertyHandler {
   // Set a buffer as the content of this surface. A buffer can only be attached
   // to one surface at a time.
   void Attach(Buffer* buffer);
+  void Attach(Buffer* buffer, gfx::Vector2d offset);
+
+  gfx::Vector2d GetBufferOffset();
+
   // Returns whether the surface has an uncommitted attached buffer.
   bool HasPendingAttachedBuffer() const;
 
@@ -87,13 +92,14 @@ class Surface final : public ui::PropertyHandler {
 
   // Request notification when it's a good time to produce a new frame. Useful
   // for throttling redrawing operations, and driving animations.
-  using FrameCallback = base::Callback<void(base::TimeTicks frame_time)>;
+  using FrameCallback =
+      base::RepeatingCallback<void(base::TimeTicks frame_time)>;
   void RequestFrameCallback(const FrameCallback& callback);
 
   // Request notification when the next frame is displayed. Useful for
   // throttling redrawing operations, and driving animations.
   using PresentationCallback =
-      base::Callback<void(const gfx::PresentationFeedback&)>;
+      base::RepeatingCallback<void(const gfx::PresentationFeedback&)>;
   void RequestPresentationCallback(const PresentationCallback& callback);
 
   // This sets the region of the surface that contains opaque content.
@@ -159,12 +165,24 @@ class Surface final : public ui::PropertyHandler {
   // Request that surface should have a specific application ID string.
   void SetApplicationId(const char* application_id);
 
+  // This sets the color space for the buffer for this surface.
+  void SetColorSpace(gfx::ColorSpace color_space);
+
   // Request "parent" for surface.
   void SetParent(Surface* parent, const gfx::Point& position);
 
   // Request that surface should have a specific ID assigned by client.
   void SetClientSurfaceId(int32_t client_surface_id);
   int32_t GetClientSurfaceId() const;
+
+  // Enable embedding of an arbitrary viz surface in this exo surface.
+  // If the callback is valid, a SurfaceDrawQuad will be emitted targeting
+  // the returned SurfaceId each frame.
+  void SetEmbeddedSurfaceId(
+      base::RepeatingCallback<viz::SurfaceId()> surface_id_callback);
+
+  // Set the size of the embedded surface, to allow proper scaling.
+  void SetEmbeddedSurfaceSize(const gfx::Size& size);
 
   // Request that the attached surface buffer at the next commit is associated
   // with a gpu fence to be signaled when the buffer is ready for use.
@@ -268,6 +286,9 @@ class Surface final : public ui::PropertyHandler {
   // Sets the |surface_hierarchy_content_bounds_|.
   void SetSurfaceHierarchyContentBoundsForTest(const gfx::Rect& content_bounds);
 
+  // Requests that this surface should be made active (i.e. foregrounded).
+  void RequestActivation();
+
  private:
   struct State {
     State();
@@ -286,6 +307,8 @@ class Surface final : public ui::PropertyHandler {
     bool only_visible_on_secure_output = false;
     SkBlendMode blend_mode = SkBlendMode::kSrcOver;
     float alpha = 1.0f;
+    gfx::Vector2d offset;
+    gfx::ColorSpace color_space;
   };
   class BufferAttachment {
    public:
@@ -435,7 +458,28 @@ class Surface final : public ui::PropertyHandler {
   std::unique_ptr<ash::OutputProtectionDelegate> output_protection_;
 #endif  // defined(OS_CHROMEOS)
 
+  viz::SurfaceId first_embedded_surface_id_;
+  viz::SurfaceId latest_embedded_surface_id_;
+  base::RepeatingCallback<viz::SurfaceId()> get_current_surface_id_;
+
+  // The embedded surface is actually |embedded_surface_size_|. This is used
+  // for calculating clipping and scaling.
+  gfx::Size embedded_surface_size_;
+
   DISALLOW_COPY_AND_ASSIGN(Surface);
+};
+
+class ScopedSurface {
+ public:
+  ScopedSurface(Surface* surface, SurfaceObserver* observer);
+  ~ScopedSurface();
+  Surface* get() { return surface_; }
+
+ private:
+  Surface* const surface_;
+  SurfaceObserver* const observer_;
+
+  DISALLOW_COPY_AND_ASSIGN(ScopedSurface);
 };
 
 }  // namespace exo

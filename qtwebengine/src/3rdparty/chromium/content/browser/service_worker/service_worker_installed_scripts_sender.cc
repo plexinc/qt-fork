@@ -21,13 +21,11 @@ ServiceWorkerInstalledScriptsSender::ServiceWorkerInstalledScriptsSender(
       main_script_id_(
           owner_->script_cache_map()->LookupResourceId(main_script_url_)),
       sent_main_script_(false),
-      binding_(this),
       state_(State::kNotStarted),
       last_finished_reason_(
           ServiceWorkerInstalledScriptReader::FinishedReason::kNotFinished) {
   DCHECK(ServiceWorkerVersion::IsInstalled(owner_->status()));
-  DCHECK_NE(ServiceWorkerConsts::kInvalidServiceWorkerResourceId,
-            main_script_id_);
+  DCHECK_NE(blink::mojom::kInvalidServiceWorkerResourceId, main_script_id_);
 }
 
 ServiceWorkerInstalledScriptsSender::~ServiceWorkerInstalledScriptsSender() {}
@@ -36,29 +34,28 @@ blink::mojom::ServiceWorkerInstalledScriptsInfoPtr
 ServiceWorkerInstalledScriptsSender::CreateInfoAndBind() {
   DCHECK_EQ(State::kNotStarted, state_);
 
-  std::vector<ServiceWorkerDatabase::ResourceRecord> resources;
+  std::vector<storage::mojom::ServiceWorkerResourceRecordPtr> resources;
   owner_->script_cache_map()->GetResources(&resources);
   std::vector<GURL> installed_urls;
   for (const auto& resource : resources) {
-    installed_urls.emplace_back(resource.url);
-    if (resource.url == main_script_url_)
+    installed_urls.emplace_back(resource->url);
+    if (resource->url == main_script_url_)
       continue;
-    pending_scripts_.emplace(resource.resource_id, resource.url);
+    pending_scripts_.emplace(resource->resource_id, resource->url);
   }
   DCHECK(!installed_urls.empty())
       << "At least the main script should be installed.";
 
   auto info = blink::mojom::ServiceWorkerInstalledScriptsInfo::New();
-  info->manager_request = mojo::MakeRequest(&manager_);
+  info->manager_receiver = manager_.BindNewPipeAndPassReceiver();
   info->installed_urls = std::move(installed_urls);
-  binding_.Bind(mojo::MakeRequest(&info->manager_host_ptr));
+  receiver_.Bind(info->manager_host_remote.InitWithNewPipeAndPassReceiver());
   return info;
 }
 
 void ServiceWorkerInstalledScriptsSender::Start() {
   DCHECK_EQ(State::kNotStarted, state_);
-  DCHECK_NE(ServiceWorkerConsts::kInvalidServiceWorkerResourceId,
-            main_script_id_);
+  DCHECK_NE(blink::mojom::kInvalidServiceWorkerResourceId, main_script_id_);
   TRACE_EVENT_NESTABLE_ASYNC_BEGIN1("ServiceWorker",
                                     "ServiceWorkerInstalledScriptsSender", this,
                                     "main_script_url", main_script_url_.spec());
@@ -71,6 +68,12 @@ void ServiceWorkerInstalledScriptsSender::StartSendingScript(
   DCHECK(!reader_);
   DCHECK(current_sending_url_.is_empty());
   state_ = State::kSendingScripts;
+
+  if (!owner_->context()) {
+    Abort(ServiceWorkerInstalledScriptReader::FinishedReason::kNoContextError);
+    return;
+  }
+
   current_sending_url_ = script_url;
 
   std::unique_ptr<ServiceWorkerResponseReader> response_reader =
@@ -83,34 +86,50 @@ void ServiceWorkerInstalledScriptsSender::StartSendingScript(
 }
 
 void ServiceWorkerInstalledScriptsSender::OnStarted(
-    std::string encoding,
-    base::flat_map<std::string, std::string> headers,
+    scoped_refptr<HttpResponseInfoIOBuffer> http_info,
     mojo::ScopedDataPipeConsumerHandle body_handle,
-    uint64_t body_size,
-    mojo::ScopedDataPipeConsumerHandle meta_data_handle,
-    uint64_t meta_data_size) {
+    mojo::ScopedDataPipeConsumerHandle meta_data_handle) {
+  DCHECK(http_info);
   DCHECK(reader_);
   DCHECK_EQ(State::kSendingScripts, state_);
-  TRACE_EVENT_NESTABLE_ASYNC_INSTANT2("ServiceWorker", "OnStarted", this,
-                                      "body_size", body_size, "meta_data_size",
-                                      meta_data_size);
+  uint64_t meta_data_size = http_info->http_info->metadata
+                                ? http_info->http_info->metadata->size()
+                                : 0;
+  TRACE_EVENT_NESTABLE_ASYNC_INSTANT2(
+      "ServiceWorker", "OnStarted", this, "body_size",
+      http_info->response_data_size, "meta_data_size", meta_data_size);
+
+  // Create a map of response headers.
+  scoped_refptr<net::HttpResponseHeaders> headers =
+      http_info->http_info->headers;
+  DCHECK(headers);
+  base::flat_map<std::string, std::string> header_strings;
+  size_t iter = 0;
+  std::string key;
+  std::string value;
+  // This logic is copied from blink::ResourceResponse::AddHttpHeaderField.
+  while (headers->EnumerateHeaderLines(&iter, &key, &value)) {
+    if (header_strings.find(key) == header_strings.end()) {
+      header_strings[key] = value;
+    } else {
+      header_strings[key] += ", " + value;
+    }
+  }
+
   auto script_info = blink::mojom::ServiceWorkerScriptInfo::New();
   script_info->script_url = current_sending_url_;
-  script_info->headers = std::move(headers);
-  script_info->encoding = std::move(encoding);
+  script_info->headers = std::move(header_strings);
+  headers->GetCharset(&script_info->encoding);
   script_info->body = std::move(body_handle);
-  script_info->body_size = body_size;
+  script_info->body_size = http_info->response_data_size;
   script_info->meta_data = std::move(meta_data_handle);
   script_info->meta_data_size = meta_data_size;
   manager_->TransferInstalledScript(std::move(script_info));
-}
-
-void ServiceWorkerInstalledScriptsSender::OnHttpInfoRead(
-    scoped_refptr<HttpResponseInfoIOBuffer> http_info) {
-  DCHECK(reader_);
-  DCHECK_EQ(State::kSendingScripts, state_);
-  if (IsSendingMainScript())
-    owner_->SetMainScriptHttpResponseInfo(*http_info->http_info);
+  if (IsSendingMainScript()) {
+    owner_->SetMainScriptResponse(
+        std::make_unique<ServiceWorkerVersion::MainScriptResponse>(
+            *http_info->http_info));
+  }
 }
 
 void ServiceWorkerInstalledScriptsSender::OnFinished(
@@ -178,7 +197,7 @@ void ServiceWorkerInstalledScriptsSender::Abort(
       // connection here, the service worker would be blocked waiting for the
       // script data and won't respond to Stop.
       manager_.reset();
-      binding_.Close();
+      receiver_.reset();
 
       // Delete the registration data since the data was corrupted.
       if (owner_->context()) {
@@ -193,11 +212,12 @@ void ServiceWorkerInstalledScriptsSender::Abort(
     case ServiceWorkerInstalledScriptReader::FinishedReason::kConnectionError:
     case ServiceWorkerInstalledScriptReader::FinishedReason::
         kMetaDataSenderError:
+    case ServiceWorkerInstalledScriptReader::FinishedReason::kNoContextError:
       // Break the Mojo connection with the renderer. This usually causes the
       // service worker to stop, and the error handler of EmbeddedWorkerInstance
       // is invoked soon.
       manager_.reset();
-      binding_.Close();
+      receiver_.reset();
       return;
   }
 }
@@ -220,7 +240,7 @@ void ServiceWorkerInstalledScriptsSender::RequestInstalledScript(
   int64_t resource_id =
       owner_->script_cache_map()->LookupResourceId(script_url);
 
-  if (resource_id == ServiceWorkerConsts::kInvalidServiceWorkerResourceId) {
+  if (resource_id == blink::mojom::kInvalidServiceWorkerResourceId) {
     mojo::ReportBadMessage("Requested script was not installed.");
     return;
   }

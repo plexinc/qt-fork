@@ -115,7 +115,7 @@ sk_sp<const GrGLInterface> GLWindowContext_android::onInitializeContext() {
 
     eglGetConfigAttrib(fDisplay, surfaceConfig, EGL_STENCIL_SIZE, &fStencilBits);
     eglGetConfigAttrib(fDisplay, surfaceConfig, EGL_SAMPLES, &fSampleCount);
-    fSampleCount = SkTMax(fSampleCount, 1);
+    fSampleCount = std::max(fSampleCount, 1);
 
     eglSwapInterval(fDisplay, fDisplayParams.fDisableVsync ? 0 : 1);
 
@@ -144,10 +144,10 @@ void GLWindowContext_android::onSwapBuffers() {
 namespace sk_app {
 namespace window_context_factory {
 
-WindowContext* NewGLForAndroid(ANativeWindow* window, const DisplayParams& params) {
-    WindowContext* ctx = new GLWindowContext_android(window, params);
+std::unique_ptr<WindowContext> MakeGLForAndroid(ANativeWindow* window,
+                                                const DisplayParams& params) {
+    std::unique_ptr<WindowContext> ctx(new GLWindowContext_android(window, params));
     if (!ctx->isValid()) {
-        delete ctx;
         return nullptr;
     }
     return ctx;

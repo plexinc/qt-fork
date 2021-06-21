@@ -15,7 +15,7 @@
 #include "content/public/test/scoped_overscroll_modes.h"
 #include "content/test/test_overscroll_delegate.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/blink/public/platform/web_input_event.h"
+#include "third_party/blink/public/common/input/web_input_event.h"
 
 namespace content {
 
@@ -43,7 +43,8 @@ class OverscrollControllerTest : public ::testing::Test {
   bool SimulateMouseWheel(float dx, float dy) {
     DCHECK(!current_event_);
     current_event_ = std::make_unique<blink::WebMouseWheelEvent>(
-        SyntheticWebMouseWheelEventBuilder::Build(0, 0, dx, dy, 0, true));
+        SyntheticWebMouseWheelEventBuilder::Build(
+            0, 0, dx, dy, 0, ui::ScrollGranularity::kScrollByPrecisePixel));
     return controller_->WillHandleEvent(*current_event_);
   }
 

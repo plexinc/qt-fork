@@ -18,7 +18,6 @@ from __future__ import print_function
 
 import argparse
 import codecs
-import cgi
 import json
 import os
 import shutil
@@ -26,6 +25,11 @@ import re
 import subprocess
 import sys
 import tempfile
+
+if sys.version_info.major == 2:
+  import cgi as html
+else:
+  import html
 
 # TODO(agrieve): Move build_utils.WriteDepFile into a non-android directory.
 _REPOSITORY_ROOT = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
@@ -341,11 +345,11 @@ KNOWN_NON_IOS_LIBRARIES = set([
     os.path.join('third_party', 'mozilla'),
     os.path.join('third_party', 'npapi'),
     os.path.join('third_party', 'ots'),
+    os.path.join('third_party', 'perfetto'),
     os.path.join('third_party', 'ppapi'),
     os.path.join('third_party', 'qcms'),
     os.path.join('third_party', 're2'),
     os.path.join('third_party', 'safe_browsing'),
-    os.path.join('third_party', 'sfntly'),
     os.path.join('third_party', 'smhasher'),
     os.path.join('third_party', 'sudden_motion_sensor'),
     os.path.join('third_party', 'swiftshader'),
@@ -612,7 +616,7 @@ def GenerateCredits(
         dictionary of expansions."""
         for key, val in env.items():
             if escape:
-                val = cgi.escape(val)
+                val = html.escape(val)
                 val = val.replace("*/", "* /")
             template = template.replace('{{%s}}' % key, val)
         return template
@@ -622,7 +626,7 @@ def GenerateCredits(
             'name': metadata['Name'],
             'name-sanitized': metadata['Name'].replace(' ', '-'),
             'url': metadata['URL'],
-            'license': open(metadata['License File'], 'rb').read(),
+            'license': open(metadata['License File']).read(),
             'license-type': metadata['License']
        }
         return {

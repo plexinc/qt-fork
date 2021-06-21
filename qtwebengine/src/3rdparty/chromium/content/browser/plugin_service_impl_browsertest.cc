@@ -85,11 +85,12 @@ class PluginServiceImplBrowserTest : public ContentBrowserTest {
     client->SetRunLoop(&run_loop);
 
     PluginServiceImpl* service = PluginServiceImpl::GetInstance();
-    base::PostTaskWithTraits(
+    base::PostTask(
         FROM_HERE, {BrowserThread::IO},
         base::BindOnce(&PluginServiceImpl::OpenChannelToPpapiPlugin,
-                       base::Unretained(service), 0, plugin_path_, profile_dir_,
-                       origin, base::Unretained(client)));
+                       base::Unretained(service), /*render_process_id=*/0,
+                       /*embedder_origin=*/url::Origin(), plugin_path_,
+                       profile_dir_, origin, base::Unretained(client)));
     client->WaitForQuit();
     client->SetRunLoop(nullptr);
   }

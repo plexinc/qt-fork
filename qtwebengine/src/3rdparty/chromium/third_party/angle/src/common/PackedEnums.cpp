@@ -38,6 +38,8 @@ TextureType TextureTargetToType(TextureTarget target)
             return TextureType::_2DMultisampleArray;
         case TextureTarget::_3D:
             return TextureType::_3D;
+        case TextureTarget::VideoImage:
+            return TextureType::VideoImage;
         case TextureTarget::InvalidEnum:
             return TextureType::InvalidEnum;
         default:
@@ -69,6 +71,8 @@ TextureTarget NonCubeTextureTypeToTarget(TextureType type)
             return TextureTarget::_2DMultisampleArray;
         case TextureType::_3D:
             return TextureTarget::_3D;
+        case TextureType::VideoImage:
+            return TextureTarget::VideoImage;
         default:
             UNREACHABLE();
             return TextureTarget::InvalidEnum;
@@ -152,18 +156,33 @@ TextureType SamplerTypeToTextureType(GLenum samplerType)
         case GL_SAMPLER_2D_RECT_ANGLE:
             return TextureType::Rectangle;
 
+        case GL_SAMPLER_VIDEO_IMAGE_WEBGL:
+            return TextureType::VideoImage;
+
         default:
             UNREACHABLE();
             return TextureType::InvalidEnum;
     }
 }
 
-bool IsMultisampled(gl::TextureType type)
+bool IsMultisampled(TextureType type)
 {
     switch (type)
     {
-        case gl::TextureType::_2DMultisample:
-        case gl::TextureType::_2DMultisampleArray:
+        case TextureType::_2DMultisample:
+        case TextureType::_2DMultisampleArray:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool IsArrayTextureType(TextureType type)
+{
+    switch (type)
+    {
+        case TextureType::_2DArray:
+        case TextureType::_2DMultisampleArray:
             return true;
         default:
             return false;
@@ -240,7 +259,7 @@ std::ostream &operator<<(std::ostream &os, VertexAttribType value)
     switch (value)
     {
         case VertexAttribType::Byte:
-            os << "GL_UNSIGNED_BYTE";
+            os << "GL_BYTE";
             break;
         case VertexAttribType::Fixed:
             os << "GL_FIXED";
@@ -257,6 +276,9 @@ std::ostream &operator<<(std::ostream &os, VertexAttribType value)
         case VertexAttribType::Int2101010:
             os << "GL_INT_10_10_10_2";
             break;
+        case VertexAttribType::Int1010102:
+            os << "GL_INT_10_10_10_2_OES";
+            break;
         case VertexAttribType::Short:
             os << "GL_SHORT";
             break;
@@ -268,6 +290,9 @@ std::ostream &operator<<(std::ostream &os, VertexAttribType value)
             break;
         case VertexAttribType::UnsignedInt2101010:
             os << "GL_UNSIGNED_INT_10_10_10_2";
+            break;
+        case VertexAttribType::UnsignedInt1010102:
+            os << "GL_UNSIGNED_INT_10_10_10_2_OES";
             break;
         case VertexAttribType::UnsignedShort:
             os << "GL_UNSIGNED_SHORT";

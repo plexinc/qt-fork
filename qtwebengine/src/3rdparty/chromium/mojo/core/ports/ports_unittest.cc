@@ -20,7 +20,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/synchronization/lock.h"
 #include "base/synchronization/waitable_event.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/threading/thread.h"
 #include "mojo/core/ports/event.h"
 #include "mojo/core/ports/node.h"
@@ -403,6 +403,26 @@ class PortsTest : public testing::Test, public MessageRouter {
       return;
     }
 
+    // Serialize and de-serialize all forwarded events.
+    size_t buf_size = event->GetSerializedSize();
+    std::unique_ptr<char[]> buf(new char[buf_size]);
+    event->Serialize(buf.get());
+    ScopedEvent copy = Event::Deserialize(buf.get(), buf_size);
+    // This should always succeed unless serialization or deserialization
+    // is broken. In that case, the loss of events should cause a test failure.
+    ASSERT_TRUE(copy);
+
+    // Also copy the payload for user messages.
+    if (event->type() == Event::Type::kUserMessage) {
+      UserMessageEvent* message_event =
+          static_cast<UserMessageEvent*>(event.get());
+      UserMessageEvent* message_copy =
+          static_cast<UserMessageEvent*>(copy.get());
+
+      message_copy->AttachMessage(std::make_unique<TestMessage>(
+          message_event->GetMessage<TestMessage>()->payload()));
+    }
+
     it->second->EnqueueEvent(std::move(event));
   }
 
@@ -423,7 +443,7 @@ class PortsTest : public testing::Test, public MessageRouter {
     }
   }
 
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::TaskEnvironment task_environment_;
 
   // Acquired before any operation which makes a Node busy, and before testing
   // if all nodes are idle.

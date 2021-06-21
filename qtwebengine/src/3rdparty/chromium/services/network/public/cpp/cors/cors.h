@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "base/component_export.h"
+#include "base/containers/flat_set.h"
 #include "base/optional.h"
 #include "net/http/http_request_headers.h"
 #include "services/network/public/cpp/cors/cors_error_status.h"
@@ -52,15 +53,15 @@ extern const char kAccessControlRequestMethod[];
 COMPONENT_EXPORT(NETWORK_CPP)
 base::Optional<CorsErrorStatus> CheckAccess(
     const GURL& response_url,
-    const int response_status_code,
     const base::Optional<std::string>& allow_origin_header,
     const base::Optional<std::string>& allow_credentials_header,
     mojom::CredentialsMode credentials_mode,
     const url::Origin& origin);
 
 // Returns true if |request_mode| is not kNavigate nor kNoCors, and the
-// origin of |request_url| is not a data URL, and |request_initiator| is not
-// same as the origin of |request_url|,
+// |request_initiator| is not same as the origin of |request_url|. The
+// |request_url| is expected to have a http or https scheme as they are only
+// schemes that the spec officially supports.
 COMPONENT_EXPORT(NETWORK_CPP)
 bool ShouldCheckCors(const GURL& request_url,
                      const base::Optional<url::Origin>& request_initiator,
@@ -91,12 +92,6 @@ base::Optional<CorsErrorStatus> CheckRedirectLocation(
     bool cors_flag,
     bool tainted);
 
-// Performs the required CORS checks on the response to a preflight request.
-// Returns |kPreflightSuccess| if preflight response was successful.
-// TODO(toyoshim): Rename to CheckPreflightStatus.
-COMPONENT_EXPORT(NETWORK_CPP)
-base::Optional<mojom::CorsError> CheckPreflight(const int status_code);
-
 // Checks errors for the currently experimental "Access-Control-Allow-External:"
 // header. Shares error conditions with standard preflight checking.
 // See https://crbug.com/590714.
@@ -113,7 +108,10 @@ bool IsCorsSafelistedMethod(const std::string& method);
 COMPONENT_EXPORT(NETWORK_CPP)
 bool IsCorsSafelistedContentType(const std::string& name);
 COMPONENT_EXPORT(NETWORK_CPP)
-bool IsCorsSafelistedHeader(const std::string& name, const std::string& value);
+bool IsCorsSafelistedHeader(
+    const std::string& name,
+    const std::string& value,
+    const base::flat_set<std::string>& extra_safelisted_header_names = {});
 COMPONENT_EXPORT(NETWORK_CPP)
 bool IsNoCorsSafelistedHeaderName(const std::string& name);
 COMPONENT_EXPORT(NETWORK_CPP)
@@ -140,17 +138,14 @@ std::vector<std::string> CorsUnsafeRequestHeaderNames(
 COMPONENT_EXPORT(NETWORK_CPP)
 std::vector<std::string> CorsUnsafeNotForbiddenRequestHeaderNames(
     const net::HttpRequestHeaders::HeaderVector& headers,
-    bool is_revalidating);
+    bool is_revalidating,
+    const base::flat_set<std::string>& extra_safelisted_header_names = {});
 
 // Checks forbidden method in the fetch spec.
 // See https://fetch.spec.whatwg.org/#forbidden-method.
 // TODO(toyoshim): Move Blink FetchUtils::IsForbiddenMethod to cors:: and use
 // this implementation internally.
 COMPONENT_EXPORT(NETWORK_CPP) bool IsForbiddenMethod(const std::string& name);
-
-// Checks forbidden header in the fetch spec.
-// See https://fetch.spec.whatwg.org/#forbidden-header-name.
-COMPONENT_EXPORT(NETWORK_CPP) bool IsForbiddenHeader(const std::string& name);
 
 // https://fetch.spec.whatwg.org/#ok-status aka a successful 2xx status code,
 // https://tools.ietf.org/html/rfc7231#section-6.3 . We opt to use the Fetch

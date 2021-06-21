@@ -176,13 +176,14 @@ const char kNameOnCardRe[] =
 const char kNameOnCardContextualRe[] = "name";
 const char kCardNumberRe[] =
     "(add)?(?:card|cc|acct).?(?:number|#|no|num|field)"
-    "|(?<!telefon|haus)nummer"                             // de-DE
-    "|カード番号"                                          // ja-JP
-    "|Номер.*карты"                                        // ru
-    "|信用卡号|信用卡号码"                                 // zh-CN
-    "|信用卡卡號"                                          // zh-TW
-    "|카드"                                                // ko-KR
-    "|(numero|número|numéro)(?!.*(document|fono|phone))";  // es/pt/fr
+    "|(?<!telefon|haus)nummer"  // de-DE
+    "|カード番号"               // ja-JP
+    "|Номер.*карты"             // ru
+    "|信用卡号|信用卡号码"      // zh-CN
+    "|信用卡卡號"               // zh-TW
+    "|카드"                     // ko-KR
+    // es/pt/fr
+    "|(numero|número|numéro)(?!.*(document|fono|phone|réservation))";
 
 const char kCardCvcRe[] =
     "verification|card.?identification|security.?code|card.?code"
@@ -308,10 +309,6 @@ const char kMiddleInitialRe[] = "middle.*initial|m\\.i\\.|mi$|\\bmi\\b";
 const char kMiddleNameRe[] =
     "middle.*name|mname|middle$"
     "|apellido.?materno|lastlastname";  // es
-
-// TODO(crbug.com/928851): Revisit "morada" from pt-PT as it means address and
-// not "last name", and "surename" in pt-PT as it's not Portuguese (or any
-// language?).
 const char kLastNameRe[] =
     "last.*name|lname|surname|last$|secondname|family.*name"
     "|nachname"                            // de-DE
@@ -319,7 +316,7 @@ const char kLastNameRe[] =
     "|famille|^nom(?!bre)"                 // fr-FR
     "|cognome"                             // it-IT
     "|姓"                                  // ja-JP
-    "|morada|apelidos|surename|sobrenome"  // pt-BR, pt-PT
+    "|apelidos|surename|sobrenome"         // pt-BR, pt-PT
     "|Фамилия"                             // ru
     "|نام.*خانوادگی"                       // fa
     "|उपनाम"                               // hi
@@ -501,9 +498,21 @@ const char kUPIVirtualPaymentAddressRe[] =
 const char kInternationalBankAccountNumberRe[] =
     "^[a-zA-Z]{2}[0-9]{2}[a-zA-Z0-9]{4}[0-9]{7}([a-zA-Z0-9]?){0,16}$";
 
+// Matches all 3 and 4 digit numbers.
+const char kCreditCardCVCPattern[] = "^\\d{3,4}$";
+
+// Matches numbers in the range [2010-2099].
+const char kCreditCard4DigitExpYearPattern[] = "^[2][0][1-9][0-9]$";
+
 /////////////////////////////////////////////////////////////////////////////
 // form_structure.cc
 /////////////////////////////////////////////////////////////////////////////
 const char kUrlSearchActionRe[] = "/search(/|((\\w*\\.\\w+)?$))";
+
+/////////////////////////////////////////////////////////////////////////////
+// form_parser.cc
+/////////////////////////////////////////////////////////////////////////////
+const char kSocialSecurityRe[] = "ssn|social.?security.?(num(ber)?|#)*";
+const char kOneTimePwdRe[] = "one.?time|sms.?(code|token|password|pwd|pass)";
 
 }  // namespace autofill

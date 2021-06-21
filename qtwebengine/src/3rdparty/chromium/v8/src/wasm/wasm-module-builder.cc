@@ -71,15 +71,15 @@ uint32_t WasmFunctionBuilder::AddLocal(ValueType type) {
 }
 
 void WasmFunctionBuilder::EmitGetLocal(uint32_t local_index) {
-  EmitWithU32V(kExprGetLocal, local_index);
+  EmitWithU32V(kExprLocalGet, local_index);
 }
 
 void WasmFunctionBuilder::EmitSetLocal(uint32_t local_index) {
-  EmitWithU32V(kExprSetLocal, local_index);
+  EmitWithU32V(kExprLocalSet, local_index);
 }
 
 void WasmFunctionBuilder::EmitTeeLocal(uint32_t local_index) {
-  EmitWithU32V(kExprTeeLocal, local_index);
+  EmitWithU32V(kExprLocalTee, local_index);
 }
 
 void WasmFunctionBuilder::EmitCode(const byte* code, uint32_t code_size) {
@@ -87,6 +87,12 @@ void WasmFunctionBuilder::EmitCode(const byte* code, uint32_t code_size) {
 }
 
 void WasmFunctionBuilder::Emit(WasmOpcode opcode) { body_.write_u8(opcode); }
+
+void WasmFunctionBuilder::EmitWithPrefix(WasmOpcode opcode) {
+  DCHECK_NE(0, opcode & 0xff00);
+  body_.write_u8(opcode >> 8);
+  body_.write_u8(opcode);
+}
 
 void WasmFunctionBuilder::EmitWithU8(WasmOpcode opcode, const byte immediate) {
   body_.write_u8(opcode);
@@ -233,6 +239,7 @@ WasmModuleBuilder::WasmModuleBuilder(Zone* zone)
       global_imports_(zone),
       exports_(zone),
       functions_(zone),
+      tables_(zone),
       data_segments_(zone),
       indirect_functions_(zone),
       globals_(zone),
@@ -269,15 +276,29 @@ uint32_t WasmModuleBuilder::AddSignature(FunctionSig* sig) {
 }
 
 uint32_t WasmModuleBuilder::AllocateIndirectFunctions(uint32_t count) {
+  DCHECK(allocating_indirect_functions_allowed_);
   uint32_t index = static_cast<uint32_t>(indirect_functions_.size());
   DCHECK_GE(FLAG_wasm_max_table_size, index);
   if (count > FLAG_wasm_max_table_size - index) {
     return std::numeric_limits<uint32_t>::max();
   }
-  DCHECK(max_table_size_ == 0 ||
-         indirect_functions_.size() + count <= max_table_size_);
-  indirect_functions_.resize(indirect_functions_.size() + count,
-                             WasmElemSegment::kNullIndex);
+  uint32_t new_size = static_cast<uint32_t>(indirect_functions_.size()) + count;
+  DCHECK(max_table_size_ == 0 || new_size <= max_table_size_);
+  indirect_functions_.resize(new_size, WasmElemSegment::kNullIndex);
+  uint32_t max = max_table_size_ > 0 ? max_table_size_ : new_size;
+  if (tables_.empty()) {
+    // This cannot use {AddTable} because that would flip the
+    // {allocating_indirect_functions_allowed_} flag.
+    tables_.push_back({kWasmFuncRef, new_size, max, true});
+  } else {
+    // There can only be the indirect function table so far, otherwise the
+    // {allocating_indirect_functions_allowed_} flag would have been false.
+    DCHECK_EQ(1u, tables_.size());
+    DCHECK_EQ(kWasmFuncRef, tables_[0].type);
+    DCHECK(tables_[0].has_maximum);
+    tables_[0].min_size = new_size;
+    tables_[0].max_size = max;
+  }
   return index;
 }
 
@@ -290,6 +311,27 @@ void WasmModuleBuilder::SetMaxTableSize(uint32_t max) {
   DCHECK_GE(FLAG_wasm_max_table_size, max);
   DCHECK_GE(max, indirect_functions_.size());
   max_table_size_ = max;
+  DCHECK(allocating_indirect_functions_allowed_);
+  if (!tables_.empty()) {
+    tables_[0].max_size = max;
+  }
+}
+
+uint32_t WasmModuleBuilder::AddTable(ValueType type, uint32_t min_size) {
+#if DEBUG
+  allocating_indirect_functions_allowed_ = false;
+#endif
+  tables_.push_back({type, min_size, 0, false});
+  return static_cast<uint32_t>(tables_.size() - 1);
+}
+
+uint32_t WasmModuleBuilder::AddTable(ValueType type, uint32_t min_size,
+                                     uint32_t max_size) {
+#if DEBUG
+  allocating_indirect_functions_allowed_ = false;
+#endif
+  tables_.push_back({type, min_size, max_size, true});
+  return static_cast<uint32_t>(tables_.size() - 1);
 }
 
 uint32_t WasmModuleBuilder::AddImport(Vector<const char> name,
@@ -301,8 +343,7 @@ uint32_t WasmModuleBuilder::AddImport(Vector<const char> name,
 
 uint32_t WasmModuleBuilder::AddGlobalImport(Vector<const char> name,
                                             ValueType type, bool mutability) {
-  global_imports_.push_back(
-      {name, ValueTypes::ValueTypeCodeFor(type), mutability});
+  global_imports_.push_back({name, type.value_type_code(), mutability});
   return static_cast<uint32_t>(global_imports_.size() - 1);
 }
 
@@ -366,11 +407,11 @@ void WasmModuleBuilder::WriteTo(ZoneBuffer* buffer) const {
       buffer->write_u8(kWasmFunctionTypeCode);
       buffer->write_size(sig->parameter_count());
       for (auto param : sig->parameters()) {
-        buffer->write_u8(ValueTypes::ValueTypeCodeFor(param));
+        buffer->write_u8(param.value_type_code());
       }
       buffer->write_size(sig->return_count());
       for (auto ret : sig->returns()) {
-        buffer->write_u8(ValueTypes::ValueTypeCodeFor(ret));
+        buffer->write_u8(ret.value_type_code());
       }
     }
     FixupSection(buffer, start);
@@ -408,21 +449,20 @@ void WasmModuleBuilder::WriteTo(ZoneBuffer* buffer) const {
     FixupSection(buffer, start);
   }
 
-  // == emit function table ====================================================
-  if (indirect_functions_.size() > 0) {
+  // == Emit tables ============================================================
+  if (tables_.size() > 0) {
     size_t start = EmitSection(kTableSectionCode, buffer);
-    buffer->write_u8(1);  // table count
-    buffer->write_u8(kLocalFuncRef);
-    buffer->write_u8(kHasMaximumFlag);
-    buffer->write_size(indirect_functions_.size());
-    size_t max =
-        max_table_size_ > 0 ? max_table_size_ : indirect_functions_.size();
-    DCHECK_GE(max, indirect_functions_.size());
-    buffer->write_size(max);
+    buffer->write_size(tables_.size());
+    for (const WasmTable& table : tables_) {
+      buffer->write_u8(table.type.value_type_code());
+      buffer->write_u8(table.has_maximum ? kHasMaximumFlag : kNoMaximumFlag);
+      buffer->write_size(table.min_size);
+      if (table.has_maximum) buffer->write_size(table.max_size);
+    }
     FixupSection(buffer, start);
   }
 
-  // == emit memory declaration ================================================
+  // == Emit memory declaration ================================================
   {
     size_t start = EmitSection(kMemorySectionCode, buffer);
     buffer->write_u8(1);  // memory count
@@ -445,8 +485,8 @@ void WasmModuleBuilder::WriteTo(ZoneBuffer* buffer) const {
     size_t start = EmitSection(kGlobalSectionCode, buffer);
     buffer->write_size(globals_.size());
 
-    for (auto global : globals_) {
-      buffer->write_u8(ValueTypes::ValueTypeCodeFor(global.type));
+    for (const WasmGlobal& global : globals_) {
+      buffer->write_u8(global.type.value_type_code());
       buffer->write_u8(global.mutability ? 1 : 0);
       switch (global.init.kind) {
         case WasmInitExpr::kI32Const:
@@ -470,27 +510,33 @@ void WasmModuleBuilder::WriteTo(ZoneBuffer* buffer) const {
           buffer->write_f64(global.init.val.f64_const);
           break;
         case WasmInitExpr::kGlobalIndex:
-          buffer->write_u8(kExprGetGlobal);
+          buffer->write_u8(kExprGlobalGet);
           buffer->write_u32v(global.init.val.global_index);
           break;
-        default: {
+        case WasmInitExpr::kRefNullConst:
+          buffer->write_u8(kExprRefNull);
+          break;
+        case WasmInitExpr::kRefFuncConst:
+          UNIMPLEMENTED();
+          break;
+        case WasmInitExpr::kNone: {
           // No initializer, emit a default value.
-          switch (global.type) {
-            case kWasmI32:
+          switch (global.type.kind()) {
+            case ValueType::kI32:
               buffer->write_u8(kExprI32Const);
               // LEB encoding of 0.
               buffer->write_u8(0);
               break;
-            case kWasmI64:
+            case ValueType::kI64:
               buffer->write_u8(kExprI64Const);
               // LEB encoding of 0.
               buffer->write_u8(0);
               break;
-            case kWasmF32:
+            case ValueType::kF32:
               buffer->write_u8(kExprF32Const);
               buffer->write_f32(0.f);
               break;
-            case kWasmF64:
+            case ValueType::kF64:
               buffer->write_u8(kExprF64Const);
               buffer->write_f64(0.);
               break;
@@ -664,8 +710,6 @@ void WasmModuleBuilder::WriteAsmJsOffsetTable(ZoneBuffer* buffer) const {
   for (auto* function : functions_) {
     function->WriteAsmWasmOffsetTable(buffer);
   }
-  // Append a 0 to indicate that this is an encoded table.
-  buffer->write_u8(0);
 }
 }  // namespace wasm
 }  // namespace internal

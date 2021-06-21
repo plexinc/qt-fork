@@ -16,8 +16,7 @@ void SkSurfaceCharacterization::validate() const {
     const GrCaps* caps = fContextInfo->priv().caps();
 
     GrColorType grCT = SkColorTypeToGrColorType(this->colorType());
-    int maxColorSamples = caps->maxRenderTargetSampleCount(grCT, fBackendFormat);
-    SkASSERT(maxColorSamples && fSampleCnt && fSampleCnt <= maxColorSamples);
+    SkASSERT(fSampleCnt && caps->isFormatAsColorTypeRenderable(grCT, fBackendFormat, fSampleCnt));
 
     SkASSERT(caps->areColorTypeAndFormatCompatible(grCT, fBackendFormat));
 }
@@ -60,6 +59,44 @@ SkSurfaceCharacterization SkSurfaceCharacterization::createResized(int width, in
     return SkSurfaceCharacterization(fContextInfo, fCacheMaxResourceBytes,
                                      fImageInfo.makeWH(width, height), fBackendFormat, fOrigin,
                                      fSampleCnt, fIsTextureable, fIsMipMapped, fUsesGLFBO0,
+                                     fVulkanSecondaryCBCompatible, fIsProtected, fSurfaceProps);
+}
+
+SkSurfaceCharacterization SkSurfaceCharacterization::createColorSpace(
+                                                                     sk_sp<SkColorSpace> cs) const {
+    if (!this->isValid()) {
+        return SkSurfaceCharacterization();
+    }
+
+    return SkSurfaceCharacterization(fContextInfo, fCacheMaxResourceBytes,
+                                     fImageInfo.makeColorSpace(std::move(cs)), fBackendFormat,
+                                     fOrigin, fSampleCnt, fIsTextureable, fIsMipMapped, fUsesGLFBO0,
+                                     fVulkanSecondaryCBCompatible, fIsProtected, fSurfaceProps);
+}
+
+SkSurfaceCharacterization SkSurfaceCharacterization::createBackendFormat(
+                                                    SkColorType colorType,
+                                                    const GrBackendFormat& backendFormat) const {
+    if (!this->isValid()) {
+        return SkSurfaceCharacterization();
+    }
+
+    SkImageInfo newII = fImageInfo.makeColorType(colorType);
+
+    return SkSurfaceCharacterization(fContextInfo, fCacheMaxResourceBytes, newII, backendFormat,
+                                     fOrigin, fSampleCnt, fIsTextureable, fIsMipMapped, fUsesGLFBO0,
+                                     fVulkanSecondaryCBCompatible, fIsProtected, fSurfaceProps);
+}
+
+SkSurfaceCharacterization SkSurfaceCharacterization::createFBO0(bool usesGLFBO0) const {
+    if (!this->isValid()) {
+        return SkSurfaceCharacterization();
+    }
+
+    return SkSurfaceCharacterization(fContextInfo, fCacheMaxResourceBytes,
+                                     fImageInfo, fBackendFormat,
+                                     fOrigin, fSampleCnt, fIsTextureable, fIsMipMapped,
+                                     usesGLFBO0 ? UsesGLFBO0::kYes : UsesGLFBO0::kNo,
                                      fVulkanSecondaryCBCompatible, fIsProtected, fSurfaceProps);
 }
 

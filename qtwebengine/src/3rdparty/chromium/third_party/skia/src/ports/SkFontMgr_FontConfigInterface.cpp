@@ -13,7 +13,6 @@
 #include "include/ports/SkFontMgr_FontConfigInterface.h"
 #include "include/private/SkMutex.h"
 #include "src/core/SkFontDescriptor.h"
-#include "src/core/SkMakeUnique.h"
 #include "src/core/SkResourceCache.h"
 #include "src/core/SkTypefaceCache.h"
 #include "src/ports/SkFontConfigTypeface.h"
@@ -35,11 +34,11 @@ std::unique_ptr<SkStreamAsset> SkTypeface_FCI::onOpenStream(int* ttcIndex) const
 
 std::unique_ptr<SkFontData> SkTypeface_FCI::onMakeFontData() const {
     if (fFontData) {
-        return skstd::make_unique<SkFontData>(*fFontData);
+        return std::make_unique<SkFontData>(*fFontData);
     }
 
     const SkFontConfigInterface::FontIdentity& id = this->getIdentity();
-    return skstd::make_unique<SkFontData>(std::unique_ptr<SkStreamAsset>(fFCI->openStream(id)),
+    return std::make_unique<SkFontData>(std::unique_ptr<SkStreamAsset>(fFCI->openStream(id)),
                                           id.fTTCIndex, nullptr, 0);
 }
 
@@ -173,7 +172,6 @@ public:
 protected:
     int onCountFamilies() const override {
         SK_ABORT("Not implemented.");
-        return 0;
     }
 
     void onGetFamilyName(int index, SkString* familyName) const override {
@@ -182,12 +180,10 @@ protected:
 
     SkFontStyleSet* onCreateStyleSet(int index) const override {
         SK_ABORT("Not implemented.");
-        return nullptr;
     }
 
     SkFontStyleSet* onMatchFamily(const char familyName[]) const override {
         SK_ABORT("Not implemented.");
-        return new SkFontStyleSet_FCI();
     }
 
     SkTypeface* onMatchFamilyStyle(const char requestedFamilyName[],
@@ -218,12 +214,10 @@ protected:
                                             const char* bcp47[], int bcp47Count,
                                             SkUnichar character) const override {
         SK_ABORT("Not implemented.");
-        return nullptr;
     }
 
     SkTypeface* onMatchFaceStyle(const SkTypeface*, const SkFontStyle&) const override {
         SK_ABORT("Not implemented.");
-        return nullptr;
     }
 
     sk_sp<SkTypeface> onMakeFromData(sk_sp<SkData> data, int ttcIndex) const override {
@@ -248,7 +242,7 @@ protected:
             return nullptr;
         }
 
-        auto fontData = skstd::make_unique<SkFontData>(std::move(stream), ttcIndex, nullptr, 0);
+        auto fontData = std::make_unique<SkFontData>(std::move(stream), ttcIndex, nullptr, 0);
         return sk_sp<SkTypeface>(SkTypeface_FCI::Create(std::move(fontData), std::move(name),
                                                         style, isFixedPitch));
     }
@@ -278,7 +272,7 @@ protected:
         Scanner::computeAxisValues(axisDefinitions, args.getVariationDesignPosition(),
                                    axisValues, name);
 
-        auto fontData = skstd::make_unique<SkFontData>(std::move(stream),
+        auto fontData = std::make_unique<SkFontData>(std::move(stream),
                                                        args.getCollectionIndex(),
                                                        axisValues.get(),
                                                        axisDefinitions.count());

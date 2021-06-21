@@ -5,11 +5,11 @@
 #ifndef QUICHE_QUIC_CORE_PACKET_NUMBER_INDEXED_QUEUE_H_
 #define QUICHE_QUIC_CORE_PACKET_NUMBER_INDEXED_QUEUE_H_
 
+#include "net/third_party/quiche/src/quic/core/quic_circular_deque.h"
 #include "net/third_party/quiche/src/quic/core/quic_constants.h"
 #include "net/third_party/quiche/src/quic/core/quic_packet_number.h"
 #include "net/third_party/quiche/src/quic/core/quic_types.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_bug_tracker.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_containers.h"
 
 namespace quic {
 
@@ -34,8 +34,10 @@ namespace quic {
 // just two entries will cause it to consume all of the memory available.
 // Because of that, it is not a general-purpose container and should not be used
 // as one.
+// TODO(wub): Update the comments when deprecating
+// --quic_bw_sampler_remove_packets_once_per_congestion_event.
 template <typename T>
-class PacketNumberIndexedQueue {
+class QUIC_NO_EXPORT PacketNumberIndexedQueue {
  public:
   PacketNumberIndexedQueue() : number_of_present_entries_(0) {}
 
@@ -59,6 +61,11 @@ class PacketNumberIndexedQueue {
   // before removing it.
   template <typename Function>
   bool Remove(QuicPacketNumber packet_number, Function f);
+
+  // Remove up to, but not including |packet_number|.
+  // Unused slots in the front are also removed, which means when the function
+  // returns, |first_packet()| can be larger than |packet_number|.
+  void RemoveUpTo(QuicPacketNumber packet_number);
 
   bool IsEmpty() const { return number_of_present_entries_ == 0; }
 
@@ -86,7 +93,10 @@ class PacketNumberIndexedQueue {
 
  private:
   // Wrapper around T used to mark whether the entry is actually in the map.
-  struct EntryWrapper : T {
+  struct QUIC_NO_EXPORT EntryWrapper : T {
+    // NOTE(wub): When quic_bw_sampler_remove_packets_once_per_congestion_event
+    // is enabled, |present| is false if and only if this is a placeholder entry
+    // for holes in the parent's |entries|.
     bool present;
 
     EntryWrapper() : present(false) {}
@@ -105,7 +115,10 @@ class PacketNumberIndexedQueue {
     return const_cast<EntryWrapper*>(const_this->GetEntryWrapper(offset));
   }
 
-  QuicDeque<EntryWrapper> entries_;
+  QuicCircularDeque<EntryWrapper> entries_;
+  // NOTE(wub): When --quic_bw_sampler_remove_packets_once_per_congestion_event
+  // is enabled, |number_of_present_entries_| only represents number of holes,
+  // which does not include number of acked or lost packets.
   size_t number_of_present_entries_;
   QuicPacketNumber first_packet_;
 };
@@ -186,6 +199,19 @@ bool PacketNumberIndexedQueue<T>::Remove(QuicPacketNumber packet_number,
     Cleanup();
   }
   return true;
+}
+
+template <typename T>
+void PacketNumberIndexedQueue<T>::RemoveUpTo(QuicPacketNumber packet_number) {
+  while (!entries_.empty() && first_packet_.IsInitialized() &&
+         first_packet_ < packet_number) {
+    if (entries_.front().present) {
+      number_of_present_entries_--;
+    }
+    entries_.pop_front();
+    first_packet_++;
+  }
+  Cleanup();
 }
 
 template <typename T>

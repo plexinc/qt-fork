@@ -15,10 +15,10 @@
 
 namespace quic {
 
-// An implementation of QuicCryptoClientStream::HandshakerDelegate which uses
+// An implementation of QuicCryptoClientStream::HandshakerInterface which uses
 // QUIC crypto as the crypto handshake protocol.
 class QUIC_EXPORT_PRIVATE QuicCryptoClientHandshaker
-    : public QuicCryptoClientStream::HandshakerDelegate,
+    : public QuicCryptoClientStream::HandshakerInterface,
       public QuicCryptoHandshaker {
  public:
   QuicCryptoClientHandshaker(
@@ -34,16 +34,23 @@ class QUIC_EXPORT_PRIVATE QuicCryptoClientHandshaker
 
   ~QuicCryptoClientHandshaker() override;
 
-  // From QuicCryptoClientStream::HandshakerDelegate
+  // From QuicCryptoClientStream::HandshakerInterface
   bool CryptoConnect() override;
   int num_sent_client_hellos() const override;
+  bool IsResumption() const override;
+  bool EarlyDataAccepted() const override;
+  bool ReceivedInchoateReject() const override;
   int num_scup_messages_received() const override;
   std::string chlo_hash() const override;
   bool encryption_established() const override;
-  bool handshake_confirmed() const override;
+  bool one_rtt_keys_available() const override;
   const QuicCryptoNegotiatedParameters& crypto_negotiated_params()
       const override;
   CryptoMessageParser* crypto_message_parser() override;
+  HandshakeState GetHandshakeState() const override;
+  size_t BufferSizeLimitForLevel(EncryptionLevel level) const override;
+  void OnOneRttPacketAcknowledged() override {}
+  void OnHandshakeDoneReceived() override;
 
   // From QuicCryptoHandshaker
   void OnHandshakeMessage(const CryptoHandshakeMessage& message) override;
@@ -59,7 +66,8 @@ class QUIC_EXPORT_PRIVATE QuicCryptoClientHandshaker
   // ProofVerifierCallbackImpl is passed as the callback method to VerifyProof.
   // The ProofVerifier calls this class with the result of proof verification
   // when verification is performed asynchronously.
-  class ProofVerifierCallbackImpl : public ProofVerifierCallback {
+  class QUIC_EXPORT_PRIVATE ProofVerifierCallbackImpl
+      : public ProofVerifierCallback {
    public:
     explicit ProofVerifierCallbackImpl(QuicCryptoClientHandshaker* parent);
     ~ProofVerifierCallbackImpl() override;
@@ -129,6 +137,7 @@ class QUIC_EXPORT_PRIVATE QuicCryptoClientHandshaker
   QuicCryptoClientStream* stream_;
 
   QuicSession* session_;
+  HandshakerDelegateInterface* delegate_;
 
   State next_state_;
   // num_client_hellos_ contains the number of client hello messages that this
@@ -169,7 +178,7 @@ class QUIC_EXPORT_PRIVATE QuicCryptoClientHandshaker
   int num_scup_messages_received_;
 
   bool encryption_established_;
-  bool handshake_confirmed_;
+  bool one_rtt_keys_available_;
   QuicReferenceCountedPointer<QuicCryptoNegotiatedParameters>
       crypto_negotiated_params_;
 };

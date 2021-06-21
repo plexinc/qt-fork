@@ -67,11 +67,6 @@ public class ThreadedInputConnectionFactoryTest {
         }
 
         @Override
-        protected InputMethodUma createInputMethodUma() {
-            return null;
-        }
-
-        @Override
         protected void onRegisterProxyViewSuccess() {
             mSucceeded = true;
         }
@@ -117,7 +112,7 @@ public class ThreadedInputConnectionFactoryTest {
     private boolean mHasWindowFocus;
 
     @Before
-    public void setUp() throws Exception {
+    public void setUp() {
         // ThreadedInputConnectionFactory#initializeAndGet() logic is activated under N, so pretend
         // that we're in L. Note that this is to workaround crbug.com/944476 that
         // @Config(..., sdk = Build.VERSION_CODES.LOLLIPOP) doesn't work.
@@ -134,7 +129,7 @@ public class ThreadedInputConnectionFactoryTest {
         mImeAdapter = Mockito.mock(ImeAdapterImpl.class);
         mInputMethodManager = Mockito.mock(InputMethodManager.class);
 
-        mFactory = new TestFactory(new InputMethodManagerWrapperImpl(mContext));
+        mFactory = new TestFactory(new InputMethodManagerWrapperImpl(mContext, null, null));
         mFactory.onWindowFocusChanged(true);
         mImeHandler = mFactory.getHandler();
         mImeShadowLooper = (ShadowLooper) Shadow.extract(mImeHandler.getLooper());
@@ -152,7 +147,7 @@ public class ThreadedInputConnectionFactoryTest {
         when(mProxyView.getHandler()).thenReturn(mImeHandler);
         final Callable<InputConnection> callable = new Callable<InputConnection>() {
             @Override
-            public InputConnection call() throws Exception {
+            public InputConnection call() {
                 return mFactory.initializeAndGet(
                         mContainerView, mImeAdapter, 1, 0, 0, 0, 0, 0, mEditorInfo);
             }
@@ -170,7 +165,7 @@ public class ThreadedInputConnectionFactoryTest {
             private int mCount;
 
             @Override
-            public Boolean answer(InvocationOnMock invocation) throws Throwable {
+            public Boolean answer(InvocationOnMock invocation) {
                 mCount++;
                 // To simplify IMM's behavior, let's say that it succeeds input method activation
                 // only when the view has a window focus.
@@ -184,7 +179,7 @@ public class ThreadedInputConnectionFactoryTest {
         });
         when(mInputMethodManager.isActive(mProxyView)).thenAnswer(new Answer<Boolean>() {
             @Override
-            public Boolean answer(InvocationOnMock invocation) throws Throwable {
+            public Boolean answer(InvocationOnMock invocation) {
                 return mInputConnection != null;
             }
         });

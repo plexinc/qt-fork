@@ -8,7 +8,6 @@
 #include "third_party/blink/renderer/bindings/core/v8/script_source_location_type.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_code_cache.h"
 #include "third_party/blink/renderer/core/core_export.h"
-#include "third_party/blink/renderer/platform/bindings/shared_persistent.h"
 #include "third_party/blink/renderer/platform/bindings/trace_wrapper_v8_reference.h"
 #include "third_party/blink/renderer/platform/loader/fetch/cached_metadata_handler.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
@@ -24,18 +23,60 @@ class KURL;
 class ScriptFetchOptions;
 class ScriptState;
 class ScriptValue;
+class ScriptPromise;
+
+// ModuleEvaluationResult encapsulates the result of a module evaluation.
+// - Without top-level-await
+//   - succeed and not return a value, or
+//     (IsSuccess() == true), no return value is available.
+//   - throw any object.
+//     (IsException() == true && GetException()) returns the thrown exception
+// - With top-level-await a module can either
+//   - return a promise, or
+//     (IsSuccess() == true && GetPromise()) returns a valid ScriptPromise())
+//   - throw any object.
+//     (IsException() == true && GetException()) returns the thrown exception
+class CORE_EXPORT ModuleEvaluationResult final {
+  STACK_ALLOCATED();
+
+ public:
+  ModuleEvaluationResult() = delete;
+  static ModuleEvaluationResult Empty();
+  static ModuleEvaluationResult FromResult(v8::Local<v8::Value> promise);
+  static ModuleEvaluationResult FromException(v8::Local<v8::Value> exception);
+
+  ModuleEvaluationResult(const ModuleEvaluationResult& value) = default;
+  ModuleEvaluationResult& operator=(const ModuleEvaluationResult& value) =
+      default;
+  ~ModuleEvaluationResult() = default;
+
+  ModuleEvaluationResult& Escape(ScriptState::EscapableScope* scope);
+
+  bool IsSuccess() const { return is_success_; }
+  bool IsException() const { return !is_success_; }
+
+  v8::Local<v8::Value> GetException() const;
+  ScriptPromise GetPromise(ScriptState* script_state) const;
+
+ private:
+  ModuleEvaluationResult(bool is_success, v8::Local<v8::Value> value)
+      : is_success_(is_success), value_(value) {}
+
+  bool is_success_;
+  v8::Local<v8::Value> value_;
+};
 
 // ModuleRecordProduceCacheData is a parameter object for
 // ModuleRecord::ProduceCache().
 class CORE_EXPORT ModuleRecordProduceCacheData final
-    : public GarbageCollectedFinalized<ModuleRecordProduceCacheData> {
+    : public GarbageCollected<ModuleRecordProduceCacheData> {
  public:
   ModuleRecordProduceCacheData(v8::Isolate*,
                                SingleCachedMetadataHandler*,
                                V8CodeCache::ProduceCacheOptions,
                                v8::Local<v8::Module>);
 
-  void Trace(blink::Visitor*);
+  void Trace(Visitor*);
 
   SingleCachedMetadataHandler* CacheHandler() const { return cache_handler_; }
   V8CodeCache::ProduceCacheOptions GetProduceCacheOptions() const {
@@ -55,18 +96,12 @@ class CORE_EXPORT ModuleRecordProduceCacheData final
   TraceWrapperV8Reference<v8::UnboundModuleScript> unbound_script_;
 };
 
-// ModuleRecord wraps a handle to a v8::Module for use in core.
-//
-// Using ModuleRecords needs a ScriptState and its scope to operate in. You
-// should always provide the same ScriptState and not try to reuse ModuleRecords
-// across different contexts.
-// Currently all ModuleRecord users can easily access its context Modulator, so
-// we use it to fill ScriptState in.
+// TODO(rikaf): Add a class level comment
 class CORE_EXPORT ModuleRecord final {
-  DISALLOW_NEW();
+  STATIC_ONLY(ModuleRecord);
 
  public:
-  static ModuleRecord Compile(
+  static v8::Local<v8::Module> Compile(
       v8::Isolate*,
       const String& source,
       const KURL& source_url,
@@ -80,114 +115,31 @@ class CORE_EXPORT ModuleRecord final {
           ScriptSourceLocationType::kInternal,
       ModuleRecordProduceCacheData** out_produce_cache_data = nullptr);
 
-  // TODO(kouhei): Remove copy ctor
-  ModuleRecord();
-  ~ModuleRecord();
-
-  ModuleRecord(v8::Isolate*, v8::Local<v8::Module>, const KURL&);
-
   // Returns exception, if any.
-  ScriptValue Instantiate(ScriptState*);
+  static ScriptValue Instantiate(ScriptState*,
+                                 v8::Local<v8::Module> record,
+                                 const KURL& source_url);
 
-  // Returns exception, if any.
-  ScriptValue Evaluate(ScriptState*) const;
+  // Returns exception, if any
+  static ScriptValue Evaluate(ScriptState*,
+                              v8::Local<v8::Module> record,
+                              const KURL& source_url);
   static void ReportException(ScriptState*, v8::Local<v8::Value> exception);
 
-  Vector<String> ModuleRequests(ScriptState*);
-  Vector<TextPosition> ModuleRequestPositions(ScriptState*);
+  static Vector<String> ModuleRequests(ScriptState*,
+                                       v8::Local<v8::Module> record);
+  static Vector<TextPosition> ModuleRequestPositions(
+      ScriptState*,
+      v8::Local<v8::Module> record);
 
-  inline bool operator==(const blink::ModuleRecord& other) const;
-  bool operator!=(const blink::ModuleRecord& other) const {
-    return !(*this == other);
-  }
-
-  bool IsNull() const { return !module_ || module_->IsEmpty(); }
-
-  v8::Local<v8::Value> V8Namespace(v8::Isolate*);
+  static v8::Local<v8::Value> V8Namespace(v8::Local<v8::Module> record);
 
  private:
-  // ModuleScript instances store their record as
-  // TraceWrapperV8Reference<v8::Module>, and reconstructs ModuleRecord from it.
-  friend class ModuleScript;
-
-  v8::Local<v8::Module> NewLocal(v8::Isolate* isolate) {
-    return module_->NewLocal(isolate);
-  }
-
   static v8::MaybeLocal<v8::Module> ResolveModuleCallback(
       v8::Local<v8::Context>,
       v8::Local<v8::String> specifier,
       v8::Local<v8::Module> referrer);
-
-  scoped_refptr<SharedPersistent<v8::Module>> module_;
-  unsigned identity_hash_ = 0;
-  String source_url_;
-
-  friend struct ModuleRecordHash;
-  friend struct WTF::HashTraits<blink::ModuleRecord>;
 };
-
-struct ModuleRecordHash {
-  STATIC_ONLY(ModuleRecordHash);
-
- public:
-  static unsigned GetHash(const blink::ModuleRecord& key) {
-    return key.identity_hash_;
-  }
-
-  static bool Equal(const blink::ModuleRecord& a,
-                    const blink::ModuleRecord& b) {
-    return a == b;
-  }
-
-  static constexpr bool safe_to_compare_to_empty_or_deleted = true;
-};
-
-}  // namespace blink
-
-namespace WTF {
-
-template <>
-struct DefaultHash<blink::ModuleRecord> {
-  using Hash = blink::ModuleRecordHash;
-};
-
-template <>
-struct HashTraits<blink::ModuleRecord>
-    : public SimpleClassHashTraits<blink::ModuleRecord> {
-  static bool IsDeletedValue(const blink::ModuleRecord& value) {
-    return HashTraits<scoped_refptr<blink::SharedPersistent<v8::Module>>>::
-        IsDeletedValue(value.module_);
-  }
-
-  static void ConstructDeletedValue(blink::ModuleRecord& slot,
-                                    bool zero_value) {
-    HashTraits<scoped_refptr<blink::SharedPersistent<v8::Module>>>::
-        ConstructDeletedValue(slot.module_, zero_value);
-  }
-};
-
-}  // namespace WTF
-
-namespace blink {
-
-inline bool ModuleRecord::operator==(const ModuleRecord& other) const {
-  if (HashTraits<ModuleRecord>::IsDeletedValue(*this) &&
-      HashTraits<ModuleRecord>::IsDeletedValue(other))
-    return true;
-
-  if (HashTraits<ModuleRecord>::IsDeletedValue(*this) ||
-      HashTraits<ModuleRecord>::IsDeletedValue(other))
-    return false;
-
-  blink::SharedPersistent<v8::Module>* left = module_.get();
-  blink::SharedPersistent<v8::Module>* right = other.module_.get();
-  if (left == right)
-    return true;
-  if (!left || !right)
-    return false;
-  return *left == *right;
-}
 
 }  // namespace blink
 

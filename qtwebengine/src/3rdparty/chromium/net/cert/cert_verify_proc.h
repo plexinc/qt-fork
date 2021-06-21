@@ -12,6 +12,7 @@
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "build/build_config.h"
 #include "net/base/net_export.h"
 #include "net/cert/x509_cert_types.h"
 
@@ -20,6 +21,7 @@ namespace net {
 class CertNetFetcher;
 class CertVerifyResult;
 class CRLSet;
+class NetLogWithSource;
 class X509Certificate;
 typedef std::vector<scoped_refptr<X509Certificate> > CertificateList;
 
@@ -64,10 +66,19 @@ class NET_EXPORT CertVerifyProc
     kMaxValue = kChainLengthOne
   };
 
-  // Creates and returns the default CertVerifyProc. |cert_net_fetcher| may not
-  // be used, depending on the implementation.
-  static scoped_refptr<CertVerifyProc> CreateDefault(
+#if !defined(OS_FUCHSIA)
+  // Creates and returns a CertVerifyProc that uses the system verifier.
+  // |cert_net_fetcher| may not be used, depending on the implementation.
+  static scoped_refptr<CertVerifyProc> CreateSystemVerifyProc(
       scoped_refptr<CertNetFetcher> cert_net_fetcher);
+#endif
+
+#if defined(OS_FUCHSIA) || defined(USE_NSS_CERTS) || \
+    (defined(OS_MACOSX) && !defined(OS_IOS))
+  // Creates and returns a CertVerifyProcBuiltin using the SSL SystemTrustStore.
+  static scoped_refptr<CertVerifyProc> CreateBuiltinVerifyProc(
+      scoped_refptr<CertNetFetcher> cert_net_fetcher);
+#endif
 
   // Verifies the certificate against the given hostname as an SSL server
   // certificate. Returns OK if successful or an error code upon failure.
@@ -104,7 +115,8 @@ class NET_EXPORT CertVerifyProc
              int flags,
              CRLSet* crl_set,
              const CertificateList& additional_trust_anchors,
-             CertVerifyResult* verify_result);
+             CertVerifyResult* verify_result,
+             const NetLogWithSource& net_log);
 
   // Returns true if the implementation supports passing additional trust
   // anchors to the Verify() call. The |additional_trust_anchors| parameter
@@ -161,7 +173,8 @@ class NET_EXPORT CertVerifyProc
                              int flags,
                              CRLSet* crl_set,
                              const CertificateList& additional_trust_anchors,
-                             CertVerifyResult* verify_result) = 0;
+                             CertVerifyResult* verify_result,
+                             const NetLogWithSource& net_log) = 0;
 
   // HasNameConstraintsViolation returns true iff one of |public_key_hashes|
   // (which are hashes of SubjectPublicKeyInfo structures) has name constraints

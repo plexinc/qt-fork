@@ -15,57 +15,99 @@
 #include <gtest/gtest.h>
 
 #include "common_shaders_for_test.h"
-#include "shaderc/spvc.hpp"
+#include "spvc/spvc.hpp"
 
 using shaderc_spvc::CompilationResult;
 using shaderc_spvc::CompileOptions;
-using shaderc_spvc::Compiler;
+using shaderc_spvc::Context;
 
 namespace {
 
-TEST(Compile, Glsl) {
-  Compiler compiler;
-  CompileOptions options;
-  options.SetSourceEnvironment(shaderc_target_env_webgpu,
-                               shaderc_env_version_webgpu);
-  options.SetTargetEnvironment(shaderc_target_env_vulkan,
-                               shaderc_env_version_vulkan_1_1);
+class CompileTest : public testing::Test {
+ public:
+  CompileTest()
+      : options_(shaderc_spvc_spv_env_webgpu_0,
+                 shaderc_spvc_spv_env_vulkan_1_1) {}
 
-  CompilationResult result = compiler.CompileSpvToGlsl(
-      kWebGPUShaderBinary, sizeof(kWebGPUShaderBinary) / sizeof(uint32_t),
-      options);
-  EXPECT_EQ(shaderc_compilation_status_success, result.GetCompilationStatus());
-  EXPECT_NE(0, result.GetOutput().size());
+  Context context_;
+  CompileOptions options_;
+  CompilationResult result_;
+};
+
+TEST_F(CompileTest, Glsl) {
+  {
+    shaderc_spvc_status status = context_.InitializeForGlsl(
+        kWebGPUShaderBinary, sizeof(kWebGPUShaderBinary) / sizeof(uint32_t),
+        options_);
+    EXPECT_EQ(shaderc_spvc_status_success, status);
+  }
+  {
+    shaderc_spvc_status status = context_.CompileShader(&result_);
+    EXPECT_EQ(shaderc_spvc_status_success, status);
+    std::string string_output;
+    result_.GetStringOutput(&string_output);
+    EXPECT_NE(0, string_output.size());
+    std::vector<uint32_t> binary_output;
+    result_.GetBinaryOutput(&binary_output);
+    EXPECT_EQ(0, binary_output.size());
+  }
 }
 
-TEST(Compile, Hlsl) {
-  Compiler compiler;
-  CompileOptions options;
-  options.SetSourceEnvironment(shaderc_target_env_webgpu,
-                               shaderc_env_version_webgpu);
-  options.SetTargetEnvironment(shaderc_target_env_vulkan,
-                               shaderc_env_version_vulkan_1_1);
-
-  CompilationResult result = compiler.CompileSpvToHlsl(
-      kWebGPUShaderBinary, sizeof(kWebGPUShaderBinary) / sizeof(uint32_t),
-      options);
-  EXPECT_EQ(shaderc_compilation_status_success, result.GetCompilationStatus());
-  EXPECT_NE(0, result.GetOutput().size());
+TEST_F(CompileTest, Hlsl) {
+  {
+    shaderc_spvc_status status = context_.InitializeForHlsl(
+        kWebGPUShaderBinary, sizeof(kWebGPUShaderBinary) / sizeof(uint32_t),
+        options_);
+    EXPECT_EQ(shaderc_spvc_status_success, status);
+  }
+  {
+    shaderc_spvc_status status = context_.CompileShader(&result_);
+    EXPECT_EQ(shaderc_spvc_status_success, status);
+    std::string string_output;
+    result_.GetStringOutput(&string_output);
+    EXPECT_NE(0, string_output.size());
+    std::vector<uint32_t> binary_output;
+    result_.GetBinaryOutput(&binary_output);
+    EXPECT_EQ(0, binary_output.size());
+  }
 }
 
-TEST(Compile, Msl) {
-  Compiler compiler;
-  CompileOptions options;
-  options.SetSourceEnvironment(shaderc_target_env_webgpu,
-                               shaderc_env_version_webgpu);
-  options.SetTargetEnvironment(shaderc_target_env_vulkan,
-                               shaderc_env_version_vulkan_1_1);
+TEST_F(CompileTest, Msl) {
+  {
+    shaderc_spvc_status status = context_.InitializeForMsl(
+        kWebGPUShaderBinary, sizeof(kWebGPUShaderBinary) / sizeof(uint32_t),
+        options_);
+    EXPECT_EQ(shaderc_spvc_status_success, status);
+  }
+  {
+    shaderc_spvc_status status = context_.CompileShader(&result_);
+    EXPECT_EQ(shaderc_spvc_status_success, status);
+    std::string string_output;
+    result_.GetStringOutput(&string_output);
+    EXPECT_NE(0, string_output.size());
+    std::vector<uint32_t> binary_output;
+    result_.GetBinaryOutput(&binary_output);
+    EXPECT_EQ(0, binary_output.size());
+  }
+}
 
-  CompilationResult result = compiler.CompileSpvToMsl(
-      kWebGPUShaderBinary, sizeof(kWebGPUShaderBinary) / sizeof(uint32_t),
-      options);
-  EXPECT_EQ(shaderc_compilation_status_success, result.GetCompilationStatus());
-  EXPECT_NE(0, result.GetOutput().size());
+TEST_F(CompileTest, Vulkan) {
+  {
+    shaderc_spvc_status status = context_.InitializeForVulkan(
+        kWebGPUShaderBinary, sizeof(kWebGPUShaderBinary) / sizeof(uint32_t),
+        options_);
+    EXPECT_EQ(shaderc_spvc_status_success, status);
+  }
+  {
+    shaderc_spvc_status status = context_.CompileShader(&result_);
+    EXPECT_EQ(shaderc_spvc_status_success, status);
+    std::string string_output;
+    result_.GetStringOutput(&string_output);
+    EXPECT_EQ(0, string_output.size());
+    std::vector<uint32_t> binary_output;
+    result_.GetBinaryOutput(&binary_output);
+    EXPECT_NE(0, binary_output.size());
+  }
 }
 
 }  // anonymous namespace

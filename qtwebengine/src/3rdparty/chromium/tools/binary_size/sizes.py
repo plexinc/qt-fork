@@ -6,7 +6,11 @@
 """A tool to extract size information for chrome.
 
 For a list of command-line options, call this script with '--help'.
+
+This script uses Python 2 due to dependence on tracing.value.
 """
+
+from __future__ import print_function
 
 import argparse
 import errno
@@ -42,7 +46,7 @@ class ResultsCollector(object):
     }
 
     # Legacy printing, previously used for parsing the text logs.
-    print 'RESULT %s: %s= %s %s' % (name, identifier, value, units)
+    print('RESULT %s: %s= %s %s' % (name, identifier, value, units))
 
 
 def get_size(filename):
@@ -69,10 +73,11 @@ def get_linux_stripped_size(filename):
 
 
 def run_process(result, command):
+  # TODO: When converting to Python 3, pass param encoding='ascii'.
   p = subprocess.Popen(command, stdout=subprocess.PIPE)
   stdout = p.communicate()[0]
   if p.returncode != 0:
-    print 'ERROR from command "%s": %d' % (' '.join(command), p.returncode)
+    print('ERROR from command "%s": %d' % (' '.join(command), p.returncode))
     if result == 0:
       result = p.returncode
   return result, stdout
@@ -258,7 +263,7 @@ def main_linux(output_directory, results_collector, size_path):
     path = os.path.join(output_directory, filename)
     try:
       size = get_size(path)
-    except OSError, e:
+    except OSError as e:
       if e.errno == errno.ENOENT:
         continue  # Don't print anything for missing files.
       raise
@@ -337,10 +342,13 @@ def main_win(output_directory, results_collector, size_path):
       'chrome_child.dll',
       'chrome_child.dll.pdb',
       'chrome_elf.dll',
+      'chrome_proxy.exe',
       'chrome_watcher.dll',
+      'elevation_service.exe',
       'libEGL.dll',
       'libGLESv2.dll',
       'mini_installer.exe',
+      'notification_helper.exe',
       'resources.pak',
       'setup.exe',
       'swiftshader\\libEGL.dll',

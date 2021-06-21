@@ -17,13 +17,14 @@ namespace gl {
 
 class GL_EXPORT GLImageGLX : public GLImage {
  public:
-  GLImageGLX(const gfx::Size& size, unsigned internalformat);
+  GLImageGLX(const gfx::Size& size, gfx::BufferFormat format);
 
   bool Initialize(XID pixmap);
 
   // Overridden from GLImage:
   gfx::Size GetSize() override;
   unsigned GetInternalFormat() override;
+  unsigned GetDataType() override;
   BindOrCopy ShouldBindOrCopy() override;
   bool BindTexImage(unsigned target) override;
   void ReleaseTexImage(unsigned target) override;
@@ -46,12 +47,12 @@ class GL_EXPORT GLImageGLX : public GLImage {
  protected:
   ~GLImageGLX() override;
 
- private:
-  static bool ValidFormat(unsigned internalformat);
+  gfx::BufferFormat format() const { return format_; }
 
+ private:
   XID glx_pixmap_;
   const gfx::Size size_;
-  unsigned internalformat_;
+  gfx::BufferFormat format_;
 
   DISALLOW_COPY_AND_ASSIGN(GLImageGLX);
 };

@@ -65,20 +65,19 @@ class BASE_EXPORT ThreadGroup {
   // RegisteredTaskSource that evaluats to true if successful, or false if
   // |task_source| is not currently in |priority_queue_|, such as when a worker
   // is running a task from it.
-  RegisteredTaskSource RemoveTaskSource(scoped_refptr<TaskSource> task_source);
+  RegisteredTaskSource RemoveTaskSource(const TaskSource& task_source);
 
-  // Updates the position of the TaskSource in |transaction_with_task_source| in
-  // this ThreadGroup's PriorityQueue based on the TaskSource's current traits.
+  // Updates the position of the TaskSource in |transaction| in this
+  // ThreadGroup's PriorityQueue based on the TaskSource's current traits.
   //
-  // Implementations should instantiate a concrete ScopedWorkersExecutor and
+  // Implementations should instantiate a concrete ScopedCommandsExecutor and
   // invoke UpdateSortKeyImpl().
-  virtual void UpdateSortKey(
-      TransactionWithOwnedTaskSource transaction_with_task_source) = 0;
+  virtual void UpdateSortKey(TaskSource::Transaction transaction) = 0;
 
   // Pushes the TaskSource in |transaction_with_task_source| into this
   // ThreadGroup's PriorityQueue and wakes up workers as appropriate.
   //
-  // Implementations should instantiate a concrete ScopedWorkersExecutor and
+  // Implementations should instantiate a concrete ScopedCommandsExecutor and
   // invoke PushTaskSourceAndWakeUpWorkersImpl().
   virtual void PushTaskSourceAndWakeUpWorkers(
       TransactionWithRegisteredTaskSource transaction_with_task_source) = 0;
@@ -122,21 +121,21 @@ class BASE_EXPORT ThreadGroup {
   virtual void DidUpdateCanRunPolicy() = 0;
 
  protected:
-  // Derived classes must implement a ScopedWorkersExecutor that derives from
-  // this to perform operations on workers at the end of a scope, when all locks
-  // have been released.
-  class BaseScopedWorkersExecutor {
+  // Derived classes must implement a ScopedCommandsExecutor that derives from
+  // this to perform operations at the end of a scope, when all locks have been
+  // released.
+  class BaseScopedCommandsExecutor {
    public:
     void ScheduleReleaseTaskSource(RegisteredTaskSource task_source);
 
    protected:
-    BaseScopedWorkersExecutor();
-    ~BaseScopedWorkersExecutor();
+    BaseScopedCommandsExecutor();
+    ~BaseScopedCommandsExecutor();
 
    private:
     std::vector<RegisteredTaskSource> task_sources_to_release_;
 
-    DISALLOW_COPY_AND_ASSIGN(BaseScopedWorkersExecutor);
+    DISALLOW_COPY_AND_ASSIGN(BaseScopedCommandsExecutor);
   };
 
   // Allows a task source to be pushed to a ThreadGroup's PriorityQueue at the
@@ -195,12 +194,12 @@ class BASE_EXPORT ThreadGroup {
   // |executor| is forwarded from the one received in
   // PushTaskSourceAndWakeUpWorkersImpl()
   virtual void EnsureEnoughWorkersLockRequired(
-      BaseScopedWorkersExecutor* executor) EXCLUSIVE_LOCKS_REQUIRED(lock_) = 0;
+      BaseScopedCommandsExecutor* executor) EXCLUSIVE_LOCKS_REQUIRED(lock_) = 0;
 
   // Reenqueues a |transaction_with_task_source| from which a Task just ran in
   // the current ThreadGroup into the appropriate ThreadGroup.
   void ReEnqueueTaskSourceLockRequired(
-      BaseScopedWorkersExecutor* workers_executor,
+      BaseScopedCommandsExecutor* workers_executor,
       ScopedReenqueueExecutor* reenqueue_executor,
       TransactionWithRegisteredTaskSource transaction_with_task_source)
       EXCLUSIVE_LOCKS_REQUIRED(lock_);
@@ -209,15 +208,14 @@ class BASE_EXPORT ThreadGroup {
   // pops |priority_queue_| if the task source returned no longer needs to be
   // queued (reached its maximum concurrency). Otherwise returns nullptr and
   // pops |priority_queue_| so this can be called again.
-  RunIntentWithRegisteredTaskSource TakeRunIntentWithRegisteredTaskSource(
-      BaseScopedWorkersExecutor* executor) EXCLUSIVE_LOCKS_REQUIRED(lock_);
+  RegisteredTaskSource TakeRegisteredTaskSource(
+      BaseScopedCommandsExecutor* executor) EXCLUSIVE_LOCKS_REQUIRED(lock_);
 
   // Must be invoked by implementations of the corresponding non-Impl() methods.
-  void UpdateSortKeyImpl(
-      BaseScopedWorkersExecutor* executor,
-      TransactionWithOwnedTaskSource transaction_with_task_source);
+  void UpdateSortKeyImpl(BaseScopedCommandsExecutor* executor,
+                         TaskSource::Transaction transaction);
   void PushTaskSourceAndWakeUpWorkersImpl(
-      BaseScopedWorkersExecutor* executor,
+      BaseScopedCommandsExecutor* executor,
       TransactionWithRegisteredTaskSource transaction_with_task_source);
 
   // Synchronizes accesses to all members of this class which are neither const,

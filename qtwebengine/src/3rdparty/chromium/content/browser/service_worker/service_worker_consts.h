@@ -43,10 +43,10 @@ struct CONTENT_EXPORT ServiceWorkerConsts {
   static const char kServiceWorkerRedirectError[];
   static const char kServiceWorkerAllowed[];
   static const char kServiceWorkerCopyScriptError[];
+  static const char kServiceWorkerInvalidVersionError[];
 
   // Constants for invalid identifiers.
   static const int kInvalidEmbeddedWorkerThreadId;
-  static const int64_t kInvalidServiceWorkerResourceId;
 
   // The HTTP cache is bypassed for Service Worker scripts if the last network
   // fetch occurred over 24 hours ago.

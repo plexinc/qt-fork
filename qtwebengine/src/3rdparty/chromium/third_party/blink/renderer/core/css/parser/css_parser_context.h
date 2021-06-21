@@ -7,6 +7,7 @@
 
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/css/css_property_names.h"
+#include "third_party/blink/renderer/core/css/css_resource_fetch_restriction.h"
 #include "third_party/blink/renderer/core/css/parser/css_parser_mode.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/frame/web_feature_forward.h"
@@ -23,8 +24,8 @@ class Document;
 class StyleRuleKeyframe;
 class StyleSheetContents;
 
-class CORE_EXPORT CSSParserContext
-    : public GarbageCollectedFinalized<CSSParserContext> {
+class CORE_EXPORT CSSParserContext final
+    : public GarbageCollected<CSSParserContext> {
  public:
   // https://drafts.csswg.org/selectors/#profiles
   enum SelectorProfile : uint8_t { kLiveProfile, kSnapshotProfile };
@@ -36,8 +37,8 @@ class CORE_EXPORT CSSParserContext
   // FIXME: This constructor shouldn't exist if we properly piped the UseCounter
   // through the CSS subsystem. Currently the UseCounter life time is too crazy
   // and we need a way to override it.
-  CSSParserContext(const CSSParserContext* other,
-                   const Document* use_counter_document = nullptr);
+  explicit CSSParserContext(const CSSParserContext* other,
+                            const Document* use_counter_document = nullptr);
 
   CSSParserContext(const CSSParserContext* other,
                    const KURL& base_url_override,
@@ -55,7 +56,9 @@ class CORE_EXPORT CSSParserContext
                    bool origin_clean,
                    network::mojom::ReferrerPolicy referrer_policy_override,
                    const WTF::TextEncoding& charset = WTF::TextEncoding(),
-                   SelectorProfile = kLiveProfile);
+                   SelectorProfile = kLiveProfile,
+                   blink::ResourceFetchRestriction resource_fetch_restriction =
+                       blink::ResourceFetchRestriction::kNone);
 
   // This is used for workers, where we don't have a document.
   CSSParserContext(const ExecutionContext& context);
@@ -70,8 +73,9 @@ class CORE_EXPORT CSSParserContext
                    bool is_html_document,
                    bool use_legacy_background_size_shorthand_behavior,
                    SecureContextMode,
-                   ContentSecurityPolicyDisposition,
-                   const Document* use_counter_document);
+                   network::mojom::CSPDisposition,
+                   const Document* use_counter_document,
+                   blink::ResourceFetchRestriction resource_fetch_restriction);
 
   bool operator==(const CSSParserContext&) const;
   bool operator!=(const CSSParserContext& other) const {
@@ -84,6 +88,9 @@ class CORE_EXPORT CSSParserContext
   const WTF::TextEncoding& Charset() const { return charset_; }
   const Referrer& GetReferrer() const { return referrer_; }
   bool IsHTMLDocument() const { return is_html_document_; }
+  blink::ResourceFetchRestriction ResourceFetchRestriction() const {
+    return resource_fetch_restriction_;
+  }
   bool IsLiveProfile() const { return profile_ == kLiveProfile; }
 
   bool IsOriginClean() const;
@@ -112,8 +119,10 @@ class CORE_EXPORT CSSParserContext
   void CountDeprecation(WebFeature) const;
   bool IsUseCounterRecordingEnabled() const { return document_; }
   bool IsDocumentHandleEqual(const Document* other) const;
+  const Document* GetDocument() const;
+  const ExecutionContext* GetExecutionContext() const;
 
-  ContentSecurityPolicyDisposition ShouldCheckContentSecurityPolicy() const {
+  network::mojom::CSPDisposition ShouldCheckContentSecurityPolicy() const {
     return should_check_content_security_policy_;
   }
 
@@ -128,12 +137,30 @@ class CORE_EXPORT CSSParserContext
 
   bool IsForMarkupSanitization() const;
 
-  void Trace(blink::Visitor*);
+  // Overrides |mode_| of a CSSParserContext within the scope, allowing us to
+  // switching parsing mode while parsing different parts of a style sheet.
+  // TODO(xiaochengh): This isn't the right approach, as it breaks the
+  // immutability of CSSParserContext. We should introduce some local context.
+  class ParserModeOverridingScope {
+    STACK_ALLOCATED();
+
+   public:
+    ParserModeOverridingScope(const CSSParserContext& context,
+                              CSSParserMode mode)
+        : mode_reset_(const_cast<CSSParserMode*>(&context.mode_), mode) {}
+
+   private:
+    base::AutoReset<CSSParserMode> mode_reset_;
+  };
+
+  void Trace(Visitor*);
 
  private:
+  friend class ParserModeOverridingScope;
+
   KURL base_url_;
 
-  ContentSecurityPolicyDisposition should_check_content_security_policy_;
+  network::mojom::CSPDisposition should_check_content_security_policy_;
 
   // If true, allows reading and modifying of the CSS rules.
   // https://drafts.csswg.org/cssom/#concept-css-style-sheet-origin-clean-flag
@@ -150,6 +177,10 @@ class CORE_EXPORT CSSParserContext
   WTF::TextEncoding charset_;
 
   WeakMember<const Document> document_;
+
+  // Flag indicating whether images with a URL scheme other than "data" are
+  // allowed.
+  const blink::ResourceFetchRestriction resource_fetch_restriction_;
 };
 
 CORE_EXPORT const CSSParserContext* StrictCSSParserContext(SecureContextMode);

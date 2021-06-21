@@ -8,7 +8,7 @@
 #ifndef GrSurfacePriv_DEFINED
 #define GrSurfacePriv_DEFINED
 
-#include "include/gpu/GrSurface.h"
+#include "src/gpu/GrSurface.h"
 
 /** Class that adds methods to GrSurface that are only intended for use internal to Skia.
     This class is purely a privileged window into GrSurface. It should never have additional data
@@ -17,11 +17,6 @@
     implemented privately in GrSurface with a inline public method here). */
 class GrSurfacePriv {
 public:
-    bool hasPendingRead() const { return fSurface->hasPendingRead(); }
-    bool hasPendingWrite() const { return fSurface->hasPendingWrite(); }
-    bool hasPendingIO() const { return fSurface->hasPendingIO(); }
-    bool hasUniqueRef() const { return fSurface->internalHasUniqueRef(); }
-
     GrInternalSurfaceFlags flags() const { return fSurface->fSurfaceFlags; }
 
 private:

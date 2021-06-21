@@ -22,7 +22,8 @@
 
 FlagsUIHandler::FlagsUIHandler()
     : access_(flags_ui::kGeneralAccessFlagsOnly),
-      experimental_features_requested_(false) {}
+      experimental_features_requested_(false),
+      deprecated_features_only_(false) {}
 
 FlagsUIHandler::~FlagsUIHandler() {}
 
@@ -72,9 +73,15 @@ void FlagsUIHandler::HandleRequestExperimentalFeatures(
   std::unique_ptr<base::ListValue> supported_features(new base::ListValue);
   std::unique_ptr<base::ListValue> unsupported_features(new base::ListValue);
 
-  about_flags::GetFlagFeatureEntries(flags_storage_.get(), access_,
-                                     supported_features.get(),
-                                     unsupported_features.get());
+  if (deprecated_features_only_) {
+    about_flags::GetFlagFeatureEntriesForDeprecatedPage(
+        flags_storage_.get(), access_, supported_features.get(),
+        unsupported_features.get());
+  } else {
+    about_flags::GetFlagFeatureEntries(flags_storage_.get(), access_,
+                                       supported_features.get(),
+                                       unsupported_features.get());
+  }
 
   results.Set(flags_ui::kSupportedFeatures, std::move(supported_features));
   results.Set(flags_ui::kUnsupportedFeatures, std::move(unsupported_features));
@@ -85,10 +92,12 @@ void FlagsUIHandler::HandleRequestExperimentalFeatures(
 
 #if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_CHROMEOS)
   version_info::Channel channel = chrome::GetChannel();
-  results.SetBoolean(flags_ui::kShowBetaChannelPromotion,
-                     channel == version_info::Channel::STABLE);
-  results.SetBoolean(flags_ui::kShowDevChannelPromotion,
-                     channel == version_info::Channel::BETA);
+  results.SetBoolean(
+      flags_ui::kShowBetaChannelPromotion,
+      channel == version_info::Channel::STABLE && !deprecated_features_only_);
+  results.SetBoolean(
+      flags_ui::kShowDevChannelPromotion,
+      channel == version_info::Channel::BETA && !deprecated_features_only_);
 #else
   results.SetBoolean(flags_ui::kShowBetaChannelPromotion, false);
   results.SetBoolean(flags_ui::kShowDevChannelPromotion, false);
@@ -107,8 +116,10 @@ void FlagsUIHandler::HandleEnableExperimentalFeatureMessage(
   std::string entry_internal_name;
   std::string enable_str;
   if (!args->GetString(0, &entry_internal_name) ||
-      !args->GetString(1, &enable_str))
+      !args->GetString(1, &enable_str) || entry_internal_name.empty()) {
+    NOTREACHED();
     return;
+  }
 
   about_flags::SetFeatureEntryEnabled(flags_storage_.get(), entry_internal_name,
                                       enable_str == "true");

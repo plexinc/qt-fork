@@ -295,9 +295,11 @@ QDesignerActions::QDesignerActions(QDesignerWorkbench *workbench)
 
     m_editActions->addAction(createSeparator(this));
 
+#if QT_CONFIG(clipboard)
     m_editActions->addAction(formWindowManager->action(QDesignerFormWindowManagerInterface::CutAction));
     m_editActions->addAction(formWindowManager->action(QDesignerFormWindowManagerInterface::CopyAction));
     m_editActions->addAction(formWindowManager->action(QDesignerFormWindowManagerInterface::PasteAction));
+#endif
     m_editActions->addAction(formWindowManager->action(QDesignerFormWindowManagerInterface::DeleteAction));
 
     m_editActions->addAction(formWindowManager->action(QDesignerFormWindowManagerInterface::SelectAllAction));
@@ -320,7 +322,8 @@ QDesignerActions::QDesignerActions(QDesignerWorkbench *workbench)
     shortcuts.append(QKeySequence(Qt::Key_Escape));
     m_editWidgetsAction->setShortcuts(shortcuts);
     QIcon fallback(m_core->resourceLocation() + QStringLiteral("/widgettool.png"));
-    m_editWidgetsAction->setIcon(QIcon::fromTheme("designer-edit-widget", fallback));
+    m_editWidgetsAction->setIcon(QIcon::fromTheme(QStringLiteral("designer-edit-widget"),
+                                                  fallback));
     connect(m_editWidgetsAction, &QAction::triggered, this, &QDesignerActions::editWidgetsSlot);
     m_editWidgetsAction->setChecked(true);
     m_editWidgetsAction->setEnabled(false);
@@ -440,7 +443,7 @@ QActionGroup *QDesignerActions::createHelpActions()
     QAction *mainHelpAction = new QAction(tr("Qt Designer &Help"), this);
     mainHelpAction->setObjectName(QStringLiteral("__qt_designer_help_action"));
     connect(mainHelpAction, &QAction::triggered, this, &QDesignerActions::showDesignerHelp);
-    mainHelpAction->setShortcut(Qt::CTRL + Qt::Key_Question);
+    mainHelpAction->setShortcut(Qt::CTRL | Qt::Key_Question);
     helpActions->addAction(mainHelpAction);
 
     helpActions->addAction(createSeparator(this));
@@ -504,13 +507,15 @@ QAction *QDesignerActions::createRecentFilesMenu()
     }
     updateRecentFileActions();
     menu->addSeparator();
-    act = new QAction(QIcon::fromTheme("edit-clear"), tr("Clear &Menu"), this);
+    act = new QAction(QIcon::fromTheme(QStringLiteral("edit-clear")),
+                      tr("Clear &Menu"), this);
     act->setObjectName(QStringLiteral("__qt_action_clear_menu_"));
     connect(act, &QAction::triggered, this, &QDesignerActions::clearRecentFiles);
     m_recentFilesActions->addAction(act);
     menu->addAction(act);
 
-    act = new QAction(QIcon::fromTheme("document-open-recent"), tr("&Recent Forms"), this);
+    act = new QAction(QIcon::fromTheme(QStringLiteral("document-open-recent")),
+                      tr("&Recent Forms"), this);
     act->setMenu(menu);
     return act;
 }
@@ -907,7 +912,7 @@ void QDesignerActions::updateRecentFileActions()
     QStringList files = m_settings.recentFilesList();
     const int originalSize = files.size();
     int numRecentFiles = qMin(files.size(), int(MaxRecentFiles));
-    const QList<QAction *> recentFilesActs = m_recentFilesActions->actions();
+    const auto recentFilesActs = m_recentFilesActions->actions();
 
     for (int i = 0; i < numRecentFiles; ++i) {
         const QFileInfo fi(files[i]);
@@ -1330,7 +1335,9 @@ void QDesignerActions::printPreviewImage()
         return;
 
     const QSizeF pixmapSize = pixmap.size();
-    m_printer->setOrientation( pixmapSize.width() > pixmapSize.height() ?  QPrinter::Landscape :  QPrinter::Portrait);
+
+    m_printer->setPageOrientation(pixmapSize.width() > pixmapSize.height() ?
+                                  QPageLayout::Landscape : QPageLayout::Portrait);
 
     // Printer parameters
     QPrintDialog dialog(m_printer, fw);

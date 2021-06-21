@@ -181,10 +181,11 @@ HttpProxyConnectJob::HttpProxyConnectJob(
       has_established_connection_(false),
       http_auth_controller_(
           params_->tunnel()
-              ? new HttpAuthController(
+              ? base::MakeRefCounted<HttpAuthController>(
                     HttpAuth::AUTH_PROXY,
                     GURL((params_->ssl_params() ? "https://" : "http://") +
                          GetDestination().ToString()),
+                    params_->network_isolation_key(),
                     common_connect_job_params->http_auth_cache,
                     common_connect_job_params->http_auth_handler_factory,
                     host_resolver())
@@ -233,6 +234,10 @@ bool HttpProxyConnectJob::HasEstablishedConnection() const {
   if (nested_connect_job_)
     return nested_connect_job_->HasEstablishedConnection();
   return false;
+}
+
+ResolveErrorInfo HttpProxyConnectJob::GetResolveErrorInfo() const {
+  return resolve_error_info_;
 }
 
 bool HttpProxyConnectJob::IsSSLError() const {
@@ -446,6 +451,7 @@ int HttpProxyConnectJob::DoTransportConnect() {
 }
 
 int HttpProxyConnectJob::DoTransportConnectComplete(int result) {
+  resolve_error_info_ = nested_connect_job_->GetResolveErrorInfo();
   if (result != OK) {
     UMA_HISTOGRAM_MEDIUM_TIMES("Net.HttpProxy.ConnectLatency.Insecure.Error",
                                base::TimeTicks::Now() - connect_start_time_);
@@ -477,6 +483,7 @@ int HttpProxyConnectJob::DoSSLConnect() {
 }
 
 int HttpProxyConnectJob::DoSSLConnectComplete(int result) {
+  resolve_error_info_ = nested_connect_job_->GetResolveErrorInfo();
   if (result == ERR_SSL_CLIENT_AUTH_CERT_NEEDED) {
     UMA_HISTOGRAM_MEDIUM_TIMES("Net.HttpProxy.ConnectLatency.Secure.Error",
                                base::TimeTicks::Now() - connect_start_time_);
@@ -634,8 +641,9 @@ int HttpProxyConnectJob::DoSpdyProxyCreateStreamComplete(int result) {
   DCHECK(stream.get());
   // |transport_socket_| will set itself as |stream|'s delegate.
   transport_socket_ = std::make_unique<SpdyProxyClientSocket>(
-      stream, GetUserAgent(), params_->endpoint(), net_log(),
-      http_auth_controller_.get());
+      stream, ProxyServer(GetProxyServerScheme(), GetDestination()),
+      GetUserAgent(), params_->endpoint(), net_log(),
+      http_auth_controller_.get(), common_connect_job_params()->proxy_delegate);
   return transport_socket_->Connect(base::BindOnce(
       &HttpProxyConnectJob::OnIOComplete, base::Unretained(this)));
 }
@@ -663,6 +671,7 @@ int HttpProxyConnectJob::DoQuicProxyCreateSession() {
   return quic_stream_request_->Request(
       proxy_server, quic_version, ssl_params->privacy_mode(),
       kH2QuicTunnelPriority, socket_tag(), params_->network_isolation_key(),
+      ssl_params->GetDirectConnectionParams()->disable_secure_dns(),
       ssl_params->ssl_config().GetCertVerifyFlags(),
       GURL("https://" + proxy_server.ToString()), net_log(),
       &quic_net_error_details_,
@@ -698,11 +707,14 @@ int HttpProxyConnectJob::DoQuicProxyCreateStreamComplete(int result) {
 
   spdy::SpdyPriority spdy_priority =
       ConvertRequestPriorityToQuicPriority(kH2QuicTunnelPriority);
-  quic_stream->SetPriority(spdy_priority);
+  spdy::SpdyStreamPrecedence precedence(spdy_priority);
+  quic_stream->SetPriority(precedence);
 
   transport_socket_ = std::make_unique<QuicProxyClientSocket>(
-      std::move(quic_stream), std::move(quic_session_), GetUserAgent(),
-      params_->endpoint(), net_log(), http_auth_controller_.get());
+      std::move(quic_stream), std::move(quic_session_),
+      ProxyServer(GetProxyServerScheme(), GetDestination()), GetUserAgent(),
+      params_->endpoint(), net_log(), http_auth_controller_.get(),
+      common_connect_job_params()->proxy_delegate);
   return transport_socket_->Connect(base::BindOnce(
       &HttpProxyConnectJob::OnIOComplete, base::Unretained(this)));
 }
@@ -819,7 +831,8 @@ SpdySessionKey HttpProxyConnectJob::CreateSpdySessionKey() const {
       params_->ssl_params()->GetDirectConnectionParams()->destination(),
       ProxyServer::Direct(), PRIVACY_MODE_DISABLED,
       SpdySessionKey::IsProxySession::kTrue, socket_tag(),
-      params_->network_isolation_key());
+      params_->network_isolation_key(),
+      params_->ssl_params()->GetDirectConnectionParams()->disable_secure_dns());
 }
 
 }  // namespace net

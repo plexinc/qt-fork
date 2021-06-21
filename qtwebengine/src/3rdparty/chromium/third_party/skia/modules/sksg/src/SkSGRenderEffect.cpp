@@ -10,69 +10,23 @@
 #include "include/core/SkCanvas.h"
 #include "include/core/SkMaskFilter.h"
 #include "include/core/SkShader.h"
-#include "include/effects/SkDropShadowImageFilter.h"
-#include "src/core/SkMakeUnique.h"
 #include "src/core/SkMaskFilterBase.h"
 
 namespace sksg {
 
-MaskFilter::MaskFilter(sk_sp<SkMaskFilter> mf)
-    : INHERITED(kBubbleDamage_Trait)
-    , fMaskFilter(std::move(mf)) {}
-
-MaskFilter::~MaskFilter() = default;
-
-void MaskFilter::setMaskFilter(sk_sp<SkMaskFilter> mf) {
-    if (mf != fMaskFilter) {
-        fMaskFilter = std::move(mf);
-        this->invalidate();
-    }
-}
-
-SkRect MaskFilter::onRevalidate(InvalidationController* ic, const SkMatrix& ctm) {
-    SkASSERT(this->hasInval());
-
-    fMaskFilter = this->onRevalidateMask();
-    return SkRect::MakeEmpty();
-}
-
-sk_sp<SkMaskFilter> MaskFilter::onRevalidateMask() {
-    return fMaskFilter;
-}
-
-sk_sp<MaskFilterEffect> MaskFilterEffect::Make(sk_sp<RenderNode> child, sk_sp<MaskFilter> mf) {
-    return child ? sk_sp<MaskFilterEffect>(new MaskFilterEffect(std::move(child), std::move(mf)))
+sk_sp<MaskShaderEffect> MaskShaderEffect::Make(sk_sp<RenderNode> child, sk_sp<SkShader> sh) {
+    return child ? sk_sp<MaskShaderEffect>(new MaskShaderEffect(std::move(child), std::move(sh)))
                  : nullptr;
 }
 
-MaskFilterEffect::MaskFilterEffect(sk_sp<RenderNode> child, sk_sp<MaskFilter> mf)
-    // masks may override descendent damage
-    : INHERITED(std::move(child), kOverrideDamage_Trait)
-    , fMaskFilter(std::move(mf)) {
-    this->observeInval(fMaskFilter);
+MaskShaderEffect::MaskShaderEffect(sk_sp<RenderNode> child, sk_sp<SkShader> sh)
+    : INHERITED(std::move(child))
+    , fShader(std::move(sh)) {
 }
 
-MaskFilterEffect::~MaskFilterEffect() {
-    this->unobserveInval(fMaskFilter);
-}
-
-SkRect MaskFilterEffect::onRevalidate(InvalidationController* ic, const SkMatrix& ctm) {
-    auto bounds = this->INHERITED::onRevalidate(ic, ctm);
-
-    if (fMaskFilter) {
-        fMaskFilter->revalidate(ic, ctm);
-        if (const auto* mfb = as_MFB(fMaskFilter->getMaskFilter())) {
-            mfb->computeFastBounds(bounds, &bounds);
-        }
-    }
-
-    return bounds;
-}
-
-void MaskFilterEffect::onRender(SkCanvas* canvas, const RenderContext* ctx) const {
+void MaskShaderEffect::onRender(SkCanvas* canvas, const RenderContext* ctx) const {
     const auto local_ctx = ScopedRenderContext(canvas, ctx)
-            .modulateMaskFilter(fMaskFilter ? fMaskFilter->getMaskFilter() : nullptr,
-                                canvas->getTotalMatrix());
+            .modulateMaskShader(fShader, canvas->getTotalMatrix());
 
     this->INHERITED::onRender(canvas, local_ctx);
 }
@@ -179,7 +133,7 @@ void ImageFilterEffect::onRender(SkCanvas* canvas, const RenderContext* ctx) con
 }
 
 ImageFilter::ImageFilter(sk_sp<ImageFilter> input)
-    : ImageFilter(input ? skstd::make_unique<InputsT>(1, std::move(input)) : nullptr) {}
+    : ImageFilter(input ? std::make_unique<InputsT>(1, std::move(input)) : nullptr) {}
 
 ImageFilter::ImageFilter(std::unique_ptr<InputsT> inputs)
     : INHERITED(kBubbleDamage_Trait)
@@ -220,13 +174,13 @@ DropShadowImageFilter::DropShadowImageFilter(sk_sp<ImageFilter> input)
 DropShadowImageFilter::~DropShadowImageFilter() = default;
 
 sk_sp<SkImageFilter> DropShadowImageFilter::onRevalidateFilter() {
-    const auto mode = (fMode == Mode::kShadowOnly)
-            ? SkDropShadowImageFilter::kDrawShadowOnly_ShadowMode
-            : SkDropShadowImageFilter::kDrawShadowAndForeground_ShadowMode;
-
-    return SkDropShadowImageFilter::Make(fOffset.x(), fOffset.y(),
-                                         fSigma.x(), fSigma.y(),
-                                         fColor, mode, this->refInput(0));
+    if (fMode == Mode::kShadowOnly) {
+        return SkImageFilters::DropShadowOnly(fOffset.x(), fOffset.y(), fSigma.x(), fSigma.y(),
+                                              fColor, this->refInput(0));
+    } else {
+        return SkImageFilters::DropShadow(fOffset.x(), fOffset.y(), fSigma.x(), fSigma.y(),
+                                          fColor, this->refInput(0));
+    }
 }
 
 sk_sp<BlurImageFilter> BlurImageFilter::Make(sk_sp<ImageFilter> input) {
@@ -239,7 +193,7 @@ BlurImageFilter::BlurImageFilter(sk_sp<ImageFilter> input)
 BlurImageFilter::~BlurImageFilter() = default;
 
 sk_sp<SkImageFilter> BlurImageFilter::onRevalidateFilter() {
-    return SkBlurImageFilter::Make(fSigma.x(), fSigma.y(), this->refInput(0), nullptr, fTileMode);
+    return SkImageFilters::Blur(fSigma.x(), fSigma.y(), fTileMode, this->refInput(0));
 }
 
 sk_sp<BlendModeEffect> BlendModeEffect::Make(sk_sp<RenderNode> child, SkBlendMode mode) {

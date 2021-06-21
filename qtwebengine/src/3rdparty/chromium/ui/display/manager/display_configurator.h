@@ -47,7 +47,7 @@ class DisplayManagerTestApi;
 class DISPLAY_MANAGER_EXPORT DisplayConfigurator
     : public NativeDisplayObserver {
  public:
-  using ConfigurationCallback = base::Callback<void(bool /* success */)>;
+  using ConfigurationCallback = base::OnceCallback<void(bool /* success */)>;
   using DisplayControlCallback = base::OnceCallback<void(bool success)>;
 
   using DisplayStateList = std::vector<DisplaySnapshot*>;
@@ -227,7 +227,7 @@ class DISPLAY_MANAGER_EXPORT DisplayConfigurator
   // operation.
   void SetDisplayPower(chromeos::DisplayPowerState power_state,
                        int flags,
-                       const ConfigurationCallback& callback);
+                       ConfigurationCallback callback);
 
   // Force switching the display mode to |new_state|. Returns false if
   // switching failed (possibly because |new_state| is invalid for the
@@ -245,7 +245,7 @@ class DISPLAY_MANAGER_EXPORT DisplayConfigurator
   // configure them for their resume state. This allows faster resume on
   // machines where display configuration is slow. On completion of the display
   // configuration |callback| is executed synchronously or asynchronously.
-  void SuspendDisplays(const ConfigurationCallback& callback);
+  void SuspendDisplays(ConfigurationCallback callback);
 
   // Reprobes displays to handle changes made while the system was
   // suspended.
@@ -265,6 +265,12 @@ class DISPLAY_MANAGER_EXPORT DisplayConfigurator
   bool SetGammaCorrection(int64_t display_id,
                           const std::vector<GammaRampRGBEntry>& degamma_lut,
                           const std::vector<GammaRampRGBEntry>& gamma_lut);
+
+  // Enable/disable the privacy screen on the internal display of the device.
+  // For this to succeed, privacy screen must be supported by the internal
+  // display.
+  bool SetPrivacyScreenOnInternalDisplay(bool enabled);
+  bool IsPrivacyScreenSupportedOnInternalDisplay() const;
 
   // Returns the requested power state if set or the default power state.
   chromeos::DisplayPowerState GetRequestedPowerState() const;
@@ -291,7 +297,7 @@ class DISPLAY_MANAGER_EXPORT DisplayConfigurator
   // invoked (perhaps synchronously) on completion.
   void SetDisplayPowerInternal(chromeos::DisplayPowerState power_state,
                                int flags,
-                               const ConfigurationCallback& callback);
+                               ConfigurationCallback callback);
 
   // Configures displays. Invoked by |configure_timer_|.
   void ConfigureDisplays();
@@ -322,6 +328,9 @@ class DISPLAY_MANAGER_EXPORT DisplayConfigurator
 
   // Updates the current and pending power state and notifies observers.
   void UpdatePowerState(chromeos::DisplayPowerState new_power_state);
+
+  // Updates the cached internal display. nullptr if one does not exists.
+  void UpdateInternalDisplayCache();
 
   // Helps in identifying if a configuration task needs to be scheduled.
   // Return true if any of the |requested_*| parameters have been updated. False
@@ -363,6 +372,7 @@ class DISPLAY_MANAGER_EXPORT DisplayConfigurator
   // Current configuration state.
   MultipleDisplayState current_display_state_;
   chromeos::DisplayPowerState current_power_state_;
+  DisplaySnapshot* current_internal_display_;  // Not owned.
 
   // Pending requests. These values are used when triggering the next display
   // configuration.
@@ -426,7 +436,7 @@ class DISPLAY_MANAGER_EXPORT DisplayConfigurator
   bool has_unassociated_display_;
 
   // This must be the last variable.
-  base::WeakPtrFactory<DisplayConfigurator> weak_ptr_factory_;
+  base::WeakPtrFactory<DisplayConfigurator> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(DisplayConfigurator);
 };

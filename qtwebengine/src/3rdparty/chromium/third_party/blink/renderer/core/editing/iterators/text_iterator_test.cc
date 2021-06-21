@@ -32,6 +32,7 @@
 
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/editing/ephemeral_range.h"
+#include "third_party/blink/renderer/core/editing/position.h"
 #include "third_party/blink/renderer/core/editing/selection_template.h"
 #include "third_party/blink/renderer/core/editing/testing/editing_test_base.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
@@ -96,7 +97,9 @@ class TextIteratorTest : public testing::WithParamInterface<bool>,
  protected:
   TextIteratorTest() : ScopedLayoutNGForTest(GetParam()) {}
 
-  bool LayoutNGEnabled() const { return GetParam(); }
+  bool LayoutNGEnabled() const {
+    return RuntimeEnabledFeatures::LayoutNGEnabled();
+  }
 
   template <typename Tree>
   std::string Iterate(const TextIteratorBehavior& = TextIteratorBehavior());
@@ -944,7 +947,7 @@ TEST_P(TextIteratorTest, BasicIterationInputiWithBr) {
   const ShadowRoot* shadow_root = input_element->UserAgentShadowRoot();
   const Position start = Position::FirstPositionInNode(*shadow_root);
   const Position end = Position::LastPositionInNode(*shadow_root);
-  GetDocument().UpdateStyleAndLayout();
+  GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kTest);
   EXPECT_EQ("[b]", IteratePartial<DOMTree>(start, end));
 }
 
@@ -977,8 +980,8 @@ TEST_P(TextIteratorTest, PositionInShadowTree) {
   Element& host = *GetDocument().getElementById("host");
   ShadowRoot& shadow_root =
       host.AttachShadowRootInternal(ShadowRootType::kOpen);
-  shadow_root.SetInnerHTMLFromString("A<slot name=c></slot>");
-  GetDocument().UpdateStyleAndLayout();
+  shadow_root.setInnerHTML("A<slot name=c></slot>");
+  GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kTest);
   Element& body = *GetDocument().body();
   Node& text_a = *shadow_root.firstChild();
   Node& slot = *shadow_root.lastChild();
@@ -1028,6 +1031,17 @@ TEST_P(TextIteratorTest, TextOffsetMappingAndFlatTree) {
 TEST_P(TextIteratorTest, EmitsSpaceForNbsp) {
   SetBodyContent("foo &nbsp;bar");
   EXPECT_EQ("[foo  bar]", Iterate<DOMTree>(EmitsSpaceForNbspBehavior()));
+}
+
+TEST_P(TextIteratorTest, IterateWithLockedSubtree) {
+  SetBodyContent("<div id='parent'>foo<div id='locked'>text</div>bar</div>");
+  auto* locked = GetDocument().getElementById("locked");
+  locked->setAttribute(html_names::kStyleAttr, "subtree-visibility: auto");
+  GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kTest);
+  auto* parent = GetDocument().getElementById("parent");
+  const Position start_position = Position::FirstPositionInNode(*parent);
+  const Position end_position = Position::LastPositionInNode(*parent);
+  EXPECT_EQ(6, TextIterator::RangeLength(start_position, end_position));
 }
 
 }  // namespace text_iterator_test

@@ -12,16 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "shaderc/shaderc.h"
+
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+
 #include <memory>
 #include <thread>
 #include <unordered_map>
 
-#include "SPIRV/spirv.hpp"
-
 #include "common_shaders_for_test.h"
-#include "shaderc/shaderc.h"
+#include "spirv/unified1/spirv.hpp"
 
 namespace {
 
@@ -228,7 +229,7 @@ class CompileStringTest : public testing::Test {
     EXPECT_TRUE(CompilationResultIsSuccess(comp.result())) << kind << '\n'
                                                            << shader;
     return shaderc_result_get_error_message(comp.result());
-  };
+  }
 
   // Compiles a shader, expects compilation failure, and returns the messages.
   const std::string CompilationErrors(
@@ -242,7 +243,7 @@ class CompileStringTest : public testing::Test {
                                                             << shader;
     EXPECT_EQ(0u, shaderc_result_get_length(comp.result()));
     return shaderc_result_get_error_message(comp.result());
-  };
+  }
 
   // Compiles a shader and returns the messages.
   const std::string CompilationMessages(
@@ -252,7 +253,7 @@ class CompileStringTest : public testing::Test {
     const Compilation comp(compiler_.get_compiler_handle(), shader, kind,
                            "shader", "main", options, output_type);
     return shaderc_result_get_error_message(comp.result());
-  };
+  }
 
   // Compiles a shader, expects compilation success, and returns the output
   // bytes.
@@ -273,7 +274,7 @@ class CompileStringTest : public testing::Test {
     // the binary data when it sees a '\0' byte.
     return std::string(shaderc_result_get_bytes(comp.result()),
                        shaderc_result_get_length(comp.result()));
-  };
+  }
 
   Compiler compiler_;
   compile_options_ptr options_;
@@ -1216,7 +1217,6 @@ TEST_F(CompileStringWithOptionsTest,
                                  shaderc_glsl_compute_shader, options_.get()));
 }
 
-#ifdef NV_EXTENSIONS
 // task shader
 TEST_F(CompileStringWithOptionsTest,
        TargetEnvRespectedWhenCompilingVulkan1_0TaskShaderToVulkan1_0Succeeds) {
@@ -1290,7 +1290,6 @@ TEST_F(CompileStringWithOptionsTest,
   EXPECT_TRUE(CompilesToValidSpv(compiler_, kGlslShaderMeshSubgroupBarrier,
                                  shaderc_glsl_mesh_shader, options_.get()));
 }
-#endif
 
 TEST_F(CompileStringWithOptionsTest,
        DISABLED_TargetEnvIgnoredWhenPreprocessing) {

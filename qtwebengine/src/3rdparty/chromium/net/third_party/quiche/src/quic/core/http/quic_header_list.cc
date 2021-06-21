@@ -4,16 +4,18 @@
 
 #include "net/third_party/quiche/src/quic/core/http/quic_header_list.h"
 
+#include <limits>
 #include <string>
 
 #include "net/third_party/quiche/src/quic/core/quic_packets.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 #include "net/third_party/quiche/src/spdy/core/spdy_protocol.h"
 
 namespace quic {
 
 QuicHeaderList::QuicHeaderList()
-    : max_header_list_size_(kDefaultMaxUncompressedHeaderSize),
+    : max_header_list_size_(std::numeric_limits<size_t>::max()),
       current_header_list_size_(0),
       uncompressed_header_bytes_(0),
       compressed_header_bytes_(0) {}
@@ -34,7 +36,8 @@ void QuicHeaderList::OnHeaderBlockStart() {
       << "OnHeaderBlockStart called more than once!";
 }
 
-void QuicHeaderList::OnHeader(QuicStringPiece name, QuicStringPiece value) {
+void QuicHeaderList::OnHeader(quiche::QuicheStringPiece name,
+                              quiche::QuicheStringPiece value) {
   // Avoid infinite buffering of headers. No longer store headers
   // once the current headers are over the limit.
   if (current_header_list_size_ < max_header_list_size_) {

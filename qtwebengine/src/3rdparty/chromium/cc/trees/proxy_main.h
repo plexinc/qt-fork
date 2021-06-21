@@ -7,12 +7,12 @@
 
 #include "cc/cc_export.h"
 #include "cc/input/browser_controls_state.h"
+#include "cc/trees/layer_tree_host.h"
 #include "cc/trees/proxy.h"
 #include "cc/trees/proxy_common.h"
 
 namespace cc {
 
-class MutatorEvents;
 class CompletionEvent;
 class LayerTreeFrameSink;
 class LayerTreeHost;
@@ -47,7 +47,6 @@ class CC_EXPORT ProxyMain : public Proxy {
   void BeginMainFrameNotExpectedSoon();
   void BeginMainFrameNotExpectedUntil(base::TimeTicks time);
   void DidCommitAndDrawFrame();
-  void SetAnimationEvents(std::unique_ptr<MutatorEvents> events);
   void DidLoseLayerTreeFrameSink();
   void RequestNewLayerTreeFrameSink();
   void DidInitializeLayerTreeFrameSink(bool success);

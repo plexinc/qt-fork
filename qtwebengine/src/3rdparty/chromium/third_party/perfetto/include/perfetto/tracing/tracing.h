@@ -25,14 +25,21 @@
 #include <string>
 #include <vector>
 
+#include "perfetto/base/compiler.h"
 #include "perfetto/base/export.h"
 #include "perfetto/base/logging.h"
+#include "perfetto/tracing/core/forward_decls.h"
+#include "perfetto/tracing/internal/in_process_tracing_backend.h"
+#include "perfetto/tracing/internal/system_tracing_backend.h"
 
 namespace perfetto {
 
+namespace internal {
+class TracingMuxerImpl;
+}
+
 class TracingBackend;
 class Platform;
-class TraceConfig;
 class TracingSession;  // Declared below.
 
 enum BackendType : uint32_t {
@@ -62,8 +69,39 @@ struct TracingInitArgs {
   // not set it will use Platform::GetDefaultPlatform().
   Platform* platform = nullptr;
 
+  // [Optional] Tune the size of the shared memory buffer between the current
+  // process and the service backend(s). This is a trade-off between memory
+  // footprint and the ability to sustain bursts of trace writes (see comments
+  // in shared_memory_abi.h).
+  // If set, the value must be a multiple of 4KB. The value can be ignored if
+  // larger than kMaxShmSize (32MB) or not a multiple of 4KB.
+  uint32_t shmem_size_hint_kb = 0;
+
+  // [Optional] Specifies the preferred size of each page in the shmem buffer.
+  // This is a trade-off between IPC overhead and fragmentation/efficiency of
+  // the shmem buffer in presence of multiple writer threads.
+  // Must be one of [4, 8, 16, 32].
+  uint32_t shmem_page_size_hint_kb = 0;
+
  protected:
   friend class Tracing;
+  friend class internal::TracingMuxerImpl;
+
+  // Used only by the DCHECK in tracing.cc, to check that the config is the
+  // same in case of re-initialization.
+  bool operator==(const TracingInitArgs& other) const {
+    return std::tie(backends, custom_backend, platform, shmem_size_hint_kb,
+                    shmem_page_size_hint_kb, in_process_backend_factory_,
+                    system_backend_factory_, dcheck_is_on_) ==
+           std::tie(other.backends, other.custom_backend, other.platform,
+                    other.shmem_size_hint_kb, other.shmem_page_size_hint_kb,
+                    other.in_process_backend_factory_,
+                    other.system_backend_factory_, other.dcheck_is_on_);
+  }
+
+  using BackendFactoryFunction = TracingBackend* (*)();
+  BackendFactoryFunction in_process_backend_factory_ = nullptr;
+  BackendFactoryFunction system_backend_factory_ = nullptr;
   bool dcheck_is_on_ = PERFETTO_DCHECK_IS_ON();
 };
 
@@ -71,8 +109,31 @@ struct TracingInitArgs {
 class PERFETTO_EXPORT Tracing {
  public:
   // Initializes Perfetto with the given backends in the calling process and/or
-  // with a user-provided backend. Can only be called once.
-  static void Initialize(const TracingInitArgs&);
+  // with a user-provided backend. No-op if called more than once.
+  static inline void Initialize(const TracingInitArgs& args)
+      PERFETTO_ALWAYS_INLINE {
+    TracingInitArgs args_copy(args);
+    // This code is inlined to allow dead-code elimination for unused backends.
+    // This saves ~200 KB when not using the in-process backend (b/148198993).
+    // The logic behind it is the following:
+    // Nothing other than the code below references the two GetInstance()
+    // methods. From a linker-graph viewpoint, those GetInstance() pull in many
+    // other pieces of the codebase (e.g. InProcessTracingBackend pulls the
+    // whole TracingServiceImpl, SystemTracingBackend pulls the whole //ipc
+    // layer). Due to the inline, the compiler can see through the code and
+    // realize that some branches are always not taken. When that happens, no
+    // reference to the backends' GetInstance() is emitted and that allows the
+    // linker GC to get rid of the entire set of dependencies.
+    if (args.backends & kInProcessBackend) {
+      args_copy.in_process_backend_factory_ =
+          &internal::InProcessTracingBackend::GetInstance;
+    }
+    if (args.backends & kSystemBackend) {
+      args_copy.system_backend_factory_ =
+          &internal::SystemTracingBackend::GetInstance;
+    }
+    InitializeInternal(args_copy);
+  }
 
   // Start a new tracing session using the given tracing backend. Use
   // |kUnspecifiedBackend| to select an available backend automatically.
@@ -82,6 +143,8 @@ class PERFETTO_EXPORT Tracing {
       BackendType = kUnspecifiedBackend);
 
  private:
+  static void InitializeInternal(const TracingInitArgs&);
+
   Tracing() = delete;
 };
 
@@ -90,8 +153,11 @@ class PERFETTO_EXPORT TracingSession {
   virtual ~TracingSession();
 
   // Configure the session passing the trace config.
+  // If a writable file handle is given through |fd|, the trace will
+  // automatically written to that file. Otherwise you should call ReadTrace()
+  // to retrieve the trace data. This call does not take ownership of |fd|.
   // TODO(primiano): add an error callback.
-  virtual void Setup(const TraceConfig&) = 0;
+  virtual void Setup(const TraceConfig&, int fd = -1) = 0;
 
   // Enable tracing asynchronously.
   virtual void Start() = 0;
@@ -138,7 +204,7 @@ class PERFETTO_EXPORT TracingSession {
   // after stopping. Reading the trace data is a destructive operation w.r.t.
   // contents of the trace buffer and is not idempotent.
   // A single ReadTrace() call can yield >1 callback invocations, until
-  // |has_more| is true.
+  // |has_more| is false.
   using ReadTraceCallback = std::function<void(ReadTraceCallbackArgs)>;
   virtual void ReadTrace(ReadTraceCallback) = 0;
 

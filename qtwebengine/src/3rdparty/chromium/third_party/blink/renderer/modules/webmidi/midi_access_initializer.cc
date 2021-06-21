@@ -8,9 +8,9 @@
 #include <utility>
 
 #include "third_party/blink/public/mojom/permissions/permission.mojom-blink.h"
-#include "third_party/blink/public/platform/interface_provider.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_midi_options.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
@@ -18,7 +18,6 @@
 #include "third_party/blink/renderer/core/frame/navigator.h"
 #include "third_party/blink/renderer/modules/permissions/permission_utils.h"
 #include "third_party/blink/renderer/modules/webmidi/midi_access.h"
-#include "third_party/blink/renderer/modules/webmidi/midi_options.h"
 #include "third_party/blink/renderer/modules/webmidi/midi_port.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/mojo/mojo_helper.h"
@@ -34,15 +33,15 @@ MIDIAccessInitializer::MIDIAccessInitializer(ScriptState* script_state,
     : ScriptPromiseResolver(script_state), options_(options) {}
 
 void MIDIAccessInitializer::Dispose() {
-  accessor_.reset();
+  dispatcher_.reset();
   permission_service_.reset();
 }
 
-void MIDIAccessInitializer::ContextDestroyed(ExecutionContext* context) {
-  accessor_.reset();
+void MIDIAccessInitializer::ContextDestroyed() {
+  dispatcher_.reset();
   permission_service_.reset();
 
-  ScriptPromiseResolver::ContextDestroyed(context);
+  ScriptPromiseResolver::ContextDestroyed();
 }
 
 ScriptPromise MIDIAccessInitializer::Start() {
@@ -51,13 +50,12 @@ ScriptPromise MIDIAccessInitializer::Start() {
   // See https://bit.ly/2S0zRAS for task types.
   scoped_refptr<base::SingleThreadTaskRunner> task_runner =
       GetExecutionContext()->GetTaskRunner(TaskType::kMiscPlatformAPI);
-  accessor_ = std::make_unique<MIDIAccessor>(this, task_runner);
 
   ConnectToPermissionService(
       GetExecutionContext(),
-      mojo::MakeRequest(&permission_service_, std::move(task_runner)));
+      permission_service_.BindNewPipeAndPassReceiver(std::move(task_runner)));
 
-  Document& doc = To<Document>(*GetExecutionContext());
+  Document& doc = Document::From(*GetExecutionContext());
   permission_service_->RequestPermission(
       CreateMidiPermissionDescriptor(options_->hasSysex() && options_->sysex()),
       LocalFrame::HasTransientUserActivation(doc.GetFrame()),
@@ -72,7 +70,7 @@ void MIDIAccessInitializer::DidAddInputPort(const String& id,
                                             const String& name,
                                             const String& version,
                                             PortState state) {
-  DCHECK(accessor_);
+  DCHECK(dispatcher_);
   port_descriptors_.push_back(PortDescriptor(
       id, manufacturer, name, MIDIPort::kTypeInput, version, state));
 }
@@ -82,7 +80,7 @@ void MIDIAccessInitializer::DidAddOutputPort(const String& id,
                                              const String& name,
                                              const String& version,
                                              PortState state) {
-  DCHECK(accessor_);
+  DCHECK(dispatcher_);
   port_descriptors_.push_back(PortDescriptor(
       id, manufacturer, name, MIDIPort::kTypeOutput, version, state));
 }
@@ -102,15 +100,15 @@ void MIDIAccessInitializer::DidSetOutputPortState(unsigned port_index,
 }
 
 void MIDIAccessInitializer::DidStartSession(Result result) {
-  DCHECK(accessor_);
+  DCHECK(dispatcher_);
   // We would also have AbortError and SecurityError according to the spec.
   // SecurityError is handled in onPermission(s)Updated().
   switch (result) {
     case Result::NOT_INITIALIZED:
       break;
     case Result::OK:
-      return Resolve(MIDIAccess::Create(
-          std::move(accessor_), options_->hasSysex() && options_->sysex(),
+      return Resolve(MakeGarbageCollected<MIDIAccess>(
+          std::move(dispatcher_), options_->hasSysex() && options_->sysex(),
           port_descriptors_, GetExecutionContext()));
     case Result::NOT_SUPPORTED:
       return Reject(MakeGarbageCollected<DOMException>(
@@ -135,10 +133,20 @@ ExecutionContext* MIDIAccessInitializer::GetExecutionContext() const {
   return ExecutionContext::From(GetScriptState());
 }
 
+void MIDIAccessInitializer::StartSession() {
+  DCHECK(!dispatcher_);
+
+  // See https://bit.ly/2S0zRAS for task types.
+  scoped_refptr<base::SingleThreadTaskRunner> task_runner =
+      GetExecutionContext()->GetTaskRunner(TaskType::kMiscPlatformAPI);
+  dispatcher_ = std::make_unique<MIDIDispatcher>(task_runner);
+  dispatcher_->SetClient(this);
+}
+
 void MIDIAccessInitializer::OnPermissionsUpdated(PermissionStatus status) {
   permission_service_.reset();
   if (status == PermissionStatus::GRANTED) {
-    accessor_->StartSession();
+    StartSession();
   } else {
     Reject(
         MakeGarbageCollected<DOMException>(DOMExceptionCode::kSecurityError));
@@ -148,7 +156,7 @@ void MIDIAccessInitializer::OnPermissionsUpdated(PermissionStatus status) {
 void MIDIAccessInitializer::OnPermissionUpdated(PermissionStatus status) {
   permission_service_.reset();
   if (status == PermissionStatus::GRANTED) {
-    accessor_->StartSession();
+    StartSession();
   } else {
     Reject(
         MakeGarbageCollected<DOMException>(DOMExceptionCode::kSecurityError));

@@ -29,12 +29,11 @@
     {
       name: "Accelerometer",
       feature_policy_name: "accelerometer",
-      depends_on: ["Sensor"],
     },
     {
       name: "AmbientLightSensor",
       feature_policy_name: "ambient-light-sensor",
-      depends_on: ["Sensor"],
+      depends_on: ["SensorExtraClasses"],
     },
     {
       name: "Autoplay",
@@ -47,62 +46,72 @@
     {
       name: "ClientHintDPR",
       feature_policy_name: "ch-dpr",
-      depends_on: ["ClientHintsFeaturePolicy"],
+      depends_on: ["FeaturePolicyForClientHints"],
     },
     {
       name: "ClientHintDeviceMemory",
       feature_policy_name: "ch-device-memory",
-      depends_on: ["ClientHintsFeaturePolicy"],
+      depends_on: ["FeaturePolicyForClientHints"],
     },
     {
       name: "ClientHintDownlink",
       feature_policy_name: "ch-downlink",
-      depends_on: ["ClientHintsFeaturePolicy"],
+      depends_on: ["FeaturePolicyForClientHints"],
     },
     {
       name: "ClientHintECT",
       feature_policy_name: "ch-ect",
-      depends_on: ["ClientHintsFeaturePolicy"],
+      depends_on: ["FeaturePolicyForClientHints"],
     },
     {
       name: "ClientHintLang",
       feature_policy_name: "ch-lang",
-      depends_on: ["ClientHintsFeaturePolicy"],
+      depends_on: ["FeaturePolicyForClientHints"],
     },
     {
       name: "ClientHintRTT",
       feature_policy_name: "ch-rtt",
-      depends_on: ["ClientHintsFeaturePolicy"],
+      depends_on: ["FeaturePolicyForClientHints"],
     },
     {
       name: "ClientHintUA",
       feature_policy_name: "ch-ua",
-      depends_on: ["ClientHintsFeaturePolicy"],
+      depends_on: ["FeaturePolicyForClientHints"],
     },
     {
       name: "ClientHintUAArch",
       feature_policy_name: "ch-ua-arch",
-      depends_on: ["ClientHintsFeaturePolicy"],
+      depends_on: ["FeaturePolicyForClientHints"],
     },
     {
       name: "ClientHintUAPlatform",
       feature_policy_name: "ch-ua-platform",
-      depends_on: ["ClientHintsFeaturePolicy"],
+      depends_on: ["FeaturePolicyForClientHints"],
     },
     {
       name: "ClientHintUAModel",
       feature_policy_name: "ch-ua-model",
-      depends_on: ["ClientHintsFeaturePolicy"],
+      depends_on: ["FeaturePolicyForClientHints"],
+    },
+    {
+      name: "ClientHintUAMobile",
+      feature_policy_name: "ch-ua-mobile",
+      depends_on: ["FeaturePolicyForClientHints"],
+    },
+    {
+      name: "ClientHintUAFullVersion",
+      feature_policy_name: "ch-ua-full-version",
+      depends_on: ["FeaturePolicyForClientHints"],
     },
     {
       name: "ClientHintViewportWidth",
       feature_policy_name: "ch-viewport-width",
-      depends_on: ["ClientHintsFeaturePolicy"],
+      depends_on: ["FeaturePolicyForClientHints"],
     },
     {
       name: "ClientHintWidth",
       feature_policy_name: "ch-width",
-      depends_on: ["ClientHintsFeaturePolicy"],
+      depends_on: ["FeaturePolicyForClientHints"],
     },
     {
       name: "DocumentDomain",
@@ -114,8 +123,8 @@
       depends_on: ["ExperimentalProductivityFeatures"],
     },
     {
-      name: "DownloadsWithoutUserActivation",
-      feature_policy_name: "downloads-without-user-activation",
+      name: "Downloads",
+      feature_policy_name: "downloads",
       depends_on: ["FeaturePolicyForSandbox"],
     },
     {
@@ -138,11 +147,6 @@
       depends_on: ["BlockingFocusWithoutUserActivation"],
     },
     {
-      name: "FontDisplay",
-      feature_policy_name: "font-display-late-swap",
-      depends_on: ["ExperimentalProductivityFeatures"],
-    },
-    {
       name: "FormSubmission",
       feature_policy_name: "forms",
       depends_on: ["FeaturePolicyForSandbox"],
@@ -163,7 +167,6 @@
     {
       name: "Gyroscope",
       feature_policy_name: "gyroscope",
-      depends_on: ["Sensor"],
     },
     {
       name: "Hid",
@@ -193,7 +196,6 @@
     {
       name: "Magnetometer",
       feature_policy_name: "magnetometer",
-      depends_on: ["Sensor"],
     },
     {
       name: "Microphone",
@@ -212,11 +214,6 @@
       name: "OrientationLock",
       feature_policy_name: "orientation-lock",
       depends_on: ["FeaturePolicyForSandbox"],
-    },
-    {
-      name: "OversizedImages",
-      feature_policy_name: "oversized-images",
-      depends_on: ["UnoptimizedImagePolicies"],
     },
     {
       name: "Payment",
@@ -244,6 +241,16 @@
       depends_on: ["FeaturePolicyForSandbox"],
     },
     {
+      name: "PublicKeyCredentials",
+      feature_policy_name: "publickey-credentials",
+      depends_on: ["WebAuthenticationFeaturePolicy"],
+    },
+    {
+      name: "ScreenWakeLock",
+      feature_policy_name: "screen-wake-lock",
+      depends_on: ["WakeLock"],
+    },
+    {
       name: "Script",
       feature_policy_name: "scripts",
       depends_on: ["FeaturePolicyForSandbox"],
@@ -268,24 +275,9 @@
       depends_on: ["FeaturePolicyForSandbox"],
     },
     {
-      name: "UnoptimizedLosslessImages",
-      feature_policy_name: "unoptimized-lossless-images",
-      depends_on: ["UnoptimizedImagePolicies"],
-    },
-    {
-      name: "UnoptimizedLosslessImagesStrict",
-      feature_policy_name: "unoptimized-lossless-images-strict",
-      depends_on: ["UnoptimizedImagePolicies"],
-    },
-    {
-      name: "UnoptimizedLossyImages",
-      feature_policy_name: "unoptimized-lossy-images",
-      depends_on: ["UnoptimizedImagePolicies"],
-    },
-    {
-      name: "UnsizedMedia",
-      feature_policy_name: "unsized-media",
-      depends_on: ["UnsizedMediaPolicy"],
+      name: "TrustTokenRedemption",
+      feature_policy_name: "trust-token-redemption",
+      depends_on: ["TrustTokens"],
     },
     {
       name: "Usb",
@@ -298,15 +290,9 @@
       depends_on: ["ExperimentalProductivityFeatures"],
     },
     {
-      name: "WakeLock",
-      feature_policy_name: "wake-lock",
-      depends_on: ["WakeLock"],
+      name: "WebXr",
+      feature_policy_name: "xr-spatial-tracking",
+      depends_on: ["WebXR"],
     },
-    // The feature is added manually in feature_policy_helper.cc.
-    // {
-    //   name: "WebVr",
-    //   feature_policy_name: "vr",
-    //   depends_on: ["WebVR", "WebXR"],
-    // },
   ],
 }

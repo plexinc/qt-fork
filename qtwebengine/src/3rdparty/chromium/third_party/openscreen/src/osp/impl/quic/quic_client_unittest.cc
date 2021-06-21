@@ -14,11 +14,13 @@
 #include "osp/public/network_metrics.h"
 #include "osp/public/network_service_manager.h"
 #include "osp/public/testing/message_demuxer_test_support.h"
-#include "platform/api/logging.h"
 #include "platform/base/error.h"
 #include "platform/test/fake_clock.h"
+#include "platform/test/fake_task_runner.h"
+#include "util/logging.h"
 
 namespace openscreen {
+namespace osp {
 namespace {
 
 using ::testing::_;
@@ -56,12 +58,21 @@ class ConnectionCallback final
 };
 
 class QuicClientTest : public ::testing::Test {
+ public:
+  QuicClientTest() {
+    fake_clock_ = std::make_unique<FakeClock>(
+        Clock::time_point(std::chrono::milliseconds(1298424)));
+    task_runner_ = std::make_unique<FakeTaskRunner>(fake_clock_.get());
+    quic_bridge_ =
+        std::make_unique<FakeQuicBridge>(task_runner_.get(), FakeClock::now);
+  }
+
  protected:
   void SetUp() override {
-    client_ = quic_bridge_.quic_client.get();
+    client_ = quic_bridge_->quic_client.get();
     NetworkServiceManager::Create(nullptr, nullptr,
-                                  std::move(quic_bridge_.quic_client),
-                                  std::move(quic_bridge_.quic_server));
+                                  std::move(quic_bridge_->quic_client),
+                                  std::move(quic_bridge_->quic_server));
   }
 
   void TearDown() override { NetworkServiceManager::Dispose(); }
@@ -69,7 +80,7 @@ class QuicClientTest : public ::testing::Test {
   void SendTestMessage(ProtocolConnection* connection) {
     MockMessageCallback mock_message_callback;
     MessageDemuxer::MessageWatch message_watch =
-        quic_bridge_.receiver_demuxer->WatchMessageType(
+        quic_bridge_->receiver_demuxer->WatchMessageType(
             0, msgs::Type::kPresentationConnectionMessage,
             &mock_message_callback);
 
@@ -88,18 +99,17 @@ class QuicClientTest : public ::testing::Test {
         mock_message_callback,
         OnStreamMessage(0, connection->id(),
                         msgs::Type::kPresentationConnectionMessage, _, _, _))
-        .WillOnce(
-            Invoke([&decode_result, &received_message](
-                       uint64_t endpoint_id, uint64_t connection_id,
-                       msgs::Type message_type, const uint8_t* buffer,
-                       size_t buffer_size, platform::Clock::time_point now) {
-              decode_result = msgs::DecodePresentationConnectionMessage(
-                  buffer, buffer_size, &received_message);
-              if (decode_result < 0)
-                return ErrorOr<size_t>(Error::Code::kCborParsing);
-              return ErrorOr<size_t>(decode_result);
-            }));
-    quic_bridge_.RunTasksUntilIdle();
+        .WillOnce(Invoke([&decode_result, &received_message](
+                             uint64_t endpoint_id, uint64_t connection_id,
+                             msgs::Type message_type, const uint8_t* buffer,
+                             size_t buffer_size, Clock::time_point now) {
+          decode_result = msgs::DecodePresentationConnectionMessage(
+              buffer, buffer_size, &received_message);
+          if (decode_result < 0)
+            return ErrorOr<size_t>(Error::Code::kCborParsing);
+          return ErrorOr<size_t>(decode_result);
+        }));
+    quic_bridge_->RunTasksUntilIdle();
 
     ASSERT_GT(decode_result, 0);
     EXPECT_EQ(decode_result, static_cast<ssize_t>(buffer.size() - 1));
@@ -109,9 +119,9 @@ class QuicClientTest : public ::testing::Test {
     EXPECT_EQ(received_message.message.str, message.message.str);
   }
 
-  platform::FakeClock fake_clock_{
-      platform::Clock::time_point(std::chrono::milliseconds(1298424))};
-  FakeQuicBridge quic_bridge_{platform::FakeClock::now};
+  std::unique_ptr<FakeClock> fake_clock_;
+  std::unique_ptr<FakeTaskRunner> task_runner_;
+  std::unique_ptr<FakeQuicBridge> quic_bridge_;
   QuicClient* client_;
 };
 
@@ -123,10 +133,10 @@ TEST_F(QuicClientTest, Connect) {
   std::unique_ptr<ProtocolConnection> connection;
   ConnectionCallback connection_callback(&connection);
   ProtocolConnectionClient::ConnectRequest request =
-      client_->Connect(quic_bridge_.kReceiverEndpoint, &connection_callback);
+      client_->Connect(quic_bridge_->kReceiverEndpoint, &connection_callback);
   ASSERT_TRUE(request);
 
-  quic_bridge_.RunTasksUntilIdle();
+  quic_bridge_->RunTasksUntilIdle();
   ASSERT_TRUE(connection);
 
   SendTestMessage(connection.get());
@@ -140,17 +150,17 @@ TEST_F(QuicClientTest, DoubleConnect) {
   std::unique_ptr<ProtocolConnection> connection1;
   ConnectionCallback connection_callback1(&connection1);
   ProtocolConnectionClient::ConnectRequest request1 =
-      client_->Connect(quic_bridge_.kReceiverEndpoint, &connection_callback1);
+      client_->Connect(quic_bridge_->kReceiverEndpoint, &connection_callback1);
   ASSERT_TRUE(request1);
   ASSERT_FALSE(connection1);
 
   std::unique_ptr<ProtocolConnection> connection2;
   ConnectionCallback connection_callback2(&connection2);
   ProtocolConnectionClient::ConnectRequest request2 =
-      client_->Connect(quic_bridge_.kReceiverEndpoint, &connection_callback2);
+      client_->Connect(quic_bridge_->kReceiverEndpoint, &connection_callback2);
   ASSERT_TRUE(request2);
 
-  quic_bridge_.RunTasksUntilIdle();
+  quic_bridge_->RunTasksUntilIdle();
   ASSERT_TRUE(connection1);
   ASSERT_TRUE(connection2);
 
@@ -170,13 +180,13 @@ TEST_F(QuicClientTest, OpenImmediate) {
 
   ConnectionCallback connection_callback(&connection1);
   ProtocolConnectionClient::ConnectRequest request =
-      client_->Connect(quic_bridge_.kReceiverEndpoint, &connection_callback);
+      client_->Connect(quic_bridge_->kReceiverEndpoint, &connection_callback);
   ASSERT_TRUE(request);
 
   connection2 = client_->CreateProtocolConnection(1);
   EXPECT_FALSE(connection2);
 
-  quic_bridge_.RunTasksUntilIdle();
+  quic_bridge_->RunTasksUntilIdle();
   ASSERT_TRUE(connection1);
 
   connection2 = client_->CreateProtocolConnection(connection1->endpoint_id());
@@ -192,20 +202,20 @@ TEST_F(QuicClientTest, States) {
   std::unique_ptr<ProtocolConnection> connection1;
   ConnectionCallback connection_callback(&connection1);
   ProtocolConnectionClient::ConnectRequest request =
-      client_->Connect(quic_bridge_.kReceiverEndpoint, &connection_callback);
+      client_->Connect(quic_bridge_->kReceiverEndpoint, &connection_callback);
   EXPECT_FALSE(request);
   std::unique_ptr<ProtocolConnection> connection2 =
       client_->CreateProtocolConnection(1);
   EXPECT_FALSE(connection2);
 
-  EXPECT_CALL(quic_bridge_.mock_client_observer, OnRunning());
+  EXPECT_CALL(quic_bridge_->mock_client_observer, OnRunning());
   EXPECT_TRUE(client_->Start());
   EXPECT_FALSE(client_->Start());
 
   request =
-      client_->Connect(quic_bridge_.kReceiverEndpoint, &connection_callback);
+      client_->Connect(quic_bridge_->kReceiverEndpoint, &connection_callback);
   ASSERT_TRUE(request);
-  quic_bridge_.RunTasksUntilIdle();
+  quic_bridge_->RunTasksUntilIdle();
   ASSERT_TRUE(connection1);
   MockConnectionObserver mock_connection_observer1;
   connection1->SetObserver(&mock_connection_observer1);
@@ -217,12 +227,12 @@ TEST_F(QuicClientTest, States) {
 
   EXPECT_CALL(mock_connection_observer1, OnConnectionClosed(_));
   EXPECT_CALL(mock_connection_observer2, OnConnectionClosed(_));
-  EXPECT_CALL(quic_bridge_.mock_client_observer, OnStopped());
+  EXPECT_CALL(quic_bridge_->mock_client_observer, OnStopped());
   EXPECT_TRUE(client_->Stop());
   EXPECT_FALSE(client_->Stop());
 
   request =
-      client_->Connect(quic_bridge_.kReceiverEndpoint, &connection_callback);
+      client_->Connect(quic_bridge_->kReceiverEndpoint, &connection_callback);
   EXPECT_FALSE(request);
   connection2 = client_->CreateProtocolConnection(1);
   EXPECT_FALSE(connection2);
@@ -231,17 +241,17 @@ TEST_F(QuicClientTest, States) {
 TEST_F(QuicClientTest, RequestIds) {
   client_->Start();
 
-  EXPECT_CALL(quic_bridge_.mock_server_observer, OnIncomingConnectionMock(_))
+  EXPECT_CALL(quic_bridge_->mock_server_observer, OnIncomingConnectionMock(_))
       .WillOnce(Invoke([](std::unique_ptr<ProtocolConnection>& connection) {
         connection->CloseWriteEnd();
       }));
   std::unique_ptr<ProtocolConnection> connection;
   ConnectionCallback connection_callback(&connection);
   ProtocolConnectionClient::ConnectRequest request =
-      client_->Connect(quic_bridge_.kReceiverEndpoint, &connection_callback);
+      client_->Connect(quic_bridge_->kReceiverEndpoint, &connection_callback);
   ASSERT_TRUE(request);
 
-  quic_bridge_.RunTasksUntilIdle();
+  quic_bridge_->RunTasksUntilIdle();
   ASSERT_TRUE(connection);
 
   const uint64_t endpoint_id = connection->endpoint_id();
@@ -250,11 +260,12 @@ TEST_F(QuicClientTest, RequestIds) {
 
   connection->CloseWriteEnd();
   connection.reset();
-  quic_bridge_.RunTasksUntilIdle();
-  EXPECT_EQ(0u, client_->endpoint_request_ids()->GetNextRequestId(endpoint_id));
+  quic_bridge_->RunTasksUntilIdle();
+  EXPECT_EQ(4u, client_->endpoint_request_ids()->GetNextRequestId(endpoint_id));
 
   client_->Stop();
   EXPECT_EQ(0u, client_->endpoint_request_ids()->GetNextRequestId(endpoint_id));
 }
 
+}  // namespace osp
 }  // namespace openscreen

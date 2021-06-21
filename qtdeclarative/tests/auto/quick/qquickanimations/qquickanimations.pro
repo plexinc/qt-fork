@@ -12,6 +12,7 @@ QT += core-private gui-private  qml-private quick-private testlib qmlmodels-priv
 DEFINES += QT_DISABLE_DEPRECATED_BEFORE=0
 
 OTHER_FILES += \
+    data/alwaysRunToEndInSequentialAnimationBug.qml \
     data/animationJobSelfDestructionBug.qml\
     data/attached.qml \
     data/badproperty1.qml \
@@ -64,6 +65,7 @@ OTHER_FILES += \
     data/scriptActionCrash.qml \
     data/sequentialAnimationNullChildBug.qml \
     data/signals.qml \
+    data/signalorder.qml \
     data/transitionAssignmentBug.qml \
     data/valuesource.qml \
     data/valuesource2.qml

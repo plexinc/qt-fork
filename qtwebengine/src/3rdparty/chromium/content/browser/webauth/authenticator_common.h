@@ -22,6 +22,7 @@
 #include "device/fido/authenticator_get_assertion_response.h"
 #include "device/fido/authenticator_make_credential_response.h"
 #include "device/fido/authenticator_selection_criteria.h"
+#include "device/fido/client_data.h"
 #include "device/fido/ctap_get_assertion_request.h"
 #include "device/fido/ctap_make_credential_request.h"
 #include "device/fido/fido_constants.h"
@@ -39,11 +40,10 @@ class FidoRequestHandlerBase;
 
 enum class FidoReturnCode : uint8_t;
 
-}  // namespace device
+enum class GetAssertionStatus;
+enum class MakeCredentialStatus;
 
-namespace service_manager {
-class Connector;
-}  // namespace service_manager
+}  // namespace device
 
 namespace url {
 class Origin;
@@ -53,6 +53,7 @@ namespace content {
 
 class BrowserContext;
 class RenderFrameHost;
+class WebAuthRequestSecurityChecker;
 
 namespace client_data {
 // These enumerate the possible values for the `type` member of
@@ -65,9 +66,8 @@ CONTENT_EXPORT extern const char kGetType[];
 // Common code for any WebAuthn Authenticator interfaces.
 class CONTENT_EXPORT AuthenticatorCommon {
  public:
-  // Permits setting connector and timer for testing.
+  // Permits setting timer for testing.
   AuthenticatorCommon(RenderFrameHost* render_frame_host,
-                      service_manager::Connector*,
                       std::unique_ptr<base::OneShotTimer>);
   virtual ~AuthenticatorCommon();
 
@@ -88,17 +88,11 @@ class CONTENT_EXPORT AuthenticatorCommon {
 
   void Cleanup();
 
-  base::flat_set<device::FidoTransportProtocol> enabled_transports_for_testing()
-      const {
-    return transports_;
-  }
-  void set_transports_for_testing(
-      base::flat_set<device::FidoTransportProtocol> transports) {
-    transports_ = transports;
-  }
+  void DisableUI();
 
  protected:
-  virtual void UpdateRequestDelegate();
+  virtual std::unique_ptr<AuthenticatorRequestClientDelegate>
+  CreateRequestDelegate();
 
   std::unique_ptr<AuthenticatorRequestClientDelegate> request_delegate_;
 
@@ -113,30 +107,17 @@ class CONTENT_EXPORT AuthenticatorCommon {
 
   // Replaces the current |request_| with a |MakeCredentialRequestHandler|,
   // effectively restarting the request.
-  void StartMakeCredentialRequest();
+  void StartMakeCredentialRequest(bool allow_skipping_pin_touch);
 
   // Replaces the current |request_| with a |GetAssertionRequestHandler|,
   // effectively restarting the request.
-  void StartGetAssertionRequest();
+  void StartGetAssertionRequest(bool allow_skipping_pin_touch);
 
   bool IsFocused() const;
 
-  // Builds the CollectedClientData[1] dictionary with the given values,
-  // serializes it to JSON, and returns the resulting string. For legacy U2F
-  // requests coming from the CryptoToken U2F extension, modifies the object key
-  // 'type' as required[2].
-  // [1] https://w3c.github.io/webauthn/#dictdef-collectedclientdata
-  // [2]
-  // https://fidoalliance.org/specs/fido-u2f-v1.2-ps-20170411/fido-u2f-raw-message-formats-v1.2-ps-20170411.html#client-data
-  static std::string SerializeCollectedClientDataToJson(
-      const std::string& type,
-      const std::string& origin,
-      base::span<const uint8_t> challenge,
-      bool use_legacy_u2f_type_key = false);
-
   // Callback to handle the async response from a U2fDevice.
   void OnRegisterResponse(
-      device::FidoReturnCode status_code,
+      device::MakeCredentialStatus status_code,
       base::Optional<device::AuthenticatorMakeCredentialResponse> response_data,
       const device::FidoAuthenticator* authenticator);
 
@@ -149,7 +130,7 @@ class CONTENT_EXPORT AuthenticatorCommon {
 
   // Callback to handle the async response from a U2fDevice.
   void OnSignResponse(
-      device::FidoReturnCode status_code,
+      device::GetAssertionStatus status_code,
       base::Optional<std::vector<device::AuthenticatorGetAssertionResponse>>
           response_data,
       const device::FidoAuthenticator* authenticator);
@@ -166,12 +147,13 @@ class CONTENT_EXPORT AuthenticatorCommon {
   // account from the options.
   void OnAccountSelected(device::AuthenticatorGetAssertionResponse response);
 
-  // Decides whether or not UI is present that needs to block on user
-  // acknowledgement before returning the error, and handles the error
-  // appropriately.
+  // Signals to the request delegate that the request has failed for |reason|.
+  // The request delegate decides whether to present the user with a visual
+  // error before the request is finally resolved with |status|.
   void SignalFailureToRequestDelegate(
-      const ::device::FidoAuthenticator* authenticator,
-      AuthenticatorRequestClientDelegate::InterestingFailureReason reason);
+      const device::FidoAuthenticator* authenticator,
+      AuthenticatorRequestClientDelegate::InterestingFailureReason reason,
+      blink::mojom::AuthenticatorStatus status);
 
   void InvokeCallbackAndCleanup(
       blink::mojom::Authenticator::MakeCredentialCallback callback,
@@ -186,9 +168,6 @@ class CONTENT_EXPORT AuthenticatorCommon {
   BrowserContext* browser_context() const;
 
   RenderFrameHost* const render_frame_host_;
-  service_manager::Connector* connector_ = nullptr;
-  base::flat_set<device::FidoTransportProtocol> transports_;
-
   std::unique_ptr<device::FidoRequestHandlerBase> request_;
   blink::mojom::Authenticator::MakeCredentialCallback
       make_credential_response_callback_;
@@ -196,8 +175,13 @@ class CONTENT_EXPORT AuthenticatorCommon {
       get_assertion_response_callback_;
   std::string client_data_json_;
   bool attestation_requested_;
+  // empty_allow_list_ is true iff a GetAssertion is currently pending and the
+  // request did not list any credential IDs in the allow list.
+  bool empty_allow_list_ = false;
+  bool disable_ui_ = false;
   url::Origin caller_origin_;
   std::string relying_party_id_;
+  scoped_refptr<WebAuthRequestSecurityChecker> security_checker_;
   std::unique_ptr<base::OneShotTimer> timer_;
   base::Optional<device::AuthenticatorSelectionCriteria>
       authenticator_selection_criteria_;

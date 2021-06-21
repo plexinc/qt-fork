@@ -19,7 +19,6 @@
 #include "src/core/SkWriteBuffer.h"
 #include "src/utils/SkUTF.h"
 
-#include "include/effects/SkBlurMaskFilter.h"
 #include "include/effects/SkGradientShader.h"
 
 #include "include/effects/Sk2DPathEffect.h"
@@ -82,7 +81,7 @@ public:
     virtual bool onFilterPath(SkPath* dst, const SkPath& src,
                               SkStrokeRec*, const SkRect*) const override {
         *dst = src;
-        dst->setFillType(SkPath::kInverseWinding_FillType);
+        dst->setFillType(SkPathFillType::kInverseWinding);
         return true;
     }
 

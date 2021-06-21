@@ -7,6 +7,7 @@
 #include <memory>
 
 #include "base/memory/ptr_util.h"
+#include "third_party/blink/public/resources/grit/blink_resources.h"
 #include "third_party/blink/renderer/core/dom/dom_token_list.h"
 #include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/core/dom/events/event_dispatch_forbidden_scope.h"
@@ -16,6 +17,7 @@
 #include "third_party/blink/renderer/core/loader/empty_clients.h"
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/page/page_popup_client.h"
+#include "third_party/blink/renderer/platform/data_resource_helper.h"
 #include "third_party/blink/renderer/platform/graphics/paint/cull_rect.h"
 #include "third_party/blink/renderer/platform/graphics/paint/drawing_recorder.h"
 #include "third_party/blink/renderer/platform/graphics/paint/paint_record_builder.h"
@@ -32,21 +34,24 @@ class ValidationMessageChromeClient : public EmptyChromeClient {
                                          LocalFrameView* anchor_view)
       : main_chrome_client_(main_chrome_client), anchor_view_(anchor_view) {}
 
-  void Trace(blink::Visitor* visitor) override {
+  void Trace(Visitor* visitor) override {
     visitor->Trace(main_chrome_client_);
     visitor->Trace(anchor_view_);
     EmptyChromeClient::Trace(visitor);
   }
 
-  void ScheduleAnimation(const LocalFrameView*) override {
+  void ScheduleAnimation(const LocalFrameView*,
+                         base::TimeDelta delay = base::TimeDelta()) override {
     // Need to pass LocalFrameView for the anchor element because the Frame for
     // this overlay doesn't have an associated WebFrameWidget, which schedules
     // animation.
-    main_chrome_client_->ScheduleAnimation(anchor_view_);
+    main_chrome_client_->ScheduleAnimation(anchor_view_, delay);
   }
 
-  float WindowToViewportScalar(const float scalar_value) const override {
-    return main_chrome_client_->WindowToViewportScalar(scalar_value);
+  float WindowToViewportScalar(LocalFrame* local_frame,
+                               const float scalar_value) const override {
+    return main_chrome_client_->WindowToViewportScalar(local_frame,
+                                                       scalar_value);
   }
 
  private:
@@ -132,8 +137,7 @@ void ValidationMessageOverlayDelegate::UpdateFrameViewState(
   // FindVisualRectNeedingUpdateScopeBase::CheckVisualRect().
   FrameView().GetLayoutView()->SetSubtreeShouldCheckForPaintInvalidation();
 
-  FrameView().UpdateAllLifecyclePhases(
-      DocumentLifecycle::LifecycleUpdateReason::kOther);
+  FrameView().UpdateAllLifecyclePhases(DocumentUpdateReason::kOverlay);
 }
 
 void ValidationMessageOverlayDelegate::CreatePage(const FrameOverlay& overlay) {
@@ -186,8 +190,7 @@ void ValidationMessageOverlayDelegate::CreatePage(const FrameOverlay& overlay) {
   }
   // Get the size to decide position later.
   // TODO(schenney): This says get size, so we only need to update to layout.
-  FrameView().UpdateAllLifecyclePhases(
-      DocumentLifecycle::LifecycleUpdateReason::kOther);
+  FrameView().UpdateAllLifecyclePhases(DocumentUpdateReason::kOverlay);
   bubble_size_ = container.VisibleBoundsInVisualViewport().Size();
   // Add one because the content sometimes exceeds the exact width due to
   // rounding errors.
@@ -196,14 +199,13 @@ void ValidationMessageOverlayDelegate::CreatePage(const FrameOverlay& overlay) {
                                    bubble_size_.Width() / zoom_factor,
                                    CSSPrimitiveValue::UnitType::kPixels);
   container.setAttribute(html_names::kClassAttr, "shown-initially");
-  FrameView().UpdateAllLifecyclePhases(
-      DocumentLifecycle::LifecycleUpdateReason::kOther);
+  FrameView().UpdateAllLifecyclePhases(DocumentUpdateReason::kOverlay);
 }
 
 void ValidationMessageOverlayDelegate::WriteDocument(SharedBuffer* data) {
   DCHECK(data);
   PagePopupClient::AddString("<!DOCTYPE html><html><head><style>", data);
-  data->Append(Platform::Current()->GetDataResource("validation_bubble.css"));
+  data->Append(UncompressResourceAsBinary(IDR_VALIDATION_BUBBLE_CSS));
   PagePopupClient::AddString("</style></head>", data);
   PagePopupClient::AddString(
       Locale::DefaultLocale().IsRTL() ? "<body dir=rtl>" : "<body dir=ltr>",
@@ -215,7 +217,7 @@ void ValidationMessageOverlayDelegate::WriteDocument(SharedBuffer* data) {
       "<div id=spacer-top></div>"
       "<main id=bubble-body>",
       data);
-  data->Append(Platform::Current()->GetDataResource("input_alert.svg"));
+  data->Append(UncompressResourceAsBinary(IDR_VALIDATION_BUBBLE_ICON));
   PagePopupClient::AddString(message_dir_ == TextDirection::kLtr
                                  ? "<div dir=ltr id=main-message></div>"
                                  : "<div dir=rtl id=main-message></div>",

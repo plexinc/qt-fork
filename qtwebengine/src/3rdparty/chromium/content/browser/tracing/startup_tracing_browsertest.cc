@@ -27,7 +27,7 @@ namespace {
 // Wait until |condition| returns true.
 void WaitForCondition(base::RepeatingCallback<bool()> condition,
                       const std::string& description) {
-  const base::TimeDelta kTimeout = base::TimeDelta::FromSeconds(15);
+  const base::TimeDelta kTimeout = base::TimeDelta::FromSeconds(30);
   const base::TimeTicks start_time = base::TimeTicks::Now();
   while (!condition.Run() && (base::TimeTicks::Now() - start_time < kTimeout)) {
     base::RunLoop run_loop;
@@ -51,14 +51,6 @@ class CommandlineStartupTracingTest : public ContentBrowserTest {
     command_line->AppendSwitchASCII(switches::kTraceStartupDuration, "3");
     command_line->AppendSwitchASCII(switches::kTraceStartupFile,
                                     temp_file_path_.AsUTF8Unsafe());
-
-#if defined(OS_ANDROID)
-    // On Android the startup tracing is initialized as soon as library load
-    // time, earlier than this point. So, reset the config and enable startup
-    // tracing here.
-    tracing::TraceStartupConfig::GetInstance()->EnableFromCommandLine();
-    tracing::EnableStartupTracingIfNeeded();
-#endif
   }
 
  protected:
@@ -68,8 +60,16 @@ class CommandlineStartupTracingTest : public ContentBrowserTest {
   DISALLOW_COPY_AND_ASSIGN(CommandlineStartupTracingTest);
 };
 
-IN_PROC_BROWSER_TEST_F(CommandlineStartupTracingTest, TestStartupTracing) {
-  NavigateToURL(shell(), GetTestUrl("", "title1.html"));
+// Failing on Android ASAN, Linux TSAN. crbug.com/1041392
+#if (defined(OS_ANDROID) && defined(ADDRESS_SANITIZER)) || \
+    (defined(OS_LINUX) && defined(THREAD_SANITIZER))
+#define MAYBE_TestStartupTracing DISABLED_TestStartupTracing
+#else
+#define MAYBE_TestStartupTracing TestStartupTracing
+#endif
+IN_PROC_BROWSER_TEST_F(CommandlineStartupTracingTest,
+                       MAYBE_TestStartupTracing) {
+  EXPECT_TRUE(NavigateToURL(shell(), GetTestUrl("", "title1.html")));
   WaitForCondition(base::BindRepeating([]() {
                      return !TracingController::GetInstance()->IsTracing();
                    }),
@@ -90,12 +90,13 @@ IN_PROC_BROWSER_TEST_F(CommandlineStartupTracingTest, TestStartupTracing) {
       std::string::npos);
 }
 
+#undef MAYBE_TestStartupTracing
+
 class StartupTracingInProcessTest : public ContentBrowserTest {
  public:
   StartupTracingInProcessTest() {
     scoped_feature_list_.InitWithFeatures(
-        /*enabled_features=*/{features::kTracingPerfettoBackend,
-                              features::kTracingServiceInProcess},
+        /*enabled_features=*/{features::kTracingServiceInProcess},
         /*disabled_features=*/{});
   }
 
@@ -123,34 +124,36 @@ class LargeTraceEventData : public base::trace_event::ConvertableToTraceFormat {
 // the SMB once the full tracing service starts up. This is to catch common
 // deadlocks.
 IN_PROC_BROWSER_TEST_F(StartupTracingInProcessTest, TestFilledStartupBuffer) {
-  tracing::TraceEventDataSource::GetInstance()->SetupStartupTracing(
-      /*privacy_filtering_enabled=*/false);
-
   auto config = tracing::TraceStartupConfig::GetInstance()
                     ->GetDefaultBrowserStartupConfig();
-  uint8_t modes = base::trace_event::TraceLog::RECORDING_MODE;
-  base::trace_event::TraceLog::GetInstance()->SetEnabled(config, modes);
+  config.SetTraceBufferSizeInEvents(0);
+  config.SetTraceBufferSizeInKb(0);
+
+  CHECK(tracing::EnableStartupTracingForProcess(
+      config,
+      /*privacy_filtering_enabled=*/false));
 
   for (int i = 0; i < 1024; ++i) {
     auto data = std::make_unique<LargeTraceEventData>();
     TRACE_EVENT1("toplevel", "bar", "data", std::move(data));
   }
 
-  config.SetTraceBufferSizeInKb(12);
+  config.SetTraceBufferSizeInKb(32);
 
   base::RunLoop wait_for_tracing;
   TracingControllerImpl::GetInstance()->StartTracing(
       config, wait_for_tracing.QuitClosure());
   wait_for_tracing.Run();
 
-  NavigateToURL(shell(), GetTestUrl("", "title1.html"));
+  EXPECT_TRUE(NavigateToURL(shell(), GetTestUrl("", "title1.html")));
 
   base::RunLoop wait_for_stop;
   TracingControllerImpl::GetInstance()->StopTracing(
-      TracingController::CreateStringEndpoint(base::BindRepeating(
-          [](base::RepeatingClosure quit_callback,
-             std::unique_ptr<const base::DictionaryValue> metadata,
-             base::RefCountedString* data) { quit_callback.Run(); },
+      TracingController::CreateStringEndpoint(base::BindOnce(
+          [](base::OnceClosure quit_callback,
+             std::unique_ptr<std::string> data) {
+            std::move(quit_callback).Run();
+          },
           wait_for_stop.QuitClosure())));
   wait_for_stop.Run();
 }
@@ -164,8 +167,7 @@ class BackgroundStartupTracingTest : public ContentBrowserTest {
     auto* startup_config = tracing::TraceStartupConfig::GetInstance();
     startup_config->enable_background_tracing_for_testing_ = true;
     startup_config->EnableFromBackgroundTracing();
-    startup_config->startup_duration_ = 3;
-    tracing::EnableStartupTracingIfNeeded();
+    startup_config->startup_duration_in_seconds_ = 3;
     command_line->AppendSwitchASCII(switches::kPerfettoOutputFile,
                                     temp_file_path_.AsUTF8Unsafe());
   }
@@ -183,7 +185,7 @@ class BackgroundStartupTracingTest : public ContentBrowserTest {
 #define MAYBE_TestStartupTracing TestStartupTracing
 #endif
 IN_PROC_BROWSER_TEST_F(BackgroundStartupTracingTest, MAYBE_TestStartupTracing) {
-  NavigateToURL(shell(), GetTestUrl("", "title1.html"));
+  EXPECT_TRUE(NavigateToURL(shell(), GetTestUrl("", "title1.html")));
 
   EXPECT_FALSE(tracing::TraceStartupConfig::GetInstance()->IsEnabled());
   EXPECT_FALSE(TracingController::GetInstance()->IsTracing());
@@ -200,7 +202,7 @@ IN_PROC_BROWSER_TEST_F(BackgroundStartupTracingTest, MAYBE_TestStartupTracing) {
   tracing::PrivacyFilteringCheck checker;
   checker.CheckProtoForUnexpectedFields(trace);
   EXPECT_GT(checker.stats().track_event, 0u);
-  EXPECT_EQ(checker.stats().process_desc, 0u);
+  EXPECT_GT(checker.stats().process_desc, 0u);
   EXPECT_GT(checker.stats().thread_desc, 0u);
   EXPECT_TRUE(checker.stats().has_interned_names);
   EXPECT_TRUE(checker.stats().has_interned_categories);

@@ -24,7 +24,6 @@ struct CONTENT_EXPORT IndexedDBPendingConnection {
   IndexedDBPendingConnection(
       scoped_refptr<IndexedDBCallbacks> callbacks,
       scoped_refptr<IndexedDBDatabaseCallbacks> database_callbacks,
-      int child_process_id,
       int64_t transaction_id,
       int64_t version,
       base::OnceCallback<void(base::WeakPtr<IndexedDBTransaction>)>
@@ -32,7 +31,6 @@ struct CONTENT_EXPORT IndexedDBPendingConnection {
   ~IndexedDBPendingConnection();
   scoped_refptr<IndexedDBCallbacks> callbacks;
   scoped_refptr<IndexedDBDatabaseCallbacks> database_callbacks;
-  int child_process_id;
   int64_t transaction_id;
   int64_t version;
   IndexedDBDataLossInfo data_loss_info;

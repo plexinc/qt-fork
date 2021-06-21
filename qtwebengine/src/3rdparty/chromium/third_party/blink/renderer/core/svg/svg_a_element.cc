@@ -22,6 +22,7 @@
 
 #include "third_party/blink/renderer/core/svg/svg_a_element.h"
 
+#include "third_party/blink/public/mojom/input/focus_type.mojom-blink.h"
 #include "third_party/blink/renderer/core/dom/attr.h"
 #include "third_party/blink/renderer/core/dom/attribute.h"
 #include "third_party/blink/renderer/core/dom/document.h"
@@ -48,8 +49,6 @@
 
 namespace blink {
 
-using namespace html_names;
-
 SVGAElement::SVGAElement(Document& document)
     : SVGGraphicsElement(svg_names::kATag, document),
       SVGURIReference(this),
@@ -59,7 +58,7 @@ SVGAElement::SVGAElement(Document& document)
   AddToPropertyMap(svg_target_);
 }
 
-void SVGAElement::Trace(blink::Visitor* visitor) {
+void SVGAElement::Trace(Visitor* visitor) {
   visitor->Trace(svg_target_);
   SVGGraphicsElement::Trace(visitor);
   SVGURIReference::Trace(visitor);
@@ -140,8 +139,8 @@ void SVGAElement::DefaultEventHandler(Event& event) {
           &GetDocument(), ResourceRequest(GetDocument().CompleteURL(url)));
       frame_request.SetNavigationPolicy(NavigationPolicyFromEvent(&event));
       frame_request.SetTriggeringEventInfo(
-          event.isTrusted() ? WebTriggeringEventInfo::kFromTrustedEvent
-                            : WebTriggeringEventInfo::kFromUntrustedEvent);
+          event.isTrusted() ? TriggeringEventInfo::kFromTrustedEvent
+                            : TriggeringEventInfo::kFromUntrustedEvent);
       frame_request.GetResourceRequest().SetHasUserGesture(
           LocalFrame::HasTransientUserActivation(GetDocument().GetFrame()));
 
@@ -164,9 +163,8 @@ bool SVGAElement::HasActivationBehavior() const {
   return true;
 }
 
-int SVGAElement::tabIndex() const {
-  // Skip the supportsFocus check in SVGElement.
-  return Element::tabIndex();
+int SVGAElement::DefaultTabIndex() const {
+  return 0;
 }
 
 bool SVGAElement::SupportsFocus() const {
@@ -178,12 +176,12 @@ bool SVGAElement::SupportsFocus() const {
 }
 
 bool SVGAElement::ShouldHaveFocusAppearance() const {
-  return (GetDocument().LastFocusType() != kWebFocusTypeMouse) ||
+  return (GetDocument().LastFocusType() != mojom::blink::FocusType::kMouse) ||
          SVGGraphicsElement::SupportsFocus();
 }
 
 bool SVGAElement::IsURLAttribute(const Attribute& attribute) const {
-  return attribute.GetName().LocalName() == kHrefAttr ||
+  return attribute.GetName().LocalName() == html_names::kHrefAttr ||
          SVGGraphicsElement::IsURLAttribute(attribute);
 }
 

@@ -1033,8 +1033,8 @@ favicon_base::IconType ThumbnailDatabase::FromPersistedIconType(int icon_type) {
 sql::InitStatus ThumbnailDatabase::OpenDatabase(sql::Database* db,
                                                 const base::FilePath& db_name) {
   db->set_histogram_tag("Thumbnail");
-  db->set_error_callback(base::Bind(&DatabaseErrorCallback,
-                                    db, db_name, backend_client_));
+  db->set_error_callback(base::BindRepeating(&DatabaseErrorCallback, db,
+                                             db_name, backend_client_));
 
   // Thumbnails db now only stores favicons, so we don't need that big a page
   // size or cache.
@@ -1047,6 +1047,7 @@ sql::InitStatus ThumbnailDatabase::OpenDatabase(sql::Database* db,
 
   if (!db->Open(db_name))
     return sql::INIT_FAILURE;
+  db->Preload();
 
   return sql::INIT_OK;
 }

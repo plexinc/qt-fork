@@ -32,15 +32,6 @@
 
 namespace blink {
 
-class TextControlInnerContainer final : public HTMLDivElement {
- public:
-  explicit TextControlInnerContainer(Document&);
-
- protected:
-  LayoutObject* CreateLayoutObject(const ComputedStyle&, LegacyLayout) override;
-  bool TypeShouldForceLegacyLayout() const final { return true; }
-};
-
 class EditingViewPortElement final : public HTMLDivElement {
  public:
   explicit EditingViewPortElement(Document&);
@@ -79,6 +70,17 @@ class SearchFieldCancelButtonElement final : public HTMLDivElement {
 
  private:
   bool TypeShouldForceLegacyLayout() const final { return true; }
+  bool SupportsFocus() const override { return false; }
+};
+
+class PasswordRevealButtonElement final : public HTMLDivElement {
+ public:
+  explicit PasswordRevealButtonElement(Document&);
+
+  void DefaultEventHandler(Event&) override;
+  bool WillRespondToMouseClickEvents() override;
+
+ private:
   bool SupportsFocus() const override { return false; }
 };
 

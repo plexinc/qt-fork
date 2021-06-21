@@ -33,7 +33,7 @@ CPDF_Page::CPDF_Page(CPDF_Document* pDocument, CPDF_Dictionary* pPageDict)
 
   UpdateDimensions();
   m_Transparency.SetIsolated();
-  LoadTransInfo();
+  LoadTransparencyInfo();
 }
 
 CPDF_Page::~CPDF_Page() {}
@@ -208,4 +208,11 @@ void CPDF_Page::UpdateDimensions() {
       m_PageMatrix = CFX_Matrix(0, 1.0f, -1.0f, 0, m_BBox.top, -m_BBox.left);
       break;
   }
+}
+
+CPDF_Page::RenderContextClearer::RenderContextClearer(CPDF_Page* pPage)
+    : m_pPage(pPage) {}
+
+CPDF_Page::RenderContextClearer::~RenderContextClearer() {
+  m_pPage->SetRenderContext(nullptr);
 }

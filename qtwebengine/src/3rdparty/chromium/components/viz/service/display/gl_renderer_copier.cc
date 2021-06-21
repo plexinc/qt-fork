@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/process/memory.h"
 #include "base/stl_util.h"
 #include "components/viz/common/frame_sinks/copy_output_request.h"
 #include "components/viz/common/frame_sinks/copy_output_result.h"
@@ -438,9 +439,15 @@ class GLPixelBufferRGBAResult : public CopyOutputResult {
     if (cached_bitmap()->readyToDraw())
       return *cached_bitmap();
 
+    DCHECK(context_provider_);
     SkBitmap result_bitmap;
-    result_bitmap.allocPixels(SkImageInfo::MakeN32Premul(
-        size().width(), size().height(), GetRGBAColorSpace().ToSkColorSpace()));
+    // size() was clamped to render pass or framebuffer size. If we can't
+    // allocate it then OOM.
+    auto info = SkImageInfo::MakeN32Premul(
+        size().width(), size().height(), GetRGBAColorSpace().ToSkColorSpace());
+    if (!result_bitmap.tryAllocPixels(info, info.minRowBytes()))
+      base::TerminateBecauseOutOfMemory(info.computeMinByteSize());
+
     ReadRGBAPlane(static_cast<uint8_t*>(result_bitmap.getPixels()),
                   result_bitmap.rowBytes());
     *cached_bitmap() = result_bitmap;
@@ -448,12 +455,18 @@ class GLPixelBufferRGBAResult : public CopyOutputResult {
     // anymore.
     context_provider_->ContextGL()->DeleteBuffers(1, &transfer_buffer_);
     transfer_buffer_ = 0;
+
+    // We don't need context provider anymore. If these CopyOutputResults will
+    // be sent to different thread we might end holding last reference to
+    // context provider, so drop it now.
+    context_provider_.reset();
+
     return *cached_bitmap();
   }
 
  private:
   const gfx::ColorSpace color_space_;
-  const scoped_refptr<ContextProvider> context_provider_;
+  mutable scoped_refptr<ContextProvider> context_provider_;
   mutable GLuint transfer_buffer_;
   const bool is_upside_down_;
   const bool swap_red_and_blue_;

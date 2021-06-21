@@ -171,9 +171,7 @@ WebSocketBasicHandshakeStream::WebSocketBasicHandshakeStream(
     WebSocketStreamRequestAPI* request,
     WebSocketEndpointLockManager* websocket_endpoint_lock_manager)
     : result_(HandshakeResult::INCOMPLETE),
-      state_(std::move(connection),
-             using_proxy,
-             false /* http_09_on_non_default_ports_enabled */),
+      state_(std::move(connection), using_proxy),
       connect_delegate_(connect_delegate),
       http_response_info_(nullptr),
       requested_sub_protocols_(std::move(requested_sub_protocols)),
@@ -429,13 +427,6 @@ void WebSocketBasicHandshakeStream::ReadResponseHeadersCallback(
   std::move(callback).Run(ValidateResponse(result));
 }
 
-void WebSocketBasicHandshakeStream::OnFinishOpeningHandshake() {
-  DCHECK(http_response_info_);
-  WebSocketDispatchOnFinishOpeningHandshake(
-      connect_delegate_, url_, http_response_info_->headers,
-      http_response_info_->remote_endpoint, http_response_info_->response_time);
-}
-
 int WebSocketBasicHandshakeStream::ValidateResponse(int rv) {
   DCHECK(http_response_info_);
   // Most net errors happen during connection, so they are not seen by this
@@ -447,7 +438,6 @@ int WebSocketBasicHandshakeStream::ValidateResponse(int rv) {
     base::UmaHistogramSparse("Net.WebSocket.ResponseCode", response_code);
     switch (response_code) {
       case HTTP_SWITCHING_PROTOCOLS:
-        OnFinishOpeningHandshake();
         return ValidateUpgradeResponse(headers);
 
       // We need to pass these through for authentication to work.
@@ -469,7 +459,6 @@ int WebSocketBasicHandshakeStream::ValidateResponse(int rv) {
               "Error during WebSocket handshake: Unexpected response code: %d",
               headers->response_code()));
         }
-        OnFinishOpeningHandshake();
         result_ = HandshakeResult::INVALID_STATUS;
         return ERR_INVALID_RESPONSE;
     }
@@ -481,7 +470,6 @@ int WebSocketBasicHandshakeStream::ValidateResponse(int rv) {
     }
     OnFailure(std::string("Error during WebSocket handshake: ") +
               ErrorToString(rv));
-    OnFinishOpeningHandshake();
     // Some error codes (for example ERR_CONNECTION_CLOSED) get changed to OK at
     // higher levels. To prevent an unvalidated connection getting erroneously
     // upgraded, don't pass through the status code unchanged if it is

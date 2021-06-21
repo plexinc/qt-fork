@@ -11,8 +11,8 @@
 #include "base/single_thread_task_runner.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_blob_callback.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_image_encode_options.h"
 #include "third_party/blink/renderer/core/core_export.h"
-#include "third_party/blink/renderer/core/html/canvas/image_encode_options.h"
 #include "third_party/blink/renderer/core/typed_arrays/dom_typed_array.h"
 #include "third_party/blink/renderer/platform/geometry/int_size.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_types.h"
@@ -34,7 +34,7 @@ constexpr const char* kRGBA8ImagePixelFormatName = "uint8";
 constexpr const char* kRGBA16ImagePixelFormatName = "uint16";
 
 class CORE_EXPORT CanvasAsyncBlobCreator
-    : public GarbageCollectedFinalized<CanvasAsyncBlobCreator> {
+    : public GarbageCollected<CanvasAsyncBlobCreator> {
  public:
   // This enum is used to back an UMA histogram, and should therefore be treated
   // as append-only. Idle tasks are not implemented for some image types.
@@ -50,8 +50,7 @@ class CORE_EXPORT CanvasAsyncBlobCreator
   enum ToBlobFunctionType {
     kHTMLCanvasToBlobCallback,
     kHTMLCanvasConvertToBlobPromise,
-    kOffscreenCanvasConvertToBlobPromise,
-    kNumberOfToBlobFunctionTypes
+    kOffscreenCanvasConvertToBlobPromise
   };
 
   void ScheduleAsyncBlobCreation(const double& quality);

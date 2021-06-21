@@ -4,6 +4,7 @@
 
 #include "third_party/blink/renderer/modules/device_orientation/device_orientation_absolute_controller.h"
 
+#include "third_party/blink/public/mojom/feature_policy/feature_policy_feature.mojom-blink.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/modules/device_orientation/device_orientation_event_pump.h"
@@ -60,9 +61,10 @@ void DeviceOrientationAbsoluteController::DidAddEventListener(
   if (!has_event_listener_) {
     // TODO: add rappor url logging as in DeviceOrientationController.
 
-    if (!CheckPolicyFeatures({mojom::FeaturePolicyFeature::kAccelerometer,
-                              mojom::FeaturePolicyFeature::kGyroscope,
-                              mojom::FeaturePolicyFeature::kMagnetometer})) {
+    if (!CheckPolicyFeatures(
+            {mojom::blink::FeaturePolicyFeature::kAccelerometer,
+             mojom::blink::FeaturePolicyFeature::kGyroscope,
+             mojom::blink::FeaturePolicyFeature::kMagnetometer})) {
       LogToConsolePolicyFeaturesDisabled(GetDocument().GetFrame(),
                                          EventTypeName());
       return;
@@ -76,7 +78,7 @@ const AtomicString& DeviceOrientationAbsoluteController::EventTypeName() const {
   return event_type_names::kDeviceorientationabsolute;
 }
 
-void DeviceOrientationAbsoluteController::Trace(blink::Visitor* visitor) {
+void DeviceOrientationAbsoluteController::Trace(Visitor* visitor) {
   DeviceOrientationController::Trace(visitor);
 }
 

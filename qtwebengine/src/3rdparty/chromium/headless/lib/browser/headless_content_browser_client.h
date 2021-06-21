@@ -25,14 +25,8 @@ class HeadlessContentBrowserClient : public content::ContentBrowserClient {
   void OverrideWebkitPrefs(content::RenderViewHost* render_view_host,
                            content::WebPreferences* prefs) override;
   content::DevToolsManagerDelegate* GetDevToolsManagerDelegate() override;
-  base::Optional<service_manager::Manifest> GetServiceManifestOverlay(
-      base::StringPiece name) override;
   scoped_refptr<content::QuotaPermissionContext> CreateQuotaPermissionContext()
       override;
-  void GetQuotaSettings(
-      content::BrowserContext* context,
-      content::StoragePartition* partition,
-      ::storage::OptionalQuotaSettingsCallback callback) override;
   content::GeneratedCodeCacheSettings GetGeneratedCodeCacheSettings(
       content::BrowserContext* context) override;
 #if defined(OS_POSIX) && !defined(OS_MACOSX)
@@ -43,6 +37,7 @@ class HeadlessContentBrowserClient : public content::ContentBrowserClient {
 #endif
   void AppendExtraCommandLineSwitches(base::CommandLine* command_line,
                                       int child_process_id) override;
+  std::string GetApplicationLocale() override;
   std::string GetAcceptLangs(content::BrowserContext* context) override;
   void AllowCertificateError(
       content::WebContents* web_contents,
@@ -51,9 +46,8 @@ class HeadlessContentBrowserClient : public content::ContentBrowserClient {
       const GURL& request_url,
       bool is_main_frame_request,
       bool strict_enforcement,
-      bool expired_previous_decision,
-      const base::Callback<void(content::CertificateRequestResultType)>&
-          callback) override;
+      base::OnceCallback<void(content::CertificateRequestResultType)> callback)
+      override;
   base::OnceClosure SelectClientCertificate(
       content::WebContents* web_contents,
       net::SSLCertRequestInfo* cert_request_info,
@@ -61,7 +55,7 @@ class HeadlessContentBrowserClient : public content::ContentBrowserClient {
       std::unique_ptr<content::ClientCertificateDelegate> delegate) override;
   bool ShouldEnableStrictSiteIsolation() override;
 
-  ::network::mojom::NetworkContextPtr CreateNetworkContext(
+  mojo::Remote<::network::mojom::NetworkContext> CreateNetworkContext(
       content::BrowserContext* context,
       bool in_memory,
       const base::FilePath& relative_partition_path) override;
@@ -70,10 +64,6 @@ class HeadlessContentBrowserClient : public content::ContentBrowserClient {
   std::string GetUserAgent() override;
 
  private:
-  std::unique_ptr<base::Value> GetBrowserServiceManifestOverlay();
-  std::unique_ptr<base::Value> GetRendererServiceManifestOverlay();
-  std::unique_ptr<base::Value> GetPackagedServicesServiceManifestOverlay();
-
   HeadlessBrowserImpl* browser_;  // Not owned.
 
   // We store the callback here because we may call it from the I/O thread.

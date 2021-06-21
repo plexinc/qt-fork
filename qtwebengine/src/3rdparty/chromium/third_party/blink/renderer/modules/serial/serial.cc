@@ -8,14 +8,18 @@
 #include <utility>
 
 #include "base/unguessable_token.h"
-#include "services/service_manager/public/cpp/interface_provider.h"
+#include "third_party/blink/public/common/browser_interface_broker_proxy.h"
+#include "third_party/blink/public/mojom/feature_policy/feature_policy_feature.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_serial_port_filter.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_serial_port_request_options.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/modules/event_target_modules_names.h"
+#include "third_party/blink/renderer/modules/serial/serial_connection_event.h"
 #include "third_party/blink/renderer/modules/serial/serial_port.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 
@@ -23,6 +27,7 @@ namespace blink {
 
 namespace {
 
+const char kContextGone[] = "Script context has shut down.";
 const char kFeaturePolicyBlocked[] =
     "Access to the feature \"serial\" is disallowed by feature policy.";
 const char kNoPortSelected[] = "No port selected by the user.";
@@ -37,36 +42,44 @@ String TokenToString(const base::UnguessableToken& token) {
 }  // namespace
 
 Serial::Serial(ExecutionContext& execution_context)
-    : ContextLifecycleObserver(&execution_context) {}
+    : ExecutionContextLifecycleObserver(&execution_context) {}
 
 ExecutionContext* Serial::GetExecutionContext() const {
-  return ContextLifecycleObserver::GetExecutionContext();
+  return ExecutionContextLifecycleObserver::GetExecutionContext();
 }
 
 const AtomicString& Serial::InterfaceName() const {
   return event_target_names::kSerial;
 }
 
-void Serial::ContextDestroyed(ExecutionContext*) {
+void Serial::ContextDestroyed() {
   for (auto& entry : port_cache_)
     entry.value->ContextDestroyed();
 }
 
-ScriptPromise Serial::getPorts(ScriptState* script_state) {
+void Serial::OnPortAdded(mojom::blink::SerialPortInfoPtr port_info) {
+  DispatchEvent(*SerialConnectionEvent::Create(
+      event_type_names::kConnect, GetOrCreatePort(std::move(port_info))));
+}
+
+void Serial::OnPortRemoved(mojom::blink::SerialPortInfoPtr port_info) {
+  DispatchEvent(*SerialConnectionEvent::Create(
+      event_type_names::kDisconnect, GetOrCreatePort(std::move(port_info))));
+}
+
+ScriptPromise Serial::getPorts(ScriptState* script_state,
+                               ExceptionState& exception_state) {
   auto* context = GetExecutionContext();
   if (!context) {
-    return ScriptPromise::RejectWithDOMException(
-        script_state, MakeGarbageCollected<DOMException>(
-                          DOMExceptionCode::kNotSupportedError));
+    exception_state.ThrowDOMException(DOMExceptionCode::kNotSupportedError,
+                                      kContextGone);
+    return ScriptPromise();
   }
 
-  if (!context->GetSecurityContext().IsFeatureEnabled(
-          mojom::FeaturePolicyFeature::kSerial,
-          ReportOptions::kReportOnFailure)) {
-    return ScriptPromise::RejectWithDOMException(
-        script_state,
-        MakeGarbageCollected<DOMException>(DOMExceptionCode::kSecurityError,
-                                           kFeaturePolicyBlocked));
+  if (!context->IsFeatureEnabled(mojom::blink::FeaturePolicyFeature::kSerial,
+                                 ReportOptions::kReportOnFailure)) {
+    exception_state.ThrowSecurityError(kFeaturePolicyBlocked);
+    return ScriptPromise();
   }
 
   auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
@@ -80,46 +93,77 @@ ScriptPromise Serial::getPorts(ScriptState* script_state) {
 }
 
 ScriptPromise Serial::requestPort(ScriptState* script_state,
-                                  const SerialPortRequestOptions* options) {
+                                  const SerialPortRequestOptions* options,
+                                  ExceptionState& exception_state) {
   auto* frame = GetFrame();
   if (!frame || !frame->GetDocument()) {
-    return ScriptPromise::RejectWithDOMException(
-        script_state, MakeGarbageCollected<DOMException>(
-                          DOMExceptionCode::kNotSupportedError));
+    exception_state.ThrowDOMException(DOMExceptionCode::kNotSupportedError,
+                                      kContextGone);
+    return ScriptPromise();
   }
 
   if (!frame->GetDocument()->IsFeatureEnabled(
-          mojom::FeaturePolicyFeature::kSerial,
+          mojom::blink::FeaturePolicyFeature::kSerial,
           ReportOptions::kReportOnFailure)) {
-    return ScriptPromise::RejectWithDOMException(
-        script_state,
-        MakeGarbageCollected<DOMException>(DOMExceptionCode::kSecurityError,
-                                           kFeaturePolicyBlocked));
+    exception_state.ThrowSecurityError(kFeaturePolicyBlocked);
+    return ScriptPromise();
   }
 
   if (!LocalFrame::HasTransientUserActivation(frame)) {
-    return ScriptPromise::RejectWithDOMException(
-        script_state,
-        MakeGarbageCollected<DOMException>(
-            DOMExceptionCode::kSecurityError,
-            "Must be handling a user gesture to show a permission request."));
+    exception_state.ThrowSecurityError(
+        "Must be handling a user gesture to show a permission request.");
+    return ScriptPromise();
+  }
+
+  Vector<mojom::blink::SerialPortFilterPtr> filters;
+  if (options && options->hasFilters()) {
+    for (const auto& filter : options->filters()) {
+      auto mojo_filter = mojom::blink::SerialPortFilter::New();
+
+      mojo_filter->has_vendor_id = filter->hasUsbVendorId();
+      if (mojo_filter->has_vendor_id) {
+        mojo_filter->vendor_id = filter->usbVendorId();
+      } else {
+        exception_state.ThrowTypeError(
+            "A filter must provide a property to filter by.");
+        return ScriptPromise();
+      }
+
+      mojo_filter->has_product_id = filter->hasUsbProductId();
+      if (mojo_filter->has_product_id) {
+        if (!mojo_filter->has_vendor_id) {
+          exception_state.ThrowTypeError(
+              "A filter containing a usbProductId must also specify a "
+              "usbVendorId.");
+          return ScriptPromise();
+        }
+        mojo_filter->product_id = filter->usbProductId();
+      }
+
+      filters.push_back(std::move(mojo_filter));
+    }
   }
 
   auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
   request_port_promises_.insert(resolver);
 
   EnsureServiceConnection();
-  service_->RequestPort(Vector<mojom::blink::SerialPortFilterPtr>(),
+  service_->RequestPort(std::move(filters),
                         WTF::Bind(&Serial::OnRequestPort, WrapPersistent(this),
                                   WrapPersistent(resolver)));
 
   return resolver->Promise();
 }
 
-void Serial::GetPort(const base::UnguessableToken& token,
-                     device::mojom::blink::SerialPortRequest request) {
+void Serial::Dispose() {
+  receiver_.reset();
+}
+
+void Serial::GetPort(
+    const base::UnguessableToken& token,
+    mojo::PendingReceiver<device::mojom::blink::SerialPort> receiver) {
   EnsureServiceConnection();
-  service_->GetPort(token, std::move(request));
+  service_->GetPort(token, std::move(receiver));
 }
 
 void Serial::Trace(Visitor* visitor) {
@@ -127,7 +171,26 @@ void Serial::Trace(Visitor* visitor) {
   visitor->Trace(request_port_promises_);
   visitor->Trace(port_cache_);
   EventTargetWithInlineData::Trace(visitor);
-  ContextLifecycleObserver::Trace(visitor);
+  ExecutionContextLifecycleObserver::Trace(visitor);
+}
+
+void Serial::AddedEventListener(const AtomicString& event_type,
+                                RegisteredEventListener& listener) {
+  EventTargetWithInlineData::AddedEventListener(event_type, listener);
+
+  if (event_type != event_type_names::kConnect &&
+      event_type != event_type_names::kDisconnect) {
+    return;
+  }
+
+  ExecutionContext* context = GetExecutionContext();
+  if (!context ||
+      !context->IsFeatureEnabled(mojom::blink::FeaturePolicyFeature::kSerial,
+                                 ReportOptions::kDoNotReport)) {
+    return;
+  }
+
+  EnsureServiceConnection();
 }
 
 void Serial::EnsureServiceConnection() {
@@ -138,14 +201,17 @@ void Serial::EnsureServiceConnection() {
 
   auto task_runner =
       GetExecutionContext()->GetTaskRunner(TaskType::kMiscPlatformAPI);
-  GetExecutionContext()->GetInterfaceProvider()->GetInterface(
-      mojo::MakeRequest(&service_, task_runner));
-  service_.set_connection_error_handler(
+  GetExecutionContext()->GetBrowserInterfaceBroker().GetInterface(
+      service_.BindNewPipeAndPassReceiver(task_runner));
+  service_.set_disconnect_handler(
       WTF::Bind(&Serial::OnServiceConnectionError, WrapWeakPersistent(this)));
+
+  service_->SetClient(receiver_.BindNewPipeAndPassRemote());
 }
 
 void Serial::OnServiceConnectionError() {
   service_.reset();
+  receiver_.reset();
 
   // Script may execute during a call to Resolve(). Swap these sets to prevent
   // concurrent modification.

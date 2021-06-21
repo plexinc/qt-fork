@@ -65,6 +65,10 @@ bool WebSocketTransportConnectJob::HasEstablishedConnection() const {
   return false;
 }
 
+ResolveErrorInfo WebSocketTransportConnectJob::GetResolveErrorInfo() const {
+  return resolve_error_info_;
+}
+
 void WebSocketTransportConnectJob::OnIOComplete(int result) {
   result = DoLoop(result);
   if (result != ERR_IO_PENDING)
@@ -109,8 +113,10 @@ int WebSocketTransportConnectJob::DoResolveHost() {
 
   HostResolver::ResolveHostParameters parameters;
   parameters.initial_priority = priority();
-  request_ = host_resolver()->CreateRequest(params_->destination(), net_log(),
-                                            parameters);
+  DCHECK(!params_->disable_secure_dns());
+  request_ = host_resolver()->CreateRequest(params_->destination(),
+                                            params_->network_isolation_key(),
+                                            net_log(), parameters);
 
   return request_->Start(base::BindOnce(
       &WebSocketTransportConnectJob::OnIOComplete, base::Unretained(this)));
@@ -123,6 +129,7 @@ int WebSocketTransportConnectJob::DoResolveHostComplete(int result) {
   // Overwrite connection start time, since for connections that do not go
   // through proxies, |connect_start| should not include dns lookup time.
   connect_timing_.connect_start = connect_timing_.dns_end;
+  resolve_error_info_ = request_->GetResolveErrorInfo();
 
   if (result != OK)
     return result;
@@ -199,8 +206,8 @@ int WebSocketTransportConnectJob::DoTransportConnect() {
               FROM_HERE,
               base::TimeDelta::FromMilliseconds(
                   TransportConnectJob::kIPv6FallbackTimerInMs),
-              base::Bind(&WebSocketTransportConnectJob::StartIPv4JobAsync,
-                         base::Unretained(this)));
+              base::BindOnce(&WebSocketTransportConnectJob::StartIPv4JobAsync,
+                             base::Unretained(this)));
         }
         return result;
 

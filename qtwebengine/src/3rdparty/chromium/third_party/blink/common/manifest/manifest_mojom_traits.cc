@@ -8,9 +8,8 @@
 #include <utility>
 
 #include "mojo/public/cpp/base/string16_mojom_traits.h"
-#include "third_party/blink/public/common/manifest/web_display_mode_mojom_traits.h"
 #include "third_party/blink/public/common/screen_orientation/web_screen_orientation_mojom_traits.h"
-#include "ui/gfx/geometry/mojo/geometry_struct_traits.h"
+#include "ui/gfx/geometry/mojom/geometry_mojom_traits.h"
 #include "url/mojom/url_gurl_mojom_traits.h"
 
 namespace mojo {
@@ -67,10 +66,13 @@ bool StructTraits<blink::mojom::ManifestDataView, ::blink::Manifest>::Read(
   if (!data.ReadIcons(&out->icons))
     return false;
 
+  if (!data.ReadShortcuts(&out->shortcuts))
+    return false;
+
   if (!data.ReadShareTarget(&out->share_target))
     return false;
 
-  if (!data.ReadFileHandler(&out->file_handler))
+  if (!data.ReadFileHandlers(&out->file_handlers))
     return false;
 
   if (!data.ReadRelatedApplications(&out->related_applications))
@@ -116,6 +118,31 @@ bool StructTraits<blink::mojom::ManifestImageResourceDataView,
     return false;
 
   if (!data.ReadPurpose(&out->purpose))
+    return false;
+
+  return true;
+}
+
+bool StructTraits<blink::mojom::ManifestShortcutItemDataView,
+                  ::blink::Manifest::ShortcutItem>::
+    Read(blink::mojom::ManifestShortcutItemDataView data,
+         ::blink::Manifest::ShortcutItem* out) {
+  if (!data.ReadName(&out->name))
+    return false;
+
+  TruncatedString16 string;
+  if (!data.ReadShortName(&string))
+    return false;
+  out->short_name = base::NullableString16(std::move(string.string));
+
+  if (!data.ReadDescription(&string))
+    return false;
+  out->description = base::NullableString16(std::move(string.string));
+
+  if (!data.ReadUrl(&out->url))
+    return false;
+
+  if (!data.ReadIcons(&out->icons))
     return false;
 
   return true;
@@ -205,7 +232,13 @@ bool StructTraits<blink::mojom::ManifestFileHandlerDataView,
   if (!data.ReadAction(&out->action))
     return false;
 
-  return data.ReadFiles(&out->files);
+  if (!data.ReadName(&out->name))
+    return false;
+
+  if (!data.ReadAccept(&out->accept))
+    return false;
+
+  return true;
 }
 
 }  // namespace mojo

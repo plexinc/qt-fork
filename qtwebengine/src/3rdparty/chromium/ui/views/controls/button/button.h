@@ -60,18 +60,38 @@ class VIEWS_EXPORT Button : public InkDropHostView,
     STATE_COUNT,
   };
 
-  // An enum describing the events on which a button should notify its listener.
-  enum NotifyAction {
-    NOTIFY_ON_PRESS,
-    NOTIFY_ON_RELEASE,
-  };
+  static constexpr ButtonState kButtonStates[STATE_COUNT] = {
+      ButtonState::STATE_NORMAL, ButtonState::STATE_HOVERED,
+      ButtonState::STATE_PRESSED, ButtonState::STATE_DISABLED};
 
   // An enum describing the events on which a button should be clicked for a
   // given key event.
-  enum KeyClickAction {
-    CLICK_ON_KEY_PRESS,
-    CLICK_ON_KEY_RELEASE,
-    CLICK_NONE,
+  enum class KeyClickAction {
+    kOnKeyPress,
+    kOnKeyRelease,
+    kNone,
+  };
+
+  // TODO(cyan): Consider having Button implement ButtonControllerDelegate.
+  class VIEWS_EXPORT DefaultButtonControllerDelegate
+      : public ButtonControllerDelegate {
+   public:
+    explicit DefaultButtonControllerDelegate(Button* button);
+    ~DefaultButtonControllerDelegate() override;
+
+    // views::ButtonControllerDelegate:
+    void RequestFocusFromEvent() override;
+    void NotifyClick(const ui::Event& event) override;
+    void OnClickCanceled(const ui::Event& event) override;
+    bool IsTriggerableEvent(const ui::Event& event) override;
+    bool ShouldEnterPushedState(const ui::Event& event) override;
+    bool ShouldEnterHoveredState() override;
+    InkDrop* GetInkDrop() override;
+    int GetDragOperations(const gfx::Point& press_pt) override;
+    bool InDrag() override;
+
+   private:
+    DISALLOW_COPY_AND_ASSIGN(DefaultButtonControllerDelegate);
   };
 
   static const Button* AsButton(const View* view);
@@ -109,7 +129,7 @@ class VIEWS_EXPORT Button : public InkDropHostView,
   void StopThrobbing();
 
   // Set how long the hover animation will last for.
-  void SetAnimationDuration(int duration);
+  void SetAnimationDuration(base::TimeDelta duration);
 
   void set_triggerable_event_flags(int triggerable_event_flags) {
     triggerable_event_flags_ = triggerable_event_flags;
@@ -133,17 +153,17 @@ class VIEWS_EXPORT Button : public InkDropHostView,
     animate_on_state_change_ = value;
   }
 
-  // Sets the event on which the button should notify its listener.
-  void set_notify_action(NotifyAction notify_action) {
-    notify_action_ = notify_action;
+  bool hide_ink_drop_when_showing_context_menu() const {
+    return hide_ink_drop_when_showing_context_menu_;
   }
-
-  NotifyAction notify_action() const { return notify_action_; }
-
   void set_hide_ink_drop_when_showing_context_menu(
       bool hide_ink_drop_when_showing_context_menu) {
     hide_ink_drop_when_showing_context_menu_ =
         hide_ink_drop_when_showing_context_menu;
+  }
+
+  void set_show_ink_drop_when_hot_tracked(bool show_ink_drop_when_hot_tracked) {
+    show_ink_drop_when_hot_tracked_ = show_ink_drop_when_hot_tracked;
   }
 
   void set_ink_drop_base_color(SkColor color) { ink_drop_base_color_ = color; }
@@ -209,30 +229,11 @@ class VIEWS_EXPORT Button : public InkDropHostView,
     return button_controller_.get();
   }
 
+  void SetButtonController(std::unique_ptr<ButtonController> button_controller);
+
+  gfx::Point GetMenuPosition() const;
+
  protected:
-  // TODO(cyan): Consider having Button implement ButtonControllerDelegate.
-  class DefaultButtonControllerDelegate : public ButtonControllerDelegate {
-   public:
-    explicit DefaultButtonControllerDelegate(Button* button);
-    ~DefaultButtonControllerDelegate() override;
-
-    // views::ButtonControllerDelegate:
-    void RequestFocusFromEvent() override;
-    void NotifyClick(const ui::Event& event) override;
-    void OnClickCanceled(const ui::Event& event) override;
-    bool IsTriggerableEvent(const ui::Event& event) override;
-    bool ShouldEnterPushedState(const ui::Event& event) override;
-    bool ShouldEnterHoveredState() override;
-    InkDrop* GetInkDrop() override;
-    int GetDragOperations(const gfx::Point& press_pt) override;
-    bool InDrag() override;
-
-   private:
-    DISALLOW_COPY_AND_ASSIGN(DefaultButtonControllerDelegate);
-  };
-
-  std::unique_ptr<ButtonControllerDelegate> CreateButtonControllerDelegate();
-
   // Construct the Button with a Listener. The listener can be null. This can be
   // true of buttons that don't have a listener - e.g. menubuttons where there's
   // no default action and checkboxes.
@@ -293,8 +294,6 @@ class VIEWS_EXPORT Button : public InkDropHostView,
 
   FocusRing* focus_ring() { return focus_ring_.get(); }
 
-  void SetButtonController(std::unique_ptr<ButtonController> button_controller);
-
   // The button's listener. Notified when clicked.
   ButtonListener* listener_;
 
@@ -313,7 +312,8 @@ class VIEWS_EXPORT Button : public InkDropHostView,
     ~WidgetObserverButtonBridge() override;
 
     // WidgetObserver:
-    void OnWidgetActivationChanged(Widget* widget, bool active) override;
+    void OnWidgetPaintAsActiveChanged(Widget* widget,
+                                      bool paint_as_active) override;
     void OnWidgetDestroying(Widget* widget) override;
 
    private:
@@ -324,7 +324,7 @@ class VIEWS_EXPORT Button : public InkDropHostView,
 
   void OnEnabledChanged();
 
-  void WidgetActivationChanged(Widget* widget, bool active);
+  void WidgetPaintAsActiveChanged(Widget* widget, bool active);
 
   // The text shown in a tooltip.
   base::string16 tooltip_text_;
@@ -352,9 +352,6 @@ class VIEWS_EXPORT Button : public InkDropHostView,
   // See description above setter.
   bool request_focus_on_press_ = false;
 
-  // The event on which the button should notify its listener.
-  NotifyAction notify_action_ = NOTIFY_ON_RELEASE;
-
   // True when a button click should trigger an animation action on
   // ink_drop_delegate().
   bool has_ink_drop_action_on_click_ = false;
@@ -362,6 +359,10 @@ class VIEWS_EXPORT Button : public InkDropHostView,
   // When true, the ink drop ripple and hover will be hidden prior to showing
   // the context menu.
   bool hide_ink_drop_when_showing_context_menu_ = true;
+
+  // When true, the ink drop ripple will be shown when setting state to hot
+  // tracked with SetHotTracked().
+  bool show_ink_drop_when_hot_tracked_ = false;
 
   // The color of the ripple and hover.
   SkColor ink_drop_base_color_;

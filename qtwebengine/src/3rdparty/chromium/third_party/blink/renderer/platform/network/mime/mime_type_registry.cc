@@ -8,11 +8,12 @@
 #include "base/strings/string_util.h"
 #include "media/base/mime_util.h"
 #include "media/filters/stream_parser_factory.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "net/base/mime_util.h"
 #include "third_party/blink/public/common/mime_util/mime_util.h"
+#include "third_party/blink/public/common/thread_safe_browser_interface_broker_proxy.h"
 #include "third_party/blink/public/mojom/mime/mime_registry.mojom-blink.h"
 #include "third_party/blink/public/platform/file_path_conversion.h"
-#include "third_party/blink/public/platform/interface_provider.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
@@ -24,12 +25,12 @@ namespace {
 struct MimeRegistryPtrHolder {
  public:
   MimeRegistryPtrHolder() {
-    Platform::Current()->GetInterfaceProvider()->GetInterface(
-        mojo::MakeRequest(&mime_registry));
+    Platform::Current()->GetBrowserInterfaceBroker()->GetInterface(
+        mime_registry.BindNewPipeAndPassReceiver());
   }
   ~MimeRegistryPtrHolder() = default;
 
-  mojom::blink::MimeRegistryPtr mime_registry;
+  mojo::Remote<mojom::blink::MimeRegistry> mime_registry;
 };
 
 std::string ToASCIIOrEmpty(const WebString& string) {
@@ -113,6 +114,10 @@ bool MIMETypeRegistry::IsSupportedJavaScriptMIMEType(const String& mime_type) {
   return blink::IsSupportedJavascriptMimeType(ToLowerASCIIOrEmpty(mime_type));
 }
 
+bool MIMETypeRegistry::IsJSONMimeType(const String& mime_type) {
+  return blink::IsJSONMimeType(ToLowerASCIIOrEmpty(mime_type));
+}
+
 bool MIMETypeRegistry::IsLegacySupportedJavaScriptLanguage(
     const String& language) {
   // Mozilla 1.8 accepts javascript1.0 - javascript1.7, but WinIE 7 accepts only
@@ -158,16 +163,16 @@ MIMETypeRegistry::SupportsType MIMETypeRegistry::SupportsMediaMIMEType(
       media::IsSupportedMediaFormat(ascii_mime_type, codec_vector));
 }
 
-bool MIMETypeRegistry::IsSupportedMediaSourceMIMEType(const String& mime_type,
-                                                      const String& codecs) {
+MIMETypeRegistry::SupportsType MIMETypeRegistry::SupportsMediaSourceMIMEType(
+    const String& mime_type,
+    const String& codecs) {
   const std::string ascii_mime_type = ToLowerASCIIOrEmpty(mime_type);
   if (ascii_mime_type.empty())
-    return false;
+    return kIsNotSupported;
   std::vector<std::string> parsed_codec_ids;
   media::SplitCodecs(ToASCIIOrEmpty(codecs), &parsed_codec_ids);
-  return static_cast<MIMETypeRegistry::SupportsType>(
-      media::StreamParserFactory::IsTypeSupported(ascii_mime_type,
-                                                  parsed_codec_ids));
+  return static_cast<SupportsType>(media::StreamParserFactory::IsTypeSupported(
+      ascii_mime_type, parsed_codec_ids));
 }
 
 bool MIMETypeRegistry::IsJavaAppletMIMEType(const String& mime_type) {
@@ -188,7 +193,7 @@ bool MIMETypeRegistry::IsSupportedFontMIMEType(const String& mime_type) {
   static const unsigned kFontLen = 5;
   if (!mime_type.StartsWithIgnoringASCIICase("font/"))
     return false;
-  String sub_type = mime_type.Substring(kFontLen).DeprecatedLower();
+  String sub_type = mime_type.Substring(kFontLen).LowerASCII();
   return sub_type == "woff" || sub_type == "woff2" || sub_type == "otf" ||
          sub_type == "ttf" || sub_type == "sfnt";
 }

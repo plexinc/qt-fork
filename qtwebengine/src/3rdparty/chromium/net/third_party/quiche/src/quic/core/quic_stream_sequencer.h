@@ -11,6 +11,7 @@
 
 #include "net/third_party/quiche/src/quic/core/quic_packets.h"
 #include "net/third_party/quiche/src/quic/core/quic_stream_sequencer_buffer.h"
+#include "net/third_party/quiche/src/quic/core/quic_types.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
 
 namespace quic {
@@ -24,7 +25,7 @@ class QuicStreamSequencerPeer;
 class QUIC_EXPORT_PRIVATE QuicStreamSequencer {
  public:
   // Interface that thie Sequencer uses to communicate with the Stream.
-  class StreamInterface {
+  class QUIC_EXPORT_PRIVATE StreamInterface {
    public:
     virtual ~StreamInterface() = default;
 
@@ -34,20 +35,15 @@ class QUIC_EXPORT_PRIVATE QuicStreamSequencer {
     virtual void OnFinRead() = 0;
     // Called when bytes have been consumed from the sequencer.
     virtual void AddBytesConsumed(QuicByteCount bytes) = 0;
-    // TODO(rch): Clean up this interface via OnUnrecoverableError and
-    // remove PeerAddressOfLatestPacket().
     // Called when an error has occurred which should result in the stream
     // being reset.
     virtual void Reset(QuicRstStreamErrorCode error) = 0;
     // Called when an error has occurred which should result in the connection
     // being closed.
-    virtual void CloseConnectionWithDetails(QuicErrorCode error,
-                                            const std::string& details) = 0;
-
+    virtual void OnUnrecoverableError(QuicErrorCode error,
+                                      const std::string& details) = 0;
     // Returns the stream id of this stream.
     virtual QuicStreamId id() const = 0;
-    // Returns the peer address of the last packet received for this stream.
-    virtual const QuicSocketAddress& PeerAddressOfLatestPacket() const = 0;
   };
 
   explicit QuicStreamSequencer(StreamInterface* quic_stream);
@@ -86,15 +82,11 @@ class QUIC_EXPORT_PRIVATE QuicStreamSequencer {
   // not been received yet or has already been consumed.
   bool PeekRegion(QuicStreamOffset offset, iovec* iov) const;
 
-  // Fills in one iovec with the next unread region.
-  // Returns false if no readable region is available.
-  bool PrefetchNextRegion(iovec* iov);
-
   // Copies the data into the iov_len buffers provided.  Returns the number of
   // bytes read.  Any buffered data no longer in use will be released.
   // TODO(rch): remove this method and instead implement it as a helper method
   // based on GetReadableRegions and MarkConsumed.
-  int Readv(const struct iovec* iov, size_t iov_len);
+  size_t Readv(const struct iovec* iov, size_t iov_len);
 
   // Consumes |num_bytes| data.  Used in conjunction with |GetReadableRegions|
   // to do zero-copy reads.
@@ -167,11 +159,13 @@ class QUIC_EXPORT_PRIVATE QuicStreamSequencer {
   void FlushBufferedFrames();
 
   // Wait until we've seen 'offset' bytes, and then terminate the stream.
-  void CloseStreamAtOffset(QuicStreamOffset offset);
+  // Returns true if |stream_| is still available to receive data, and false if
+  // |stream_| is reset.
+  bool CloseStreamAtOffset(QuicStreamOffset offset);
 
   // If we've received a FIN and have processed all remaining data, then inform
   // the stream of FIN, and clear buffers.
-  bool MaybeCloseStream();
+  void MaybeCloseStream();
 
   // Shared implementation between OnStreamFrame and OnCryptoFrame.
   void OnFrameData(QuicStreamOffset byte_offset,
@@ -183,6 +177,9 @@ class QUIC_EXPORT_PRIVATE QuicStreamSequencer {
 
   // Stores received data in offset order.
   QuicStreamSequencerBuffer buffered_frames_;
+
+  // The highest offset that is received so far.
+  QuicStreamOffset highest_offset_;
 
   // The offset, if any, we got a stream termination for.  When this many bytes
   // have been processed, the sequencer will be closed.
@@ -204,11 +201,6 @@ class QUIC_EXPORT_PRIVATE QuicStreamSequencer {
   // If false, only call OnDataAvailable() when it becomes newly unblocked.
   // Otherwise, call OnDataAvailable() when number of readable bytes changes.
   bool level_triggered_;
-
-  // Latched value of quic_stop_reading_when_level_triggered flag.  When true,
-  // the sequencer will discard incoming data (but not FIN bits) after
-  // StopReading is called, even in level_triggered_ mode.
-  const bool stop_reading_when_level_triggered_;
 };
 
 }  // namespace quic

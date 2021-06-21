@@ -55,10 +55,9 @@ make CPPFLAGS=-DHB_DEBUG_SUBSET=100
 Note: You'll need to first install ninja-build via apt-get.
 
 ```shell
-cd harfbuzz
-mkdir buid
-cmake -DHB_CHECK=ON -Bbuild -H. -GNinja && ninja -Cbuild && CTEST_OUTPUT_ON_FAILURE=1 ninja -Cbuild test
+meson build && ninja -Cbuild && ninja -Cbuild test
 ```
+
 ## Test with the Fuzzer
 
 ```shell
@@ -73,3 +72,14 @@ sudo python infra/helper.py build_image harfbuzz
 sudo python infra/helper.py build_fuzzers --sanitizer address harfbuzz
 sudo python infra/helper.py run_fuzzer harfbuzz hb-subset-fuzzer
 ```
+
+## Profiling
+
+```
+make clean
+./configure CXXFLAGS="-fno-omit-frame-pointer -g"
+make
+perf record -o <perf output file> -g <command to run>
+perf report -i<perf output file>
+```
+

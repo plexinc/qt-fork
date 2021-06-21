@@ -10,11 +10,12 @@
 
 #include "src/core/SkDescriptor.h"
 #include "src/core/SkStrikeCache.h"
-#include "src/core/SkStrikeInterface.h"
+#include "src/core/SkStrikeForGPU.h"
 
 #if SK_SUPPORT_GPU
-#include "src/gpu/text/GrStrikeCache.h"
 #include "src/gpu/text/GrTextContext.h"
+class GrStrikeCache;
+class GrTextStrike;
 #endif
 
 class SkFont;
@@ -40,10 +41,10 @@ public:
             SkScalerContextFlags scalerContextFlags);
 
     static SkStrikeSpec MakeSourceFallback(const SkFont& font,
-                                                  const SkPaint& paint,
-                                                  const SkSurfaceProps& surfaceProps,
-                                                  SkScalerContextFlags scalerContextFlags,
-                                                  SkScalar maxSourceGlyphDimension);
+                                           const SkPaint& paint,
+                                           const SkSurfaceProps& surfaceProps,
+                                           SkScalerContextFlags scalerContextFlags,
+                                           SkScalar maxSourceGlyphDimension);
 
     // Create a canonical strike spec for device-less measurements.
     static SkStrikeSpec MakeCanonicalized(
@@ -71,12 +72,13 @@ public:
     sk_sp<GrTextStrike> findOrCreateGrStrike(GrStrikeCache* cache) const;
 #endif
 
-    SkScopedStrike findOrCreateScopedStrike(SkStrikeCacheInterface* cache) const;
+    SkScopedStrikeForGPU findOrCreateScopedStrike(SkStrikeForGPUCacheInterface* cache) const;
 
-    SkExclusiveStrikePtr findOrCreateExclusiveStrike(
+    sk_sp<SkStrike> findOrCreateStrike(
             SkStrikeCache* cache = SkStrikeCache::GlobalStrikeCache()) const;
 
     SkScalar strikeToSourceRatio() const { return fStrikeToSourceRatio; }
+    bool isEmpty() const { return SkScalarNearlyZero(fStrikeToSourceRatio); }
     const SkDescriptor& descriptor() const { return *fAutoDescriptor.getDesc(); }
     static bool ShouldDrawAsPath(const SkPaint& paint, const SkFont& font, const SkMatrix& matrix);
 
@@ -99,33 +101,41 @@ class SkBulkGlyphMetrics {
 public:
     explicit SkBulkGlyphMetrics(const SkStrikeSpec& spec);
     SkSpan<const SkGlyph*> glyphs(SkSpan<const SkGlyphID> glyphIDs);
+    const SkGlyph* glyph(SkGlyphID glyphID);
 
 private:
     static constexpr int kTypicalGlyphCount = 20;
     SkAutoSTArray<kTypicalGlyphCount, const SkGlyph*> fGlyphs;
-    SkExclusiveStrikePtr fStrike;
+    sk_sp<SkStrike> fStrike;
 };
 
 class SkBulkGlyphMetricsAndPaths {
 public:
     explicit SkBulkGlyphMetricsAndPaths(const SkStrikeSpec& spec);
+    explicit SkBulkGlyphMetricsAndPaths(sk_sp<SkStrike>&& strike);
     SkSpan<const SkGlyph*> glyphs(SkSpan<const SkGlyphID> glyphIDs);
+    const SkGlyph* glyph(SkGlyphID glyphID);
+    void findIntercepts(const SkScalar bounds[2], SkScalar scale, SkScalar xPos,
+                        const SkGlyph* glyph, SkScalar* array, int* count);
 
 private:
     static constexpr int kTypicalGlyphCount = 20;
     SkAutoSTArray<kTypicalGlyphCount, const SkGlyph*> fGlyphs;
-    SkExclusiveStrikePtr fStrike;
+    sk_sp<SkStrike> fStrike;
 };
 
 class SkBulkGlyphMetricsAndImages {
 public:
     explicit SkBulkGlyphMetricsAndImages(const SkStrikeSpec& spec);
-    SkSpan<const SkGlyph*> glyphs(SkSpan<const SkPackedGlyphID> glyphIDs);
+    explicit SkBulkGlyphMetricsAndImages(sk_sp<SkStrike>&& strike);
+    SkSpan<const SkGlyph*> glyphs(SkSpan<const SkPackedGlyphID> packedIDs);
+    const SkGlyph* glyph(SkPackedGlyphID packedID);
+    const SkDescriptor& descriptor() const;
 
 private:
-    static constexpr int kTypicalGlyphCount = 20;
+    static constexpr int kTypicalGlyphCount = 64;
     SkAutoSTArray<kTypicalGlyphCount, const SkGlyph*> fGlyphs;
-    SkExclusiveStrikePtr fStrike;
+    sk_sp<SkStrike> fStrike;
 };
 
 #endif  // SkStrikeSpec_DEFINED

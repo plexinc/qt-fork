@@ -175,8 +175,12 @@ private slots:
     void checkSyncView_differentSizedModels();
     void checkSyncView_connect_late_data();
     void checkSyncView_connect_late();
+    void checkSyncView_pageFlicking();
+    void delegateWithRequiredProperties();
     void checkThatFetchMoreIsCalledWhenScrolledToTheEndOfTable();
     void replaceModel();
+    void checkContentSize_data();
+    void checkContentSize();
 };
 
 tst_QQuickTableView::tst_QQuickTableView()
@@ -589,6 +593,12 @@ void tst_QQuickTableView::checkForceLayoutEndUpDoingALayout()
 
     for (auto fxItem : tableViewPrivate->loadedItems)
         QCOMPARE(fxItem->item->height(), newDelegateSize);
+
+    // Check that the content height has been updated as well
+    const qreal rowSpacing = tableView->rowSpacing();
+    const qreal colSpacing = tableView->columnSpacing();
+    QCOMPARE(tableView->contentWidth(), (10 * (newDelegateSize + colSpacing)) - colSpacing);
+    QCOMPARE(tableView->contentHeight(), (9 * (newDelegateSize + rowSpacing)) - rowSpacing);
 }
 
 void tst_QQuickTableView::checkForceLayoutDuringModelChange()
@@ -1294,10 +1304,10 @@ void tst_QQuickTableView::checkSpacingValues()
     tableView->polish();
     WAIT_UNTIL_POLISHED;
 
-    const qreal expectedInitialContentWidth = columnCount * (delegateWidth + tableView->columnSpacing()) - tableView->columnSpacing();
-    const qreal expectedInitialContentHeight = rowCount * (delegateHeight + tableView->rowSpacing()) - tableView->rowSpacing();
-    QCOMPARE(tableView->contentWidth(), expectedInitialContentWidth);
-    QCOMPARE(tableView->contentHeight(), expectedInitialContentHeight);
+    qreal expectedContentWidth = columnCount * (delegateWidth + tableView->columnSpacing()) - tableView->columnSpacing();
+    qreal expectedContentHeight = rowCount * (delegateHeight + tableView->rowSpacing()) - tableView->rowSpacing();
+    QCOMPARE(tableView->contentWidth(), expectedContentWidth);
+    QCOMPARE(tableView->contentHeight(), expectedContentHeight);
 
     // Valid spacing assignment
     tableView->setRowSpacing(42);
@@ -1308,22 +1318,27 @@ void tst_QQuickTableView::checkSpacingValues()
     tableView->polish();
     WAIT_UNTIL_POLISHED;
 
-    // Even after changing spacing, TableView will keep the initial guesstimated content size. The
-    // reason is that deciding the content size based on the currently visible row/columns/spacing
-    // will almost always be at a little bit wrong at best. So instead of pretending that TableView
-    // knows what the size of the full table is, it sticks with the first guesstimate.
-    QCOMPARE(tableView->contentWidth(), expectedInitialContentWidth);
-    QCOMPARE(tableView->contentHeight(), expectedInitialContentHeight);
+    expectedContentWidth = columnCount * (delegateWidth + tableView->columnSpacing()) - tableView->columnSpacing();
+    expectedContentHeight = rowCount * (delegateHeight + tableView->rowSpacing()) - tableView->rowSpacing();
+    QCOMPARE(tableView->contentWidth(), expectedContentWidth);
+    QCOMPARE(tableView->contentHeight(), expectedContentHeight);
 
-    // Invalid assignments (should ignore)
+    // Negative spacing is allowed, and can be used to eliminate double edges
+    // in the grid if the delegate is a rectangle with a border.
     tableView->setRowSpacing(-1);
-    tableView->setColumnSpacing(-5);
+    tableView->setColumnSpacing(-1);
+    QCOMPARE(tableView->rowSpacing(), -1);
+    QCOMPARE(tableView->columnSpacing(), -1);
+
+    tableView->setRowSpacing(10);
+    tableView->setColumnSpacing(10);
+    // Invalid assignments (should ignore)
     tableView->setRowSpacing(INFINITY);
     tableView->setColumnSpacing(INFINITY);
     tableView->setRowSpacing(NAN);
     tableView->setColumnSpacing(NAN);
-    QCOMPARE(tableView->rowSpacing(), 42);
-    QCOMPARE(tableView->columnSpacing(), 12);
+    QCOMPARE(tableView->rowSpacing(), 10);
+    QCOMPARE(tableView->columnSpacing(), 10);
 }
 
 void tst_QQuickTableView::checkDelegateParent()
@@ -2680,6 +2695,42 @@ void tst_QQuickTableView::checkSyncView_connect_late()
     QCOMPARE(tableViewHVPrivate->loadedTableOuterRect, tableViewPrivate->loadedTableOuterRect);
 }
 
+void tst_QQuickTableView::checkSyncView_pageFlicking()
+{
+    // Check that we rebuild the syncView (instead of refilling
+    // edges), if the sync child moves more than a page (the size of TableView).
+    // The point is that it shouldn't matter if you fast-flick the
+    // sync view itself, or a sync child. Either way, the sync view
+    // needs to rebuild. This, in turn, will eventually rebuild the
+    // sync children as well when they sync up later.
+    LOAD_TABLEVIEW("syncviewsimple.qml");
+    GET_QML_TABLEVIEW(tableViewH);
+    GET_QML_TABLEVIEW(tableViewV);
+    GET_QML_TABLEVIEW(tableViewHV);
+    QQuickTableView *views[] = {tableViewH, tableViewV, tableViewHV};
+
+    auto model = TestModelAsVariant(100, 100);
+
+    tableView->setModel(model);
+
+    WAIT_UNTIL_POLISHED;
+
+    // Move the viewport more than a "page"
+    tableViewHV->setContentX(tableViewHV->width() * 2);
+
+    QVERIFY(tableViewPrivate->scheduledRebuildOptions & QQuickTableViewPrivate::RebuildOption::ViewportOnly);
+    QVERIFY(tableViewPrivate->scheduledRebuildOptions & QQuickTableViewPrivate::RebuildOption::CalculateNewTopLeftColumn);
+    QVERIFY(!(tableViewPrivate->scheduledRebuildOptions & QQuickTableViewPrivate::RebuildOption::CalculateNewTopLeftRow));
+
+    WAIT_UNTIL_POLISHED;
+
+    tableViewHV->setContentY(tableViewHV->height() * 2);
+
+    QVERIFY(tableViewPrivate->scheduledRebuildOptions & QQuickTableViewPrivate::RebuildOption::ViewportOnly);
+    QVERIFY(!(tableViewPrivate->scheduledRebuildOptions & QQuickTableViewPrivate::RebuildOption::CalculateNewTopLeftColumn));
+    QVERIFY(tableViewPrivate->scheduledRebuildOptions & QQuickTableViewPrivate::RebuildOption::CalculateNewTopLeftRow);
+}
+
 void tst_QQuickTableView::checkThatFetchMoreIsCalledWhenScrolledToTheEndOfTable()
 {
     LOAD_TABLEVIEW("plaintableview.qml");
@@ -2699,6 +2750,50 @@ void tst_QQuickTableView::checkThatFetchMoreIsCalledWhenScrolledToTheEndOfTable(
 
     QCOMPARE(tableView->rows(), 6);
     QCOMPARE(tableView->columns(), 5);
+}
+
+void tst_QQuickTableView::delegateWithRequiredProperties()
+{
+    constexpr static int PositionRole = Qt::UserRole+1;
+    struct MyTable : QAbstractTableModel {
+
+
+        using QAbstractTableModel::QAbstractTableModel;
+
+        int rowCount(const QModelIndex& = QModelIndex()) const override {
+            return 3;
+        }
+
+        int columnCount(const QModelIndex& = QModelIndex()) const override {
+            return 3;
+        }
+
+        QVariant data(const QModelIndex &index, int = Qt::DisplayRole) const override {
+            return QVariant::fromValue(QString::asprintf("R%d:C%d", index.row(), index.column()));
+        }
+
+        QHash<int, QByteArray> roleNames() const override {
+            return QHash<int, QByteArray> { {PositionRole, "position"} };
+        }
+    };
+
+    auto model =  QVariant::fromValue(QSharedPointer<MyTable>(new MyTable));
+    {
+        QTest::ignoreMessage(QtMsgType::QtInfoMsg, "success");
+        LOAD_TABLEVIEW("delegateWithRequired.qml");
+        QVERIFY(tableView);
+        tableView->setModel(model);
+        WAIT_UNTIL_POLISHED;
+        QVERIFY(view->errors().empty());
+    }
+    {
+        QTest::ignoreMessage(QtMsgType::QtWarningMsg, QRegularExpression(R"|(TableView: failed loading index: \d)|"));
+        LOAD_TABLEVIEW("delegatewithRequiredUnset.qml");
+        QVERIFY(tableView);
+        tableView->setModel(model);
+        WAIT_UNTIL_POLISHED;
+        QTRY_VERIFY(view->errors().empty());
+    }
 }
 
 void tst_QQuickTableView::replaceModel()
@@ -2721,6 +2816,76 @@ void tst_QQuickTableView::replaceModel()
     QTRY_COMPARE(tableView->rows(), 0);
     QCOMPARE(tableView->contentWidth(), 0);
     QCOMPARE(tableView->contentHeight(), 0);
+}
+
+void tst_QQuickTableView::checkContentSize_data()
+{
+    QTest::addColumn<int>("rowCount");
+    QTest::addColumn<int>("colCount");
+
+    QTest::newRow("4x4") << 4 << 4;
+    QTest::newRow("100x100") << 100 << 100;
+    QTest::newRow("0x0") << 0 << 0;
+}
+
+void tst_QQuickTableView::checkContentSize()
+{
+    QFETCH(int, rowCount);
+    QFETCH(int, colCount);
+
+    // Check that the content size is initially correct, and that
+    // it updates when we change e.g the model or spacing (QTBUG-87680)
+    LOAD_TABLEVIEW("plaintableview.qml");
+
+    TestModel model(rowCount, colCount);
+    tableView->setModel(QVariant::fromValue(&model));
+    tableView->setRowSpacing(1);
+    tableView->setColumnSpacing(2);
+
+    WAIT_UNTIL_POLISHED;
+
+    const qreal delegateWidth = 100;
+    const qreal delegateHeight = 50;
+    qreal colSpacing = tableView->columnSpacing();
+    qreal rowSpacing = tableView->rowSpacing();
+
+    // Check that content size has the exepected initial values
+    QCOMPARE(tableView->contentWidth(), colCount == 0 ? 0 : (colCount * (delegateWidth + colSpacing)) - colSpacing);
+    QCOMPARE(tableView->contentHeight(), rowCount == 0 ? 0 : (rowCount * (delegateHeight + rowSpacing)) - rowSpacing);
+
+    // Set no spacing
+    rowSpacing = 0;
+    colSpacing = 0;
+    tableView->setRowSpacing(rowSpacing);
+    tableView->setColumnSpacing(colSpacing);
+    WAIT_UNTIL_POLISHED;
+    QCOMPARE(tableView->contentWidth(), colCount * delegateWidth);
+    QCOMPARE(tableView->contentHeight(), rowCount * delegateHeight);
+
+    // Set typical spacing values
+    rowSpacing = 2;
+    colSpacing = 3;
+    tableView->setRowSpacing(rowSpacing);
+    tableView->setColumnSpacing(colSpacing);
+    WAIT_UNTIL_POLISHED;
+    QCOMPARE(tableView->contentWidth(), colCount == 0 ? 0 : (colCount * (delegateWidth + colSpacing)) - colSpacing);
+    QCOMPARE(tableView->contentHeight(), rowCount == 0 ? 0 : (rowCount * (delegateHeight + rowSpacing)) - rowSpacing);
+
+    // Add a row and a column
+    model.insertRow(0);
+    model.insertColumn(0);
+    rowCount = model.rowCount();
+    colCount = model.columnCount();
+    WAIT_UNTIL_POLISHED;
+    QCOMPARE(tableView->contentWidth(), (colCount * (delegateWidth + colSpacing)) - colSpacing);
+    QCOMPARE(tableView->contentHeight(), (rowCount * (delegateHeight + rowSpacing)) - rowSpacing);
+
+    // Remove a row (this should also make affect contentWidth if rowCount becomes 0)
+    model.removeRow(0);
+    rowCount = model.rowCount();
+    WAIT_UNTIL_POLISHED;
+    QCOMPARE(tableView->contentWidth(), rowCount == 0 ? 0 : (colCount * (delegateWidth + colSpacing)) - colSpacing);
+    QCOMPARE(tableView->contentHeight(), rowCount == 0 ? 0 : (rowCount * (delegateHeight + rowSpacing)) - rowSpacing);
 }
 
 QTEST_MAIN(tst_QQuickTableView)

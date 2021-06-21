@@ -31,7 +31,6 @@
 
 namespace net {
 
-class HttpRequestHeaders;
 class IOBuffer;
 class SSLPrivateKey;
 class X509Certificate;
@@ -123,6 +122,7 @@ struct ScopedMockTransaction : MockTransaction {
 class MockHttpRequest : public HttpRequestInfo {
  public:
   explicit MockHttpRequest(const MockTransaction& t);
+  std::string CacheKey();
 };
 
 //-----------------------------------------------------------------------------
@@ -209,8 +209,6 @@ class MockNetworkTransaction
 
   void StopCaching() override;
 
-  bool GetFullRequestHeaders(HttpRequestHeaders* headers) const override;
-
   int64_t GetTotalReceivedBytes() const override;
 
   int64_t GetTotalSentBytes() const override;
@@ -234,9 +232,6 @@ class MockNetworkTransaction
 
   void SetBeforeNetworkStartCallback(
       const BeforeNetworkStartCallback& callback) override;
-
-  void SetBeforeHeadersSentCallback(
-      const BeforeHeadersSentCallback& callback) override;
 
   void SetRequestHeadersCallback(RequestHeadersCallback callback) override {}
   void SetResponseHeadersCallback(ResponseHeadersCallback) override {}

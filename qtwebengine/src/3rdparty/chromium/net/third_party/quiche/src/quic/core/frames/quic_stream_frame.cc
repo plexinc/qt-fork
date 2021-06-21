@@ -5,6 +5,7 @@
 #include "net/third_party/quiche/src/quic/core/frames/quic_stream_frame.h"
 
 #include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 
@@ -14,7 +15,7 @@ QuicStreamFrame::QuicStreamFrame()
 QuicStreamFrame::QuicStreamFrame(QuicStreamId stream_id,
                                  bool fin,
                                  QuicStreamOffset offset,
-                                 QuicStringPiece data)
+                                 quiche::QuicheStringPiece data)
     : QuicStreamFrame(stream_id, fin, offset, data.data(), data.length()) {}
 
 QuicStreamFrame::QuicStreamFrame(QuicStreamId stream_id,
@@ -41,6 +42,16 @@ std::ostream& operator<<(std::ostream& os,
      << ", fin: " << stream_frame.fin << ", offset: " << stream_frame.offset
      << ", length: " << stream_frame.data_length << " }\n";
   return os;
+}
+
+bool QuicStreamFrame::operator==(const QuicStreamFrame& rhs) const {
+  return fin == rhs.fin && data_length == rhs.data_length &&
+         stream_id == rhs.stream_id && data_buffer == rhs.data_buffer &&
+         offset == rhs.offset;
+}
+
+bool QuicStreamFrame::operator!=(const QuicStreamFrame& rhs) const {
+  return !(*this == rhs);
 }
 
 }  // namespace quic

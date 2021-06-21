@@ -9,9 +9,9 @@
 #include "base/logging.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
+#include "build/branding_buildflags.h"
 #include "components/autofill/core/browser/autofill_experiments.h"
 #include "components/autofill/core/browser/data_model/credit_card.h"
-#include "components/autofill/core/browser/payments/legal_message_line.h"
 #include "components/autofill/core/common/autofill_constants.h"
 #include "components/autofill/core/common/autofill_features.h"
 #include "components/autofill/core/common/autofill_payments_features.h"
@@ -31,7 +31,7 @@ AutofillSaveCardInfoBarDelegateMobile::AutofillSaveCardInfoBarDelegateMobile(
     bool upload,
     AutofillClient::SaveCreditCardOptions options,
     const CreditCard& card,
-    std::unique_ptr<base::DictionaryValue> legal_message,
+    const LegalMessageLines& legal_message_lines,
     AutofillClient::UploadSaveCardPromptCallback
         upload_save_card_prompt_callback,
     AutofillClient::LocalSaveCardPromptCallback local_save_card_prompt_callback,
@@ -50,21 +50,13 @@ AutofillSaveCardInfoBarDelegateMobile::AutofillSaveCardInfoBarDelegateMobile(
       card_label_(card.NetworkAndLastFourDigits()),
       card_sub_label_(card.AbbreviatedExpirationDateForDisplay(false)),
       card_last_four_digits_(card.LastFourDigits()),
+      cardholder_name_(card.GetRawInfo(CREDIT_CARD_NAME_FULL)),
+      expiration_date_month_(card.Expiration2DigitMonthAsString()),
+      expiration_date_year_(card.Expiration4DigitYearAsString()),
+      legal_message_lines_(legal_message_lines),
       is_off_the_record_(is_off_the_record) {
   DCHECK_EQ(upload, !upload_save_card_prompt_callback_.is_null());
   DCHECK_EQ(upload, local_save_card_prompt_callback_.is_null());
-
-  if (legal_message) {
-    if (!LegalMessageLine::Parse(*legal_message, &legal_messages_,
-                                 /*escape_apostrophes=*/true)) {
-      AutofillMetrics::LogCreditCardInfoBarMetric(
-          AutofillMetrics::INFOBAR_NOT_SHOWN_INVALID_LEGAL_MESSAGE, upload_,
-          options_,
-          pref_service_->GetInteger(
-              prefs::kAutofillAcceptSaveCreditCardPromptState));
-      return;
-    }
-  }
 
   AutofillMetrics::LogCreditCardInfoBarMetric(
       AutofillMetrics::INFOBAR_SHOWN, upload_, options_,
@@ -75,7 +67,8 @@ AutofillSaveCardInfoBarDelegateMobile::AutofillSaveCardInfoBarDelegateMobile(
 AutofillSaveCardInfoBarDelegateMobile::
     ~AutofillSaveCardInfoBarDelegateMobile() {
   if (!had_user_interaction_) {
-    RunSaveCardPromptCallbackWithUserDecision(AutofillClient::IGNORED);
+    RunSaveCardPromptCallback(AutofillClient::IGNORED,
+                              /*user_provided_details=*/{});
     LogUserAction(AutofillMetrics::INFOBAR_IGNORED);
   }
 }
@@ -85,14 +78,8 @@ void AutofillSaveCardInfoBarDelegateMobile::OnLegalMessageLinkClicked(
   infobar()->owner()->OpenURL(url, WindowOpenDisposition::NEW_FOREGROUND_TAB);
 }
 
-bool AutofillSaveCardInfoBarDelegateMobile::LegalMessagesParsedSuccessfully() {
-  // If we are uploading to the server, verify that legal lines have been parsed
-  // into |legal_messages_|.
-  return !upload_ || !legal_messages_.empty();
-}
-
 bool AutofillSaveCardInfoBarDelegateMobile::IsGooglePayBrandingEnabled() const {
-#if defined(GOOGLE_CHROME_BUILD)
+#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
   return upload_;
 #else
   return false;
@@ -135,29 +122,39 @@ AutofillSaveCardInfoBarDelegateMobile::GetIdentifier() const {
 
 bool AutofillSaveCardInfoBarDelegateMobile::ShouldExpire(
     const NavigationDetails& details) const {
+#if defined(OS_IOS)
+  if (base::FeatureList::IsEnabled(
+          features::kAutofillSaveCardDismissOnNavigation)) {
+    // Expire the Infobar unless the navigation was triggered by the form that
+    // presented the Infobar, or the navigation is a redirect.
+    return !details.is_form_submission && !details.is_redirect;
+  } else {
+    // Use the default behavior used by Android.
+    return false;
+  }
+#else   // defined(OS_IOS)
   // The user has submitted a form, causing the page to navigate elsewhere. We
   // don't want the infobar to be expired at this point, because the user won't
   // get a chance to answer the question.
   return false;
+#endif  // defined(OS_IOS)
 }
 
 void AutofillSaveCardInfoBarDelegateMobile::InfoBarDismissed() {
-  RunSaveCardPromptCallbackWithUserDecision(AutofillClient::DECLINED);
+  RunSaveCardPromptCallback(AutofillClient::DECLINED,
+                            /*user_provided_details=*/{});
   LogUserAction(AutofillMetrics::INFOBAR_DENIED);
 }
 
 bool AutofillSaveCardInfoBarDelegateMobile::Cancel() {
-  RunSaveCardPromptCallbackWithUserDecision(AutofillClient::DECLINED);
+  RunSaveCardPromptCallback(AutofillClient::DECLINED,
+                            /*user_provided_details=*/{});
   LogUserAction(AutofillMetrics::INFOBAR_DENIED);
   return true;
 }
 
 int AutofillSaveCardInfoBarDelegateMobile::GetButtons() const {
-  if (base::FeatureList::IsEnabled(features::kAutofillSaveCardShowNoThanks)) {
-    return BUTTON_OK | BUTTON_CANCEL;
-  } else {
-    return BUTTON_OK;
-  }
+  return BUTTON_OK | BUTTON_CANCEL;
 }
 
 base::string16 AutofillSaveCardInfoBarDelegateMobile::GetButtonLabel(
@@ -183,18 +180,36 @@ base::string16 AutofillSaveCardInfoBarDelegateMobile::GetButtonLabel(
 }
 
 bool AutofillSaveCardInfoBarDelegateMobile::Accept() {
-  RunSaveCardPromptCallbackWithUserDecision(AutofillClient::ACCEPTED);
+  RunSaveCardPromptCallback(AutofillClient::ACCEPTED,
+                            /*user_provided_details=*/{});
   LogUserAction(AutofillMetrics::INFOBAR_ACCEPTED);
   return true;
 }
 
-void AutofillSaveCardInfoBarDelegateMobile::
-    RunSaveCardPromptCallbackWithUserDecision(
-        AutofillClient::SaveCardOfferUserDecision user_decision) {
-  if (upload_)
-    std::move(upload_save_card_prompt_callback_).Run(user_decision, {});
-  else
+#if defined(OS_IOS)
+bool AutofillSaveCardInfoBarDelegateMobile::UpdateAndAccept(
+    base::string16 cardholder_name,
+    base::string16 expiration_date_month,
+    base::string16 expiration_date_year) {
+  AutofillClient::UserProvidedCardDetails user_provided_details;
+  user_provided_details.cardholder_name = cardholder_name;
+  user_provided_details.expiration_date_month = expiration_date_month;
+  user_provided_details.expiration_date_year = expiration_date_year;
+  RunSaveCardPromptCallback(AutofillClient::ACCEPTED, user_provided_details);
+  LogUserAction(AutofillMetrics::INFOBAR_ACCEPTED);
+  return true;
+}
+#endif  // defined(OS_IOS)
+
+void AutofillSaveCardInfoBarDelegateMobile::RunSaveCardPromptCallback(
+    AutofillClient::SaveCardOfferUserDecision user_decision,
+    AutofillClient::UserProvidedCardDetails user_provided_details) {
+  if (upload_) {
+    std::move(upload_save_card_prompt_callback_)
+        .Run(user_decision, user_provided_details);
+  } else {
     std::move(local_save_card_prompt_callback_).Run(user_decision);
+  }
 }
 
 void AutofillSaveCardInfoBarDelegateMobile::LogUserAction(

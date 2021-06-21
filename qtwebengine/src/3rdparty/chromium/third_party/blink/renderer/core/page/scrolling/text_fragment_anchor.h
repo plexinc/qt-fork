@@ -7,6 +7,7 @@
 
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/editing/forward.h"
+#include "third_party/blink/renderer/core/page/scrolling/element_fragment_anchor.h"
 #include "third_party/blink/renderer/core/page/scrolling/fragment_anchor.h"
 #include "third_party/blink/renderer/core/page/scrolling/text_fragment_anchor_metrics.h"
 #include "third_party/blink/renderer/core/page/scrolling/text_fragment_finder.h"
@@ -19,38 +20,55 @@ namespace blink {
 class LocalFrame;
 class KURL;
 
+constexpr char kFragmentDirectivePrefix[] = ":~:";
+// Subtract 1 because base::size includes the \0 string terminator.
+constexpr size_t kFragmentDirectivePrefixStringLength =
+    base::size(kFragmentDirectivePrefix) - 1;
+
+constexpr char kTextFragmentIdentifierPrefix[] = "text=";
+// Subtract 1 because base::size includes the \0 string terminator.
+constexpr size_t kTextFragmentIdentifierPrefixStringLength =
+    base::size(kTextFragmentIdentifierPrefix) - 1;
+
 class CORE_EXPORT TextFragmentAnchor final : public FragmentAnchor,
                                              public TextFragmentFinder::Client {
  public:
-  static TextFragmentAnchor* TryCreate(const KURL& url,
-                                       LocalFrame& frame,
-                                       bool same_document_navigation);
-
   static TextFragmentAnchor* TryCreateFragmentDirective(
       const KURL& url,
       LocalFrame& frame,
-      bool same_document_navigation);
+      bool same_document_navigation,
+      bool should_scroll);
 
   TextFragmentAnchor(
       const Vector<TextFragmentSelector>& text_fragment_selectors,
-      LocalFrame& frame);
+      LocalFrame& frame,
+      bool should_scroll);
   ~TextFragmentAnchor() override = default;
 
   bool Invoke() override;
 
   void Installed() override;
 
-  void DidScroll(ScrollType type) override;
+  void DidScroll(mojom::blink::ScrollType type) override;
 
   void PerformPreRafActions() override;
 
-  void Trace(blink::Visitor*) override;
+  // Removes text match highlights if any highlight is in view.
+  bool Dismiss() override;
+
+  void Trace(Visitor*) override;
 
   // TextFragmentFinder::Client interface
   void DidFindMatch(const EphemeralRangeInFlatTree& range) override;
   void DidFindAmbiguousMatch() override;
 
  private:
+  // Called when the search is finished. Reports metrics and activates the
+  // element fragment anchor if we didn't find a match.
+  void DidFinishSearch();
+
+  void ApplyTargetToCommonAncestor(const EphemeralRangeInFlatTree& range);
+
   Vector<TextFragmentFinder> text_fragment_finders_;
 
   Member<LocalFrame> frame_;
@@ -64,6 +82,19 @@ class CORE_EXPORT TextFragmentAnchor final : public FragmentAnchor,
   // Whether we successfully scrolled into view a match at least once, used for
   // metrics reporting.
   bool did_scroll_into_view_ = false;
+  // Whether we found a match. Used to determine if we should activate the
+  // element fragment anchor at the end of searching.
+  bool did_find_match_ = false;
+  // If the text fragment anchor is defined as a fragment directive and we don't
+  // find a match, we fall back to the element anchor if it is present.
+  Member<ElementFragmentAnchor> element_fragment_anchor_;
+  // Whether the text fragment anchor has been dismissed yet. This should be
+  // kept alive until dismissed so we can remove text highlighting.
+  bool dismissed_ = false;
+  // Whether we should scroll the anchor into view. This will be false for
+  // history navigations and reloads, where we want to restore the highlight but
+  // not scroll into view again.
+  bool should_scroll_ = false;
 
   Member<TextFragmentAnchorMetrics> metrics_;
 

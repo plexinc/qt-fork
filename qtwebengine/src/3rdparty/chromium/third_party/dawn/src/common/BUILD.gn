@@ -25,23 +25,38 @@ if (build_with_chromium) {
   dcheck_always_on = false
 }
 
+if (build_with_chromium) {
+  import("//build/config/sanitizers/sanitizers.gni")
+} else {
+  use_fuzzing_engine = false
+}
+
 ###############################################################################
 # Common dawn configs
 ###############################################################################
 
 config("dawn_public_include_dirs") {
   include_dirs = [
-    "${target_gen_dir}/../..",
+    "${target_gen_dir}/../../src/include",
     "${dawn_root}/src/include",
   ]
 }
 
 config("dawn_internal") {
-  include_dirs = [ "${dawn_root}/src" ]
+  include_dirs = [
+    "${target_gen_dir}/../../src",
+    "${dawn_root}/src",
+  ]
 
   defines = []
-  if (dawn_always_assert || dcheck_always_on || is_debug) {
+  if (dawn_always_assert || dcheck_always_on || is_debug ||
+      use_fuzzing_engine) {
     defines += [ "DAWN_ENABLE_ASSERTS" ]
+  }
+
+  if (use_fuzzing_engine) {
+    # Does a hard abort when an assertion fails so that fuzzers catch and parse the failure.
+    defines += [ "DAWN_ABORT_ON_ASSERT" ]
   }
 
   if (dawn_enable_d3d12) {
@@ -60,6 +75,14 @@ config("dawn_internal") {
     defines += [ "DAWN_ENABLE_BACKEND_VULKAN" ]
   }
 
+  if (dawn_use_x11) {
+    defines += [ "DAWN_USE_X11" ]
+  }
+
+  if (dawn_enable_error_injection) {
+    defines += [ "DAWN_ENABLE_ERROR_INJECTION" ]
+  }
+
   # Only internal Dawn targets can use this config, this means only targets in
   # this BUILD.gn file.
   visibility = [ ":*" ]
@@ -72,7 +95,7 @@ config("dawn_internal") {
 # This GN file is discovered by all Chromium builds, but common doesn't support
 # all of Chromium's OSes so we explicitly make the target visible only on
 # systems we know Dawn is able to compile on.
-if (is_win || is_linux || is_mac) {
+if (is_win || is_linux || is_mac || is_fuchsia || is_android) {
   static_library("common") {
     sources = [
       "Assert.cpp",
@@ -82,9 +105,15 @@ if (is_win || is_linux || is_mac) {
       "Constants.h",
       "DynamicLib.cpp",
       "DynamicLib.h",
+      "GPUInfo.cpp",
+      "GPUInfo.h",
       "HashUtils.h",
+      "LinkedList.h",
+      "Log.cpp",
+      "Log.h",
       "Math.cpp",
       "Math.h",
+      "PlacementAllocated.h",
       "Platform.h",
       "Result.cpp",
       "Result.h",
@@ -92,9 +121,14 @@ if (is_win || is_linux || is_mac) {
       "SerialMap.h",
       "SerialQueue.h",
       "SerialStorage.h",
+      "SlabAllocator.cpp",
+      "SlabAllocator.h",
       "SwapChainUtils.h",
+      "SystemUtils.cpp",
+      "SystemUtils.h",
       "vulkan_platform.h",
       "windows_with_undefs.h",
+      "xlib_with_undefs.h",
     ]
 
     public_configs = [ ":dawn_internal" ]
@@ -105,6 +139,9 @@ if (is_win || is_linux || is_mac) {
       public_deps = [
         "../../third_party:vulkan_headers",
       ]
+    }
+    if (is_android) {
+      libs = [ "log" ]
     }
   }
 }

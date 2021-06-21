@@ -14,6 +14,7 @@
 
 #else
 
+    #include "include/core/SkBBHFactory.h"
     #include "include/core/SkColorFilter.h"
     #include "include/core/SkPathEffect.h"
     #include "include/effects/Sk1DPathEffect.h"
@@ -26,10 +27,10 @@
     #include "include/effects/SkLumaColorFilter.h"
     #include "include/effects/SkOverdrawColorFilter.h"
     #include "include/effects/SkPerlinNoiseShader.h"
+    #include "include/effects/SkRuntimeEffect.h"
     #include "include/effects/SkShaderMaskFilter.h"
     #include "include/effects/SkTableColorFilter.h"
     #include "src/core/SkColorFilter_Matrix.h"
-    #include "src/core/SkNormalSource.h"
     #include "src/core/SkRecordedDrawable.h"
     #include "src/effects/SkDashImpl.h"
     #include "src/effects/SkEmbossMaskFilter.h"
@@ -41,29 +42,11 @@
     #include "src/shaders/SkComposeShader.h"
     #include "src/shaders/SkEmptyShader.h"
     #include "src/shaders/SkImageShader.h"
-    #include "src/shaders/SkLightingShader.h"
     #include "src/shaders/SkLocalMatrixShader.h"
     #include "src/shaders/SkPictureShader.h"
-    #include "src/shaders/SkRTShader.h"
     #include "src/shaders/SkShaderBase.h"
 
-    #include "include/effects/SkAlphaThresholdFilter.h"
-    #include "include/effects/SkBlurImageFilter.h"
-    #include "include/effects/SkColorFilterImageFilter.h"
-    #include "include/effects/SkComposeImageFilter.h"
-    #include "include/effects/SkDisplacementMapEffect.h"
-    #include "include/effects/SkDropShadowImageFilter.h"
-    #include "include/effects/SkImageSource.h"
-    #include "include/effects/SkLightingImageFilter.h"
-    #include "include/effects/SkMagnifierImageFilter.h"
-    #include "include/effects/SkMatrixConvolutionImageFilter.h"
-    #include "include/effects/SkMergeImageFilter.h"
-    #include "include/effects/SkMorphologyImageFilter.h"
-    #include "include/effects/SkOffsetImageFilter.h"
-    #include "include/effects/SkPaintImageFilter.h"
-    #include "include/effects/SkPictureImageFilter.h"
-    #include "include/effects/SkTileImageFilter.h"
-    #include "include/effects/SkXfermodeImageFilter.h"
+    #include "include/effects/SkImageFilters.h"
     #include "src/core/SkLocalMatrixImageFilter.h"
     #include "src/core/SkMatrixImageFilter.h"
 
@@ -81,13 +64,10 @@
         SK_REGISTER_FLATTENABLE(SkColorShader);
         SK_REGISTER_FLATTENABLE(SkShader_Blend);
         SK_REGISTER_FLATTENABLE(SkShader_Lerp);
-        SK_REGISTER_FLATTENABLE(SkShader_LerpRed);
         SK_REGISTER_FLATTENABLE(SkEmptyShader);
         SK_REGISTER_FLATTENABLE(SkLocalMatrixShader);
         SK_REGISTER_FLATTENABLE(SkPictureShader);
-        SK_REGISTER_FLATTENABLE(SkRTShader);
         SkGradientShader::RegisterFlattenables();
-        SkLightingShader::RegisterFlattenables();
         SkPerlinNoiseShader::RegisterFlattenables();
         SkShaderBase::RegisterFlattenables();
 
@@ -98,6 +78,9 @@
         SkHighContrastFilter::RegisterFlattenables();
         SkOverdrawColorFilter::RegisterFlattenables();
         SkTableColorFilter::RegisterFlattenables();
+
+        // Shader & color filter.
+        SkRuntimeEffect::RegisterFlattenables();
 
         // Mask filters.
         SK_REGISTER_FLATTENABLE(SkEmbossMaskFilter);
@@ -120,7 +103,6 @@
         // Misc.
         SK_REGISTER_FLATTENABLE(SkLayerDrawLooper);
         SK_REGISTER_FLATTENABLE(SkRecordedDrawable);
-        SkNormalSource::RegisterFlattenables();
     }
 
     /*
@@ -131,27 +113,9 @@
      *  SK_DISABLE_EFFECT_SERIALIZATION, or modify/replace this file as needed.
      */
     void SkFlattenable::PrivateInitializer::InitImageFilters() {
-        SkAlphaThresholdFilter::RegisterFlattenables();
-        SkImageFilter::RegisterFlattenables();
-        SkArithmeticImageFilter::RegisterFlattenables();
-        SkXfermodeImageFilter::RegisterFlattenables();
-        SK_REGISTER_FLATTENABLE(SkDilateImageFilter);
-        SK_REGISTER_FLATTENABLE(SkDisplacementMapEffect);
-        SK_REGISTER_FLATTENABLE(SkDropShadowImageFilter);
-        SK_REGISTER_FLATTENABLE(SkErodeImageFilter);
-        SK_REGISTER_FLATTENABLE(SkImageSource);
+        SkImageFilters::RegisterFlattenables();
         SK_REGISTER_FLATTENABLE(SkLocalMatrixImageFilter);
-        SK_REGISTER_FLATTENABLE(SkPaintImageFilter);
-        SK_REGISTER_FLATTENABLE(SkPictureImageFilter);
-        SK_REGISTER_FLATTENABLE(SkTileImageFilter);
-        SK_REGISTER_FLATTENABLE(SkMagnifierImageFilter);
-        SK_REGISTER_FLATTENABLE(SkMatrixConvolutionImageFilter);
         SK_REGISTER_FLATTENABLE(SkMatrixImageFilter);
-        SK_REGISTER_FLATTENABLE(SkOffsetImageFilter);
-        SK_REGISTER_FLATTENABLE(SkComposeImageFilter);
-        SK_REGISTER_FLATTENABLE(SkMergeImageFilter);
-        SK_REGISTER_FLATTENABLE(SkColorFilterImageFilter);
-        SkLightingImageFilter::RegisterFlattenables();
     }
 
 #endif

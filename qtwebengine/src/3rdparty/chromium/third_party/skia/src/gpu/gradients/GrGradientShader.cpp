@@ -24,7 +24,7 @@
 #include "include/private/GrRecordingContext.h"
 #include "src/gpu/GrCaps.h"
 #include "src/gpu/GrColor.h"
-#include "src/gpu/GrColorSpaceInfo.h"
+#include "src/gpu/GrColorInfo.h"
 #include "src/gpu/GrRecordingContextPriv.h"
 #include "src/gpu/SkGr.h"
 
@@ -45,9 +45,12 @@ static std::unique_ptr<GrFragmentProcessor> make_textured_colorizer(const SkPMCo
     // Use 8888 or F16, depending on the destination config.
     // TODO: Use 1010102 for opaque gradients, at least if destination is 1010102?
     SkColorType colorType = kRGBA_8888_SkColorType;
-    if (GrColorTypeIsWiderThan(args.fDstColorSpaceInfo->colorType(), 8) &&
-        args.fContext->priv().caps()->isConfigTexturable(kRGBA_half_GrPixelConfig)) {
-        colorType = kRGBA_F16_SkColorType;
+    if (GrColorTypeIsWiderThan(args.fDstColorInfo->colorType(), 8)) {
+        auto f16Format = args.fContext->priv().caps()->getDefaultBackendFormat(
+                GrColorType::kRGBA_F16, GrRenderable::kNo);
+        if (f16Format.isValid()) {
+            colorType = kRGBA_F16_SkColorType;
+        }
     }
     SkAlphaType alphaType = premul ? kPremul_SkAlphaType : kUnpremul_SkAlphaType;
 
@@ -56,14 +59,13 @@ static std::unique_ptr<GrFragmentProcessor> make_textured_colorizer(const SkPMCo
     SkASSERT(1 == bitmap.height() && SkIsPow2(bitmap.width()));
     SkASSERT(bitmap.isImmutable());
 
-    sk_sp<GrTextureProxy> proxy = GrMakeCachedBitmapProxy(
-            args.fContext->priv().proxyProvider(), bitmap);
-    if (proxy == nullptr) {
+    auto view = GrMakeCachedBitmapProxyView(args.fContext, bitmap);
+    if (!view.proxy()) {
         SkDebugf("Gradient won't draw. Could not create texture.");
         return nullptr;
     }
 
-    return GrTextureGradientColorizer::Make(std::move(proxy));
+    return GrTextureGradientColorizer::Make(std::move(view));
 }
 
 // Analyze the shader's color stops and positions and chooses an appropriate colorizer to represent
@@ -164,7 +166,7 @@ static std::unique_ptr<GrFragmentProcessor> make_gradient(const SkGradientShader
     bool allOpaque = true;
     SkAutoSTMalloc<4, SkPMColor4f> colors(shader.fColorCount);
     SkColor4fXformer xformedColors(shader.fOrigColors4f, shader.fColorCount,
-            shader.fColorSpace.get(), args.fDstColorSpaceInfo->colorSpace());
+                                   shader.fColorSpace.get(), args.fDstColorInfo->colorSpace());
     for (int i = 0; i < shader.fColorCount; i++) {
         const SkColor4f& upmColor = xformedColors.fColors[i];
         colors[i] = inputPremul ? upmColor.premul()

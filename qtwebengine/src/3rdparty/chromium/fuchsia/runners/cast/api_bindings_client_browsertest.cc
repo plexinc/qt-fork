@@ -6,7 +6,6 @@
 #include <lib/fidl/cpp/binding.h>
 
 #include "base/test/bind_test_util.h"
-#include "base/test/test_timeouts.h"
 #include "fuchsia/base/fit_adapter.h"
 #include "fuchsia/base/frame_test_util.h"
 #include "fuchsia/base/mem_buffer_util.h"
@@ -21,10 +20,7 @@ namespace {
 
 class ApiBindingsClientTest : public cr_fuchsia::WebEngineBrowserTest {
  public:
-  ApiBindingsClientTest()
-      : api_service_binding_(&api_service_),
-        run_timeout_(TestTimeouts::action_timeout(),
-                     base::MakeExpectedNotRunClosure(FROM_HERE)) {
+  ApiBindingsClientTest() : api_service_binding_(&api_service_) {
     set_test_server_root(base::FilePath("fuchsia/runners/cast/testdata"));
   }
 
@@ -37,7 +33,8 @@ class ApiBindingsClientTest : public cr_fuchsia::WebEngineBrowserTest {
     // Get the bindings from |api_service_|.
     base::RunLoop run_loop;
     client_ = std::make_unique<ApiBindingsClient>(
-        api_service_binding_.NewBinding(), run_loop.QuitClosure());
+        api_service_binding_.NewBinding(), run_loop.QuitClosure(),
+        base::MakeExpectedNotRunClosure(FROM_HERE));
     EXPECT_FALSE(client_->HasBindings());
     run_loop.Run();
     EXPECT_TRUE(client_->HasBindings());
@@ -67,9 +64,6 @@ class ApiBindingsClientTest : public cr_fuchsia::WebEngineBrowserTest {
   cr_fuchsia::TestNavigationListener navigation_listener_;
   fuchsia::web::NavigationControllerPtr controller_;
 
- private:
-  const base::RunLoop::ScopedRunTimeoutForTest run_timeout_;
-
   DISALLOW_COPY_AND_ASSIGN(ApiBindingsClientTest);
 };
 
@@ -77,7 +71,8 @@ IN_PROC_BROWSER_TEST_F(ApiBindingsClientTest, EndToEnd) {
   std::vector<chromium::cast::ApiBinding> binding_list;
   chromium::cast::ApiBinding echo_binding;
   echo_binding.set_before_load_script(cr_fuchsia::MemBufferFromString(
-      "window.echo = cast.__platform__.PortConnector.bind('echoService');"));
+      "window.echo = cast.__platform__.PortConnector.bind('echoService');",
+      "test"));
   binding_list.emplace_back(std::move(echo_binding));
   api_service_.set_bindings(std::move(binding_list));
   StartClient();
@@ -92,7 +87,7 @@ IN_PROC_BROWSER_TEST_F(ApiBindingsClientTest, EndToEnd) {
       api_service_.RunUntilMessagePortReceived("echoService").Bind();
 
   fuchsia::web::WebMessage message;
-  message.set_data(cr_fuchsia::MemBufferFromString("ping"));
+  message.set_data(cr_fuchsia::MemBufferFromString("ping", "ping-msg"));
   port->PostMessage(std::move(message),
                     [](fuchsia::web::MessagePort_PostMessage_Result result) {
                       EXPECT_TRUE(result.is_response());

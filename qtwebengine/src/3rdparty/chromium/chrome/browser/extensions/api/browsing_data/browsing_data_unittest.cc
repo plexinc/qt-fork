@@ -55,7 +55,7 @@ class BrowsingDataApiTest : public ExtensionServiceTestBase {
 
     browser_window_ = std::make_unique<TestBrowserWindow>();
     Browser::CreateParams params(profile(), true);
-    params.type = Browser::TYPE_TABBED;
+    params.type = Browser::TYPE_NORMAL;
     params.window = browser_window_.get();
     browser_ = std::make_unique<Browser>(params);
 
@@ -68,11 +68,15 @@ class BrowsingDataApiTest : public ExtensionServiceTestBase {
     browser_window_.reset();
     ExtensionServiceTestBase::TearDown();
   }
-  const base::Time& GetBeginTime() { return remover_->GetLastUsedBeginTime(); }
+  const base::Time& GetBeginTime() {
+    return remover_->GetLastUsedBeginTimeForTesting();
+  }
 
-  int GetRemovalMask() { return remover_->GetLastUsedRemovalMask(); }
+  int GetRemovalMask() { return remover_->GetLastUsedRemovalMaskForTesting(); }
 
-  int GetOriginTypeMask() { return remover_->GetLastUsedOriginTypeMask(); }
+  int GetOriginTypeMask() {
+    return remover_->GetLastUsedOriginTypeMaskForTesting();
+  }
 
   int GetAsMask(const base::DictionaryValue* dict,
                 std::string path,

@@ -23,11 +23,11 @@
 #include "ui/views/background.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/button/image_button.h"
+#include "ui/views/controls/highlight_path_generator.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/scroll_view.h"
 #include "ui/views/focus/focus_manager.h"
 #include "ui/views/style/platform_style.h"
-#include "ui/views/view_class_properties.h"
 #include "ui/views/widget/widget.h"
 
 #if defined(OS_WIN)
@@ -37,8 +37,6 @@
 namespace message_center {
 
 namespace {
-
-constexpr SkColor kBorderColor = SkColorSetARGB(0x1F, 0x0, 0x0, 0x0);
 
 // Creates a text for spoken feedback from the data contained in the
 // notification.
@@ -71,10 +69,26 @@ bool ShouldShowAeroShadowBorder() {
 // static
 const char MessageView::kViewClassName[] = "MessageView";
 
+class MessageView::HighlightPathGenerator
+    : public views::HighlightPathGenerator {
+ public:
+  HighlightPathGenerator() = default;
+
+  // views::HighlightPathGenerator:
+  SkPath GetHighlightPath(const views::View* view) override {
+    return static_cast<const MessageView*>(view)->GetHighlightPath();
+  }
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(HighlightPathGenerator);
+};
+
 MessageView::MessageView(const Notification& notification)
     : notification_id_(notification.id()), slide_out_controller_(this, this) {
   SetFocusBehavior(FocusBehavior::ALWAYS);
   focus_ring_ = views::FocusRing::Install(this);
+  views::HighlightPathGenerator::Install(
+      this, std::make_unique<HighlightPathGenerator>());
 
   // TODO(amehfooz): Remove explicit color setting after native theme changes.
   focus_ring_->SetColor(gfx::kGoogleBlue500);
@@ -120,8 +134,7 @@ void MessageView::SetIsNested() {
   slide_out_controller_.set_slide_mode(CalculateSlideMode());
   slide_out_controller_.set_update_opacity(false);
 
-  SetBorder(views::CreateRoundedRectBorder(
-      kNotificationBorderThickness, kNotificationCornerRadius, kBorderColor));
+  SetNestedBorderIfNecessary();
   if (GetControlButtonsView())
     GetControlButtonsView()->ShowCloseButton(GetMode() != Mode::PINNED);
 }
@@ -131,6 +144,10 @@ void MessageView::CloseSwipeControl() {
 }
 
 void MessageView::SlideOutAndClose(int direction) {
+  // Do not process events once the message view is animating out.
+  // crbug.com/940719
+  SetEnabled(false);
+
   slide_out_controller_.SlideOutAndClose(direction);
 }
 
@@ -165,16 +182,14 @@ void MessageView::UpdateCornerRadius(int top_radius, int bottom_radius) {
   SchedulePaint();
 }
 
-void MessageView::UpdateFocusHighlight() {
+SkPath MessageView::GetHighlightPath() const {
   gfx::Rect rect(GetBoundsInScreen().size());
   // Shrink focus ring size by -kFocusHaloInset on each side to draw
   // them on top of the notifications. We need to do this because TrayBubbleView
   // has a layer that masks to bounds due to which the focus ring can not extend
-  // outside the view. This is not required on the bottom most notification's
-  // bottom side.
+  // outside the view.
   int inset = -views::PlatformStyle::kFocusHaloInset;
-  int bottom_inset = bottom_radius_ == 0 ? inset : 0;
-  rect.Inset(gfx::Insets(inset, inset, bottom_inset, inset));
+  rect.Inset(gfx::Insets(inset));
 
   int top_radius = std::max(0, top_radius_ - inset);
   int bottom_radius = std::max(0, bottom_radius_ - inset);
@@ -183,14 +198,7 @@ void MessageView::UpdateFocusHighlight() {
                        bottom_radius, bottom_radius,   // bottom-right
                        bottom_radius, bottom_radius};  // bottom-left
 
-  auto path = std::make_unique<SkPath>();
-  path->addRoundRect(gfx::RectToSkRect(rect), radii);
-  SetProperty(views::kHighlightPathKey, path.release());
-}
-
-void MessageView::OnBoundsChanged(const gfx::Rect& previous_bounds) {
-  views::InkDropHostView::OnBoundsChanged(previous_bounds);
-  UpdateFocusHighlight();
+  return SkPath().addRoundRect(gfx::RectToSkRect(rect), radii);
 }
 
 void MessageView::OnContainerAnimationStarted() {
@@ -202,11 +210,10 @@ void MessageView::OnContainerAnimationEnded() {
 }
 
 void MessageView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
-  node_data->role = ax::mojom::Role::kButton;
+  node_data->role = ax::mojom::Role::kGenericContainer;
   node_data->AddStringAttribute(
       ax::mojom::StringAttribute::kRoleDescription,
-      l10n_util::GetStringUTF8(
-          IDS_MESSAGE_NOTIFICATION_SETTINGS_BUTTON_ACCESSIBLE_NAME));
+      l10n_util::GetStringUTF8(IDS_MESSAGE_NOTIFICATION_ACCESSIBLE_NAME));
   node_data->SetName(accessible_name_);
 }
 
@@ -317,35 +324,44 @@ void MessageView::AddedToWidget() {
     focus_manager_->AddFocusChangeListener(this);
 }
 
+void MessageView::OnThemeChanged() {
+  InkDropHostView::OnThemeChanged();
+  SetNestedBorderIfNecessary();
+}
+
 ui::Layer* MessageView::GetSlideOutLayer() {
   return is_nested_ ? layer() : GetWidget()->GetLayer();
 }
 
 void MessageView::OnSlideStarted() {
-  for (auto& observer : slide_observers_) {
+  for (auto& observer : observers_) {
     observer.OnSlideStarted(notification_id_);
   }
 }
 
 void MessageView::OnSlideChanged(bool in_progress) {
-  for (auto& observer : slide_observers_) {
+  for (auto& observer : observers_) {
     observer.OnSlideChanged(notification_id_);
   }
 }
 
-void MessageView::AddSlideObserver(MessageView::SlideObserver* observer) {
-  slide_observers_.AddObserver(observer);
+void MessageView::AddObserver(MessageView::Observer* observer) {
+  observers_.AddObserver(observer);
 }
 
-void MessageView::RemoveSlideObserver(MessageView::SlideObserver* observer) {
-  slide_observers_.RemoveObserver(observer);
+void MessageView::RemoveObserver(MessageView::Observer* observer) {
+  observers_.RemoveObserver(observer);
 }
 
 void MessageView::OnSlideOut() {
+  // The notification will be deleted after slide out, so give observers a
+  // chance to handle the notification before fulling sliding out.
+  for (auto& observer : observers_)
+    observer.OnPreSlideOut(notification_id_);
+
   MessageCenter::Get()->RemoveNotification(notification_id_,
                                            true /* by_user */);
-
-  for (auto& observer : slide_observers_)
+  for (auto& observer : observers_)
     observer.OnSlideOut(notification_id_);
 }
 
@@ -359,21 +375,21 @@ void MessageView::OnDidChangeFocus(views::View* before, views::View* now) {
   }
 }
 
-SlideOutController::SlideMode MessageView::CalculateSlideMode() const {
+views::SlideOutController::SlideMode MessageView::CalculateSlideMode() const {
   if (disable_slide_)
-    return SlideOutController::SlideMode::NO_SLIDE;
+    return views::SlideOutController::SlideMode::kNone;
 
   switch (GetMode()) {
     case Mode::SETTING:
-      return SlideOutController::SlideMode::NO_SLIDE;
+      return views::SlideOutController::SlideMode::kNone;
     case Mode::PINNED:
-      return SlideOutController::SlideMode::PARTIALLY;
+      return views::SlideOutController::SlideMode::kPartial;
     case Mode::NORMAL:
-      return SlideOutController::SlideMode::FULL;
+      return views::SlideOutController::SlideMode::kFull;
   }
 
   NOTREACHED();
-  return SlideOutController::SlideMode::FULL;
+  return views::SlideOutController::SlideMode::kFull;
 }
 
 MessageView::Mode MessageView::GetMode() const {
@@ -413,16 +429,22 @@ void MessageView::SetCornerRadius(int top_radius, int bottom_radius) {
 }
 
 void MessageView::OnCloseButtonPressed() {
+  for (auto& observer : observers_)
+    observer.OnCloseButtonPressed(notification_id_);
   MessageCenter::Get()->RemoveNotification(notification_id_,
                                            true /* by_user */);
 }
 
 void MessageView::OnSettingsButtonPressed(const ui::Event& event) {
+  for (auto& observer : observers_)
+    observer.OnSettingsButtonPressed(notification_id_);
+
   MessageCenter::Get()->ClickOnSettingsButton(notification_id_);
 }
 
 void MessageView::OnSnoozeButtonPressed(const ui::Event& event) {
-  // No default implementation for snooze.
+  for (auto& observer : observers_)
+    observer.OnSnoozeButtonPressed(notification_id_);
 }
 
 bool MessageView::ShouldShowControlButtons() const {
@@ -433,10 +455,20 @@ bool MessageView::ShouldShowControlButtons() const {
   auto* control_buttons_view = GetControlButtonsView();
   return control_buttons_view &&
          (control_buttons_view->IsAnyButtonFocused() ||
-          (GetMode() != Mode::SETTING && IsMouseHovered()));
+          (GetMode() != Mode::SETTING && IsMouseHovered()) ||
+          MessageCenter::Get()->IsSpokenFeedbackEnabled());
 #else
   return true;
 #endif
+}
+
+void MessageView::SetNestedBorderIfNecessary() {
+  if (is_nested_) {
+    SkColor border_color = GetNativeTheme()->GetSystemColor(
+        ui::NativeTheme::kColorId_UnfocusedBorderColor);
+    SetBorder(views::CreateRoundedRectBorder(
+        kNotificationBorderThickness, kNotificationCornerRadius, border_color));
+  }
 }
 
 void MessageView::UpdateControlButtonsVisibility() {

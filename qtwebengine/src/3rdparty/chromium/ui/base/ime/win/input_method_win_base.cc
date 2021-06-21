@@ -22,9 +22,9 @@
 #include "ui/base/ui_base_features.h"
 #include "ui/display/win/screen_win.h"
 #include "ui/events/event.h"
-#include "ui/events/event_constants.h"
 #include "ui/events/event_utils.h"
 #include "ui/events/keycodes/keyboard_codes.h"
+#include "ui/events/types/event_type.h"
 
 namespace ui {
 namespace {
@@ -162,8 +162,7 @@ InputMethodWinBase::InputMethodWinBase(internal::InputMethodDelegate* delegate,
     : InputMethodBase(delegate,
                       CreateKeyboardController(toplevel_window_handle)),
       toplevel_window_handle_(toplevel_window_handle),
-      pending_requested_direction_(base::i18n::UNKNOWN_DIRECTION),
-      weak_ptr_factory_(this) {}
+      pending_requested_direction_(base::i18n::UNKNOWN_DIRECTION) {}
 
 InputMethodWinBase::~InputMethodWinBase() {}
 

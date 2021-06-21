@@ -28,6 +28,7 @@
 
 #include <bitset>
 #include "base/macros.h"
+#include "third_party/blink/public/mojom/use_counter/css_property_id.mojom-blink-forward.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/css/css_property_names.h"
 #include "third_party/blink/renderer/core/css/parser/css_parser_mode.h"
@@ -41,7 +42,6 @@ namespace blink {
 
 class DocumentLoader;
 class Element;
-class EnumerationHistogram;
 class LocalFrame;
 
 // Utility class for muting UseCounter, for instance ignoring attributes
@@ -56,7 +56,7 @@ class UseCounterMuteScope {
   ~UseCounterMuteScope();
 
  private:
-  Member<DocumentLoader> loader_;
+  DocumentLoader* loader_;
 };
 
 // This class provides an implementation of UseCounter - see the class comment
@@ -100,7 +100,7 @@ class CORE_EXPORT UseCounterHelper final {
     // remove a reference to the observer and stop notifications.
     virtual bool OnCountFeature(WebFeature) = 0;
 
-    virtual void Trace(blink::Visitor* visitor) {}
+    virtual void Trace(Visitor* visitor) {}
   };
 
   // Repeated calls are ignored.
@@ -121,7 +121,7 @@ class CORE_EXPORT UseCounterHelper final {
   void UnmuteForInspector();
 
   void RecordMeasurement(WebFeature, const LocalFrame&);
-  void ReportAndTraceMeasurementByFeatureId(int, const LocalFrame&);
+  void ReportAndTraceMeasurementByFeatureId(WebFeature, const LocalFrame&);
   void ReportAndTraceMeasurementByCSSSampleId(int,
                                               const LocalFrame*,
                                               bool /*is_animated*/);
@@ -133,7 +133,7 @@ class CORE_EXPORT UseCounterHelper final {
 
   void ClearMeasurementForTesting(WebFeature);
 
-  void Trace(blink::Visitor*);
+  void Trace(Visitor*);
 
  private:
   friend class UseCounterHelperTest;
@@ -143,11 +143,7 @@ class CORE_EXPORT UseCounterHelper final {
   // if kDisabledContext.
   void NotifyFeatureCounted(WebFeature);
 
-  EnumerationHistogram& FeaturesHistogram() const;
-  EnumerationHistogram& CssHistogram() const;
-  EnumerationHistogram& AnimatedCSSHistogram() const;
-
-  static int MapCSSPropertyIdToCSSSampleIdForHistogram(CSSPropertyID);
+  void CountFeature(WebFeature) const;
 
   // If non-zero, ignore all 'count' calls completely.
   unsigned mute_count_;
@@ -164,8 +160,11 @@ class CORE_EXPORT UseCounterHelper final {
   // Track what features/properties have been recorded.
   std::bitset<static_cast<size_t>(WebFeature::kNumberOfFeatures)>
       features_recorded_;
-  std::bitset<numCSSPropertyIDs> css_recorded_;
-  std::bitset<numCSSPropertyIDs> animated_css_recorded_;
+
+  static constexpr size_t kMaxSample =
+      static_cast<size_t>(mojom::CSSSampleId::kMaxValue) + 1;
+  std::bitset<kMaxSample> css_recorded_;
+  std::bitset<kMaxSample> animated_css_recorded_;
 
   HeapHashSet<Member<Observer>> observers_;
 

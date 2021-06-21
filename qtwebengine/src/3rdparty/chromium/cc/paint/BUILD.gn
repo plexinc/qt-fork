@@ -60,6 +60,7 @@ cc_component("paint") {
     "paint_recorder.h",
     "paint_shader.cc",
     "paint_shader.h",
+    "paint_worklet_input.cc",
     "paint_worklet_input.h",
     "paint_worklet_job.cc",
     "paint_worklet_job.h",
@@ -82,6 +83,7 @@ cc_component("paint") {
     "skottie_wrapper.h",
     "solid_color_analyzer.cc",
     "solid_color_analyzer.h",
+    "texture_backing.h",
     "transfer_cache_deserialize_helper.h",
     "transfer_cache_entry.cc",
     "transfer_cache_entry.h",
@@ -108,16 +110,22 @@ cc_component("paint") {
     "//ui/gfx/animation",
     "//ui/gfx/ipc/color",
   ]
+
+  if (!is_android) {
+    sources += [
+      "skottie_transfer_cache_entry.cc",
+      "skottie_transfer_cache_entry.h",
+    ]
+  }
 }
 
 fuzzer_test("paint_op_buffer_fuzzer") {
-  sources = [
-    "paint_op_buffer_fuzzer.cc",
-  ]
+  sources = [ "paint_op_buffer_fuzzer.cc" ]
 
   libfuzzer_options = [ "max_len=4096" ]
 
   deps = [
+    "//base/test:test_support",
     "//cc:test_support",
     "//cc/paint",
     "//components/viz/test:test_support",
@@ -126,9 +134,7 @@ fuzzer_test("paint_op_buffer_fuzzer") {
 }
 
 fuzzer_test("transfer_cache_fuzzer") {
-  sources = [
-    "transfer_cache_fuzzer.cc",
-  ]
+  sources = [ "transfer_cache_fuzzer.cc" ]
 
   libfuzzer_options = [ "max_len=4096" ]
 

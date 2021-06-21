@@ -15,7 +15,6 @@
 
 class SkMatrix;
 struct SkRect;
-class SkString;
 
 /** \class SkMaskFilter
 
@@ -44,15 +43,6 @@ public:
      */
     static sk_sp<SkMaskFilter> MakeCombine(sk_sp<SkMaskFilter> filterA, sk_sp<SkMaskFilter> filterB,
                                            SkCoverageMode mode);
-
-    /**
-     *  Construct a maskfilter with an additional transform.
-     *
-     *  Note: unlike shader local matrices, this transform composes next to the CTM.
-     *
-     *    TotalMatrix = CTM x MaskFilterMatrix x (optional/downstream) ShaderLocalMatrix
-     */
-    sk_sp<SkMaskFilter> makeWithMatrix(const SkMatrix&) const;
 
     static SkFlattenable::Type GetFlattenableType() {
         return kSkMaskFilter_Type;

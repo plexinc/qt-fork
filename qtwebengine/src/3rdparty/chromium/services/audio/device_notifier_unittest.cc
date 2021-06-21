@@ -8,13 +8,11 @@
 #include <utility>
 
 #include "base/system/system_monitor.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "services/audio/public/mojom/device_notifications.mojom.h"
-#include "services/audio/traced_service_ref.h"
-#include "services/service_manager/public/cpp/service_keepalive.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -37,48 +35,34 @@ class MockDeviceListener : public mojom::DeviceListener {
 
 }  // namespace
 
-class DeviceNotifierTest : public ::testing::Test,
-                           public service_manager::ServiceKeepalive::Observer {
+class DeviceNotifierTest : public ::testing::Test {
  public:
   DeviceNotifierTest()
-      : system_monitor_(std::make_unique<base::SystemMonitor>()),
-        service_keepalive_(nullptr, base::TimeDelta()) {
-    service_keepalive_.AddObserver(this);
-  }
+      : system_monitor_(std::make_unique<base::SystemMonitor>()) {}
 
  protected:
-  MOCK_METHOD0(OnNoServiceRefs, void());
-
   void CreateDeviceNotifier() {
     device_notifier_ = std::make_unique<DeviceNotifier>();
-    device_notifier_->Bind(remote_device_notifier_.BindNewPipeAndPassReceiver(),
-                           TracedServiceRef(service_keepalive_.CreateRef(),
-                                            "audio::DeviceNotifier Binding"));
-    EXPECT_FALSE(service_keepalive_.HasNoRefs());
+    device_notifier_->Bind(
+        remote_device_notifier_.BindNewPipeAndPassReceiver());
   }
 
   void DestroyDeviceNotifier() {
     remote_device_notifier_.reset();
-    scoped_task_environment_.RunUntilIdle();
-    EXPECT_TRUE(service_keepalive_.HasNoRefs());
+    task_environment_.RunUntilIdle();
   }
 
-  // service_manager::ServiceKeepalive::Observer:
-  void OnIdleTimeout() override { OnNoServiceRefs(); }
-
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::TaskEnvironment task_environment_;
   mojo::Remote<mojom::DeviceNotifier> remote_device_notifier_;
 
  private:
   std::unique_ptr<base::SystemMonitor> system_monitor_;
   std::unique_ptr<DeviceNotifier> device_notifier_;
-  service_manager::ServiceKeepalive service_keepalive_;
 
   DISALLOW_COPY_AND_ASSIGN(DeviceNotifierTest);
 };
 
 TEST_F(DeviceNotifierTest, DeviceNotifierNotifies) {
-  EXPECT_CALL(*this, OnNoServiceRefs());
   CreateDeviceNotifier();
 
   mojo::PendingRemote<mojom::DeviceListener> remote_device_listener;
@@ -90,20 +74,20 @@ TEST_F(DeviceNotifierTest, DeviceNotifierNotifies) {
   EXPECT_CALL(listener, DevicesChanged()).Times(0);
   base::SystemMonitor::Get()->ProcessDevicesChanged(
       base::SystemMonitor::DEVTYPE_AUDIO);
-  scoped_task_environment_.RunUntilIdle();
+  task_environment_.RunUntilIdle();
 
   // Register the listener and simulate an audio-device event.
   remote_device_notifier_->RegisterListener(std::move(remote_device_listener));
   EXPECT_CALL(listener, DevicesChanged());
   base::SystemMonitor::Get()->ProcessDevicesChanged(
       base::SystemMonitor::DEVTYPE_AUDIO);
-  scoped_task_environment_.RunUntilIdle();
+  task_environment_.RunUntilIdle();
 
   // Simulate a video-device event, which should be ignored.
   EXPECT_CALL(listener, DevicesChanged()).Times(0);
   base::SystemMonitor::Get()->ProcessDevicesChanged(
       base::SystemMonitor::DEVTYPE_VIDEO_CAPTURE);
-  scoped_task_environment_.RunUntilIdle();
+  task_environment_.RunUntilIdle();
 
   DestroyDeviceNotifier();
 }

@@ -32,6 +32,8 @@
 #include <vector>
 
 #include "base/base_export.h"
+#include "base/containers/checked_iterators.h"
+#include "base/containers/checked_range.h"
 #include "base/containers/flat_map.h"
 #include "base/containers/span.h"
 #include "base/macros.h"
@@ -83,6 +85,10 @@ class BASE_EXPORT Value {
   using BlobStorage = std::vector<uint8_t>;
   using DictStorage = flat_map<std::string, std::unique_ptr<Value>>;
   using ListStorage = std::vector<Value>;
+
+  using ListView = CheckedContiguousRange<ListStorage>;
+  using ConstListView = CheckedContiguousConstRange<ListStorage>;
+
   // See technical note below explaining why this is used.
   using DoubleStorage = struct { alignas(4) char v[sizeof(double)]; };
 
@@ -111,6 +117,8 @@ class BASE_EXPORT Value {
   // Adaptors for converting from the old way to the new way and vice versa.
   static Value FromUniquePtrValue(std::unique_ptr<Value> val);
   static std::unique_ptr<Value> ToUniquePtrValue(Value val);
+  static const DictionaryValue& AsDictionaryValue(const Value& val);
+  static const ListValue& AsListValue(const Value& val);
 
   Value(Value&& that) noexcept;
   Value() noexcept {}  // A null value
@@ -144,7 +152,7 @@ class BASE_EXPORT Value {
   explicit Value(const DictStorage& in_dict);
   explicit Value(DictStorage&& in_dict) noexcept;
 
-  explicit Value(const ListStorage& in_list);
+  explicit Value(span<const Value> in_list);
   explicit Value(ListStorage&& in_list) noexcept;
 
   Value& operator=(Value&& that) noexcept;
@@ -172,10 +180,61 @@ class BASE_EXPORT Value {
   int GetInt() const;
   double GetDouble() const;  // Implicitly converts from int if necessary.
   const std::string& GetString() const;
+  std::string& GetString();
   const BlobStorage& GetBlob() const;
 
-  ListStorage& GetList();
-  const ListStorage& GetList() const;
+  // Returns the Values in a list as a view. The mutable overload allows for
+  // modification of the underlying values, but does not allow changing the
+  // structure of the list. If this is desired, use TakeList(), perform the
+  // operations, and return the list back to the Value via move assignment.
+  ListView GetList();
+  ConstListView GetList() const;
+
+  // Transfers ownership of the the underlying list to the caller. Subsequent
+  // calls to GetList() will return an empty list.
+  // Note: This CHECKs that type() is Type::LIST.
+  ListStorage TakeList();
+
+  // Appends |value| to the end of the list.
+  // Note: These CHECK that type() is Type::LIST.
+  void Append(bool value);
+  void Append(int value);
+  void Append(double value);
+  void Append(const char* value);
+  void Append(StringPiece value);
+  void Append(std::string&& value);
+  void Append(const char16* value);
+  void Append(StringPiece16 value);
+  void Append(Value&& value);
+
+  // Inserts |value| before |pos|.
+  // Note: This CHECK that type() is Type::LIST.
+  CheckedContiguousIterator<Value> Insert(
+      CheckedContiguousConstIterator<Value> pos,
+      Value&& value);
+
+  // Erases the Value pointed to by |iter|. Returns false if |iter| is out of
+  // bounds.
+  // Note: This CHECKs that type() is Type::LIST.
+  bool EraseListIter(CheckedContiguousConstIterator<Value> iter);
+
+  // Erases all Values that compare equal to |val|. Returns the number of
+  // deleted Values.
+  // Note: This CHECKs that type() is Type::LIST.
+  size_t EraseListValue(const Value& val);
+
+  // Erases all Values for which |pred| returns true. Returns the number of
+  // deleted Values.
+  // Note: This CHECKs that type() is Type::LIST.
+  template <typename Predicate>
+  size_t EraseListValueIf(Predicate pred) {
+    CHECK(is_list());
+    return base::EraseIf(list_, pred);
+  }
+
+  // Erases all Values from the list.
+  // Note: This CHECKs that type() is Type::LIST.
+  void ClearList();
 
   // |FindKey| looks up |key| in the underlying dictionary. If found, it returns
   // a pointer to the element. Otherwise it returns nullptr.
@@ -211,6 +270,7 @@ class BASE_EXPORT Value {
 
   // |FindStringKey| returns |nullptr| if value is not found or not a string.
   const std::string* FindStringKey(StringPiece key) const;
+  std::string* FindStringKey(StringPiece key);
 
   // Returns nullptr is value is not found or not a binary.
   const BlobStorage* FindBlobKey(StringPiece key) const;
@@ -318,6 +378,7 @@ class BASE_EXPORT Value {
   base::Optional<int> FindIntPath(StringPiece path) const;
   base::Optional<double> FindDoublePath(StringPiece path) const;
   const std::string* FindStringPath(StringPiece path) const;
+  std::string* FindStringPath(StringPiece path);
   const BlobStorage* FindBlobPath(StringPiece path) const;
   Value* FindDictPath(StringPiece path);
   const Value* FindDictPath(StringPiece path) const;
@@ -398,6 +459,14 @@ class BASE_EXPORT Value {
   // dictionary. These are intended for iteration over all items in the
   // dictionary and are compatible with for-each loops and standard library
   // algorithms.
+  //
+  // Unlike with std::map, a range-for over the non-const version of DictItems()
+  // will range over items of type pair<const std::string&, Value&>, so code of
+  // the form
+  //   for (auto kv : my_value.DictItems())
+  //     Mutate(kv.second);
+  // will actually alter |my_value| in place (if it isn't const).
+  //
   // Note: These CHECK that type() is Type::DICTIONARY.
   dict_iterator_proxy DictItems();
   const_dict_iterator_proxy DictItems() const;
@@ -585,7 +654,7 @@ class BASE_EXPORT DictionaryValue : public Value {
   // |out_value| is optional and will only be set if non-NULL.
   // DEPRECATED, use Value::FindBoolPath(path) instead.
   bool GetBoolean(StringPiece path, bool* out_value) const;
-  // DEPRECATED, use Value::FindIntPath(path) isntead.
+  // DEPRECATED, use Value::FindIntPath(path) instead.
   bool GetInteger(StringPiece path, int* out_value) const;
   // Values of both type Type::INTEGER and Type::DOUBLE can be obtained as
   // doubles.
@@ -713,18 +782,18 @@ class BASE_EXPORT DictionaryValue : public Value {
 // This type of Value represents a list of other Value values.
 class BASE_EXPORT ListValue : public Value {
  public:
-  using const_iterator = ListStorage::const_iterator;
-  using iterator = ListStorage::iterator;
+  using const_iterator = ListView::const_iterator;
+  using iterator = ListView::iterator;
 
   // Returns |value| if it is a list, nullptr otherwise.
   static std::unique_ptr<ListValue> From(std::unique_ptr<Value> value);
 
   ListValue();
-  explicit ListValue(const ListStorage& in_list);
+  explicit ListValue(span<const Value> in_list);
   explicit ListValue(ListStorage&& in_list) noexcept;
 
   // Clears the contents of this ListValue
-  // DEPRECATED, use GetList()::clear() instead.
+  // DEPRECATED, use ClearList() instead.
   void Clear();
 
   // Returns the number of Values in this list.
@@ -800,29 +869,31 @@ class BASE_EXPORT ListValue : public Value {
   // DEPRECATED, use GetList()::erase() instead.
   iterator Erase(iterator iter, std::unique_ptr<Value>* out_value);
 
+  using Value::Append;
   // Appends a Value to the end of the list.
-  // DEPRECATED, use GetList()::push_back() instead.
+  // DEPRECATED, use Value::Append() instead.
   void Append(std::unique_ptr<Value> in_value);
 
   // Convenience forms of Append.
-  // DEPRECATED, use GetList()::emplace_back() instead.
+  // DEPRECATED, use Value::Append() instead.
   void AppendBoolean(bool in_value);
   void AppendInteger(int in_value);
   void AppendDouble(double in_value);
   void AppendString(StringPiece in_value);
   void AppendString(const string16& in_value);
-  // DEPRECATED, use GetList()::emplace_back() in a loop instead.
+  // DEPRECATED, use Value::Append() in a loop instead.
   void AppendStrings(const std::vector<std::string>& in_values);
   void AppendStrings(const std::vector<string16>& in_values);
 
   // Appends a Value if it's not already present. Returns true if successful,
   // or false if the value was already
-  // DEPRECATED, use std::find() with GetList()::push_back() instead.
+  // DEPRECATED, use std::find() with Value::Append() instead.
   bool AppendIfNotPresent(std::unique_ptr<Value> in_value);
 
+  using Value::Insert;
   // Insert a Value at index.
   // Returns true if successful, or false if the index was out of range.
-  // DEPRECATED, use GetList()::insert() instead.
+  // DEPRECATED, use Value::Insert() instead.
   bool Insert(size_t index, std::unique_ptr<Value> in_value);
 
   // Searches for the first instance of |value| in the list using the Equals
@@ -837,14 +908,14 @@ class BASE_EXPORT ListValue : public Value {
 
   // Iteration.
   // DEPRECATED, use GetList()::begin() instead.
-  iterator begin() { return list_.begin(); }
+  iterator begin() { return GetList().begin(); }
   // DEPRECATED, use GetList()::end() instead.
-  iterator end() { return list_.end(); }
+  iterator end() { return GetList().end(); }
 
   // DEPRECATED, use GetList()::begin() instead.
-  const_iterator begin() const { return list_.begin(); }
+  const_iterator begin() const { return GetList().begin(); }
   // DEPRECATED, use GetList()::end() instead.
-  const_iterator end() const { return list_.end(); }
+  const_iterator end() const { return GetList().end(); }
 
   // DEPRECATED, use Value::Clone() instead.
   // TODO(crbug.com/646113): Delete this and migrate callsites.

@@ -22,9 +22,6 @@ class WaitForNavigationAction : public Action {
   ~WaitForNavigationAction() override;
 
  private:
-  static constexpr base::TimeDelta kDefaultTimeout =
-      base::TimeDelta::FromSeconds(20);
-
   // Overrides Action:
   void InternalProcessAction(ProcessActionCallback callback) override;
 
@@ -34,7 +31,7 @@ class WaitForNavigationAction : public Action {
 
   ProcessActionCallback callback_;
   base::OneShotTimer timer_;
-  base::WeakPtrFactory<WaitForNavigationAction> weak_ptr_factory_;
+  base::WeakPtrFactory<WaitForNavigationAction> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(WaitForNavigationAction);
 };

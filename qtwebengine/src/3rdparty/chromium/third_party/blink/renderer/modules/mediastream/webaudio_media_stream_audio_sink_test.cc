@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "third_party/blink/public/web/modules/mediastream/webaudio_media_stream_audio_sink.h"
+#include "third_party/blink/renderer/modules/mediastream/webaudio_media_stream_audio_sink.h"
 
 #include <stddef.h>
 
@@ -10,10 +10,10 @@
 #include "media/base/audio_bus.h"
 #include "media/base/audio_parameters.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/blink/public/platform/modules/mediastream/media_stream_audio_track.h"
 #include "third_party/blink/public/platform/web_media_stream_track.h"
 #include "third_party/blink/public/platform/web_string.h"
 #include "third_party/blink/public/web/web_heap.h"
+#include "third_party/blink/renderer/platform/mediastream/media_stream_audio_track.h"
 
 namespace blink {
 

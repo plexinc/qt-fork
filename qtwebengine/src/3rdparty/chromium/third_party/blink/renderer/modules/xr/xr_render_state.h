@@ -11,7 +11,7 @@
 namespace blink {
 
 class HTMLCanvasElement;
-class XRLayer;
+class XRWebGLLayer;
 class XRRenderStateInit;
 
 class XRRenderState : public ScriptWrappable {
@@ -25,8 +25,10 @@ class XRRenderState : public ScriptWrappable {
   // Session's views.
   double depthNear() const { return depth_near_; }
   double depthFar() const { return depth_far_; }
-  double inlineVerticalFieldOfView(bool& is_null) const;
-  XRLayer* baseLayer() const { return base_layer_; }
+  base::Optional<double> inlineVerticalFieldOfView() const;
+  // TODO(crbug.com/1060971): Remove |is_null| version.
+  double inlineVerticalFieldOfView(bool& is_null) const;  // DEPRECATED
+  XRWebGLLayer* baseLayer() const { return base_layer_; }
 
   HTMLCanvasElement* output_canvas() const;
 
@@ -36,13 +38,13 @@ class XRRenderState : public ScriptWrappable {
   // bound to a different session.
   void removeOutputContext();
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
 
  private:
   bool immersive_;
   double depth_near_ = 0.1;
   double depth_far_ = 1000.0;
-  Member<XRLayer> base_layer_;
+  Member<XRWebGLLayer> base_layer_;
   base::Optional<double> inline_vertical_fov_;
 };
 

@@ -42,11 +42,14 @@
 #include <QtWaylandCompositor/private/qwlclientbufferintegration_p.h>
 #include <QtWaylandCompositor/private/qwaylandsurface_p.h>
 
+#if QT_CONFIG(opengl)
+#  include <QtGui/QOpenGLTexture>
+#  include <QtGui/QOpenGLFunctions>
+#endif
+
 #include <QtGui/QKeyEvent>
 #include <QtGui/QGuiApplication>
 #include <QtGui/QScreen>
-#include <QtGui/QOpenGLFunctions>
-#include <QtGui/QOpenGLTexture>
 
 #include <QtQuick/QSGSimpleTextureNode>
 #include <QtQuick/QQuickWindow>
@@ -74,7 +77,7 @@ static const struct {
     QSGMaterialType materialType;
 } bufferTypes[] = {
     // BufferFormatEgl_Null
-    { "", "", 0, 0, false, 0, {} },
+    { "", "", 0, 0, false, {}, {} },
 
     // BufferFormatEgl_RGB
     {
@@ -289,8 +292,9 @@ public:
                 }
 
                 auto texture = buffer.toOpenGLTexture();
+                GLuint textureId = texture->textureId();
                 auto size = surface->bufferSize();
-                m_sgTex = surfaceItem->window()->createTextureFromId(texture->textureId(), size, opt);
+                m_sgTex = surfaceItem->window()->createTextureFromNativeObject(QQuickWindow::NativeObjectTexture, &textureId, 0, size, opt);
 #else
                 qCWarning(qLcWaylandCompositor) << "Without OpenGL support only shared memory textures are supported";
 #endif
@@ -412,11 +416,14 @@ QWaylandSurface *QWaylandQuickItem::surface() const
 void QWaylandQuickItem::setSurface(QWaylandSurface *surface)
 {
     Q_D(QWaylandQuickItem);
+    QWaylandSurface *oldSurf = d->view->surface();
     QWaylandCompositor *oldComp = d->view->surface() ? d->view->surface()->compositor() : nullptr;
     d->view->setSurface(surface);
     QWaylandCompositor *newComp = d->view->surface() ? d->view->surface()->compositor() : nullptr;
     if (oldComp != newComp)
         emit compositorChanged();
+    if (oldSurf != surface)
+        emit surfaceChanged();
     update();
 }
 
@@ -1199,7 +1206,12 @@ bool QWaylandQuickItem::paintEnabled() const
 void QWaylandQuickItem::setPaintEnabled(bool enabled)
 {
     Q_D(QWaylandQuickItem);
-    d->paintEnabled = enabled;
+
+    if (enabled != d->paintEnabled) {
+        d->paintEnabled = enabled;
+        emit paintEnabledChanged();
+    }
+
     update();
 }
 

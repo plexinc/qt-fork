@@ -106,9 +106,16 @@ void MimeHandlerViewEmbedder::DidFinishNavigation(
 
 void MimeHandlerViewEmbedder::RenderFrameCreated(
     content::RenderFrameHost* render_frame_host) {
+  // If an extension injects a frame before we finish attaching the PDF's
+  // iframe, then we don't want to early out by mistake. We also put an
+  // unguessable name element on the <embed> to guard against the possibility
+  // that someone injects an <embed>, but that can be done in a separate CL.
   if (!render_frame_host_ ||
       render_frame_host_ != render_frame_host->GetParent() ||
-      render_frame_host_->GetLastCommittedURL() != resource_url_) {
+      render_frame_host_->GetLastCommittedURL() != resource_url_ ||
+      render_frame_host->GetFrameOwnerElementType() !=
+          blink::FrameOwnerElementType::kEmbed ||
+      render_frame_host->GetFrameName() != internal_id_) {
     return;
   }
   if (!ready_to_create_mime_handler_view_) {
@@ -143,7 +150,8 @@ void MimeHandlerViewEmbedder::FrameDeleted(
 }
 
 void MimeHandlerViewEmbedder::CreateMimeHandlerViewGuest(
-    mime_handler::BeforeUnloadControlPtr before_unload_control) {
+    mojo::PendingRemote<mime_handler::BeforeUnloadControl>
+        before_unload_control) {
   auto* browser_context = web_contents()->GetBrowserContext();
   auto* manager =
       guest_view::GuestViewManager::FromBrowserContext(browser_context);
@@ -153,7 +161,7 @@ void MimeHandlerViewEmbedder::CreateMimeHandlerViewGuest(
         ExtensionsAPIClient::Get()->CreateGuestViewManagerDelegate(
             browser_context));
   }
-  pending_before_unload_control_ = before_unload_control.PassInterface();
+  pending_before_unload_control_ = std::move(before_unload_control);
   base::DictionaryValue create_params;
   create_params.SetString(mime_handler_view::kViewId, stream_id_);
   manager->CreateGuest(
@@ -220,8 +228,8 @@ void MimeHandlerViewEmbedder::CheckSandboxFlags() {
   // If the FrameTreeNode is deleted while it has ownership of the ongoing
   // NavigationRequest, DidFinishNavigation is called before FrameDeleted (see
   // https://crbug.com/969840).
-  if (render_frame_host_ &&
-      !render_frame_host_->IsSandboxed(blink::WebSandboxFlags::kPlugins)) {
+  if (render_frame_host_ && !render_frame_host_->IsSandboxed(
+                                blink::mojom::WebSandboxFlags::kPlugins)) {
     return;
   }
   if (render_frame_host_) {

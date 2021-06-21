@@ -10,6 +10,7 @@
 
 #include "include/private/GrTypesPriv.h"
 #include "src/gpu/GrCaps.h"
+#include "src/gpu/GrNativeRect.h"
 #include "src/gpu/GrSurfaceProxy.h"
 #include "src/gpu/GrSwizzle.h"
 
@@ -30,7 +31,7 @@ public:
 
     bool canUseMixedSamples(const GrCaps& caps) const {
         return caps.mixedSamplesSupport() && !this->glRTFBOIDIs0() &&
-               caps.internalMultisampleCount(this->config()) > 0 &&
+               caps.internalMultisampleCount(this->backendFormat()) > 0 &&
                this->canChangeStencilAttachment();
     }
 
@@ -41,14 +42,11 @@ public:
      */
     void setNeedsStencil(int8_t numStencilSamples) {
         SkASSERT(numStencilSamples >= fSampleCnt);
-        fNumStencilSamples = SkTMax(numStencilSamples, fNumStencilSamples);
+        fNumStencilSamples = std::max(numStencilSamples, fNumStencilSamples);
     }
 
     /**
-     * Returns the number of stencil samples required by this proxy.
-     * NOTE: Once instantiated, the actual render target may have more samples, but it is guaranteed
-     * to have at least this many. (After a multisample stencil buffer has been attached to a render
-     * target, we never "downgrade" it to one with fewer samples.)
+     * Returns the number of stencil samples this proxy will use, or 0 if it does not use stencil.
      */
     int numStencilSamples() const { return fNumStencilSamples; }
 
@@ -59,9 +57,27 @@ public:
 
     int maxWindowRectangles(const GrCaps& caps) const;
 
-    const GrSwizzle& outputSwizzle() const { return fOutputSwizzle; }
-
     bool wrapsVkSecondaryCB() const { return fWrapsVkSecondaryCB == WrapsVkSecondaryCB::kYes; }
+
+    void markMSAADirty(const SkIRect& dirtyRect, GrSurfaceOrigin origin) {
+        SkASSERT(SkIRect::MakeSize(this->dimensions()).contains(dirtyRect));
+        SkASSERT(this->requiresManualMSAAResolve());
+        auto nativeRect = GrNativeRect::MakeRelativeTo(
+                origin, this->backingStoreDimensions().height(), dirtyRect);
+        fMSAADirtyRect.join(nativeRect.asSkIRect());
+    }
+    void markMSAAResolved() {
+        SkASSERT(this->requiresManualMSAAResolve());
+        fMSAADirtyRect.setEmpty();
+    }
+    bool isMSAADirty() const {
+        SkASSERT(fMSAADirtyRect.isEmpty() || this->requiresManualMSAAResolve());
+        return this->requiresManualMSAAResolve() && !fMSAADirtyRect.isEmpty();
+    }
+    const SkIRect& msaaDirtyRect() const {
+        SkASSERT(this->requiresManualMSAAResolve());
+        return fMSAADirtyRect;
+    }
 
     // TODO: move this to a priv class!
     bool refsWrappedObjects() const;
@@ -75,10 +91,15 @@ protected:
     friend class GrRenderTargetProxyPriv;
 
     // Deferred version
-    GrRenderTargetProxy(const GrCaps&, const GrBackendFormat&, const GrSurfaceDesc&,
-                        int sampleCount, GrSurfaceOrigin, const GrSwizzle& textureSwizzle,
-                        const GrSwizzle& outputSwizzle, SkBackingFit, SkBudgeted, GrProtected,
-                        GrInternalSurfaceFlags);
+    GrRenderTargetProxy(const GrCaps&,
+                        const GrBackendFormat&,
+                        SkISize,
+                        int sampleCount,
+                        SkBackingFit,
+                        SkBudgeted,
+                        GrProtected,
+                        GrInternalSurfaceFlags,
+                        UseAllocator);
 
     enum class WrapsVkSecondaryCB : bool { kNo = false, kYes = true };
 
@@ -92,16 +113,21 @@ protected:
     //
     // The minimal knowledge version is used for CCPR where we are generating an atlas but we do not
     // know the final size until flush time.
-    GrRenderTargetProxy(LazyInstantiateCallback&&, LazyInstantiationType lazyType,
-                        const GrBackendFormat&, const GrSurfaceDesc&, int sampleCount,
-                        GrSurfaceOrigin, const GrSwizzle& textureSwizzle,
-                        const GrSwizzle& outputSwizzle, SkBackingFit, SkBudgeted, GrProtected,
-                        GrInternalSurfaceFlags, WrapsVkSecondaryCB wrapsVkSecondaryCB);
+    GrRenderTargetProxy(LazyInstantiateCallback&&,
+                        const GrBackendFormat&,
+                        SkISize,
+                        int sampleCount,
+                        SkBackingFit,
+                        SkBudgeted,
+                        GrProtected,
+                        GrInternalSurfaceFlags,
+                        UseAllocator,
+                        WrapsVkSecondaryCB);
 
     // Wrapped version
-    GrRenderTargetProxy(sk_sp<GrSurface>, GrSurfaceOrigin, const GrSwizzle& textureSwizzle,
-                        const GrSwizzle& outputSwizzle,
-                        WrapsVkSecondaryCB wrapsVkSecondaryCB = WrapsVkSecondaryCB::kNo);
+    GrRenderTargetProxy(sk_sp<GrSurface>,
+                        UseAllocator,
+                        WrapsVkSecondaryCB = WrapsVkSecondaryCB::kNo);
 
     sk_sp<GrSurface> createSurface(GrResourceProvider*) const override;
 
@@ -114,7 +140,7 @@ private:
     }
     bool canChangeStencilAttachment() const;
 
-    size_t onUninstantiatedGpuMemorySize() const override;
+    size_t onUninstantiatedGpuMemorySize(const GrCaps&) const override;
     SkDEBUGCODE(void onValidateSurface(const GrSurface*) override;)
 
     // WARNING: Be careful when adding or removing fields here. ASAN is likely to trigger warnings
@@ -127,17 +153,14 @@ private:
     int8_t             fSampleCnt;
     int8_t             fNumStencilSamples = 0;
     WrapsVkSecondaryCB fWrapsVkSecondaryCB;
-    GrSwizzle          fOutputSwizzle;
-    // This is to fix issue in large comment above. Without the padding we end 6 bytes into a 16
-    // byte range, so the GrTextureProxy ends up starting 8 byte aligned by not 16. We add the
-    // padding here to get us right up to the 16 byte alignment (technically any padding of 3-10
-    // bytes would work since it always goes up to 8 byte alignment, but we use 10 to more explicit
-    // about what we're doing).
-    char               fDummyPadding[10];
-
-    // For wrapped render targets the actual GrRenderTarget is stored in the GrIORefProxy class.
-    // For deferred proxies that pointer is filled in when we need to instantiate the
-    // deferred resource.
+    SkIRect            fMSAADirtyRect = SkIRect::MakeEmpty();
+    // This is to fix issue in large comment above. Without the padding we can end up with the
+    // GrTextureProxy starting 8 byte aligned by not 16. This happens when the RT ends at bytes 1-8.
+    // Note: with the virtual inheritance an 8 byte pointer is at the start of GrRenderTargetProxy.
+    //
+    // In the current world we end the RT proxy at 12 bytes. Technically any padding between 0-4
+    // will work, but we use 4 to be more explicit about getting it to 16 byte alignment.
+    char               fDummyPadding[4];
 
     typedef GrSurfaceProxy INHERITED;
 };

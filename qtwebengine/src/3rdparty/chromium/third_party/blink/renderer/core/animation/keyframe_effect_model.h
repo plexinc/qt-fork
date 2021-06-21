@@ -91,7 +91,7 @@ class CORE_EXPORT KeyframeEffectModelBase : public EffectModel {
   void SetFrames(HeapVector<K>& keyframes);
 
   CompositeOperation Composite() const { return composite_; }
-  void SetComposite(CompositeOperation composite) { composite_ = composite; }
+  void SetComposite(CompositeOperation composite);
 
   const PropertySpecificKeyframeVector* GetPropertySpecificKeyframes(
       const PropertyHandle& property) const {
@@ -170,6 +170,9 @@ class CORE_EXPORT KeyframeEffectModelBase : public EffectModel {
   void EnsureKeyframeGroups() const;
   void EnsureInterpolationEffectPopulated() const;
 
+  // Clears the various bits of cached data that this class has.
+  void ClearCachedData();
+
   using ShouldSnapshotPropertyCallback =
       std::function<bool(const PropertyHandle&)>;
   using ShouldSnapshotKeyframeCallback =
@@ -231,6 +234,12 @@ class KeyframeEffectModel final : public KeyframeEffectModelBase {
         keyframes, composite_, default_keyframe_easing_);
   }
 
+  KeyframeEffectModel<StringKeyframe>* CloneAsEmptyStringKeyframeModel() {
+    HeapVector<Member<StringKeyframe>> empty_keyframes;
+    return MakeGarbageCollected<KeyframeEffectModel<StringKeyframe>>(
+        empty_keyframes, composite_, default_keyframe_easing_);
+  }
+
  private:
   bool IsStringKeyframeEffectModel() const override { return false; }
   bool IsTransitionKeyframeEffectModel() const override { return false; }
@@ -250,35 +259,38 @@ using TransitionKeyframeVector = TransitionKeyframeEffectModel::KeyframeVector;
 using TransitionPropertySpecificKeyframeVector =
     TransitionKeyframeEffectModel::PropertySpecificKeyframeVector;
 
-DEFINE_TYPE_CASTS(KeyframeEffectModelBase,
-                  EffectModel,
-                  value,
-                  value->IsKeyframeEffectModel(),
-                  value.IsKeyframeEffectModel());
-DEFINE_TYPE_CASTS(StringKeyframeEffectModel,
-                  KeyframeEffectModelBase,
-                  value,
-                  value->IsStringKeyframeEffectModel(),
-                  value.IsStringKeyframeEffectModel());
-DEFINE_TYPE_CASTS(TransitionKeyframeEffectModel,
-                  KeyframeEffectModelBase,
-                  value,
-                  value->IsTransitionKeyframeEffectModel(),
-                  value.IsTransitionKeyframeEffectModel());
+template <>
+struct DowncastTraits<KeyframeEffectModelBase> {
+  static bool AllowFrom(const EffectModel& value) {
+    return value.IsKeyframeEffectModel();
+  }
+};
+template <>
+struct DowncastTraits<StringKeyframeEffectModel> {
+  static bool AllowFrom(const KeyframeEffectModelBase& value) {
+    return value.IsStringKeyframeEffectModel();
+  }
+};
+template <>
+struct DowncastTraits<TransitionKeyframeEffectModel> {
+  static bool AllowFrom(const KeyframeEffectModelBase& value) {
+    return value.IsTransitionKeyframeEffectModel();
+  }
+};
 
 inline const StringKeyframeEffectModel* ToStringKeyframeEffectModel(
     const EffectModel* base) {
-  return ToStringKeyframeEffectModel(ToKeyframeEffectModelBase(base));
+  return To<StringKeyframeEffectModel>(To<KeyframeEffectModelBase>(base));
 }
 
 inline StringKeyframeEffectModel* ToStringKeyframeEffectModel(
     EffectModel* base) {
-  return ToStringKeyframeEffectModel(ToKeyframeEffectModelBase(base));
+  return To<StringKeyframeEffectModel>(To<KeyframeEffectModelBase>(base));
 }
 
 inline TransitionKeyframeEffectModel* ToTransitionKeyframeEffectModel(
     EffectModel* base) {
-  return ToTransitionKeyframeEffectModel(ToKeyframeEffectModelBase(base));
+  return To<TransitionKeyframeEffectModel>(To<KeyframeEffectModelBase>(base));
 }
 
 template <>

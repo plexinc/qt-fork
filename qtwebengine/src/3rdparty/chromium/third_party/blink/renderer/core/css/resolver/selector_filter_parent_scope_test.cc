@@ -33,6 +33,7 @@ TEST_F(SelectorFilterParentScopeTest, ParentScope) {
       GetDocument().EnsureStyleResolver().GetSelectorFilter();
   GetDocument().Lifecycle().AdvanceTo(DocumentLifecycle::kInStyleRecalc);
 
+  SelectorFilterRootScope root_scope(nullptr);
   SelectorFilterParentScope html_scope(*GetDocument().documentElement());
   {
     SelectorFilterParentScope body_scope(*GetDocument().body());
@@ -54,8 +55,8 @@ TEST_F(SelectorFilterParentScopeTest, ParentScope) {
   }
 }
 
-TEST_F(SelectorFilterParentScopeTest, AncestorScope) {
-  GetDocument().body()->SetInnerHTMLFromString(R"HTML(
+TEST_F(SelectorFilterParentScopeTest, RootScope) {
+  GetDocument().body()->setInnerHTML(R"HTML(
     <div class=x>
       <span id=y></span>
     </div>
@@ -64,7 +65,7 @@ TEST_F(SelectorFilterParentScopeTest, AncestorScope) {
       GetDocument().EnsureStyleResolver().GetSelectorFilter();
   GetDocument().Lifecycle().AdvanceTo(DocumentLifecycle::kInStyleRecalc);
 
-  SelectorFilterAncestorScope span_scope(*GetDocument().getElementById("y"));
+  SelectorFilterRootScope span_scope(GetDocument().getElementById("y"));
   SelectorFilterParentScope::EnsureParentStackIsPushed();
 
   CSSSelectorList selectors = CSSParser::ParseSelector(
@@ -80,6 +81,23 @@ TEST_F(SelectorFilterParentScopeTest, AncestorScope) {
     EXPECT_FALSE(
         filter.FastRejectSelector<max_identifier_hashes>(selector_hashes));
   }
+}
+
+TEST_F(SelectorFilterParentScopeTest, ReentrantSVGImageLoading) {
+  GetDocument().body()->setInnerHTML(R"HTML(
+    <style>
+      div::before {
+        content: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"></svg>');
+      }
+    </style>
+    <div></div>
+  )HTML");
+
+  // The SVG image is loaded synchronously from style recalc re-entering style
+  // recalc for the SVG image Document. Without supporting re-entrancy for
+  // SelectorFilterParentScope with a SelectorFilterRootScope, this update may
+  // cause DCHECKs to fail.
+  GetDocument().UpdateStyleAndLayoutTree();
 }
 
 }  // namespace blink

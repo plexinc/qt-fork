@@ -12,13 +12,17 @@
 #include "base/metrics/statistics_recorder.h"
 #include "base/rand_util.h"
 #include "base/strings/safe_sprintf.h"
+#include "base/strings/strcat.h"
 #include "base/task/post_task.h"
 #include "base/timer/timer.h"
+#include "base/trace_event/trace_event.h"
 #include "base/values.h"
-#include "components/tracing/common/background_tracing_agent.mojom.h"
 #include "content/browser/tracing/background_tracing_manager_impl.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
+#include "services/tracing/public/cpp/perfetto/macros.h"
+#include "services/tracing/public/mojom/background_tracing_agent.mojom.h"
+#include "third_party/perfetto/protos/perfetto/trace/track_event/chrome_histogram_sample.pbzero.h"
 
 namespace {
 
@@ -30,6 +34,7 @@ const char kConfigRuleTriggerChance[] = "trigger_chance";
 const char kConfigRuleStopTracingOnRepeatedReactive[] =
     "stop_tracing_on_repeated_reactive";
 const char kConfigRuleArgsKey[] = "args";
+const char kConfigRuleIdKey[] = "rule_id";
 
 const char kConfigRuleHistogramNameKey[] = "histogram_name";
 const char kConfigRuleHistogramValueOldKey[] = "histogram_value";
@@ -86,6 +91,10 @@ int BackgroundTracingRule::GetTraceDelay() const {
   return trigger_delay_;
 }
 
+std::string BackgroundTracingRule::GetDefaultRuleId() const {
+  return "org.chromium.background_tracing.trigger";
+}
+
 void BackgroundTracingRule::IntoDict(base::DictionaryValue* dict) const {
   DCHECK(dict);
   if (trigger_chance_ < 1.0)
@@ -97,6 +106,9 @@ void BackgroundTracingRule::IntoDict(base::DictionaryValue* dict) const {
   if (stop_tracing_on_repeated_reactive_) {
     dict->SetBoolean(kConfigRuleStopTracingOnRepeatedReactive,
                      stop_tracing_on_repeated_reactive_);
+  }
+  if (rule_id_ != GetDefaultRuleId()) {
+    dict->SetString(kConfigRuleIdKey, rule_id_);
   }
 
   if (category_preset_ != BackgroundTracingConfigImpl::CATEGORY_PRESET_UNSET) {
@@ -114,6 +126,11 @@ void BackgroundTracingRule::Setup(const base::DictionaryValue* dict) {
   dict->GetInteger(kConfigRuleTriggerDelay, &trigger_delay_);
   dict->GetBoolean(kConfigRuleStopTracingOnRepeatedReactive,
                    &stop_tracing_on_repeated_reactive_);
+  if (dict->HasKey(kConfigRuleIdKey)) {
+    dict->GetString(kConfigRuleIdKey, &rule_id_);
+  } else {
+    rule_id_ = GetDefaultRuleId();
+  }
 }
 
 namespace {
@@ -160,6 +177,11 @@ class NamedTriggerRule : public BackgroundTracingRule {
 
   bool ShouldTriggerNamedEvent(const std::string& named_event) const override {
     return named_event == named_event_;
+  }
+
+ protected:
+  std::string GetDefaultRuleId() const override {
+    return base::StrCat({"org.chromium.background_tracing.", named_event_});
   }
 
  private:
@@ -226,9 +248,10 @@ class HistogramRule : public BackgroundTracingRule,
   void Install() override {
     base::StatisticsRecorder::SetCallback(
         histogram_name_,
-        base::Bind(&HistogramRule::OnHistogramChangedCallback,
-                   base::Unretained(this), histogram_name_,
-                   histogram_lower_value_, histogram_upper_value_, repeat_));
+        base::BindRepeating(&HistogramRule::OnHistogramChangedCallback,
+                            base::Unretained(this), histogram_name_,
+                            histogram_lower_value_, histogram_upper_value_,
+                            repeat_));
 
     BackgroundTracingManagerImpl::GetInstance()->AddAgentObserver(this);
     installed_ = true;
@@ -260,7 +283,7 @@ class HistogramRule : public BackgroundTracingRule,
     if (histogram_name != histogram_name_)
       return;
 
-    base::PostTaskWithTraits(
+    base::PostTask(
         FROM_HERE, {content::BrowserThread::UI},
         base::BindOnce(
             &BackgroundTracingManagerImpl::OnRuleTriggered,
@@ -269,7 +292,7 @@ class HistogramRule : public BackgroundTracingRule,
   }
 
   void AbortTracing() {
-    base::PostTaskWithTraits(
+    base::PostTask(
         FROM_HERE, {content::BrowserThread::UI},
         base::BindOnce(
             &BackgroundTracingManagerImpl::AbortScenario,
@@ -304,11 +327,25 @@ class HistogramRule : public BackgroundTracingRule,
                          TRACE_EVENT_SCOPE_THREAD, "histogram_name",
                          histogram_name, "value", actual_value);
 
+    TRACE_EVENT(
+        "toplevel",
+        "HistogramSampleTrigger", [&](perfetto::EventContext ctx) {
+          perfetto::protos::pbzero::ChromeHistogramSample* new_sample =
+              ctx.event()->set_chrome_histogram_sample();
+          new_sample->set_name_hash(base::HashMetricName(histogram_name));
+          new_sample->set_sample(actual_value);
+        });
+
     OnHistogramTrigger(histogram_name);
   }
 
   bool ShouldTriggerNamedEvent(const std::string& named_event) const override {
     return named_event == histogram_name_;
+  }
+
+ protected:
+  std::string GetDefaultRuleId() const override {
+    return base::StrCat({"org.chromium.background_tracing.", histogram_name_});
   }
 
  private:
@@ -355,6 +392,11 @@ class TraceForNSOrTriggerOrFullRule : public BackgroundTracingRule {
 
   bool ShouldTriggerNamedEvent(const std::string& named_event) const override {
     return named_event == named_event_;
+  }
+
+ protected:
+  std::string GetDefaultRuleId() const override {
+    return base::StrCat({"org.chromium.background_tracing.", named_event_});
   }
 
  private:
@@ -417,8 +459,9 @@ class TraceAtRandomIntervalsRule : public BackgroundTracingRule {
 
   void OnTriggerTimer() {
     BackgroundTracingManagerImpl::GetInstance()->TriggerNamedEvent(
-        handle_, base::Bind(&TraceAtRandomIntervalsRule::OnStartedFinalizing,
-                            base::Unretained(this)));
+        handle_,
+        base::BindOnce(&TraceAtRandomIntervalsRule::OnStartedFinalizing,
+                       base::Unretained(this)));
   }
 
   void StartTimer() {

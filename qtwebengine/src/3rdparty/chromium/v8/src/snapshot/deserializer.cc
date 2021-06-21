@@ -22,7 +22,6 @@
 #include "src/objects/smi.h"
 #include "src/objects/string.h"
 #include "src/roots/roots.h"
-#include "src/snapshot/natives.h"
 #include "src/snapshot/snapshot.h"
 #include "src/tracing/trace-event.h"
 #include "src/tracing/traced-value.h"
@@ -102,6 +101,8 @@ void Deserializer::Synchronize(VisitorSynchronization::SyncTag tag) {
 }
 
 void Deserializer::DeserializeDeferredObjects() {
+  DisallowHeapAllocation no_gc;
+
   for (int code = source_.Get(); code != kSynchronize; code = source_.Get()) {
     switch (code) {
       case kAlignmentPrefix:
@@ -157,13 +158,6 @@ void Deserializer::LogScriptEvents(Script script) {
   LOG(isolate_,
       ScriptEvent(Logger::ScriptEventType::kDeserialize, script.id()));
   LOG(isolate_, ScriptDetails(script));
-  TRACE_EVENT_OBJECT_CREATED_WITH_ID(
-      TRACE_DISABLED_BY_DEFAULT("v8.compile"), "Script",
-      TRACE_ID_WITH_SCOPE("v8::internal::Script", script.id()));
-  TRACE_EVENT_OBJECT_SNAPSHOT_WITH_ID(
-      TRACE_DISABLED_BY_DEFAULT("v8.compile"), "Script",
-      TRACE_ID_WITH_SCOPE("v8::internal::Script", script.id()),
-      script.ToTracedValue());
 }
 
 StringTableInsertionKey::StringTableInsertionKey(String string)
@@ -191,8 +185,8 @@ namespace {
 
 String ForwardStringIfExists(Isolate* isolate, StringTableInsertionKey* key) {
   StringTable table = isolate->heap()->string_table();
-  int entry = table.FindEntry(isolate, key);
-  if (entry == kNotFound) return String();
+  InternalIndex entry = table.FindEntry(isolate, key);
+  if (entry.is_not_found()) return String();
 
   String canonical = String::cast(table.KeyAt(entry));
   DCHECK_NE(canonical, key->string());
@@ -204,6 +198,8 @@ String ForwardStringIfExists(Isolate* isolate, StringTableInsertionKey* key) {
 
 HeapObject Deserializer::PostProcessNewObject(HeapObject obj,
                                               SnapshotSpace space) {
+  DisallowHeapAllocation no_gc;
+
   if ((FLAG_rehash_snapshot && can_rehash_) || deserializing_user_code()) {
     if (obj.IsString()) {
       // Uninitialize hash field as we need to recompute the hash.
@@ -267,47 +263,47 @@ HeapObject Deserializer::PostProcessNewObject(HeapObject obj,
     call_handler_infos_.push_back(CallHandlerInfo::cast(obj));
 #endif
   } else if (obj.IsExternalString()) {
-    if (obj.map() == ReadOnlyRoots(isolate_).native_source_string_map()) {
-      ExternalOneByteString string = ExternalOneByteString::cast(obj);
-      DCHECK(string.is_uncached());
-      string.SetResource(
-          isolate_, NativesExternalStringResource::DecodeForDeserialization(
-                        string.resource()));
-    } else {
-      ExternalString string = ExternalString::cast(obj);
-      uint32_t index = string.resource_as_uint32();
-      Address address =
-          static_cast<Address>(isolate_->api_external_references()[index]);
-      string.set_address_as_resource(address);
-      isolate_->heap()->UpdateExternalString(string, 0,
-                                             string.ExternalPayloadSize());
-    }
+    ExternalString string = ExternalString::cast(obj);
+    uint32_t index = string.resource_as_uint32();
+    Address address =
+        static_cast<Address>(isolate_->api_external_references()[index]);
+    string.set_address_as_resource(address);
+    isolate_->heap()->UpdateExternalString(string, 0,
+                                           string.ExternalPayloadSize());
     isolate_->heap()->RegisterExternalString(String::cast(obj));
   } else if (obj.IsJSDataView()) {
     JSDataView data_view = JSDataView::cast(obj);
     JSArrayBuffer buffer = JSArrayBuffer::cast(data_view.buffer());
-    data_view.set_data_pointer(
-        reinterpret_cast<uint8_t*>(buffer.backing_store()) +
-        data_view.byte_offset());
+    void* backing_store = nullptr;
+    if (buffer.backing_store() != nullptr) {
+      // The backing store of the JSArrayBuffer has not been correctly restored
+      // yet, as that may trigger GC. The backing_store field currently contains
+      // a numbered reference to an already deserialized backing store.
+      size_t store_index = reinterpret_cast<size_t>(buffer.backing_store());
+      backing_store = backing_stores_[store_index]->buffer_start();
+    }
+    data_view.set_data_pointer(reinterpret_cast<uint8_t*>(backing_store) +
+                               data_view.byte_offset());
   } else if (obj.IsJSTypedArray()) {
     JSTypedArray typed_array = JSTypedArray::cast(obj);
-    // Only fixup for the off-heap case.
-    if (!typed_array.is_on_heap()) {
-      Smi store_index(
-          reinterpret_cast<Address>(typed_array.external_pointer()));
-      byte* backing_store = off_heap_backing_stores_[store_index.value()] +
-                            typed_array.byte_offset();
-      typed_array.set_external_pointer(backing_store);
+    // Fixup typed array pointers.
+    if (typed_array.is_on_heap()) {
+      typed_array.SetOnHeapDataPtr(HeapObject::cast(typed_array.base_pointer()),
+                                   typed_array.external_pointer());
+    } else {
+      // Serializer writes backing store ref as a DataPtr() value.
+      size_t store_index = reinterpret_cast<size_t>(typed_array.DataPtr());
+      auto backing_store = backing_stores_[store_index];
+      auto start = backing_store
+                       ? reinterpret_cast<byte*>(backing_store->buffer_start())
+                       : nullptr;
+      typed_array.SetOffHeapDataPtr(start, typed_array.byte_offset());
     }
   } else if (obj.IsJSArrayBuffer()) {
     JSArrayBuffer buffer = JSArrayBuffer::cast(obj);
-    // Only fixup for the off-heap case.
+    // Postpone allocation of backing store to avoid triggering the GC.
     if (buffer.backing_store() != nullptr) {
-      Smi store_index(reinterpret_cast<Address>(buffer.backing_store()));
-      void* backing_store = off_heap_backing_stores_[store_index.value()];
-
-      buffer.set_backing_store(backing_store);
-      isolate_->heap()->RegisterNewArrayBuffer(buffer);
+      new_off_heap_array_buffers_.push_back(handle(buffer, isolate_));
     }
   } else if (obj.IsBytecodeArray()) {
     // TODO(mythria): Remove these once we store the default values for these
@@ -382,6 +378,8 @@ HeapObject Deserializer::ReadObject() {
 }
 
 HeapObject Deserializer::ReadObject(SnapshotSpace space) {
+  DisallowHeapAllocation no_gc;
+
   const int size = source_.GetInt() << kObjectAlignmentBits;
 
   Address address = allocator()->Allocate(space, size);
@@ -398,7 +396,8 @@ HeapObject Deserializer::ReadObject(SnapshotSpace space) {
 
 #ifdef DEBUG
   if (obj.IsCode()) {
-    DCHECK_EQ(space, SnapshotSpace::kCode);
+    DCHECK(space == SnapshotSpace::kCode ||
+           space == SnapshotSpace::kReadOnlyHeap);
   } else {
     DCHECK_NE(space, SnapshotSpace::kCode);
   }
@@ -471,7 +470,6 @@ void Deserializer::VisitInternalReference(Code host, RelocInfo* rinfo) {
 }
 
 void Deserializer::VisitOffHeapTarget(Code host, RelocInfo* rinfo) {
-  DCHECK(FLAG_embedded_builtins);
   byte data = source_.Get();
   CHECK_EQ(data, kOffHeapTarget);
 
@@ -523,9 +521,10 @@ bool Deserializer::ReadData(TSlot current, TSlot limit,
   // Write barrier support costs around 1% in startup time.  In fact there
   // are no new space objects in current boot snapshots, so it's not needed,
   // but that may change.
-  bool write_barrier_needed = (current_object_address != kNullAddress &&
-                               source_space != SnapshotSpace::kNew &&
-                               source_space != SnapshotSpace::kCode);
+  bool write_barrier_needed =
+      (current_object_address != kNullAddress &&
+       source_space != SnapshotSpace::kNew &&
+       source_space != SnapshotSpace::kCode && !FLAG_disable_write_barriers);
   while (current < limit) {
     byte data = source_.Get();
     switch (data) {
@@ -668,13 +667,14 @@ bool Deserializer::ReadData(TSlot current, TSlot limit,
       }
 
       case kOffHeapBackingStore: {
+        AlwaysAllocateScope scope(isolate->heap());
         int byte_length = source_.GetInt();
-        byte* backing_store = static_cast<byte*>(
-            isolate->array_buffer_allocator()->AllocateUninitialized(
-                byte_length));
+        std::unique_ptr<BackingStore> backing_store =
+            BackingStore::Allocate(isolate, byte_length, SharedFlag::kNotShared,
+                                   InitializedFlag::kUninitialized);
         CHECK_NOT_NULL(backing_store);
-        source_.CopyRaw(backing_store, byte_length);
-        off_heap_backing_stores_.push_back(backing_store);
+        source_.CopyRaw(backing_store->buffer_start(), byte_length);
+        backing_stores_.push_back(std::move(backing_store));
         break;
       }
 
@@ -755,8 +755,36 @@ bool Deserializer::ReadData(TSlot current, TSlot limit,
       STATIC_ASSERT(kNumberOfFixedRawData == 32);
       SIXTEEN_CASES(kFixedRawData)
       SIXTEEN_CASES(kFixedRawData + 16) {
-        int size_in_tagged = data - kFixedRawDataStart;
-        source_.CopyRaw(current.ToVoidPtr(), size_in_tagged * kTaggedSize);
+        // This bytecode has become very confusing with recent changes due to
+        // pointer compression. From comments and variable names it implies that
+        // the length unit is words/kPointerSize, but the unit is actually
+        // kTaggedSize since https://chromium-review.googlesource.com/c/1388529.
+        //
+        // Also, contents can be (tagged) Smis or just a raw byte sequence. In
+        // the case of Smis we must be careful when deserializing into full
+        // object slots. It is not valid to deserialize a sequence of >1 Smis
+        // into full object slots in compressed pointer builds.
+        //
+        // Likewise one must pay attention to endianness when deserializing a
+        // smi into a full object slot. That is what the code below is trying to
+        // address.
+        //
+        // The solution below works because we currently never deserialize >1
+        // Smi into full object slots, or raw byte sequences into full object
+        // slots. But those assumptions are fragile.
+        //
+        const int size_in_tagged = data - kFixedRawDataStart;
+        const int size_in_bytes = size_in_tagged * kTaggedSize;
+        Address addr = current.address();
+        DCHECK_IMPLIES(kTaggedSize != TSlot::kSlotDataSize,
+                       size_in_tagged == 1);
+#ifdef V8_TARGET_BIG_ENDIAN
+        if (kTaggedSize != TSlot::kSlotDataSize) {
+          // Should only be reached when deserializing a Smi root.
+          addr += kTaggedSize;
+        }
+#endif
+        source_.CopyRaw(reinterpret_cast<void*>(addr), size_in_bytes);
         current += size_in_tagged;
         break;
       }
@@ -842,6 +870,7 @@ TSlot Deserializer::ReadDataCase(Isolate* isolate, TSlot current,
   // Don't update current pointer here as it may be needed for write barrier.
   Write(current, heap_object_ref);
   if (emit_write_barrier && write_barrier_needed) {
+    DCHECK_IMPLIES(FLAG_disable_write_barriers, !write_barrier_needed);
     HeapObject host_object = HeapObject::FromAddress(current_object_address);
     SLOW_DCHECK(isolate->heap()->Contains(host_object));
     GenerationalBarrier(host_object, MaybeObjectSlot(current.address()),

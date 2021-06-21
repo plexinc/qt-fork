@@ -1,25 +1,30 @@
 //
-// Copyright (c) 2015 The ANGLE Project Authors. All rights reserved.
+// Copyright 2015 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
 
 // DisplayCGL.mm: CGL implementation of egl::Display
 
-#include "libANGLE/renderer/gl/cgl/DisplayCGL.h"
+#include "common/platform.h"
 
-#import <Cocoa/Cocoa.h>
-#include <EGL/eglext.h>
-#include <dlfcn.h>
+#if defined(ANGLE_PLATFORM_MACOS) || defined(ANGLE_PLATFORM_MACCATALYST)
 
-#include "common/debug.h"
-#include "gpu_info_util/SystemInfo.h"
-#include "libANGLE/Display.h"
-#include "libANGLE/renderer/gl/cgl/ContextCGL.h"
-#include "libANGLE/renderer/gl/cgl/IOSurfaceSurfaceCGL.h"
-#include "libANGLE/renderer/gl/cgl/PbufferSurfaceCGL.h"
-#include "libANGLE/renderer/gl/cgl/RendererCGL.h"
-#include "libANGLE/renderer/gl/cgl/WindowSurfaceCGL.h"
+#    include "libANGLE/renderer/gl/cgl/DisplayCGL.h"
+
+#    import <Cocoa/Cocoa.h>
+#    include <EGL/eglext.h>
+#    include <dlfcn.h>
+
+#    include "common/debug.h"
+#    include "gpu_info_util/SystemInfo.h"
+#    include "libANGLE/Display.h"
+#    include "libANGLE/renderer/gl/cgl/ContextCGL.h"
+#    include "libANGLE/renderer/gl/cgl/DeviceCGL.h"
+#    include "libANGLE/renderer/gl/cgl/IOSurfaceSurfaceCGL.h"
+#    include "libANGLE/renderer/gl/cgl/PbufferSurfaceCGL.h"
+#    include "libANGLE/renderer/gl/cgl/RendererCGL.h"
+#    include "libANGLE/renderer/gl/cgl/WindowSurfaceCGL.h"
 
 namespace
 {
@@ -77,10 +82,7 @@ egl::Error DisplayCGL::initialize(egl::Display *display)
         std::vector<CGLPixelFormatAttribute> attribs;
         attribs.push_back(kCGLPFAOpenGLProfile);
         attribs.push_back(static_cast<CGLPixelFormatAttribute>(kCGLOGLPVersion_3_2_Core));
-        if (mSupportsGPUSwitching)
-        {
-            attribs.push_back(kCGLPFAAllowOfflineRenderers);
-        }
+        attribs.push_back(kCGLPFAAllowOfflineRenderers);
         attribs.push_back(static_cast<CGLPixelFormatAttribute>(0));
         GLint nVirtualScreens = 0;
         CGLChoosePixelFormat(attribs.data(), &mPixelFormat, &nVirtualScreens);
@@ -207,8 +209,7 @@ ContextImpl *DisplayCGL::createContext(const gl::State &state,
 
 DeviceImpl *DisplayCGL::createDevice()
 {
-    UNIMPLEMENTED();
-    return nullptr;
+    return new DeviceCGL();
 }
 
 egl::ConfigSet DisplayCGL::generateConfigs()
@@ -258,6 +259,8 @@ egl::ConfigSet DisplayCGL::generateConfigs()
     config.bindToTextureRGB  = EGL_FALSE;
     config.bindToTextureRGBA = EGL_FALSE;
 
+    config.bindToTextureTarget = EGL_TEXTURE_RECTANGLE_ANGLE;
+
     config.surfaceType = EGL_WINDOW_BIT | EGL_PBUFFER_BIT;
 
     config.minSwapInterval = 1;
@@ -291,7 +294,7 @@ egl::Error DisplayCGL::restoreLostDevice(const egl::Display *display)
 
 bool DisplayCGL::isValidNativeWindow(EGLNativeWindowType window) const
 {
-    NSObject *layer = reinterpret_cast<NSObject *>(window);
+    NSObject *layer = (__bridge NSObject *)window;
     return [layer isKindOfClass:[CALayer class]];
 }
 
@@ -321,10 +324,16 @@ CGLContextObj DisplayCGL::getCGLContext() const
     return mContext;
 }
 
+CGLPixelFormatObj DisplayCGL::getCGLPixelFormat() const
+{
+    return mPixelFormat;
+}
+
 void DisplayCGL::generateExtensions(egl::DisplayExtensions *outExtensions) const
 {
     outExtensions->iosurfaceClientBuffer = true;
     outExtensions->surfacelessContext    = true;
+    outExtensions->deviceQuery           = true;
 
     // Contexts are virtualized so textures can be shared globally
     outExtensions->displayTextureShareGroup = true;
@@ -437,3 +446,5 @@ void DisplayCGL::populateFeatureList(angle::FeatureList *features)
     mRenderer->getFeatures().populateFeatureList(features);
 }
 }
+
+#endif  // defined(ANGLE_PLATFORM_MACOS) || defined(ANGLE_PLATFORM_MACCATALYST)

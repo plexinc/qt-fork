@@ -33,7 +33,6 @@
 #include "third_party/blink/renderer/core/inspector/inspector_trace_events.h"
 #include "third_party/blink/renderer/core/probe/core_probes.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
-#include "third_party/blink/renderer/platform/wtf/time.h"
 
 namespace blink {
 
@@ -62,7 +61,7 @@ void DOMTimer::RemoveByID(ExecutionContext* context, int timeout_id) {
                        inspector_timer_remove_event::Data(context, timeout_id));
   // Eagerly unregister as ExecutionContext observer.
   if (timer)
-    timer->ClearContext();
+    timer->SetExecutionContext(nullptr);
 }
 
 DOMTimer::DOMTimer(ExecutionContext* context,
@@ -70,7 +69,7 @@ DOMTimer::DOMTimer(ExecutionContext* context,
                    base::TimeDelta interval,
                    bool single_shot,
                    int timeout_id)
-    : ContextLifecycleObserver(context),
+    : ExecutionContextLifecycleObserver(context),
       TimerBase(context->GetTaskRunner(TaskType::kJavascriptTimer)),
       timeout_id_(timeout_id),
       nesting_level_(context->Timers()->TimerNestingLevel() + 1),
@@ -92,7 +91,7 @@ DOMTimer::DOMTimer(ExecutionContext* context,
                        inspector_timer_install_event::Data(
                            context, timeout_id, interval, single_shot));
   probe::AsyncTaskScheduledBreakable(
-      context, single_shot ? "setTimeout" : "setInterval", this);
+      context, single_shot ? "setTimeout" : "setInterval", &async_task_id_);
 }
 
 DOMTimer::~DOMTimer() = default;
@@ -108,7 +107,7 @@ void DOMTimer::Stop() {
   const bool is_interval = !RepeatInterval().is_zero();
   probe::AsyncTaskCanceledBreakable(
       GetExecutionContext(), is_interval ? "clearInterval" : "clearTimeout",
-      this);
+      &async_task_id_);
 
   // Need to release JS objects potentially protected by ScheduledAction
   // because they can form circular references back to the ExecutionContext
@@ -119,7 +118,7 @@ void DOMTimer::Stop() {
   TimerBase::Stop();
 }
 
-void DOMTimer::ContextDestroyed(ExecutionContext*) {
+void DOMTimer::ContextDestroyed() {
   Stop();
 }
 
@@ -136,7 +135,8 @@ void DOMTimer::Fired() {
   const bool is_interval = !RepeatInterval().is_zero();
   probe::UserCallback probe(context, is_interval ? "setInterval" : "setTimeout",
                             g_null_atom, true);
-  probe::AsyncTask async_task(context, this, is_interval ? "fired" : nullptr);
+  probe::AsyncTask async_task(context, &async_task_id_,
+                              is_interval ? "fired" : nullptr);
 
   // Simple case for non-one-shot timers.
   if (IsActive()) {
@@ -171,16 +171,12 @@ void DOMTimer::Fired() {
 
   execution_context->Timers()->SetTimerNestingLevel(0);
   // Eagerly unregister as ExecutionContext observer.
-  ClearContext();
+  SetExecutionContext(nullptr);
 }
 
-scoped_refptr<base::SingleThreadTaskRunner> DOMTimer::TimerTaskRunner() const {
-  return GetExecutionContext()->Timers()->TimerTaskRunner();
-}
-
-void DOMTimer::Trace(blink::Visitor* visitor) {
+void DOMTimer::Trace(Visitor* visitor) {
   visitor->Trace(action_);
-  ContextLifecycleObserver::Trace(visitor);
+  ExecutionContextLifecycleObserver::Trace(visitor);
 }
 
 }  // namespace blink

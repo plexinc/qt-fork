@@ -17,13 +17,13 @@
 #include "src/core/SkColorSpacePriv.h"
 #include "src/core/SkImagePriv.h"
 #include "src/core/SkMD5.h"
-#include "src/core/SkMakeUnique.h"
 #include "src/core/SkOSFile.h"
 #include "src/core/SkScan.h"
 #include "src/core/SkTaskGroup.h"
 #include "src/gpu/GrContextPriv.h"
 #include "src/gpu/GrGpu.h"
 #include "src/gpu/GrPersistentCacheUtils.h"
+#include "src/gpu/GrShaderUtils.h"
 #include "src/gpu/ccpr/GrCoverageCountingPathRenderer.h"
 #include "src/utils/SkJSONWriter.h"
 #include "src/utils/SkOSPath.h"
@@ -38,11 +38,12 @@
 #include "tools/viewer/ParticlesSlide.h"
 #include "tools/viewer/SKPSlide.h"
 #include "tools/viewer/SampleSlide.h"
+#include "tools/viewer/SkSLSlide.h"
 #include "tools/viewer/SlideDir.h"
 #include "tools/viewer/SvgSlide.h"
 #include "tools/viewer/Viewer.h"
 
-#include <stdlib.h>
+#include <cstdlib>
 #include <map>
 
 #include "imgui.h"
@@ -81,10 +82,12 @@ Application* Application::Create(int argc, char** argv, void* platformData) {
 static DEFINE_string(slide, "", "Start on this sample.");
 static DEFINE_bool(list, false, "List samples?");
 
-#ifdef SK_VULKAN
+#if defined(SK_VULKAN)
 #    define BACKENDS_STR "\"sw\", \"gl\", and \"vk\""
 #elif defined(SK_METAL) && defined(SK_BUILD_FOR_MAC)
 #    define BACKENDS_STR "\"sw\", \"gl\", and \"mtl\""
+#elif defined(SK_DAWN)
+#    define BACKENDS_STR "\"sw\", \"gl\", and \"dawn\""
 #else
 #    define BACKENDS_STR "\"sw\" and \"gl\""
 #endif
@@ -92,9 +95,6 @@ static DEFINE_bool(list, false, "List samples?");
 static DEFINE_string2(backend, b, "sw", "Backend to use. Allowed values are " BACKENDS_STR ".");
 
 static DEFINE_int(msaa, 1, "Number of subpixel samples. 0 for no HW antialiasing.");
-
-static DEFINE_int(internalSamples, 4,
-                  "Number of samples for internal draws that use MSAA or mixed samples.");
 
 static DEFINE_string(bisect, "", "Path to a .skp or .svg file to bisect.");
 
@@ -127,22 +127,38 @@ static DEFINE_int_2(threads, j, -1,
                "Run threadsafe tests on a threadpool with this many extra threads, "
                "defaulting to one extra thread per core.");
 
+static DEFINE_bool(redraw, false, "Toggle continuous redraw.");
+
+static DEFINE_bool(offscreen, false, "Force rendering to an offscreen surface.");
+static DEFINE_bool(skvm, false, "Try to use skvm blitters for raster.");
+
+#ifndef SK_GL
+static_assert(false, "viewer requires GL backend for raster.")
+#endif
 
 const char* kBackendTypeStrings[sk_app::Window::kBackendTypeCount] = {
     "OpenGL",
 #if SK_ANGLE && defined(SK_BUILD_FOR_WIN)
     "ANGLE",
 #endif
+#ifdef SK_DAWN
+    "Dawn",
+#endif
 #ifdef SK_VULKAN
     "Vulkan",
 #endif
-#if defined(SK_METAL) && defined(SK_BUILD_FOR_MAC)
+#ifdef SK_METAL
     "Metal",
 #endif
     "Raster"
 };
 
 static sk_app::Window::BackendType get_backend_type(const char* str) {
+#ifdef SK_DAWN
+    if (0 == strcmp(str, "dawn")) {
+        return sk_app::Window::kDawn_BackendType;
+    } else
+#endif
 #ifdef SK_VULKAN
     if (0 == strcmp(str, "vk")) {
         return sk_app::Window::kVulkan_BackendType;
@@ -153,10 +169,10 @@ static sk_app::Window::BackendType get_backend_type(const char* str) {
         return sk_app::Window::kANGLE_BackendType;
     } else
 #endif
-#if defined(SK_METAL) && defined(SK_BUILD_FOR_MAC)
-        if (0 == strcmp(str, "mtl")) {
-            return sk_app::Window::kMetal_BackendType;
-        } else
+#ifdef SK_METAL
+    if (0 == strcmp(str, "mtl")) {
+        return sk_app::Window::kMetal_BackendType;
+    } else
 #endif
     if (0 == strcmp(str, "gl")) {
         return sk_app::Window::kNativeGL_BackendType;
@@ -236,6 +252,8 @@ const char* kON = "ON";
 const char* kOFF = "OFF";
 const char* kRefreshStateName = "Refresh";
 
+extern bool gUseSkVMBlitter;
+
 Viewer::Viewer(int argc, char** argv, void* platformData)
     : fCurrentSlide(-1)
     , fRefresh(false)
@@ -265,11 +283,12 @@ Viewer::Viewer(int argc, char** argv, void* platformData)
 {
     SkGraphics::Init();
 
-    gPathRendererNames[GpuPathRenderers::kAll] = "All Path Renderers";
+    gPathRendererNames[GpuPathRenderers::kDefault] = "Default Path Renderers";
+    gPathRendererNames[GpuPathRenderers::kTessellation] = "Tessellation";
     gPathRendererNames[GpuPathRenderers::kStencilAndCover] = "NV_path_rendering";
     gPathRendererNames[GpuPathRenderers::kSmall] = "Small paths (cached sdf or alpha masks)";
     gPathRendererNames[GpuPathRenderers::kCoverageCounting] = "CCPR";
-    gPathRendererNames[GpuPathRenderers::kTessellating] = "Tessellating";
+    gPathRendererNames[GpuPathRenderers::kTriangulating] = "Triangulating";
     gPathRendererNames[GpuPathRenderers::kNone] = "Software masks";
 
     SkDebugf("Command line arguments: ");
@@ -283,6 +302,8 @@ Viewer::Viewer(int argc, char** argv, void* platformData)
     SetResourcePath("/data/local/tmp/resources");
 #endif
 
+    gUseSkVMBlitter = FLAGS_skvm;
+
     ToolUtils::SetDefaultFontMgr();
 
     initializeEventTracingForTools();
@@ -295,11 +316,12 @@ Viewer::Viewer(int argc, char** argv, void* platformData)
     displayParams.fMSAASampleCount = FLAGS_msaa;
     SetCtxOptionsFromCommonFlags(&displayParams.fGrContextOptions);
     displayParams.fGrContextOptions.fPersistentCache = &fPersistentCache;
-    displayParams.fGrContextOptions.fDisallowGLSLBinaryCaching = true;
+    displayParams.fGrContextOptions.fShaderCacheStrategy =
+            GrContextOptions::ShaderCacheStrategy::kBackendSource;
     displayParams.fGrContextOptions.fShaderErrorHandler = &gShaderErrorHandler;
     displayParams.fGrContextOptions.fSuppressPrints = true;
-    displayParams.fGrContextOptions.fInternalMultisampleCount = FLAGS_internalSamples;
     fWindow->setRequestedDisplayParams(displayParams);
+    fRefresh = FLAGS_redraw;
 
     // Configure timers
     fStatsLayer.setActive(false);
@@ -325,7 +347,7 @@ Viewer::Viewer(int argc, char** argv, void* platformData)
         fWindow->inval();
     });
     // Alias that to Backspace, to match SampleApp
-    fCommands.addCommand(Window::Key::kBack, "Backspace", "GUI", "Jump to slide picker", [this]() {
+    fCommands.addCommand(skui::Key::kBack, "Backspace", "GUI", "Jump to slide picker", [this]() {
         this->fShowImGuiDebugWindow = true;
         this->fShowSlidePicker = true;
         fWindow->inval();
@@ -371,21 +393,30 @@ Viewer::Viewer(int argc, char** argv, void* platformData)
                 this->setColorMode(ColorMode::kColorManagedF16);
                 break;
             case ColorMode::kColorManagedF16:
+                this->setColorMode(ColorMode::kColorManagedF16Norm);
+                break;
+            case ColorMode::kColorManagedF16Norm:
                 this->setColorMode(ColorMode::kLegacy);
                 break;
         }
     });
-    fCommands.addCommand(Window::Key::kRight, "Right", "Navigation", "Next slide", [this]() {
+    fCommands.addCommand('w', "Modes", "Toggle wireframe", [this]() {
+        DisplayParams params = fWindow->getRequestedDisplayParams();
+        params.fGrContextOptions.fWireframeMode = !params.fGrContextOptions.fWireframeMode;
+        fWindow->setRequestedDisplayParams(params);
+        fWindow->inval();
+    });
+    fCommands.addCommand(skui::Key::kRight, "Right", "Navigation", "Next slide", [this]() {
         this->setCurrentSlide(fCurrentSlide < fSlides.count() - 1 ? fCurrentSlide + 1 : 0);
     });
-    fCommands.addCommand(Window::Key::kLeft, "Left", "Navigation", "Previous slide", [this]() {
+    fCommands.addCommand(skui::Key::kLeft, "Left", "Navigation", "Previous slide", [this]() {
         this->setCurrentSlide(fCurrentSlide > 0 ? fCurrentSlide - 1 : fSlides.count() - 1);
     });
-    fCommands.addCommand(Window::Key::kUp, "Up", "Transform", "Zoom in", [this]() {
+    fCommands.addCommand(skui::Key::kUp, "Up", "Transform", "Zoom in", [this]() {
         this->changeZoomLevel(1.f / 32.f);
         fWindow->inval();
     });
-    fCommands.addCommand(Window::Key::kDown, "Down", "Transform", "Zoom out", [this]() {
+    fCommands.addCommand(skui::Key::kDown, "Down", "Transform", "Zoom out", [this]() {
         this->changeZoomLevel(-1.f / 32.f);
         fWindow->inval();
     });
@@ -542,6 +573,20 @@ Viewer::Viewer(int argc, char** argv, void* platformData)
         this->updateTitle();
         fWindow->inval();
     });
+    fCommands.addCommand('B', "Font", "Baseline Snapping", [this]() {
+        if (!fFontOverrides.fBaselineSnap) {
+            fFontOverrides.fBaselineSnap = true;
+            fFont.setBaselineSnap(false);
+        } else {
+            if (!fFont.isBaselineSnap()) {
+                fFont.setBaselineSnap(true);
+            } else {
+                fFontOverrides.fBaselineSnap = false;
+            }
+        }
+        this->updateTitle();
+        fWindow->inval();
+    });
     fCommands.addCommand('p', "Transform", "Toggle Perspective Mode", [this]() {
         fPerspectiveMode = (kPerspective_Real == fPerspectiveMode) ? kPerspective_Fake
                                                                    : kPerspective_Real;
@@ -560,6 +605,16 @@ Viewer::Viewer(int argc, char** argv, void* platformData)
     fCommands.addCommand('u', "GUI", "Zoom UI", [this]() {
         fZoomUI = !fZoomUI;
         fStatsLayer.setDisplayScale(fZoomUI ? 2.0f : 1.0f);
+        fWindow->inval();
+    });
+    fCommands.addCommand('$', "ViaSerialize", "Toggle ViaSerialize", [this]() {
+        fDrawViaSerialize = !fDrawViaSerialize;
+        this->updateTitle();
+        fWindow->inval();
+    });
+    fCommands.addCommand('!', "SkVM", "Toggle SkVM", [this]() {
+        gUseSkVMBlitter = !gUseSkVMBlitter;
+        this->updateTitle();
         fWindow->inval();
     });
 
@@ -666,9 +721,9 @@ void Viewer::initSlides() {
     // GMs
     int firstGM = fSlides.count();
     for (skiagm::GMFactory gmFactory : skiagm::GMRegistry::Range()) {
-        std::unique_ptr<skiagm::GM> gm(gmFactory(nullptr));
+        std::unique_ptr<skiagm::GM> gm = gmFactory();
         if (!CommandLineFlags::ShouldSkip(FLAGS_match, gm->getName())) {
-            sk_sp<Slide> slide(new GMSlide(gm.release()));
+            sk_sp<Slide> slide(new GMSlide(std::move(gm)));
             fSlides.push_back(std::move(slide));
         }
     }
@@ -690,6 +745,14 @@ void Viewer::initSlides() {
     {
         // TODO: Convert this to a sample
         sk_sp<Slide> slide(new ParticlesSlide());
+        if (!CommandLineFlags::ShouldSkip(FLAGS_match, slide->getName().c_str())) {
+            fSlides.push_back(std::move(slide));
+        }
+    }
+
+    // Runtime shader editor
+    {
+        sk_sp<Slide> slide(new SkSLSlide());
         if (!CommandLineFlags::ShouldSkip(FLAGS_match, slide->getName().c_str())) {
             fSlides.push_back(std::move(slide));
         }
@@ -767,6 +830,12 @@ void Viewer::updateTitle() {
             title.append(" <AAA>");
         }
     }
+    if (fDrawViaSerialize) {
+        title.append(" <serialize>");
+    }
+    if (gUseSkVMBlitter) {
+        title.append(" <skvm>");
+    }
 
     SkPaintTitleUpdater paintTitle(&title);
     auto paintFlag = [this, &paintTitle](bool SkPaintFields::* flag,
@@ -808,6 +877,7 @@ void Viewer::updateTitle() {
     fontFlag(&SkFontFields::fForceAutoHinting, &SkFont::isForceAutoHinting,
              "Force Autohint", "No Force Autohint");
     fontFlag(&SkFontFields::fEmbolden, &SkFont::isEmbolden, "Fake Bold", "No Fake Bold");
+    fontFlag(&SkFontFields::fBaselineSnap, &SkFont::isBaselineSnap, "BaseSnap", "No BaseSnap");
     fontFlag(&SkFontFields::fLinearMetrics, &SkFont::isLinearMetrics,
              "Linear Metrics", "Non-Linear Metrics");
     fontFlag(&SkFontFields::fEmbeddedBitmaps, &SkFont::isEmbeddedBitmaps,
@@ -855,6 +925,9 @@ void Viewer::updateTitle() {
             break;
         case ColorMode::kColorManagedF16:
             title.append(" ColorManaged F16");
+            break;
+        case ColorMode::kColorManagedF16Norm:
+            title.append(" ColorManaged F16 Norm");
             break;
     }
 
@@ -905,7 +978,7 @@ void Viewer::updateTitle() {
     title.append("]");
 
     GpuPathRenderers pr = fWindow->getRequestedDisplayParams().fGrContextOptions.fGpuPathRenderers;
-    if (GpuPathRenderers::kAll != pr) {
+    if (GpuPathRenderers::kDefault != pr) {
         title.appendf(" [Path renderer: %s]", gPathRendererNames[pr].c_str());
     }
 
@@ -988,12 +1061,12 @@ void Viewer::setupCurrentSlide() {
     }
 }
 
-#define MAX_ZOOM_LEVEL  8
-#define MIN_ZOOM_LEVEL  -8
+#define MAX_ZOOM_LEVEL  8.0f
+#define MIN_ZOOM_LEVEL  -8.0f
 
 void Viewer::changeZoomLevel(float delta) {
     fZoomLevel += delta;
-    fZoomLevel = SkScalarPin(fZoomLevel, MIN_ZOOM_LEVEL, MAX_ZOOM_LEVEL);
+    fZoomLevel = SkTPin(fZoomLevel, MIN_ZOOM_LEVEL, MAX_ZOOM_LEVEL);
     this->preTouchMatrixChanged();
 }
 
@@ -1172,6 +1245,9 @@ public:
         if (fFontOverrides->fEmbolden) {
             font->writable()->setEmbolden(fFont->isEmbolden());
         }
+        if (fFontOverrides->fBaselineSnap) {
+            font->writable()->setBaselineSnap(fFont->isBaselineSnap());
+        }
         if (fFontOverrides->fLinearMetrics) {
             font->writable()->setLinearMetrics(fFont->isLinearMetrics());
         }
@@ -1237,8 +1313,19 @@ void Viewer::drawSlide(SkSurface* surface) {
     }
 
     // Grab some things we'll need to make surfaces (for tiling or general offscreen rendering)
-    SkColorType colorType = (ColorMode::kColorManagedF16 == fColorMode) ? kRGBA_F16_SkColorType
-                                                                        : kN32_SkColorType;
+    SkColorType colorType;
+    switch (fColorMode) {
+        case ColorMode::kLegacy:
+        case ColorMode::kColorManaged8888:
+            colorType = kN32_SkColorType;
+            break;
+        case ColorMode::kColorManagedF16:
+            colorType = kRGBA_F16_SkColorType;
+            break;
+        case ColorMode::kColorManagedF16Norm:
+            colorType = kRGBA_F16Norm_SkColorType;
+            break;
+    }
 
     auto make_surface = [=](int w, int h) {
         SkSurfaceProps props(SkSurfaceProps::kLegacyFontHost_InitType);
@@ -1254,15 +1341,25 @@ void Viewer::drawSlide(SkSurface* surface) {
     // ... in fake perspective or zooming (so we have a snapped copy of the results)
     // ... in any raster mode, because the window surface is actually GL
     // ... in any color managed mode, because we always make the window surface with no color space
+    // ... or if the user explicitly requested offscreen rendering
     sk_sp<SkSurface> offscreenSurface = nullptr;
     if (kPerspective_Fake == fPerspectiveMode ||
         fShowZoomWindow ||
         Window::kRaster_BackendType == fBackendType ||
-        colorSpace != nullptr) {
+        colorSpace != nullptr ||
+        FLAGS_offscreen) {
 
         offscreenSurface = make_surface(fWindow->width(), fWindow->height());
         slideSurface = offscreenSurface.get();
         slideCanvas = offscreenSurface->getCanvas();
+    }
+
+    SkPictureRecorder recorder;
+    SkCanvas* recorderRestoreCanvas = nullptr;
+    if (fDrawViaSerialize) {
+        recorderRestoreCanvas = slideCanvas;
+        slideCanvas = recorder.beginRecording(
+                SkRect::Make(fSlides[fCurrentSlide]->getDimensions()));
     }
 
     int count = slideCanvas->save();
@@ -1272,19 +1369,11 @@ void Viewer::drawSlide(SkSurface* surface) {
     if (fTiled) {
         int tileW = SkScalarCeilToInt(fWindow->width() * fTileScale.width());
         int tileH = SkScalarCeilToInt(fWindow->height() * fTileScale.height());
-        sk_sp<SkSurface> tileSurface = make_surface(tileW, tileH);
-        SkCanvas* tileCanvas = tileSurface->getCanvas();
-        SkMatrix m = this->computeMatrix();
         for (int y = 0; y < fWindow->height(); y += tileH) {
             for (int x = 0; x < fWindow->width(); x += tileW) {
-                SkAutoCanvasRestore acr(tileCanvas, true);
-                tileCanvas->translate(-x, -y);
-                tileCanvas->clear(SK_ColorTRANSPARENT);
-                tileCanvas->concat(m);
-                OveridePaintFilterCanvas filterCanvas(tileCanvas, &fPaint, &fPaintOverrides,
-                                                      &fFont, &fFontOverrides);
-                fSlides[fCurrentSlide]->draw(&filterCanvas);
-                tileSurface->draw(slideCanvas, x, y, nullptr);
+                SkAutoCanvasRestore acr(slideCanvas, true);
+                slideCanvas->clipRect(SkRect::MakeXYWH(x, y, tileW, tileH));
+                fSlides[fCurrentSlide]->draw(slideCanvas);
             }
         }
 
@@ -1309,6 +1398,13 @@ void Viewer::drawSlide(SkSurface* surface) {
     }
     fStatsLayer.endTiming(fPaintTimer);
     slideCanvas->restoreToCount(count);
+
+    if (recorderRestoreCanvas) {
+        sk_sp<SkPicture> picture(recorder.finishRecordingAsPicture());
+        auto data = picture->serialize();
+        slideCanvas = recorderRestoreCanvas;
+        slideCanvas->drawPicture(SkPicture::MakeFromData(data.get()));
+    }
 
     // Force a flush so we can time that, too
     fStatsLayer.beginTiming(fFlushTimer);
@@ -1373,20 +1469,20 @@ SkPoint Viewer::mapEvent(float x, float y) {
     return inv.mapXY(x, y);
 }
 
-bool Viewer::onTouch(intptr_t owner, InputState state, float x, float y) {
+bool Viewer::onTouch(intptr_t owner, skui::InputState state, float x, float y) {
     if (GestureDevice::kMouse == fGestureDevice) {
         return false;
     }
 
     const auto slidePt = this->mapEvent(x, y);
-    if (fSlides[fCurrentSlide]->onMouse(slidePt.x(), slidePt.y(), state, ModifierKey::kNone)) {
+    if (fSlides[fCurrentSlide]->onMouse(slidePt.x(), slidePt.y(), state, skui::ModifierKey::kNone)) {
         fWindow->inval();
         return true;
     }
 
     void* castedOwner = reinterpret_cast<void*>(owner);
     switch (state) {
-        case InputState::kUp: {
+        case skui::InputState::kUp: {
             fGesture.touchEnd(castedOwner);
 #if defined(SK_BUILD_FOR_IOS)
             // TODO: move IOS swipe detection higher up into the platform code
@@ -1407,12 +1503,17 @@ bool Viewer::onTouch(intptr_t owner, InputState state, float x, float y) {
 #endif
             break;
         }
-        case InputState::kDown: {
+        case skui::InputState::kDown: {
             fGesture.touchBegin(castedOwner, x, y);
             break;
         }
-        case InputState::kMove: {
+        case skui::InputState::kMove: {
             fGesture.touchMoved(castedOwner, x, y);
+            break;
+        }
+        default: {
+            // kLeft and kRight are only for swipes
+            SkASSERT(false);
             break;
         }
     }
@@ -1421,7 +1522,7 @@ bool Viewer::onTouch(intptr_t owner, InputState state, float x, float y) {
     return true;
 }
 
-bool Viewer::onMouse(int x, int y, InputState state, ModifierKey modifiers) {
+bool Viewer::onMouse(int x, int y, skui::InputState state, skui::ModifierKey modifiers) {
     if (GestureDevice::kTouch == fGestureDevice) {
         return false;
     }
@@ -1433,25 +1534,62 @@ bool Viewer::onMouse(int x, int y, InputState state, ModifierKey modifiers) {
     }
 
     switch (state) {
-        case InputState::kUp: {
+        case skui::InputState::kUp: {
             fGesture.touchEnd(nullptr);
             break;
         }
-        case InputState::kDown: {
+        case skui::InputState::kDown: {
             fGesture.touchBegin(nullptr, x, y);
             break;
         }
-        case InputState::kMove: {
+        case skui::InputState::kMove: {
             fGesture.touchMoved(nullptr, x, y);
+            break;
+        }
+        default: {
+            SkASSERT(false); // shouldn't see kRight or kLeft here
             break;
         }
     }
     fGestureDevice = fGesture.isBeingTouched() ? GestureDevice::kMouse : GestureDevice::kNone;
 
-    if (state != InputState::kMove || fGesture.isBeingTouched()) {
+    if (state != skui::InputState::kMove || fGesture.isBeingTouched()) {
         fWindow->inval();
     }
     return true;
+}
+
+bool Viewer::onFling(skui::InputState state) {
+    if (skui::InputState::kRight == state) {
+        this->setCurrentSlide(fCurrentSlide > 0 ? fCurrentSlide - 1 : fSlides.count() - 1);
+        return true;
+    } else if (skui::InputState::kLeft == state) {
+        this->setCurrentSlide(fCurrentSlide < fSlides.count() - 1 ? fCurrentSlide + 1 : 0);
+        return true;
+    }
+    return false;
+}
+
+bool Viewer::onPinch(skui::InputState state, float scale, float x, float y) {
+    switch (state) {
+        case skui::InputState::kDown:
+            fGesture.startZoom();
+            return true;
+            break;
+        case skui::InputState::kMove:
+            fGesture.updateZoom(scale, x, y, x, y);
+            return true;
+            break;
+        case skui::InputState::kUp:
+            fGesture.endZoom();
+            return true;
+            break;
+        default:
+            SkASSERT(false);
+            break;
+    }
+
+    return false;
 }
 
 static void ImGui_Primaries(SkColorSpacePrimaries* primaries, SkPaint* gamutPaint) {
@@ -1520,11 +1658,15 @@ void Viewer::drawImGui() {
                 ImGui::SameLine();
                 ImGui::RadioButton("ANGLE", &newBackend, sk_app::Window::kANGLE_BackendType);
 #endif
+#if defined(SK_DAWN)
+                ImGui::SameLine();
+                ImGui::RadioButton("Dawn", &newBackend, sk_app::Window::kDawn_BackendType);
+#endif
 #if defined(SK_VULKAN)
                 ImGui::SameLine();
                 ImGui::RadioButton("Vulkan", &newBackend, sk_app::Window::kVulkan_BackendType);
 #endif
-#if defined(SK_METAL) && defined(SK_BUILD_FOR_MAC)
+#if defined(SK_METAL)
                 ImGui::SameLine();
                 ImGui::RadioButton("Metal", &newBackend, sk_app::Window::kMetal_BackendType);
 #endif
@@ -1598,21 +1740,24 @@ void Viewer::drawImGui() {
 
                     if (!ctx) {
                         ImGui::RadioButton("Software", true);
-                    } else if (fWindow->sampleCount() > 1) {
-                        prButton(GpuPathRenderers::kAll);
-                        if (ctx->priv().caps()->shaderCaps()->pathRenderingSupport()) {
-                            prButton(GpuPathRenderers::kStencilAndCover);
-                        }
-                        prButton(GpuPathRenderers::kTessellating);
-                        prButton(GpuPathRenderers::kNone);
                     } else {
-                        prButton(GpuPathRenderers::kAll);
-                        if (GrCoverageCountingPathRenderer::IsSupported(
-                                    *ctx->priv().caps())) {
-                            prButton(GpuPathRenderers::kCoverageCounting);
+                        const auto* caps = ctx->priv().caps();
+                        prButton(GpuPathRenderers::kDefault);
+                        if (fWindow->sampleCount() > 1 || caps->mixedSamplesSupport()) {
+                            if (caps->shaderCaps()->tessellationSupport()) {
+                                prButton(GpuPathRenderers::kTessellation);
+                            }
+                            if (caps->shaderCaps()->pathRenderingSupport()) {
+                                prButton(GpuPathRenderers::kStencilAndCover);
+                            }
                         }
-                        prButton(GpuPathRenderers::kSmall);
-                        prButton(GpuPathRenderers::kTessellating);
+                        if (1 == fWindow->sampleCount()) {
+                            if (GrCoverageCountingPathRenderer::IsSupported(*caps)) {
+                                prButton(GpuPathRenderers::kCoverageCounting);
+                            }
+                            prButton(GpuPathRenderers::kSmall);
+                        }
+                        prButton(GpuPathRenderers::kTriangulating);
                         prButton(GpuPathRenderers::kNone);
                     }
                     ImGui::TreePop();
@@ -1781,6 +1926,11 @@ void Viewer::drawImGui() {
                          &SkFontFields::fEmbolden,
                          &SkFont::isEmbolden, &SkFont::setEmbolden);
 
+                fontFlag("Baseline Snapping",
+                         "Default\0No Baseline Snapping\0Baseline Snapping\0\0",
+                         &SkFontFields::fBaselineSnap,
+                         &SkFont::isBaselineSnap, &SkFont::setBaselineSnap);
+
                 fontFlag("Linear Text",
                          "Default\0No Linear Text\0Linear Text\0\0",
                          &SkFontFields::fLinearMetrics,
@@ -1927,6 +2077,7 @@ void Viewer::drawImGui() {
                 cmButton(ColorMode::kLegacy, "Legacy 8888");
                 cmButton(ColorMode::kColorManaged8888, "Color Managed 8888");
                 cmButton(ColorMode::kColorManagedF16, "Color Managed F16");
+                cmButton(ColorMode::kColorManagedF16Norm, "Color Managed F16 Norm");
 
                 if (newMode != fColorMode) {
                     this->setColorMode(newMode);
@@ -1976,8 +2127,11 @@ void Viewer::drawImGui() {
             // HACK: If we get here when SKSL caching isn't enabled, and we're on a backend other
             // than GL, we need to force it on. Just do that on the first frame after the backend
             // switch, then resume normal operation.
-            if (!backendIsGL && !params.fGrContextOptions.fCacheSKSL) {
-                params.fGrContextOptions.fCacheSKSL = true;
+            if (!backendIsGL &&
+                params.fGrContextOptions.fShaderCacheStrategy !=
+                        GrContextOptions::ShaderCacheStrategy::kSkSL) {
+                params.fGrContextOptions.fShaderCacheStrategy =
+                        GrContextOptions::ShaderCacheStrategy::kSkSL;
                 paramsChanged = true;
                 fPersistentCache.reset();
             } else if (ImGui::CollapsingHeader("Shaders")) {
@@ -1996,8 +2150,11 @@ void Viewer::drawImGui() {
                             entry.fKeyString.appendf("%02x", digest.data[i]);
                         }
 
-                        entry.fShaderType = GrPersistentCacheUtils::UnpackCachedShaders(
-                                data.get(), entry.fShader, entry.fInputs, kGrShaderTypeCount);
+                        SkReader32 reader(data->data(), data->size());
+                        entry.fShaderType = GrPersistentCacheUtils::GetType(&reader);
+                        GrPersistentCacheUtils::UnpackCachedShaders(&reader, entry.fShader,
+                                                                    entry.fInputs,
+                                                                    kGrShaderTypeCount);
                     };
                     fCachedGLSL.reset();
                     fPersistentCache.foreach(collectShaders);
@@ -2010,7 +2167,12 @@ void Viewer::drawImGui() {
                 bool doSave = ImGui::Button("Save");
                 if (backendIsGL) {
                     ImGui::SameLine();
-                    if (ImGui::Checkbox("SkSL", &params.fGrContextOptions.fCacheSKSL)) {
+                    bool sksl = params.fGrContextOptions.fShaderCacheStrategy ==
+                                GrContextOptions::ShaderCacheStrategy::kSkSL;
+                    if (ImGui::Checkbox("SkSL", &sksl)) {
+                        params.fGrContextOptions.fShaderCacheStrategy = sksl
+                                ? GrContextOptions::ShaderCacheStrategy::kSkSL
+                                : GrContextOptions::ShaderCacheStrategy::kBackendSource;
                         paramsChanged = true;
                         doLoad = true;
                         fDeferredActions.push_back([=]() { fPersistentCache.reset(); });
@@ -2046,7 +2208,8 @@ void Viewer::drawImGui() {
                 if (doSave) {
                     // The hovered item (if any) gets a special shader to make it identifiable
                     auto shaderCaps = ctx->priv().caps()->shaderCaps();
-                    bool sksl = params.fGrContextOptions.fCacheSKSL;
+                    bool sksl = params.fGrContextOptions.fShaderCacheStrategy ==
+                                GrContextOptions::ShaderCacheStrategy::kSkSL;
 
                     SkSL::String highlight;
                     if (!sksl) {
@@ -2094,7 +2257,10 @@ void Viewer::drawImGui() {
         ImGui::Begin("Shader Errors");
         for (int i = 0; i < gShaderErrorHandler.fErrors.count(); ++i) {
             ImGui::TextWrapped("%s", gShaderErrorHandler.fErrors[i].c_str());
-            ImGui::TextWrapped("%s", gShaderErrorHandler.fShaders[i].c_str());
+            SkSL::String sksl(gShaderErrorHandler.fShaders[i].c_str());
+            GrShaderUtils::VisitLineByLine(sksl, [](int lineNumber, const char* lineText) {
+                ImGui::TextWrapped("%4i\t%s\n", lineNumber, lineText);
+            });
         }
         ImGui::End();
         gShaderErrorHandler.reset();
@@ -2105,11 +2271,11 @@ void Viewer::drawImGui() {
         if (ImGui::Begin("Zoom", &fShowZoomWindow)) {
             static int zoomFactor = 8;
             if (ImGui::Button("<<")) {
-                zoomFactor = SkTMax(zoomFactor / 2, 4);
+                zoomFactor = std::max(zoomFactor / 2, 4);
             }
             ImGui::SameLine(); ImGui::Text("%2d", zoomFactor); ImGui::SameLine();
             if (ImGui::Button(">>")) {
-                zoomFactor = SkTMin(zoomFactor * 2, 32);
+                zoomFactor = std::min(zoomFactor * 2, 32);
             }
 
             if (!fZoomWindowFixed) {
@@ -2242,23 +2408,26 @@ void Viewer::updateUIState() {
                 writer.appendString("Software");
             } else {
                 const auto* caps = ctx->priv().caps();
-
-                writer.appendString(gPathRendererNames[GpuPathRenderers::kAll].c_str());
-                if (fWindow->sampleCount() > 1) {
+                writer.appendString(gPathRendererNames[GpuPathRenderers::kDefault].c_str());
+                if (fWindow->sampleCount() > 1 || caps->mixedSamplesSupport()) {
+                    if (caps->shaderCaps()->tessellationSupport()) {
+                        writer.appendString(
+                                gPathRendererNames[GpuPathRenderers::kTessellation].c_str());
+                    }
                     if (caps->shaderCaps()->pathRenderingSupport()) {
                         writer.appendString(
-                            gPathRendererNames[GpuPathRenderers::kStencilAndCover].c_str());
+                                gPathRendererNames[GpuPathRenderers::kStencilAndCover].c_str());
                     }
-                } else {
+                }
+                if (1 == fWindow->sampleCount()) {
                     if(GrCoverageCountingPathRenderer::IsSupported(*caps)) {
                         writer.appendString(
                             gPathRendererNames[GpuPathRenderers::kCoverageCounting].c_str());
                     }
                     writer.appendString(gPathRendererNames[GpuPathRenderers::kSmall].c_str());
                 }
-                    writer.appendString(
-                        gPathRendererNames[GpuPathRenderers::kTessellating].c_str());
-                    writer.appendString(gPathRendererNames[GpuPathRenderers::kNone].c_str());
+                writer.appendString(gPathRendererNames[GpuPathRenderers::kTriangulating].c_str());
+                writer.appendString(gPathRendererNames[GpuPathRenderers::kNone].c_str());
             }
         });
 
@@ -2345,11 +2514,11 @@ void Viewer::onUIStateChanged(const SkString& stateName, const SkString& stateVa
     }
 }
 
-bool Viewer::onKey(sk_app::Window::Key key, InputState state, ModifierKey modifiers) {
+bool Viewer::onKey(skui::Key key, skui::InputState state, skui::ModifierKey modifiers) {
     return fCommands.onKey(key, state, modifiers);
 }
 
-bool Viewer::onChar(SkUnichar c, ModifierKey modifiers) {
+bool Viewer::onChar(SkUnichar c, skui::ModifierKey modifiers) {
     if (fSlides[fCurrentSlide]->onChar(c)) {
         fWindow->inval();
         return true;

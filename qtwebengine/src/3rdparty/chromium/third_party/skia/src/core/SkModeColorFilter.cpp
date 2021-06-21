@@ -17,9 +17,9 @@
 #include "src/core/SkModeColorFilter.h"
 #include "src/core/SkRasterPipeline.h"
 #include "src/core/SkReadBuffer.h"
+#include "src/core/SkVM.h"
 #include "src/core/SkValidationUtils.h"
 #include "src/core/SkWriteBuffer.h"
-#include "src/utils/SkUTF.h"
 
 //////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -71,20 +71,29 @@ bool SkModeColorFilter::onAppendStages(const SkStageRec& rec, bool shaderIsOpaqu
     return true;
 }
 
+skvm::Color SkModeColorFilter::onProgram(skvm::Builder* p, skvm::Color c,
+                                         SkColorSpace* dstCS,
+                                         skvm::Uniforms* uniforms, SkArenaAlloc*) const {
+    skvm::Color dst = c,
+                src = p->uniformPremul(SkColor4f::FromColor(fColor), sk_srgb_singleton(),
+                                       uniforms, dstCS);
+    return p->blend(fMode, src,dst);
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 #if SK_SUPPORT_GPU
-#include "include/gpu/GrBlend.h"
+#include "src/gpu/GrBlend.h"
 #include "src/gpu/SkGr.h"
 #include "src/gpu/effects/GrXfermodeFragmentProcessor.h"
 #include "src/gpu/effects/generated/GrConstColorProcessor.h"
 
 std::unique_ptr<GrFragmentProcessor> SkModeColorFilter::asFragmentProcessor(
-        GrRecordingContext*, const GrColorSpaceInfo& dstColorSpaceInfo) const {
+        GrRecordingContext*, const GrColorInfo& dstColorInfo) const {
     if (SkBlendMode::kDst == fMode) {
         return nullptr;
     }
 
-    auto constFP = GrConstColorProcessor::Make(SkColorToPMColor4f(fColor, dstColorSpaceInfo),
+    auto constFP = GrConstColorProcessor::Make(SkColorToPMColor4f(fColor, dstColorInfo),
                                                GrConstColorProcessor::InputMode::kIgnore);
     auto fp = GrXfermodeFragmentProcessor::MakeFromSrcProcessor(std::move(constFP), fMode);
     if (!fp) {

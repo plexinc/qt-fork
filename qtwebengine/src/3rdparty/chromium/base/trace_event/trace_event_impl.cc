@@ -214,6 +214,12 @@ void TraceEvent::AppendAsJSON(
     StringAppendF(out, ",\"tts\":%" PRId64, thread_time_int64);
   }
 
+  // Output ticount if thread_instruction_count is valid.
+  if (!thread_instruction_count_.is_null()) {
+    int64_t thread_instructions = thread_instruction_count_.ToInternalValue();
+    StringAppendF(out, ",\"ticount\":%" PRId64, thread_instructions);
+  }
+
   // Output async tts marker field if flag is set.
   if (flags_ & TRACE_EVENT_FLAG_ASYNC_TTS) {
     StringAppendF(out, ", \"use_async_tts\":1");
@@ -305,42 +311,3 @@ void TraceEvent::AppendPrettyPrinted(std::ostringstream* out) const {
 
 }  // namespace trace_event
 }  // namespace base
-
-namespace trace_event_internal {
-
-std::unique_ptr<base::trace_event::ConvertableToTraceFormat>
-TraceID::AsConvertableToTraceFormat() const {
-  auto value = std::make_unique<base::trace_event::TracedValue>();
-
-  if (scope_ != kGlobalScope)
-    value->SetString("scope", scope_);
-
-  const char* id_field_name = "id";
-  if (id_flags_ == TRACE_EVENT_FLAG_HAS_GLOBAL_ID) {
-    id_field_name = "global";
-    value->BeginDictionary("id2");
-  } else if (id_flags_ == TRACE_EVENT_FLAG_HAS_LOCAL_ID) {
-    id_field_name = "local";
-    value->BeginDictionary("id2");
-  } else if (id_flags_ != TRACE_EVENT_FLAG_HAS_ID) {
-    NOTREACHED() << "Unrecognized ID flag";
-  }
-
-  if (has_prefix_) {
-    value->SetString(id_field_name,
-                     base::StringPrintf("0x%" PRIx64 "/0x%" PRIx64,
-                                        static_cast<uint64_t>(prefix_),
-                                        static_cast<uint64_t>(raw_id_)));
-  } else {
-    value->SetString(
-        id_field_name,
-        base::StringPrintf("0x%" PRIx64, static_cast<uint64_t>(raw_id_)));
-  }
-
-  if (id_flags_ != TRACE_EVENT_FLAG_HAS_ID)
-    value->EndDictionary();
-
-  return std::move(value);
-}
-
-}  // namespace trace_event_internal

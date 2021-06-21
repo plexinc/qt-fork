@@ -159,10 +159,15 @@ class UI_ANDROID_EXPORT ViewAndroid {
                        const gfx::Point& hotspot);
   void OnBackgroundColorChanged(unsigned int color);
   void OnTopControlsChanged(float top_controls_offset,
-                            float top_content_offset);
+                            float top_content_offset,
+                            float top_controls_min_height_offset);
   void OnBottomControlsChanged(float bottom_controls_offset,
-                               float bottom_content_offset);
-  int GetSystemWindowInsetBottom();
+                               float bottom_content_offset,
+                               float bottom_controls_min_height_offset);
+  void OnBrowserControlsHeightChanged();
+
+  // Gets the Visual Viewport inset to apply in physical pixels.
+  int GetViewportInsetBottom();
 
   ScopedAnchorView AcquireAnchorView();
   void SetAnchorRect(const base::android::JavaRef<jobject>& anchor,

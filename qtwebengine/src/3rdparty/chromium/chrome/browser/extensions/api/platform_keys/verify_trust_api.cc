@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/lazy_instance.h"
@@ -91,7 +92,7 @@ void BrowserContextKeyedAPIFactory<
 }
 
 VerifyTrustAPI::VerifyTrustAPI(content::BrowserContext* context)
-    : io_part_(new IOPart), registry_observer_(this), weak_factory_(this) {
+    : io_part_(new IOPart) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   registry_observer_.Add(ExtensionRegistry::Get(context));
 }
@@ -112,17 +113,17 @@ void VerifyTrustAPI::Verify(std::unique_ptr<Params> params,
       &CallBackOnUI, base::Bind(&VerifyTrustAPI::FinishedVerificationOnUI,
                                 weak_factory_.GetWeakPtr(), ui_callback)));
 
-  base::PostTaskWithTraits(
+  base::PostTask(
       FROM_HERE, {content::BrowserThread::IO},
       base::BindOnce(&IOPart::Verify, base::Unretained(io_part_.get()),
-                     base::Passed(&params), extension_id, finish_callback));
+                     std::move(params), extension_id, finish_callback));
 }
 
 void VerifyTrustAPI::OnExtensionUnloaded(
     content::BrowserContext* browser_context,
     const Extension* extension,
     UnloadedExtensionReason reason) {
-  base::PostTaskWithTraits(
+  base::PostTask(
       FROM_HERE, {content::BrowserThread::IO},
       base::BindOnce(&IOPart::OnExtensionUnloaded,
                      base::Unretained(io_part_.get()), extension->id()));
@@ -142,9 +143,8 @@ void VerifyTrustAPI::CallBackOnUI(const VerifyCallback& ui_callback,
                                   const std::string& error,
                                   int return_value,
                                   int cert_status) {
-  base::PostTaskWithTraits(
-      FROM_HERE, {content::BrowserThread::UI},
-      base::BindOnce(ui_callback, error, return_value, cert_status));
+  base::PostTask(FROM_HERE, {content::BrowserThread::UI},
+                 base::BindOnce(ui_callback, error, return_value, cert_status));
 }
 
 VerifyTrustAPI::IOPart::~IOPart() {

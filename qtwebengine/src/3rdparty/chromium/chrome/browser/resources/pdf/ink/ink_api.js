@@ -4,15 +4,6 @@
 
 /**
  * @typedef {{
- *   tool: string,
- *   size: number,
- *   color: string,
- * }}
- */
-let AnnotationTool;
-
-/**
- * @typedef {{
  *   canUndo: boolean,
  *   canRedo: boolean,
  * }}
@@ -87,8 +78,8 @@ class InkAPI {
       highlighter: 'SMART_HIGHLIGHTER_TOOL',
     }[tool.tool];
     this.brush_.setShape(shape);
-    if (tool.tool != 'eraser') {
-      this.brush_.setColor(tool.color);
+    if (tool.tool !== 'eraser') {
+      this.brush_.setColor(/** @type {string} */ (tool.color));
     }
     this.brush_.setStrokeWidth(tool.size);
   }

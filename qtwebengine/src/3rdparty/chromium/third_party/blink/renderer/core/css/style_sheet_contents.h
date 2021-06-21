@@ -47,8 +47,8 @@ class StyleRuleImport;
 class StyleRuleNamespace;
 enum class ParseSheetResult;
 
-class CORE_EXPORT StyleSheetContents
-    : public GarbageCollectedFinalized<StyleSheetContents> {
+class CORE_EXPORT StyleSheetContents final
+    : public GarbageCollected<StyleSheetContents> {
  public:
   static const Document* SingleOwnerDocument(const StyleSheetContents*);
 
@@ -59,6 +59,8 @@ class CORE_EXPORT StyleSheetContents
   StyleSheetContents() = delete;
   ~StyleSheetContents();
 
+  // TODO(xiaochengh): |parser_context_| should never be null. Make it return a
+  // const reference here to avoid confusion.
   const CSSParserContext* ParserContext() const { return parser_context_; }
 
   const AtomicString& DefaultNamespace() const { return default_namespace_; }
@@ -189,7 +191,7 @@ class CORE_EXPORT StyleSheetContents
 
   String SourceMapURL() const { return source_map_url_; }
 
-  void Trace(blink::Visitor*);
+  void Trace(Visitor*);
 
  private:
   StyleSheetContents& operator=(const StyleSheetContents&) = delete;

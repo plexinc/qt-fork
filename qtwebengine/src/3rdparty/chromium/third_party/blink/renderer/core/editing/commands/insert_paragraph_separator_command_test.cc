@@ -31,7 +31,7 @@ TEST_F(InsertParagraphSeparatorCommandTest,
 
   EXPECT_EQ(
       "<table contenteditable>"
-      "    <colgroup style=\"-webkit-appearance:radio;\">|<br></colgroup>"
+      "|    <colgroup style=\"-webkit-appearance:radio;\"></colgroup>"
       "</table>",
       GetSelectionTextFromBody());
 }
@@ -53,7 +53,7 @@ TEST_F(InsertParagraphSeparatorCommandTest,
   command->Apply();
   EXPECT_EQ(
       "<table contenteditable>"
-      "    <colgroup style=\"-webkit-appearance:radio;\">|<br>"
+      "|    <colgroup style=\"-webkit-appearance:radio;\">"
       "        <col>"
       "    </colgroup>"
       "</table>",
@@ -69,7 +69,7 @@ TEST_F(InsertParagraphSeparatorCommandTest, CrashWithCaptionBeforeBody) {
 
   // Insert <caption> between head and body
   Element* caption = GetDocument().CreateElementForBinding("caption");
-  caption->SetInnerHTMLFromString("AxBxC");
+  caption->setInnerHTML("AxBxC");
   GetDocument().documentElement()->insertBefore(caption, GetDocument().body());
 
   Selection().SetSelection(

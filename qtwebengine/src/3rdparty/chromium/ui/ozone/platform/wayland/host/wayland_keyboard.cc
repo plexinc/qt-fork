@@ -125,7 +125,7 @@ void WaylandKeyboard::Key(void* data,
 
   // TODO(tonikitoo,msisov): Handler 'repeat' parameter below.
   keyboard->DispatchKey(key, down, false /*repeat*/, EventTimeForNow(),
-                        device_id);
+                        device_id, EF_NONE);
 }
 
 void WaylandKeyboard::Modifiers(void* data,
@@ -167,14 +167,15 @@ void WaylandKeyboard::FlushInput(base::OnceClosure closure) {
   // get spurious repeats.
   sync_callback_.reset(wl_display_sync(connection_->display()));
   wl_callback_add_listener(sync_callback_.get(), &callback_listener_, this);
-  wl_display_flush(connection_->display());
+  connection_->ScheduleFlush();
 }
 
 void WaylandKeyboard::DispatchKey(uint32_t key,
                                   bool down,
                                   bool repeat,
                                   base::TimeTicks timestamp,
-                                  int device_id) {
+                                  int device_id,
+                                  int flags) {
   DomCode dom_code =
       KeycodeConverter::NativeKeycodeToDomCode(EvdevCodeToNativeCode(key));
   if (dom_code == ui::DomCode::NONE)

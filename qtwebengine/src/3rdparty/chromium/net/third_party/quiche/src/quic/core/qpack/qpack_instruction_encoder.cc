@@ -10,19 +10,20 @@
 #include "net/third_party/quiche/src/http2/hpack/varint/hpack_varint_encoder.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_string_utils.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 
 QpackInstructionEncoder::QpackInstructionEncoder()
     : byte_(0), state_(State::kOpcode), instruction_(nullptr) {}
 
-void QpackInstructionEncoder::Encode(const QpackInstruction* instruction,
-                                     const Values& values,
-                                     std::string* output) {
-  DCHECK(instruction);
+void QpackInstructionEncoder::Encode(
+    const QpackInstructionWithValues& instruction_with_values,
+    std::string* output) {
+  DCHECK(instruction_with_values.instruction());
 
   state_ = State::kOpcode;
-  instruction_ = instruction;
+  instruction_ = instruction_with_values.instruction();
   field_ = instruction_->fields.begin();
 
   // Field list must not be empty.
@@ -37,13 +38,15 @@ void QpackInstructionEncoder::Encode(const QpackInstruction* instruction,
         DoStartField();
         break;
       case State::kSbit:
-        DoSBit(values.s_bit);
+        DoSBit(instruction_with_values.s_bit());
         break;
       case State::kVarintEncode:
-        DoVarintEncode(values.varint, values.varint2, output);
+        DoVarintEncode(instruction_with_values.varint(),
+                       instruction_with_values.varint2(), output);
         break;
       case State::kStartString:
-        DoStartString(values.name, values.value);
+        DoStartString(instruction_with_values.name(),
+                      instruction_with_values.value());
         break;
       case State::kWriteString:
         DoWriteString(output);
@@ -125,8 +128,8 @@ void QpackInstructionEncoder::DoVarintEncode(uint64_t varint,
   state_ = State::kWriteString;
 }
 
-void QpackInstructionEncoder::DoStartString(QuicStringPiece name,
-                                            QuicStringPiece value) {
+void QpackInstructionEncoder::DoStartString(quiche::QuicheStringPiece name,
+                                            quiche::QuicheStringPiece value) {
   DCHECK(field_->type == QpackInstructionFieldType::kName ||
          field_->type == QpackInstructionFieldType::kValue);
 

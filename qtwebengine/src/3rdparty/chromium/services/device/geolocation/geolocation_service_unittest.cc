@@ -10,12 +10,11 @@
 #include "chromeos/dbus/shill/shill_clients.h"
 #include "chromeos/network/geolocation_handler.h"
 #endif
-#include "mojo/public/cpp/bindings/interface_ptr.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "net/base/network_change_notifier.h"
 #include "services/device/device_service_test_base.h"
 #include "services/device/geolocation/geolocation_provider_impl.h"
 #include "services/device/geolocation/network_location_request.h"
-#include "services/device/public/mojom/constants.mojom.h"
 #include "services/device/public/mojom/geolocation.mojom.h"
 #include "services/device/public/mojom/geolocation_config.mojom.h"
 #include "services/device/public/mojom/geolocation_context.mojom.h"
@@ -43,16 +42,19 @@ class GeolocationServiceUnitTest : public DeviceServiceTestBase {
     chromeos::shill_clients::InitializeFakes();
     chromeos::NetworkHandler::Initialize();
 #endif
-    network_change_notifier_ = net::NetworkChangeNotifier::CreateMock();
+    network_change_notifier_ = net::NetworkChangeNotifier::CreateMockIfNeeded();
     // We need to initialize the above *before* the base fixture instantiates
     // the device service.
     DeviceServiceTestBase::SetUp();
 
-    connector()->BindInterface(mojom::kServiceName, &geolocation_control_);
+    device_service()->BindGeolocationControl(
+        geolocation_control_.BindNewPipeAndPassReceiver());
     geolocation_control_->UserDidOptIntoLocationServices();
 
-    connector()->BindInterface(mojom::kServiceName, &geolocation_context_);
-    geolocation_context_->BindGeolocation(MakeRequest(&geolocation_));
+    device_service()->BindGeolocationContext(
+        geolocation_context_.BindNewPipeAndPassReceiver());
+    geolocation_context_->BindGeolocation(
+        geolocation_.BindNewPipeAndPassReceiver());
   }
 
   void TearDown() override {
@@ -73,14 +75,15 @@ class GeolocationServiceUnitTest : public DeviceServiceTestBase {
   }
 
   void BindGeolocationConfig() {
-    connector()->BindInterface(mojom::kServiceName, &geolocation_config_);
+    device_service()->BindGeolocationConfig(
+        geolocation_config_.BindNewPipeAndPassReceiver());
   }
 
   std::unique_ptr<net::NetworkChangeNotifier> network_change_notifier_;
-  mojom::GeolocationControlPtr geolocation_control_;
-  mojom::GeolocationContextPtr geolocation_context_;
-  mojom::GeolocationPtr geolocation_;
-  mojom::GeolocationConfigPtr geolocation_config_;
+  mojo::Remote<mojom::GeolocationControl> geolocation_control_;
+  mojo::Remote<mojom::GeolocationContext> geolocation_context_;
+  mojo::Remote<mojom::Geolocation> geolocation_;
+  mojo::Remote<mojom::GeolocationConfig> geolocation_config_;
 
   DISALLOW_COPY_AND_ASSIGN(GeolocationServiceUnitTest);
 };
@@ -108,12 +111,8 @@ TEST_F(GeolocationServiceUnitTest, UrlWithApiKey) {
 #endif
 
 // TODO(https://crbug.com/912057): Flaky on Chrome OS / Fails often on *San.
-#if defined(OS_CHROMEOS)
-#define MAYBE_GeolocationConfig DISABLED_GeolocationConfig
-#else
-#define MAYBE_GeolocationConfig GeolocationConfig
-#endif
-TEST_F(GeolocationServiceUnitTest, MAYBE_GeolocationConfig) {
+// TODO(https://crbug.com/999409): Also flaky on other platforms.
+TEST_F(GeolocationServiceUnitTest, DISABLED_GeolocationConfig) {
   BindGeolocationConfig();
   {
     base::RunLoop run_loop;

@@ -25,6 +25,8 @@ enum class RenderSurfaceReason : uint8_t {
   kNone,
   kRoot,
   k3dTransformFlattening,
+  // Defines the scope of the backdrop for child blend mode or backdrop filter.
+  kBackdropScope,
   kBlendMode,
   kBlendModeDstIn,
   kOpacity,
@@ -37,7 +39,6 @@ enum class RenderSurfaceReason : uint8_t {
   kClipPath,
   kClipAxisAlignment,
   kMask,
-  kRootOrIsolatedGroup,
   kTrilinearFiltering,
   kCache,
   kCopyRequest,
@@ -76,8 +77,7 @@ struct CC_EXPORT EffectNode {
   gfx::PointF filters_origin;
 
   // The element id corresponding to the mask to apply to the filtered backdrop
-  // image. Note that this is separate from mask_layer_id, which is a layer id,
-  // and is used for masking the "normal" (non-backdrop-filter) content.
+  // image.
   ElementId backdrop_mask_element_id;
 
   // Bounds of rounded corner rrect in the space of the transform node
@@ -88,11 +88,11 @@ struct CC_EXPORT EffectNode {
 
   gfx::Vector2dF surface_contents_scale;
 
-  gfx::Size unscaled_mask_target_size;
-
   bool cache_render_surface : 1;
   bool has_copy_request : 1;
   bool hidden_by_backface_visibility : 1;
+  // Whether the contents should continue to be visible when rotated such that
+  // its back face is facing toward the camera. It's true by default.
   bool double_sided : 1;
   bool trilinear_filtering : 1;
   bool is_drawn : 1;
@@ -116,8 +116,6 @@ struct CC_EXPORT EffectNode {
   bool is_currently_animating_opacity : 1;
   // Whether this node has a child node with kDstIn blend mode.
   bool has_masking_child : 1;
-  // Whether this node has a mask. This bit is not used when using layer lists.
-  bool is_masked : 1;
   // Whether this node's effect has been changed since the last
   // frame. Needed in order to compute damage rect.
   bool effect_changed : 1;
@@ -138,9 +136,6 @@ struct CC_EXPORT EffectNode {
   // This is the id of the ancestor effect node that induces a
   // RenderSurfaceImpl.
   int target_id;
-  // The layer id of the mask layer, if any, to apply to this effect
-  // node's content when rendering to a surface.
-  int mask_layer_id;
   int closest_ancestor_with_cached_render_surface_id;
   int closest_ancestor_with_copy_request_id;
 

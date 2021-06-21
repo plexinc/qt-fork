@@ -11,6 +11,7 @@
 #include "platform/api/network_interface.h"
 
 namespace openscreen {
+namespace osp {
 
 struct ClientConfig {
   ClientConfig();
@@ -18,10 +19,11 @@ struct ClientConfig {
 
   // The indexes of network interfaces that should be used by the Open Screen
   // Library.  The indexes derive from the values of
-  // openscreen::platform::InterfaceInfo::index.
-  std::vector<platform::NetworkInterfaceIndex> interface_indexes;
+  // openscreen::InterfaceInfo::index.
+  std::vector<NetworkInterfaceIndex> interface_indexes;
 };
 
+}  // namespace osp
 }  // namespace openscreen
 
 #endif  // OSP_PUBLIC_CLIENT_CONFIG_H_

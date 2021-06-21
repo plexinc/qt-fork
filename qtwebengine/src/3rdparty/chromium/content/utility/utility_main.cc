@@ -5,6 +5,7 @@
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/debug/leak_annotations.h"
+#include "base/message_loop/message_pump_type.h"
 #include "base/optional.h"
 #include "base/power_monitor/power_monitor.h"
 #include "base/run_loop.h"
@@ -19,8 +20,10 @@
 #include "content/public/common/sandbox_init.h"
 #include "content/utility/utility_thread_impl.h"
 #include "services/service_manager/sandbox/sandbox.h"
+#include "services/tracing/public/cpp/trace_startup.h"
 
 #if defined(OS_LINUX)
+#include "content/utility/soda/soda_sandbox_hook_linux.h"
 #include "services/audio/audio_sandbox_hook_linux.h"
 #include "services/network/network_sandbox_hook_linux.h"
 #include "services/service_manager/sandbox/linux/sandbox_linux.h"
@@ -45,10 +48,10 @@ namespace content {
 
 // Mainline routine for running as the utility process.
 int UtilityMain(const MainFunctionParams& parameters) {
-  const base::MessagePump::Type message_pump_type =
+  const base::MessagePumpType message_pump_type =
       parameters.command_line.HasSwitch(switches::kMessageLoopTypeUi)
-          ? base::MessagePump::Type::UI
-          : base::MessagePump::Type::DEFAULT;
+          ? base::MessagePumpType::UI
+          : base::MessagePumpType::DEFAULT;
 
 #if defined(OS_MACOSX)
   // On Mac, the TYPE_UI pump for the main thread is an NSApplication loop. In
@@ -77,18 +80,23 @@ int UtilityMain(const MainFunctionParams& parameters) {
   auto sandbox_type =
       service_manager::SandboxTypeFromCommandLine(parameters.command_line);
   if (parameters.zygote_child ||
-      sandbox_type == service_manager::SANDBOX_TYPE_NETWORK ||
+      sandbox_type == service_manager::SandboxType::kNetwork ||
 #if defined(OS_CHROMEOS)
-      sandbox_type == service_manager::SANDBOX_TYPE_IME ||
+      sandbox_type == service_manager::SandboxType::kIme ||
 #endif  // OS_CHROMEOS
-      sandbox_type == service_manager::SANDBOX_TYPE_AUDIO) {
+      sandbox_type == service_manager::SandboxType::kAudio ||
+      sandbox_type == service_manager::SandboxType::kSoda) {
     service_manager::SandboxLinux::PreSandboxHook pre_sandbox_hook;
-    if (sandbox_type == service_manager::SANDBOX_TYPE_NETWORK)
+    if (sandbox_type == service_manager::SandboxType::kNetwork)
       pre_sandbox_hook = base::BindOnce(&network::NetworkPreSandboxHook);
-    else if (sandbox_type == service_manager::SANDBOX_TYPE_AUDIO)
+    else if (sandbox_type == service_manager::SandboxType::kAudio)
       pre_sandbox_hook = base::BindOnce(&audio::AudioPreSandboxHook);
+#if !defined(TOOLKIT_QT)
+    else if (sandbox_type == service_manager::SandboxType::kSoda)
+      pre_sandbox_hook = base::BindOnce(&soda::SodaPreSandboxHook);
+#endif
 #if defined(OS_CHROMEOS)
-    else if (sandbox_type == service_manager::SANDBOX_TYPE_IME)
+    else if (sandbox_type == service_manager::SandboxType::kIme)
       pre_sandbox_hook = base::BindOnce(&chromeos::ime::ImePreSandboxHook);
 #endif  // OS_CHROMEOS
 
@@ -104,6 +112,15 @@ int UtilityMain(const MainFunctionParams& parameters) {
   base::RunLoop run_loop;
   utility_process.set_main_thread(
       new UtilityThreadImpl(run_loop.QuitClosure()));
+
+#if defined(OS_POSIX) && !defined(OS_ANDROID) && !defined(OS_MACOSX)
+  // Startup tracing is usually enabled earlier, but if we forked from a zygote,
+  // we can only enable it after mojo IPC support is brought up initialized by
+  // UtilityThreadImpl, because the mojo broker has to create the tracing SMB on
+  // our behalf due to the zygote sandbox.
+  if (parameters.zygote_child)
+    tracing::EnableStartupTracingIfNeeded();
+#endif  // OS_POSIX && !OS_ANDROID && !!OS_MACOSX
 
   // Both utility process and service utility process would come
   // here, but the later is launched without connection to service manager, so
@@ -126,7 +143,7 @@ int UtilityMain(const MainFunctionParams& parameters) {
   auto sandbox_type =
       service_manager::SandboxTypeFromCommandLine(parameters.command_line);
   if (!service_manager::IsUnsandboxedSandboxType(sandbox_type) &&
-      sandbox_type != service_manager::SANDBOX_TYPE_CDM) {
+      sandbox_type != service_manager::SandboxType::kCdm) {
     if (!g_utility_target_services)
       return false;
     char buffer;

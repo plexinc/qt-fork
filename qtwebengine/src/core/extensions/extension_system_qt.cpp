@@ -91,10 +91,9 @@
 #include "extensions/common/manifest_constants.h"
 #include "extensions/common/manifest_handlers/mime_types_handler.h"
 #include "extensions/common/manifest_url_handlers.h"
-#include "ui/base/resource/resource_bundle.h"
-#include "chrome/grit/component_extension_resources.h"
-#include "chrome/grit/browser_resources.h"
 #include "net/base/mime_util.h"
+#include "qtwebengine/grit/qt_webengine_resources.h"
+#include "ui/base/resource/resource_bundle.h"
 
 using content::BrowserThread;
 
@@ -136,7 +135,8 @@ public:
 
     // This should return what verification mode is appropriate for the given
     // extension, if any.
-    bool ShouldBeVerified(const Extension &extension) override { return false; }
+    VerifierSourceType GetVerifierSourceType(const Extension &extension) override
+    { return VerifierSourceType::NONE; }
 
     // Should return the public key to use for validating signatures via the two
     // out parameters.
@@ -174,7 +174,7 @@ void ExtensionSystemQt::LoadExtension(std::string extension_id, std::unique_ptr<
     if (!extension.get())
         LOG(ERROR) << error;
 
-    base::PostTaskWithTraits(FROM_HERE, {content::BrowserThread::IO},
+    base::PostTask(FROM_HERE, {content::BrowserThread::IO},
             base::Bind(&InfoMap::AddExtension,
                        base::Unretained(info_map()),
                        base::RetainedRef(extension),
@@ -404,25 +404,25 @@ void ExtensionSystemQt::InstallUpdate(const std::string &extension_id,
 #endif
 
 void ExtensionSystemQt::RegisterExtensionWithRequestContexts(const Extension *extension,
-                                                             const base::Closure &callback)
+                                                             base::OnceClosure callback)
 {
     base::Time install_time = base::Time::Now();
 
     bool incognito_enabled = false;
     bool notifications_disabled = false;
 
-    base::PostTaskWithTraitsAndReply(
+    base::PostTaskAndReply(
             FROM_HERE, {BrowserThread::IO},
             base::Bind(&InfoMap::AddExtension, info_map(),
                        base::RetainedRef(extension), install_time, incognito_enabled,
                        notifications_disabled),
-            callback);
+            std::move(callback));
 }
 
 void ExtensionSystemQt::UnregisterExtensionWithRequestContexts(const std::string &extension_id,
                                                                const UnloadedExtensionReason reason)
 {
-    base::PostTaskWithTraits(
+    base::PostTask(
         FROM_HERE, {BrowserThread::IO},
         base::Bind(&InfoMap::RemoveExtension, info_map(), extension_id, reason));
 }

@@ -6,6 +6,7 @@
 
 #include <memory>
 
+#include "base/run_loop.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_function.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
@@ -60,7 +61,7 @@ class ScriptPromiseResolverTest : public testing::Test {
     return ToScriptStateForMainWorld(&page_holder_->GetFrame());
   }
   ExecutionContext* GetExecutionContext() const {
-    return &page_holder_->GetDocument();
+    return page_holder_->GetDocument().ToExecutionContext();
   }
   v8::Isolate* GetIsolate() const { return GetScriptState()->GetIsolate(); }
 };

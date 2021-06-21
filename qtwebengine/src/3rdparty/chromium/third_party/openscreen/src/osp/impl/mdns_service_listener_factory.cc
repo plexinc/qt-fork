@@ -8,11 +8,17 @@
 
 namespace openscreen {
 
+class TaskRunner;
+
+namespace osp {
+
 // static
 std::unique_ptr<ServiceListener> MdnsServiceListenerFactory::Create(
     const MdnsServiceListenerConfig& config,
-    ServiceListener::Observer* observer) {
-  return InternalServices::CreateListener(config, observer);
+    ServiceListener::Observer* observer,
+    TaskRunner* task_runner) {
+  return InternalServices::CreateListener(config, observer, task_runner);
 }
 
+}  // namespace osp
 }  // namespace openscreen

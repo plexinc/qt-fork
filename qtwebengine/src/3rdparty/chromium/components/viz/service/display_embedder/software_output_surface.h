@@ -6,8 +6,11 @@
 #define COMPONENTS_VIZ_SERVICE_DISPLAY_EMBEDDER_SOFTWARE_OUTPUT_SURFACE_H_
 
 #include <memory>
+#include <queue>
+#include <vector>
 
 #include "base/memory/weak_ptr.h"
+#include "build/build_config.h"
 #include "components/viz/common/display/update_vsync_parameters_callback.h"
 #include "components/viz/common/frame_sinks/begin_frame_args.h"
 #include "components/viz/service/display/output_surface.h"
@@ -33,12 +36,11 @@ class VIZ_SERVICE_EXPORT SoftwareOutputSurface : public OutputSurface {
   void Reshape(const gfx::Size& size,
                float device_scale_factor,
                const gfx::ColorSpace& color_space,
-               bool has_alpha,
+               gfx::BufferFormat format,
                bool use_stencil) override;
   void SwapBuffers(OutputSurfaceFrame frame) override;
   bool IsDisplayedAsOverlayPlane() const override;
   unsigned GetOverlayTextureId() const override;
-  gfx::BufferFormat GetOverlayBufferFormat() const override;
   bool HasExternalStencilTest() const override;
   void ApplyExternalStencil() override;
   uint32_t GetFramebufferCopyTextureFormat() override;
@@ -47,10 +49,13 @@ class VIZ_SERVICE_EXPORT SoftwareOutputSurface : public OutputSurface {
       UpdateVSyncParametersCallback callback) override;
   void SetDisplayTransformHint(gfx::OverlayTransform transform) override {}
   gfx::OverlayTransform GetDisplayTransform() override;
-#if defined(USE_X11)
+#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
   void SetNeedsSwapSizeNotifications(
       bool needs_swap_size_notifications) override;
 #endif
+  scoped_refptr<gpu::GpuTaskSchedulerHelper> GetGpuTaskSchedulerHelper()
+      override;
+  gpu::MemoryTracker* GetMemoryTracker() override;
 
  private:
   void SwapBuffersCallback(base::TimeTicks swap_time,
@@ -64,10 +69,10 @@ class VIZ_SERVICE_EXPORT SoftwareOutputSurface : public OutputSurface {
   base::TimeTicks refresh_timebase_;
   base::TimeDelta refresh_interval_ = BeginFrameArgs::DefaultInterval();
 
-  std::vector<ui::LatencyInfo> stored_latency_info_;
+  std::queue<std::vector<ui::LatencyInfo>> stored_latency_info_;
   ui::LatencyTracker latency_tracker_;
 
-#if defined(USE_X11)
+#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
   bool needs_swap_size_notifications_ = false;
 #endif
 

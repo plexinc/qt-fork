@@ -10,7 +10,6 @@
 #include "base/command_line.h"
 #include "base/mac/mac_util.h"
 #include "base/mac/scoped_block.h"
-#include "base/mac/sdk_forward_declarations.h"
 #include "base/macros.h"
 #import "skia/ext/skia_utils_mac.h"
 #include "ui/base/ui_base_features.h"
@@ -55,13 +54,13 @@ bool IsHighContrast() {
 @end
 
 @implementation NativeThemeEffectiveAppearanceObserver {
-  base::mac::ScopedBlock<void (^)()> handler_;
+  base::mac::ScopedBlock<void (^)()> _handler;
 }
 
 - (instancetype)initWithHandler:(void (^)())handler {
   self = [super init];
   if (self) {
-    handler_.reset([handler copy]);
+    _handler.reset([handler copy]);
     if (@available(macOS 10.14, *)) {
       [NSApp addObserver:self
               forKeyPath:@"effectiveAppearance"
@@ -83,7 +82,7 @@ bool IsHighContrast() {
                       ofObject:(id)object
                         change:(NSDictionary*)change
                        context:(void*)context {
-  handler_.get()();
+  _handler.get()();
 }
 
 @end
@@ -153,8 +152,8 @@ namespace ui {
 
 // static
 NativeTheme* NativeTheme::GetInstanceForWeb() {
-//  if (features::IsFormControlsRefreshEnable())
-//    return NativeThemeAura::web_instance();
+  if (features::IsFormControlsRefreshEnabled())
+    return NativeThemeAura::web_instance();
   return NativeThemeMac::instance();
 }
 
@@ -163,9 +162,22 @@ NativeTheme* NativeTheme::GetInstanceForNativeUi() {
   return NativeThemeMac::instance();
 }
 
+NativeTheme* NativeTheme::GetInstanceForDarkUI() {
+  static base::NoDestructor<NativeThemeMac> s_native_theme(false, true);
+  return s_native_theme.get();
+}
+
+// static
+bool NativeTheme::SystemDarkModeSupported() {
+  if (@available(macOS 10.14, *)) {
+    return true;
+  }
+  return false;
+}
+
 // static
 NativeThemeMac* NativeThemeMac::instance() {
-  static base::NoDestructor<NativeThemeMac> s_native_theme;
+  static base::NoDestructor<NativeThemeMac> s_native_theme(true, false);
   return s_native_theme.get();
 }
 
@@ -176,7 +188,14 @@ SkColor NativeThemeMac::ApplySystemControlTint(SkColor color) {
   return color;
 }
 
-SkColor NativeThemeMac::GetSystemColor(ColorId color_id) const {
+SkColor NativeThemeMac::GetSystemColor(ColorId color_id,
+                                       ColorScheme color_scheme) const {
+  if (color_scheme == ColorScheme::kDefault)
+    color_scheme = GetDefaultSystemColorScheme();
+
+  if ((color_scheme == ColorScheme::kDark) != IsDarkMode())
+    return NativeTheme::GetSystemColor(color_id, color_scheme);
+
   // Empirically, currentAppearance is incorrect when switching
   // appearances. It's unclear exactly why right now, so work
   // around it for the time being by resynchronizing.
@@ -190,9 +209,11 @@ SkColor NativeThemeMac::GetSystemColor(ColorId color_id) const {
   if (UsesHighContrastColors()) {
     switch (color_id) {
       case kColorId_SelectedMenuItemForegroundColor:
-        return SystemDarkModeEnabled() ? SK_ColorBLACK : SK_ColorWHITE;
+        return color_scheme == ColorScheme::kDark ? SK_ColorBLACK
+                                                  : SK_ColorWHITE;
       case kColorId_FocusedMenuItemBackgroundColor:
-        return SystemDarkModeEnabled() ? SK_ColorLTGRAY : SK_ColorDKGRAY;
+        return color_scheme == ColorScheme::kDark ? SK_ColorLTGRAY
+                                                  : SK_ColorDKGRAY;
       default:
         break;
     }
@@ -205,8 +226,9 @@ SkColor NativeThemeMac::GetSystemColor(ColorId color_id) const {
     case kColorId_DisabledMenuItemForegroundColor:
       return NSSystemColorToSkColor([NSColor disabledControlTextColor]);
     case kColorId_MenuSeparatorColor:
-      return SystemDarkModeEnabled() ? SkColorSetA(gfx::kGoogleGrey800, 0xCC)
-                                     : SkColorSetA(SK_ColorBLACK, 0x26);
+      return color_scheme == ColorScheme::kDark
+                 ? SkColorSetA(gfx::kGoogleGrey800, 0xCC)
+                 : SkColorSetA(SK_ColorBLACK, 0x26);
     case kColorId_MenuBorderColor:
       return SkColorSetA(SK_ColorBLACK, 0x60);
 
@@ -228,20 +250,30 @@ SkColor NativeThemeMac::GetSystemColor(ColorId color_id) const {
           NSSystemColorToSkColor([NSColor keyboardFocusIndicatorColor]),
           0x66);
 
+    case kColorId_TableBackgroundAlternate:
+      if (@available(macOS 10.14, *)) {
+        return NSSystemColorToSkColor(
+            NSColor.alternatingContentBackgroundColors[1]);
+      }
+      return NSSystemColorToSkColor(
+          NSColor.controlAlternatingRowBackgroundColors[1]);
+
     default:
       break;
   }
 
-  return ApplySystemControlTint(GetAuraColor(color_id, this));
+  return ApplySystemControlTint(
+      NativeTheme::GetSystemColor(color_id, color_scheme));
 }
 
 void NativeThemeMac::PaintMenuPopupBackground(
     cc::PaintCanvas* canvas,
     const gfx::Size& size,
-    const MenuBackgroundExtraParams& menu_background) const {
+    const MenuBackgroundExtraParams& menu_background,
+    ColorScheme color_scheme) const {
   cc::PaintFlags flags;
   flags.setAntiAlias(true);
-  flags.setColor(GetSystemColor(kColorId_MenuBackgroundColor));
+  flags.setColor(GetSystemColor(kColorId_MenuBackgroundColor, color_scheme));
   const SkScalar radius = SkIntToScalar(menu_background.corner_radius);
   SkRect rect = gfx::RectToSkRect(gfx::Rect(size));
   canvas->drawRoundRect(rect, radius, radius, flags);
@@ -251,14 +283,15 @@ void NativeThemeMac::PaintMenuItemBackground(
     cc::PaintCanvas* canvas,
     State state,
     const gfx::Rect& rect,
-    const MenuItemExtraParams& menu_item) const {
+    const MenuItemExtraParams& menu_item,
+    ColorScheme color_scheme) const {
   switch (state) {
     case NativeTheme::kNormal:
     case NativeTheme::kDisabled:
       // Draw nothing over the regular background.
       break;
     case NativeTheme::kHovered:
-      PaintSelectedMenuItem(canvas, rect);
+      PaintSelectedMenuItem(canvas, rect, color_scheme);
       break;
     default:
       NOTREACHED();
@@ -266,15 +299,11 @@ void NativeThemeMac::PaintMenuItemBackground(
   }
 }
 
-bool NativeThemeMac::SystemDarkModeSupported() const {
-  if (@available(macOS 10.14, *)) {
-    return true;
-  }
-  return false;
-}
-
-NativeThemeMac::NativeThemeMac() {
-  InitializeDarkModeStateAndObserver();
+NativeThemeMac::NativeThemeMac(bool configure_web_instance,
+                               bool should_only_use_dark_colors)
+    : NativeThemeBase(should_only_use_dark_colors) {
+  if (!should_only_use_dark_colors)
+    InitializeDarkModeStateAndObserver();
 
   if (!IsForcedHighContrast()) {
     set_high_contrast(IsHighContrast());
@@ -290,6 +319,9 @@ NativeThemeMac::NativeThemeMac() {
                       theme->NotifyObservers();
                     }];
   }
+
+  if (configure_web_instance)
+    ConfigureWebInstance();
 }
 
 NativeThemeMac::~NativeThemeMac() {
@@ -298,23 +330,44 @@ NativeThemeMac::~NativeThemeMac() {
 }
 
 void NativeThemeMac::PaintSelectedMenuItem(cc::PaintCanvas* canvas,
-                                           const gfx::Rect& rect) const {
+                                           const gfx::Rect& rect,
+                                           ColorScheme color_scheme) const {
   // Draw the background.
   cc::PaintFlags flags;
-  flags.setColor(GetSystemColor(kColorId_FocusedMenuItemBackgroundColor));
+  flags.setColor(
+      GetSystemColor(kColorId_FocusedMenuItemBackgroundColor, color_scheme));
   canvas->drawRect(gfx::RectToSkRect(rect), flags);
 }
 
 void NativeThemeMac::InitializeDarkModeStateAndObserver() {
   __block auto theme = this;
-  set_dark_mode(IsDarkMode());
+  set_use_dark_colors(IsDarkMode());
   set_preferred_color_scheme(CalculatePreferredColorScheme());
   appearance_observer_.reset(
       [[NativeThemeEffectiveAppearanceObserver alloc] initWithHandler:^{
-        theme->set_dark_mode(IsDarkMode());
+        theme->set_use_dark_colors(IsDarkMode());
         theme->set_preferred_color_scheme(CalculatePreferredColorScheme());
         theme->NotifyObservers();
       }]);
+}
+
+void NativeThemeMac::ConfigureWebInstance() {
+  if (!features::IsFormControlsRefreshEnabled())
+    return;
+
+  // For FormControlsRefresh, NativeThemeAura is used as web instance so we need
+  // to initialize its state.
+  NativeTheme* web_instance = NativeTheme::GetInstanceForWeb();
+  web_instance->set_use_dark_colors(IsDarkMode());
+  web_instance->set_preferred_color_scheme(CalculatePreferredColorScheme());
+  web_instance->set_high_contrast(IsHighContrast());
+
+  // Add the web native theme as an observer to stay in sync with dark mode,
+  // high contrast, and preferred color scheme changes.
+  color_scheme_observer_ =
+      std::make_unique<NativeTheme::ColorSchemeNativeThemeObserver>(
+          NativeTheme::GetInstanceForWeb());
+  AddObserver(color_scheme_observer_.get());
 }
 
 }  // namespace ui

@@ -22,7 +22,7 @@ namespace blink {
 
 class Element;
 
-class Command : public GarbageCollectedFinalized<Command> {
+class Command : public GarbageCollected<Command> {
  public:
   Command() = default;
   virtual ~Command() = default;
@@ -143,8 +143,8 @@ class ResetCustomElementReactionStackForTest final {
   CustomElementReactionStack& Stack() { return *stack_; }
 
  private:
-  Member<CustomElementReactionStack> stack_;
-  Member<CustomElementReactionStack> old_stack_;
+  CustomElementReactionStack* stack_;
+  CustomElementReactionStack* old_stack_;
 
   DISALLOW_COPY_AND_ASSIGN(ResetCustomElementReactionStackForTest);
 };

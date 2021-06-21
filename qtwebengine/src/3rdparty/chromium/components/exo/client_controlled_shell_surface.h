@@ -12,6 +12,7 @@
 #include "ash/wm/client_controlled_state.h"
 #include "base/callback.h"
 #include "base/macros.h"
+#include "components/exo/client_controlled_accelerators.h"
 #include "components/exo/shell_surface_base.h"
 #include "ui/base/hit_test.h"
 #include "ui/compositor/compositor_lock.h"
@@ -30,8 +31,10 @@ enum class WindowPinType;
 
 namespace exo {
 class Surface;
+class ClientControlledAcceleratorTarget;
 
 enum class Orientation { PORTRAIT, LANDSCAPE };
+enum class ZoomChange { IN, OUT, RESET };
 
 // This class implements a ShellSurface whose window state and bounds are
 // controlled by a remote shell client rather than the window manager. The
@@ -95,7 +98,7 @@ class ClientControlledShellSurface : public ShellSurfaceBase,
       base::RepeatingCallback<void(ash::WindowStateType current_state,
                                    ash::WindowStateType requested_state,
                                    int64_t display_id,
-                                   const gfx::Rect& bounds,
+                                   const gfx::Rect& bounds_in_display,
                                    bool is_resize,
                                    int bounds_change)>;
   void set_bounds_changed_callback(
@@ -117,6 +120,12 @@ class ClientControlledShellSurface : public ShellSurfaceBase,
   using DragFinishedCallback = base::RepeatingCallback<void(int, int, bool)>;
   void set_drag_finished_callback(const DragFinishedCallback& callback) {
     drag_finished_callback_ = callback;
+  }
+
+  // Set callback to run when user requests to change a zoom level.
+  using ChangeZoomLevelCallback = base::RepeatingCallback<void(ZoomChange)>;
+  void set_change_zoom_level_callback(const ChangeZoomLevelCallback& callback) {
+    change_zoom_level_callback_ = callback;
   }
 
   // Returns true if this shell surface is currently being dragged.
@@ -154,6 +163,9 @@ class ClientControlledShellSurface : public ShellSurfaceBase,
   // Set resize outset for surface.
   void SetResizeOutset(int outset);
 
+  // Sends the request to change the zoom level to the client.
+  void ChangeZoomLevel(ZoomChange change);
+
   // Sends the window state change event to client.
   void OnWindowStateChangeEvent(ash::WindowStateType old_state,
                                 ash::WindowStateType next_state);
@@ -171,10 +183,10 @@ class ClientControlledShellSurface : public ShellSurfaceBase,
 
   // Sends the window drag events to client.
   void OnDragStarted(int component);
-  void OnDragFinished(bool cancel, const gfx::Point& location);
+  void OnDragFinished(bool cancel, const gfx::PointF& location);
 
   // Starts the drag operation.
-  void StartDrag(int component, const gfx::Point& location);
+  void StartDrag(int component, const gfx::PointF& location);
 
   // Set if the surface can be maximzied.
   void SetCanMaximize(bool can_maximize);
@@ -196,6 +208,13 @@ class ClientControlledShellSurface : public ShellSurfaceBase,
   // behavior defined by |orientation_lock|. See more details in
   // //ash/display/screen_orientation_controller.h.
   void SetOrientationLock(ash::OrientationLockType orientation_lock);
+
+  // Set the accessibility ID provided by client for the surface. If
+  // |accessibility_id| is negative value, it will unset the ID.
+  void SetClientAccessibilityId(int32_t accessibility_id);
+
+  // Overridden from SurfaceTreeHost:
+  void DidReceiveCompositorFrameAck() override;
 
   // Overridden from SurfaceDelegate:
   bool IsInputEnabled(Surface* surface) const override;
@@ -253,6 +272,7 @@ class ClientControlledShellSurface : public ShellSurfaceBase,
   gfx::Point GetSurfaceOrigin() const override;
   bool OnPreWidgetCommit() override;
   void OnPostWidgetCommit() override;
+  void OnSurfaceDestroying(Surface* surface) override;
 
   // Update frame status. This may create (or destroy) a wide frame
   // that spans the full work area width if the surface didn't cover
@@ -265,7 +285,7 @@ class ClientControlledShellSurface : public ShellSurfaceBase,
 
   void UpdateFrameWidth();
 
-  void AttemptToStartDrag(int component, const gfx::Point& location);
+  void AttemptToStartDrag(int component, const gfx::PointF& location);
 
   // Lock the compositor if it's not already locked, or extends the
   // lock timeout if it's already locked.
@@ -292,6 +312,7 @@ class ClientControlledShellSurface : public ShellSurfaceBase,
   BoundsChangedCallback bounds_changed_callback_;
   DragStartedCallback drag_started_callback_;
   DragFinishedCallback drag_finished_callback_;
+  ChangeZoomLevelCallback change_zoom_level_callback_;
 
   // TODO(reveman): Use configure callbacks for orientation. crbug.com/765954
   Orientation pending_orientation_ = Orientation::LANDSCAPE;
@@ -301,6 +322,8 @@ class ClientControlledShellSurface : public ShellSurfaceBase,
   ash::ClientControlledState* client_controlled_state_ = nullptr;
 
   ash::WindowStateType pending_window_state_ = ash::WindowStateType::kNormal;
+
+  bool pending_always_on_top_ = false;
 
   ash::WindowPinType current_pin_;
 
@@ -335,8 +358,16 @@ class ClientControlledShellSurface : public ShellSurfaceBase,
 
   bool ignore_bounds_change_request_ = false;
 
+  bool display_rotating_with_pip_ = false;
+
   // True if the window state has changed during the commit.
   bool state_changed_ = false;
+
+  // Client controlled specific accelerator target.
+  std::unique_ptr<ClientControlledAcceleratorTarget> accelerator_target_;
+
+  // Accessibility ID provided by client.
+  base::Optional<int32_t> client_accessibility_id_;
 
   DISALLOW_COPY_AND_ASSIGN(ClientControlledShellSurface);
 };

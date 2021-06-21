@@ -17,6 +17,7 @@
 
 namespace gl {
 GL_EXPORT void Crash();
+GL_EXPORT void Hang();
 
 #if defined(OS_ANDROID)
 GL_EXPORT base::ScopedFD MergeFDs(base::ScopedFD a, base::ScopedFD b);
@@ -24,6 +25,10 @@ GL_EXPORT base::ScopedFD MergeFDs(base::ScopedFD a, base::ScopedFD b);
 
 GL_EXPORT bool UsePassthroughCommandDecoder(
     const base::CommandLine* command_line);
+
+#if defined(OS_WIN)
+GL_EXPORT bool AreOverlaysSupportedWin();
+#endif
 
 }  // namespace gl
 

@@ -18,7 +18,7 @@ if (use_system_libjpeg) {
     packages = [ "libjpeg" ]
   }
   shim_headers("libjpeg_shim") {
-    root_path = "libjpeg"
+    root_path = "libjpeg_turbo"
     headers = [
       "jpeglib.h"
     ]
@@ -46,14 +46,10 @@ group("jpeg") {
   if (use_system_libjpeg) {
     public_deps = [ ":libjpeg" ]
   } else if (use_libjpeg_turbo) {
-    public_deps = [
-      "//third_party/libjpeg_turbo:libjpeg",
-    ]
+    public_deps = [ "//third_party/libjpeg_turbo:libjpeg" ]
     public_configs = [ ":libjpeg_turbo_config" ]
   } else {
-    public_deps = [
-      "//third_party/libjpeg:libjpeg",
-    ]
+    public_deps = [ "//third_party/libjpeg:libjpeg" ]
   }
 }
 
@@ -71,6 +67,10 @@ group("jpeg_includes") {
   }
 }
 
+config("bundled_harfbuzz_config") {
+  defines = [ "HAVE_HB_SUBSET_H=1" ]
+}
+
 # FreeType and HarfBuzz libraries are dependent on each other. This component
 # will depend on the appropriate source sets or export the system packages
 # for both FreeType and HarfBuzz.
@@ -86,5 +86,6 @@ component("freetype_harfbuzz") {
     public_configs += [ "//third_party/harfbuzz-ng:harfbuzz_from_pkgconfig" ]
   } else {
     public_deps += [ "//third_party/harfbuzz-ng:harfbuzz_source" ]
+    public_configs += [ ":bundled_harfbuzz_config" ]
   }
 }

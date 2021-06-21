@@ -20,7 +20,6 @@ UI_BASE_EXPORT extern const char kDisableRemoteCoreAnimation[];
 UI_BASE_EXPORT extern const char kShowMacOverlayBorders[];
 #endif
 
-UI_BASE_EXPORT extern const char kAnimationDurationScale[];
 UI_BASE_EXPORT extern const char kDisableCompositedAntialiasing[];
 UI_BASE_EXPORT extern const char kDisableDwmComposition[];
 UI_BASE_EXPORT extern const char kDisableTouchAdjustment[];
@@ -38,6 +37,7 @@ UI_BASE_EXPORT extern const char kTopChromeTouchUiAuto[];
 UI_BASE_EXPORT extern const char kTopChromeTouchUiDisabled[];
 UI_BASE_EXPORT extern const char kTopChromeTouchUiEnabled[];
 UI_BASE_EXPORT extern const char kUIDisablePartialSwap[];
+UI_BASE_EXPORT extern const char kUseSystemClipboard[];
 
 // Test related.
 UI_BASE_EXPORT extern const char kDisallowNonExactResourceReuse[];

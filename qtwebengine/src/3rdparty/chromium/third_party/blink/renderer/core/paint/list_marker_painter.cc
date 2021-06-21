@@ -25,6 +25,8 @@ void ListMarkerPainter::PaintSymbol(const PaintInfo& paint_info,
                                     const IntRect& marker) {
   DCHECK(object);
   GraphicsContext& context = paint_info.context;
+  ScopedDarkModeElementRoleOverride list_symbol(
+      &context, DarkModeFilter::ElementRole::kListSymbol);
   Color color(object->ResolveColor(GetCSSPropertyColor()));
   if (BoxModelObjectPainter::ShouldForceWhiteBackgroundForPrintEconomy(
           object->GetDocument(), style))
@@ -108,8 +110,7 @@ void ListMarkerPainter::Paint(const PaintInfo& paint_info) {
   Color color(layout_list_marker_.ResolveColor(GetCSSPropertyColor()));
 
   if (BoxModelObjectPainter::ShouldForceWhiteBackgroundForPrintEconomy(
-          layout_list_marker_.ListItem()->GetDocument(),
-          layout_list_marker_.StyleRef()))
+          layout_list_marker_.GetDocument(), layout_list_marker_.StyleRef()))
     color = TextPainter::TextColorForWhiteBackground(color);
 
   // Apply the color to the list marker text.
@@ -153,6 +154,13 @@ void ListMarkerPainter::Paint(const PaintInfo& paint_info) {
       reversed_text.Append(layout_list_marker_.GetText()[i]);
     DCHECK(reversed_text.length() == length);
     text_run.SetText(reversed_text.ToString());
+  }
+
+  if (style_category == LayoutListMarker::ListStyleCategory::kStaticString) {
+    // Don't add a suffix.
+    context.DrawText(font, text_run_paint_info, text_origin, kInvalidDOMNodeId);
+    context.GetPaintController().SetTextPainted();
+    return;
   }
 
   const UChar suffix =

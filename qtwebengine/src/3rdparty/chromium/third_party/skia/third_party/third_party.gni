@@ -71,12 +71,12 @@ set_defaults("third_party") {
     configs -= [ "//gn:warnings" ]
   }
 
-  # Don't want to to deal with this (especially /RTCc)
-  if (sanitize == "MSVC") {
-    configs -= [ "//gn:msvc_rtc" ]
-  }
   if (is_debug) {
     configs += [ "//gn:optimize" ]
+  }
+
+  if (sanitize == "ASAN") {
+    configs += [ "//gn:recover_pointer_overflow" ]
   }
 }
 

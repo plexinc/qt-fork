@@ -25,6 +25,7 @@
 #include "components/signin/internal/identity_manager/primary_account_policy_manager_impl.h"
 #include "components/signin/public/base/test_signin_client.h"
 #include "components/signin/public/identity_manager/accounts_mutator.h"
+#include "components/signin/public/identity_manager/consent_level.h"
 #include "components/signin/public/identity_manager/device_accounts_synchronizer.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/signin/public/identity_manager/identity_test_utils.h"
@@ -127,7 +128,12 @@ void IdentityTestEnvironment::Initialize() {
          "environment. "
          "If your test has an existing one, move it to be initialized before "
          "IdentityTestEnvironment. Otherwise, use "
-         "base::test::ScopedTaskEnvironment.";
+         "base::test::TaskEnvironment.";
+  DCHECK(identity_manager()
+             ->GetTokenService()
+             ->IsFakeProfileOAuth2TokenServiceForTesting())
+      << "IdentityTestEnvironment requires the ProfileOAuth2TokenService used "
+         "to subclass FakeProfileOAuth2TokenServiceForTesting.";
   test_identity_manager_observer_ =
       std::make_unique<TestIdentityManagerObserver>(this->identity_manager());
   this->identity_manager()->AddDiagnosticsObserver(this);
@@ -204,7 +210,8 @@ IdentityTestEnvironment::BuildIdentityManagerForTests(
       token_service.get(), gaia_cookie_manager_service.get());
 
   auto accounts_cookie_mutator = std::make_unique<AccountsCookieMutatorImpl>(
-      gaia_cookie_manager_service.get(), account_tracker_service.get());
+      signin_client, token_service.get(), gaia_cookie_manager_service.get(),
+      account_tracker_service.get());
 
   std::unique_ptr<DeviceAccountsSynchronizer> device_accounts_synchronizer;
 #if defined(OS_IOS)
@@ -246,6 +253,11 @@ CoreAccountInfo IdentityTestEnvironment::SetPrimaryAccount(
   return signin::SetPrimaryAccount(identity_manager(), email);
 }
 
+CoreAccountInfo IdentityTestEnvironment::SetUnconsentedPrimaryAccount(
+    const std::string& email) {
+  return signin::SetUnconsentedPrimaryAccount(identity_manager(), email);
+}
+
 void IdentityTestEnvironment::SetRefreshTokenForPrimaryAccount() {
   signin::SetRefreshTokenForPrimaryAccount(identity_manager());
 }
@@ -263,6 +275,31 @@ AccountInfo IdentityTestEnvironment::MakePrimaryAccountAvailable(
   return signin::MakePrimaryAccountAvailable(identity_manager(), email);
 }
 
+AccountInfo IdentityTestEnvironment::MakeUnconsentedPrimaryAccountAvailable(
+    const std::string& email) {
+  DCHECK(!identity_manager()->HasPrimaryAccount(ConsentLevel::kNotRequired));
+#if defined(OS_CHROMEOS)
+  // Chrome OS sets the unconsented primary account during login and does not
+  // allow signout.
+  AccountInfo account_info = MakeAccountAvailable(email);
+  identity_manager()->GetPrimaryAccountMutator()->SetUnconsentedPrimaryAccount(
+      account_info.account_id);
+#elif defined(OS_IOS) || defined(OS_ANDROID)
+  // iOS and Android only support the primary account.
+  AccountInfo account_info = MakePrimaryAccountAvailable(email);
+#else
+  // Desktop platforms.
+  AccountInfo account_info =
+      MakeAccountAvailableWithCookies(email, GetTestGaiaIdForEmail(email));
+  base::RunLoop().RunUntilIdle();
+#endif
+  DCHECK(identity_manager()->HasPrimaryAccount(ConsentLevel::kNotRequired));
+  DCHECK_EQ(email, identity_manager()
+                       ->GetPrimaryAccountInfo(ConsentLevel::kNotRequired)
+                       .email);
+  return account_info;
+}
+
 void IdentityTestEnvironment::ClearPrimaryAccount(
     ClearPrimaryAccountPolicy policy) {
   signin::ClearPrimaryAccount(identity_manager(), policy);
@@ -271,6 +308,15 @@ void IdentityTestEnvironment::ClearPrimaryAccount(
 AccountInfo IdentityTestEnvironment::MakeAccountAvailable(
     const std::string& email) {
   return signin::MakeAccountAvailable(identity_manager(), email);
+}
+
+AccountInfo IdentityTestEnvironment::MakeAccountAvailableWithCookies(
+    const std::string& email,
+    const std::string& gaia_id) {
+  return signin::MakeAccountAvailableWithCookies(
+      identity_manager(),
+      dependencies_owner_->signin_client()->GetTestURLLoaderFactory(), email,
+      gaia_id);
 }
 
 void IdentityTestEnvironment::SetRefreshTokenForAccount(
@@ -335,7 +381,7 @@ void IdentityTestEnvironment::
         const std::string& token,
         const base::Time& expiration,
         const std::string& id_token,
-        const identity::ScopeSet& scopes) {
+        const ScopeSet& scopes) {
   WaitForAccessTokenRequestIfNecessary(base::nullopt);
   fake_token_service()->IssueTokenForScope(
       scopes,
@@ -376,7 +422,7 @@ IdentityTestEnvironment::AccessTokenRequestState::operator=(
 void IdentityTestEnvironment::OnAccessTokenRequested(
     const CoreAccountId& account_id,
     const std::string& consumer_id,
-    const identity::ScopeSet& scopes) {
+    const ScopeSet& scopes) {
   // Post a task to handle this access token request in order to support the
   // case where the access token request is handled synchronously in the
   // production code, in which case this callback could be coming in ahead
@@ -461,7 +507,7 @@ void IdentityTestEnvironment::ResetToAccountsNotYetLoadedFromDiskState() {
 }
 
 void IdentityTestEnvironment::ReloadAccountsFromDisk() {
-  fake_token_service()->LoadCredentials("");
+  fake_token_service()->LoadCredentials(CoreAccountId());
 }
 
 bool IdentityTestEnvironment::IsAccessTokenRequestPending() {

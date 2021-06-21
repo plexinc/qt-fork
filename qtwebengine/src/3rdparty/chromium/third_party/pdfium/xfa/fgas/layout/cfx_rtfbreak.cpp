@@ -31,7 +31,7 @@ CFX_RTFBreak::CFX_RTFBreak(uint32_t dwLayoutStyles)
 CFX_RTFBreak::~CFX_RTFBreak() {}
 
 void CFX_RTFBreak::SetLineStartPos(float fLinePos) {
-  int32_t iLinePos = FXSYS_round(fLinePos * kConversionFactor);
+  int32_t iLinePos = FXSYS_roundf(fLinePos * kConversionFactor);
   iLinePos = std::min(iLinePos, m_iLineWidth);
   iLinePos = std::max(iLinePos, m_iLineStart);
   m_pCurLine->m_iStart = iLinePos;
@@ -39,7 +39,7 @@ void CFX_RTFBreak::SetLineStartPos(float fLinePos) {
 
 void CFX_RTFBreak::AddPositionedTab(float fTabPos) {
   int32_t iTabPos = std::min(
-      FXSYS_round(fTabPos * kConversionFactor) + m_iLineStart, m_iLineWidth);
+      FXSYS_roundf(fTabPos * kConversionFactor) + m_iLineStart, m_iLineWidth);
   auto it = std::lower_bound(m_PositionedTabs.begin(), m_PositionedTabs.end(),
                              iTabPos);
   if (it != m_PositionedTabs.end() && *it == iTabPos)
@@ -53,10 +53,6 @@ void CFX_RTFBreak::SetUserData(const RetainPtr<CFX_TextUserData>& pUserData) {
 
   SetBreakStatus();
   m_pUserData = pUserData;
-}
-
-int32_t CFX_RTFBreak::GetLastPositionedTab() const {
-  return m_PositionedTabs.empty() ? m_iLineStart : m_PositionedTabs.back();
 }
 
 bool CFX_RTFBreak::GetPositionedTab(int32_t* iTabPos) const {
@@ -142,7 +138,7 @@ void CFX_RTFBreak::AppendChar_Combination(CFX_Char* pCurChar) {
   int32_t iCharWidthValid = iCharWidth.ValueOrDefault(0);
   pCurChar->m_iCharWidth = iCharWidthValid;
   if (iCharWidthValid > 0) {
-    pdfium::base::CheckedNumeric<int32_t> checked_width = m_pCurLine->m_iWidth;
+    FX_SAFE_INT32 checked_width = m_pCurLine->m_iWidth;
     checked_width += iCharWidthValid;
     if (!checked_width.IsValid())
       return;
@@ -199,6 +195,8 @@ CFX_BreakType CFX_RTFBreak::AppendChar_Control(CFX_Char* pCurChar) {
 }
 
 CFX_BreakType CFX_RTFBreak::AppendChar_Arabic(CFX_Char* pCurChar) {
+  m_pCurLine->IncrementArabicCharCount();
+
   CFX_Char* pLastChar = nullptr;
   wchar_t wForm;
   bool bAlef = false;
@@ -218,7 +216,7 @@ CFX_BreakType CFX_RTFBreak::AppendChar_Arabic(CFX_Char* pCurChar) {
            m_pFont->GetCharWidth(pLastChar->char_code(), &iCharWidthOut))) {
         iCharWidth = iCharWidthOut;
       } else {
-        iCharWidth = m_iDefChar;
+        iCharWidth = 0;
       }
 
       iCharWidth *= m_iFontSize;
@@ -228,8 +226,7 @@ CFX_BreakType CFX_RTFBreak::AppendChar_Arabic(CFX_Char* pCurChar) {
       int iCharWidthValid = iCharWidth.ValueOrDefault(0);
       pLastChar->m_iCharWidth = iCharWidthValid;
 
-      pdfium::base::CheckedNumeric<int32_t> checked_width =
-          m_pCurLine->m_iWidth;
+      FX_SAFE_INT32 checked_width = m_pCurLine->m_iWidth;
       checked_width += iCharWidthValid;
       if (!checked_width.IsValid())
         return CFX_BreakType::None;
@@ -248,7 +245,7 @@ CFX_BreakType CFX_RTFBreak::AppendChar_Arabic(CFX_Char* pCurChar) {
        m_pFont->GetCharWidth(pCurChar->char_code(), &iCharWidthOut))) {
     iCharWidth = iCharWidthOut;
   } else {
-    iCharWidth = m_iDefChar;
+    iCharWidth = 0;
   }
 
   iCharWidth *= m_iFontSize;
@@ -258,13 +255,12 @@ CFX_BreakType CFX_RTFBreak::AppendChar_Arabic(CFX_Char* pCurChar) {
   int iCharWidthValid = iCharWidth.ValueOrDefault(0);
   pCurChar->m_iCharWidth = iCharWidthValid;
 
-  pdfium::base::CheckedNumeric<int32_t> checked_width = m_pCurLine->m_iWidth;
+  FX_SAFE_INT32 checked_width = m_pCurLine->m_iWidth;
   checked_width += iCharWidthValid;
   if (!checked_width.IsValid())
     return CFX_BreakType::None;
 
   m_pCurLine->m_iWidth = checked_width.ValueOrDie();
-  m_pCurLine->m_iArabicChars++;
 
   if (IsGreaterThanLineWidth(m_pCurLine->GetLineEnd()))
     return EndBreak(CFX_BreakType::Line);
@@ -279,7 +275,7 @@ CFX_BreakType CFX_RTFBreak::AppendChar_Others(CFX_Char* pCurChar) {
   if (m_pFont && m_pFont->GetCharWidth(wForm, &iCharWidthOut))
     iCharWidth = iCharWidthOut;
   else
-    iCharWidth = m_iDefChar;
+    iCharWidth = 0;
 
   iCharWidth *= m_iFontSize;
   iCharWidth *= m_iHorizontalScale;
@@ -289,7 +285,7 @@ CFX_BreakType CFX_RTFBreak::AppendChar_Others(CFX_Char* pCurChar) {
   int iCharWidthValid = iCharWidth.ValueOrDefault(0);
   pCurChar->m_iCharWidth = iCharWidthValid;
 
-  pdfium::base::CheckedNumeric<int32_t> checked_width = m_pCurLine->m_iWidth;
+  FX_SAFE_INT32 checked_width = m_pCurLine->m_iWidth;
   checked_width += iCharWidthValid;
   if (!checked_width.IsValid())
     return CFX_BreakType::None;
@@ -313,12 +309,12 @@ CFX_BreakType CFX_RTFBreak::EndBreak(CFX_BreakType dwStatus) {
   }
 
   if (HasLine()) {
-    if (!m_Line[m_iReadyLineIndex].m_LinePieces.empty()) {
-      if (dwStatus != CFX_BreakType::Piece)
-        m_Line[m_iReadyLineIndex].m_LinePieces.back().m_dwStatus = dwStatus;
-      return m_Line[m_iReadyLineIndex].m_LinePieces.back().m_dwStatus;
-    }
-    return CFX_BreakType::None;
+    if (m_Lines[m_iReadyLineIndex].m_LinePieces.empty())
+      return CFX_BreakType::None;
+
+    if (dwStatus != CFX_BreakType::Piece)
+      m_Lines[m_iReadyLineIndex].m_LinePieces.back().m_dwStatus = dwStatus;
+    return m_Lines[m_iReadyLineIndex].m_LinePieces.back().m_dwStatus;
   }
 
   if (m_pCurLine->m_LineChars.empty())
@@ -329,8 +325,8 @@ CFX_BreakType CFX_RTFBreak::EndBreak(CFX_BreakType dwStatus) {
   if (dwStatus == CFX_BreakType::Piece)
     return dwStatus;
 
-  m_iReadyLineIndex = m_pCurLine == &m_Line[0] ? 0 : 1;
-  CFX_BreakLine* pNextLine = &m_Line[1 - m_iReadyLineIndex];
+  m_iReadyLineIndex = m_pCurLine == &m_Lines[0] ? 0 : 1;
+  CFX_BreakLine* pNextLine = &m_Lines[1 - m_iReadyLineIndex];
   bool bAllChars = m_iAlignment == CFX_RTFLineAlignment::Justified ||
                    m_iAlignment == CFX_RTFLineAlignment::Distributed;
 
@@ -394,7 +390,7 @@ bool CFX_RTFBreak::EndBreak_SplitLine(CFX_BreakLine* pNextLine,
       tp.m_iVerticalScale = pTC->vertical_scale();
       dwIdentity = pTC->m_dwIdentity;
       tp.m_dwIdentity = dwIdentity;
-      tp.m_pUserData = pTC->m_pUserData.As<CFX_TextUserData>();
+      tp.m_pUserData = pTC->m_pUserData;
       j = i;
       bNew = false;
     }
@@ -422,7 +418,7 @@ void CFX_RTFBreak::EndBreak_BidiLine(std::deque<FX_TPO>* tpos,
                                      CFX_BreakType dwStatus) {
   CFX_Char* pTC;
   std::vector<CFX_Char>& chars = m_pCurLine->m_LineChars;
-  if (!m_bPagination && m_pCurLine->m_iArabicChars > 0) {
+  if (!m_bPagination && m_pCurLine->HasArabicChar()) {
     size_t iBidiNum = 0;
     for (size_t i = 0; i < m_pCurLine->m_LineChars.size(); ++i) {
       pTC = &chars[i];
@@ -467,7 +463,7 @@ void CFX_RTFBreak::EndBreak_BidiLine(std::deque<FX_TPO>* tpos,
       tp.m_iVerticalScale = pTC->vertical_scale();
       dwIdentity = pTC->m_dwIdentity;
       tp.m_dwIdentity = dwIdentity;
-      tp.m_pUserData = pTC->m_pUserData.As<CFX_TextUserData>();
+      tp.m_pUserData = pTC->m_pUserData;
       tp.m_dwStatus = CFX_BreakType::Piece;
       ++i;
     } else if (iBidiLevel != pTC->m_iBidiLevel ||
@@ -713,8 +709,8 @@ void CFX_RTFBreak::SplitTextLine(CFX_BreakLine* pCurLine,
 
   for (size_t i = 0; i < pNextLine->m_LineChars.size(); ++i) {
     if (pNextLine->m_LineChars[i].GetCharType() >= FX_CHARTYPE::kArabicAlef) {
-      pCurLine->m_iArabicChars--;
-      pNextLine->m_iArabicChars++;
+      pCurLine->DecrementArabicCharCount();
+      pNextLine->IncrementArabicCharCount();
     }
     pNextLine->m_LineChars[i].m_dwStatus = CFX_BreakType::None;
   }
@@ -729,7 +725,7 @@ size_t CFX_RTFBreak::GetDisplayPos(const CFX_TextPiece* pPiece,
   CFX_RectF rtText(pPiece->rtPiece);
   bool bRTLPiece = FX_IsOdd(pPiece->iBidiLevel);
   float fFontSize = pPiece->fFontSize;
-  int32_t iFontSize = FXSYS_round(fFontSize * 20.0f);
+  int32_t iFontSize = FXSYS_roundf(fFontSize * 20.0f);
   if (iFontSize == 0)
     return 0;
 

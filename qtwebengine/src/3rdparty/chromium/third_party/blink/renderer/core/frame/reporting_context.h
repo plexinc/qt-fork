@@ -8,6 +8,7 @@
 #include "third_party/blink/public/mojom/reporting/reporting.mojom-blink.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
+#include "third_party/blink/renderer/platform/mojo/heap_mojo_remote.h"
 #include "third_party/blink/renderer/platform/supplementable.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
@@ -20,7 +21,7 @@ class ReportingObserver;
 // ReportingContext processes all reports for an ExecutionContext, and serves as
 // a container for all active ReportingObservers on that ExecutionContext.
 class CORE_EXPORT ReportingContext final
-    : public GarbageCollectedFinalized<ReportingContext>,
+    : public GarbageCollected<ReportingContext>,
       public Supplement<ExecutionContext> {
   USING_GARBAGE_COLLECTED_MIXIN(ReportingContext);
 
@@ -42,13 +43,14 @@ class CORE_EXPORT ReportingContext final
   void RegisterObserver(ReportingObserver*);
   void UnregisterObserver(ReportingObserver*);
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
 
  private:
   // Counts the use of a report type via UseCounter.
   void CountReport(Report*);
 
-  const mojom::blink::ReportingServiceProxyPtr& GetReportingService() const;
+  const HeapMojoRemote<mojom::blink::ReportingServiceProxy>&
+  GetReportingService() const;
 
   // Send |report| via the Reporting API to |endpoint|.
   void SendToReportingAPI(Report* report, const String& endpoint) const;
@@ -59,7 +61,8 @@ class CORE_EXPORT ReportingContext final
 
   // This is declared mutable so that the service endpoint can be cached by
   // const methods.
-  mutable mojom::blink::ReportingServiceProxyPtr reporting_service_;
+  mutable HeapMojoRemote<mojom::blink::ReportingServiceProxy>
+      reporting_service_;
 };
 
 }  // namespace blink

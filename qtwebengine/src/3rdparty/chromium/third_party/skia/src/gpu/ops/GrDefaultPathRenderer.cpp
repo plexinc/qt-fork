@@ -17,15 +17,16 @@
 #include "src/gpu/GrDefaultGeoProcFactory.h"
 #include "src/gpu/GrDrawOpTest.h"
 #include "src/gpu/GrFixedClip.h"
-#include "src/gpu/GrMesh.h"
 #include "src/gpu/GrOpFlushState.h"
+#include "src/gpu/GrProgramInfo.h"
 #include "src/gpu/GrRenderTargetContextPriv.h"
+#include "src/gpu/GrSimpleMesh.h"
 #include "src/gpu/GrStyle.h"
 #include "src/gpu/GrSurfaceContextPriv.h"
 #include "src/gpu/geometry/GrPathUtils.h"
 #include "src/gpu/geometry/GrShape.h"
 #include "src/gpu/ops/GrMeshDrawOp.h"
-#include "src/gpu/ops/GrSimpleMeshDrawOpHelper.h"
+#include "src/gpu/ops/GrSimpleMeshDrawOpHelperWithStencil.h"
 
 GrDefaultPathRenderer::GrDefaultPathRenderer() {
 }
@@ -66,20 +67,21 @@ namespace {
 
 class PathGeoBuilder {
 public:
-    PathGeoBuilder(GrPrimitiveType primitiveType, GrMeshDrawOp::Target* target,
-                   sk_sp<const GrGeometryProcessor> geometryProcessor)
+    PathGeoBuilder(GrPrimitiveType primitiveType,
+                   GrMeshDrawOp::Target* target,
+                   SkTDArray<GrSimpleMesh*>* meshes)
             : fPrimitiveType(primitiveType)
             , fTarget(target)
             , fVertexStride(sizeof(SkPoint))
-            , fGeometryProcessor(std::move(geometryProcessor))
             , fFirstIndex(0)
             , fIndicesInChunk(0)
-            , fIndices(nullptr) {
+            , fIndices(nullptr)
+            , fMeshes(meshes) {
         this->allocNewBuffers();
     }
 
     ~PathGeoBuilder() {
-        this->emitMeshAndPutBackReserve();
+        this->createMeshAndPutBackReserve();
     }
 
     /**
@@ -151,7 +153,7 @@ public:
 
         bool done = false;
         while (!done) {
-            SkPath::Verb verb = iter.next(pts, false);
+            SkPath::Verb verb = iter.next(pts);
             switch (verb) {
                 case SkPath::kMove_Verb:
                     this->moveTo(pts[0]);
@@ -183,7 +185,7 @@ public:
         SkPath::Verb verb;
 
         SkPoint pts[4];
-        while ((verb = iter.next(pts, false)) != SkPath::kDone_Verb) {
+        while ((verb = iter.next(pts)) != SkPath::kDone_Verb) {
             if (SkPath::kMove_Verb == verb && !first) {
                 return true;
             }
@@ -262,26 +264,30 @@ private:
     }
 
     // Emits a single draw with all accumulated vertex/index data
-    void emitMeshAndPutBackReserve() {
+    void createMeshAndPutBackReserve() {
         int vertexCount = fCurVert - fVertices;
         int indexCount = fCurIdx - fIndices;
         SkASSERT(vertexCount <= fVerticesInChunk);
         SkASSERT(indexCount <= fIndicesInChunk);
 
+        GrSimpleMesh* mesh = nullptr;
         if (this->isIndexed() ? SkToBool(indexCount) : SkToBool(vertexCount)) {
-            GrMesh* mesh = fTarget->allocMesh(fPrimitiveType);
+            mesh = fTarget->allocMesh();
             if (!this->isIndexed()) {
-                mesh->setNonIndexedNonInstanced(vertexCount);
+                mesh->set(std::move(fVertexBuffer), vertexCount, fFirstVertex);
             } else {
                 mesh->setIndexed(std::move(fIndexBuffer), indexCount, fFirstIndex, 0,
-                                 vertexCount - 1, GrPrimitiveRestart::kNo);
+                                 vertexCount - 1, GrPrimitiveRestart::kNo, std::move(fVertexBuffer),
+                                 fFirstVertex);
             }
-            mesh->setVertexData(std::move(fVertexBuffer), fFirstVertex);
-            fTarget->recordDraw(fGeometryProcessor, mesh);
         }
 
         fTarget->putBackIndices((size_t)(fIndicesInChunk - indexCount));
         fTarget->putBackVertices((size_t)(fVerticesInChunk - vertexCount), fVertexStride);
+
+        if (mesh) {
+            fMeshes->push_back(mesh);
+        }
     }
 
     void needSpace(int vertsNeeded, int indicesNeeded = 0) {
@@ -297,7 +303,7 @@ private:
             SkPoint subpathStartPt = fVertices[fSubpathIndexStart];
 
             // Draw the mesh we've accumulated, and put back any unused space
-            this->emitMeshAndPutBackReserve();
+            this->createMeshAndPutBackReserve();
 
             // Get new buffers
             this->allocNewBuffers();
@@ -313,7 +319,6 @@ private:
     GrPrimitiveType fPrimitiveType;
     GrMeshDrawOp::Target* fTarget;
     size_t fVertexStride;
-    sk_sp<const GrGeometryProcessor> fGeometryProcessor;
 
     sk_sp<const GrBuffer> fVertexBuffer;
     int fFirstVertex;
@@ -327,6 +332,8 @@ private:
     uint16_t* fIndices;
     uint16_t* fCurIdx;
     uint16_t fSubpathIndexStart;
+
+    SkTDArray<GrSimpleMesh*>* fMeshes;
 };
 
 class DefaultPathOp final : public GrMeshDrawOp {
@@ -354,7 +361,11 @@ public:
     const char* name() const override { return "DefaultPathOp"; }
 
     void visitProxies(const VisitProxyFunc& func) const override {
-        fHelper.visitProxies(func);
+        if (fProgramInfo) {
+            fProgramInfo->visitFPProxies(func);
+        } else {
+            fHelper.visitProxies(func);
+        }
     }
 
 #ifdef SK_DEBUG
@@ -382,8 +393,9 @@ public:
             , fIsHairline(isHairline) {
         fPaths.emplace_back(PathData{path, tolerance});
 
-        this->setBounds(devBounds, HasAABloat::kNo,
-                        isHairline ? IsZeroArea::kYes : IsZeroArea::kNo);
+        HasAABloat aaBloat = (aaType == GrAAType::kNone) ? HasAABloat ::kNo : HasAABloat::kYes;
+        this->setBounds(devBounds, aaBloat,
+                        isHairline ? IsHairline::kYes : IsHairline::kNo);
     }
 
     FixedFunctionFlags fixedFunctionFlags() const override { return fHelper.fixedFunctionFlags(); }
@@ -400,15 +412,35 @@ public:
     }
 
 private:
-    void onPrepareDraws(Target* target) override {
-        sk_sp<GrGeometryProcessor> gp;
+    GrPrimitiveType primType() const {
+        if (this->isHairline()) {
+            int instanceCount = fPaths.count();
+
+            // We avoid indices when we have a single hairline contour.
+            bool isIndexed = instanceCount > 1 ||
+                                PathGeoBuilder::PathHasMultipleSubpaths(fPaths[0].fPath);
+
+            return isIndexed ? GrPrimitiveType::kLines : GrPrimitiveType::kLineStrip;
+        }
+
+        return GrPrimitiveType::kTriangles;
+    }
+
+    GrProgramInfo* programInfo() override { return fProgramInfo; }
+
+    void onCreateProgramInfo(const GrCaps* caps,
+                             SkArenaAlloc* arena,
+                             const GrSurfaceProxyView* outputView,
+                             GrAppliedClip&& appliedClip,
+                             const GrXferProcessor::DstProxyView& dstProxyView) override {
+        GrGeometryProcessor* gp;
         {
             using namespace GrDefaultGeoProcFactory;
             Color color(this->color());
             Coverage coverage(this->coverage());
             LocalCoords localCoords(fHelper.usesLocalCoords() ? LocalCoords::kUsePosition_Type
                                                               : LocalCoords::kUnused_Type);
-            gp = GrDefaultGeoProcFactory::Make(target->caps().shaderCaps(),
+            gp = GrDefaultGeoProcFactory::Make(arena,
                                                color,
                                                coverage,
                                                localCoords,
@@ -417,33 +449,40 @@ private:
 
         SkASSERT(gp->vertexStride() == sizeof(SkPoint));
 
-        int instanceCount = fPaths.count();
+        fProgramInfo =  fHelper.createProgramInfoWithStencil(caps, arena, outputView,
+                                                             std::move(appliedClip),
+                                                             dstProxyView, gp, this->primType());
 
-        // We avoid indices when we have a single hairline contour.
-        bool isIndexed = !this->isHairline() || instanceCount > 1 ||
-                         PathGeoBuilder::PathHasMultipleSubpaths(fPaths[0].fPath);
+    }
 
-        // determine primitiveType
-        GrPrimitiveType primitiveType;
-        if (this->isHairline()) {
-            primitiveType = isIndexed ? GrPrimitiveType::kLines : GrPrimitiveType::kLineStrip;
-        } else {
-            primitiveType = GrPrimitiveType::kTriangles;
-        }
-        PathGeoBuilder pathGeoBuilder(primitiveType, target, std::move(gp));
+    void onPrepareDraws(Target* target) override {
+        PathGeoBuilder pathGeoBuilder(this->primType(), target, &fMeshes);
 
         // fill buffers
-        for (int i = 0; i < instanceCount; i++) {
+        for (int i = 0; i < fPaths.count(); i++) {
             const PathData& args = fPaths[i];
             pathGeoBuilder.addPath(args.fPath, args.fTolerance);
         }
     }
 
     void onExecute(GrOpFlushState* flushState, const SkRect& chainBounds) override {
-        fHelper.executeDrawsAndUploads(this, flushState, chainBounds);
+        if (!fProgramInfo) {
+            this->createProgramInfo(flushState);
+        }
+
+        if (!fProgramInfo || !fMeshes.count()) {
+            return;
+        }
+
+        flushState->bindPipelineAndScissorClip(*fProgramInfo, chainBounds);
+        flushState->bindTextures(fProgramInfo->primProc(), nullptr, fProgramInfo->pipeline());
+        for (int i = 0; i < fMeshes.count(); ++i) {
+            flushState->drawMesh(*fMeshes[i]);
+        }
     }
 
-    CombineResult onCombineIfPossible(GrOp* t, const GrCaps& caps) override {
+    CombineResult onCombineIfPossible(GrOp* t, GrRecordingContext::Arenas*,
+                                      const GrCaps& caps) override {
         DefaultPathOp* that = t->cast<DefaultPathOp>();
         if (!fHelper.isCompatible(that->fHelper, caps, this->bounds(), that->bounds())) {
             return CombineResult::kCannotCombine;
@@ -457,7 +496,7 @@ private:
             return CombineResult::kCannotCombine;
         }
 
-        if (!this->viewMatrix().cheapEqualTo(that->viewMatrix())) {
+        if (!SkMatrixPriv::CheapEqual(this->viewMatrix(), that->viewMatrix())) {
             return CombineResult::kCannotCombine;
         }
 
@@ -485,6 +524,9 @@ private:
     uint8_t fCoverage;
     SkMatrix fViewMatrix;
     bool fIsHairline;
+
+    SkTDArray<GrSimpleMesh*> fMeshes;
+    GrProgramInfo* fProgramInfo = nullptr;
 
     typedef GrMeshDrawOp INHERITED;
 };
@@ -539,10 +581,10 @@ bool GrDefaultPathRenderer::internalDrawPath(GrRenderTargetContext* renderTarget
             lastPassIsBounds = false;
         } else {
             switch (path.getFillType()) {
-                case SkPath::kInverseEvenOdd_FillType:
+                case SkPathFillType::kInverseEvenOdd:
                     reverse = true;
                     // fallthrough
-                case SkPath::kEvenOdd_FillType:
+                case SkPathFillType::kEvenOdd:
                     passes[0] = &gEOStencilPass;
                     if (stencilOnly) {
                         passCount = 1;
@@ -558,10 +600,10 @@ bool GrDefaultPathRenderer::internalDrawPath(GrRenderTargetContext* renderTarget
                     }
                     break;
 
-                case SkPath::kInverseWinding_FillType:
+                case SkPathFillType::kInverseWinding:
                     reverse = true;
                     // fallthrough
-                case SkPath::kWinding_FillType:
+                case SkPathFillType::kWinding:
                     passes[0] = &gWindStencilPass;
                     passCount = 2;
                     if (stencilOnly) {
@@ -587,9 +629,7 @@ bool GrDefaultPathRenderer::internalDrawPath(GrRenderTargetContext* renderTarget
     SkScalar srcSpaceTol = GrPathUtils::scaleToleranceToSrc(tol, viewMatrix, path.getBounds());
 
     SkRect devBounds;
-    GetPathDevBounds(path,
-                     renderTargetContext->asRenderTargetProxy()->worstCaseWidth(),
-                     renderTargetContext->asRenderTargetProxy()->worstCaseHeight(),
+    GetPathDevBounds(path, renderTargetContext->asRenderTargetProxy()->backingStoreDimensions(),
                      viewMatrix, &devBounds);
 
     for (int p = 0; p < passCount; ++p) {

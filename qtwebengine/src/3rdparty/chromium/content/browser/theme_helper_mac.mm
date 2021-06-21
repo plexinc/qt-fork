@@ -10,6 +10,7 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/command_line.h"
+#include "base/containers/span.h"
 #include "base/mac/mac_util.h"
 #include "base/mac/scoped_nsobject.h"
 #include "base/strings/sys_string_conversions.h"
@@ -31,19 +32,6 @@ using content::RenderProcessHostImpl;
 using content::ThemeHelperMac;
 
 namespace {
-
-blink::WebScrollbarButtonsPlacement GetButtonPlacement() {
-  NSString* scrollbar_variant = [[NSUserDefaults standardUserDefaults]
-      objectForKey:@"AppleScrollBarVariant"];
-  if ([scrollbar_variant isEqualToString:@"Single"])
-    return blink::kWebScrollbarButtonsPlacementSingle;
-  else if ([scrollbar_variant isEqualToString:@"DoubleMin"])
-    return blink::kWebScrollbarButtonsPlacementDoubleStart;
-  else if ([scrollbar_variant isEqualToString:@"DoubleBoth"])
-    return blink::kWebScrollbarButtonsPlacementDoubleBoth;
-  else
-    return blink::kWebScrollbarButtonsPlacementDoubleEnd;
-}
 
 void FillScrollbarThemeParams(
     content::mojom::UpdateScrollbarThemeParams* params) {
@@ -67,13 +55,7 @@ void FillScrollbarThemeParams(
   params->jump_on_track_click =
       [defaults boolForKey:@"AppleScrollerPagingBehavior"];
   params->preferred_scroller_style =
-      ThemeHelperMac::GetPreferredScrollerStyle();
-
-  // One one hand, this constant isn't registered anywhere. On the other hand,
-  // this constant is still (as of 10.15) being used by AppKit to draw controls.
-  // On the other other hand, this value sent over the wire is actually ignored.
-  // TODO(https://crbug.com/997934): Figure out why it's being ignored.
-  params->button_placement = GetButtonPlacement();
+      static_cast<blink::ScrollerStyle>([NSScroller preferredScrollerStyle]);
 
   id rubber_band_value = [defaults objectForKey:@"NSScrollViewRubberbanding"];
   params->scroll_view_rubber_banding =
@@ -177,7 +159,7 @@ SkColor MenuBackgroundColor() {
 } // namespace
 
 @interface SystemThemeObserver : NSObject {
-  base::RepeatingClosure colorsChangedCallback_;
+  base::RepeatingClosure _colorsChangedCallback;
 }
 
 - (instancetype)initWithColorsChangedCallback:
@@ -196,7 +178,7 @@ SkColor MenuBackgroundColor() {
     return nil;
   }
 
-  colorsChangedCallback_ = std::move(colorsChangedCallback);
+  _colorsChangedCallback = std::move(colorsChangedCallback);
 
   NSDistributedNotificationCenter* distributedCenter =
       [NSDistributedNotificationCenter defaultCenter];
@@ -267,7 +249,7 @@ SkColor MenuBackgroundColor() {
 }
 
 - (void)systemColorsChanged:(NSNotification*)notification {
-  colorsChangedCallback_.Run();
+  _colorsChangedCallback.Run();
 
   for (RenderProcessHost::iterator it(RenderProcessHost::AllHostsIterator());
        !it.IsAtEnd();
@@ -311,11 +293,6 @@ ThemeHelperMac* ThemeHelperMac::GetInstance() {
   return instance;
 }
 
-// static
-blink::ScrollerStyle ThemeHelperMac::GetPreferredScrollerStyle() {
-  return static_cast<blink::ScrollerStyle>([NSScroller preferredScrollerStyle]);
-}
-
 base::ReadOnlySharedMemoryRegion
 ThemeHelperMac::DuplicateReadOnlyColorMapRegion() {
   return read_only_color_map_.Duplicate();
@@ -324,7 +301,8 @@ ThemeHelperMac::DuplicateReadOnlyColorMapRegion() {
 ThemeHelperMac::ThemeHelperMac() {
   // Allocate a region for the SkColor value table and map it.
   auto writable_region = base::WritableSharedMemoryRegion::Create(
-      sizeof(SkColor) * blink::kMacSystemColorIDCount);
+      sizeof(SkColor) * blink::kMacSystemColorIDCount *
+      blink::kMacSystemColorSchemeCount);
   writable_color_map_ = writable_region.Map();
   // Downgrade the region to read-only after it has been mapped.
   read_only_color_map_ = base::WritableSharedMemoryRegion::ConvertToReadOnly(
@@ -345,25 +323,35 @@ ThemeHelperMac::~ThemeHelperMac() {
   [theme_observer_ release];
 }
 
-void ThemeHelperMac::LoadSystemColors() {
-  base::span<SkColor> values = writable_color_map_.GetMemoryAsSpan<SkColor>(
-      blink::kMacSystemColorIDCount);
-  // Ensure light mode appearance in web content even if the topchrome is in
-  // dark mode.
-  // TODO(lgrey): Add a second map for content dark mode for the
-  // `prefers-color-scheme` media query: https://crbug.com/889087.
-  NSAppearance* savedAppearance;
-  if (@available(macOS 10.14, *)) {
-    savedAppearance = [NSAppearance currentAppearance];
-    [NSAppearance
-        setCurrentAppearance:[NSAppearance
-                                 appearanceNamed:NSAppearanceNameAqua]];
-  }
+void ThemeHelperMac::LoadSystemColorsForCurrentAppearance(
+    base::span<SkColor> values) {
   for (size_t i = 0; i < blink::kMacSystemColorIDCount; ++i) {
     blink::MacSystemColorID color_id = static_cast<blink::MacSystemColorID>(i);
     switch (color_id) {
       case blink::MacSystemColorID::kAlternateSelectedControl:
         values[i] = NSColorToSkColor([NSColor alternateSelectedControlColor]);
+        break;
+      case blink::MacSystemColorID::kControlAccentBlueColor: {
+        NSColor* color =
+            [NSColor colorWithCatalogName:@"System"
+                                colorName:@"controlAccentBlueColor"];
+        if (color) {
+          values[i] = NSColorToSkColor(color);
+        } else {
+          // If the controlAccentBlueColor isn't available just set a dummy
+          // black value.
+          values[i] = SK_ColorBLACK;
+        }
+        break;
+      }
+      case blink::MacSystemColorID::kControlAccentColor:
+        if (@available(macOS 10.14, *)) {
+          values[i] = NSColorToSkColor([NSColor controlAccentColor]);
+        } else {
+          // controlAccentColor property is not available before macOS 10.14,
+          // so keyboardFocusIndicatorColor is used instead.
+          values[i] = NSColorToSkColor([NSColor keyboardFocusIndicatorColor]);
+        }
         break;
       case blink::MacSystemColorID::kControlBackground:
         values[i] = NSColorToSkColor([NSColor controlBackgroundColor]);
@@ -433,9 +421,39 @@ void ThemeHelperMac::LoadSystemColors() {
         break;
     }
   }
+}
+
+void ThemeHelperMac::LoadSystemColors() {
+  static_assert(blink::kMacSystemColorSchemeCount == 2,
+                "Light and dark color scheme system colors loaded.");
+  base::span<SkColor> values = writable_color_map_.GetMemoryAsSpan<SkColor>(
+      blink::kMacSystemColorIDCount * blink::kMacSystemColorSchemeCount);
+
+  NSAppearance* savedAppearance;
   if (@available(macOS 10.14, *)) {
-    [NSAppearance setCurrentAppearance:savedAppearance];
+    savedAppearance = [NSAppearance currentAppearance];
+    // Ensure light mode appearance in web content even if the topchrome is in
+    // dark mode.
+    [NSAppearance
+        setCurrentAppearance:[NSAppearance
+                                 appearanceNamed:NSAppearanceNameAqua]];
   }
+
+  LoadSystemColorsForCurrentAppearance(
+      values.subspan(0, static_cast<size_t>(blink::MacSystemColorID::kCount)));
+
+  if (@available(macOS 10.14, *)) {
+    [NSAppearance
+        setCurrentAppearance:[NSAppearance
+                                 appearanceNamed:NSAppearanceNameDarkAqua]];
+  }
+
+  LoadSystemColorsForCurrentAppearance(
+      values.subspan(static_cast<size_t>(blink::MacSystemColorID::kCount),
+                     static_cast<size_t>(blink::MacSystemColorID::kCount)));
+
+  if (@available(macOS 10.14, *))
+    [NSAppearance setCurrentAppearance:savedAppearance];
 }
 
 void ThemeHelperMac::Observe(int type,

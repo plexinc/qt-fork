@@ -18,7 +18,7 @@ using content::BrowserThread;
 
 namespace chromeos {
 
-CryptohomeWebUIHandler::CryptohomeWebUIHandler() : weak_ptr_factory_(this) {}
+CryptohomeWebUIHandler::CryptohomeWebUIHandler() {}
 
 CryptohomeWebUIHandler::~CryptohomeWebUIHandler() {}
 
@@ -40,11 +40,11 @@ void CryptohomeWebUIHandler::OnPageLoaded(const base::ListValue* args) {
   cryptohome_client->Pkcs11IsTpmTokenReady(
       GetCryptohomeBoolCallback("pkcs11-is-tpm-token-ready"));
 
-  base::PostTaskWithTraitsAndReplyWithResult(
+  base::PostTaskAndReplyWithResult(
       FROM_HERE, {BrowserThread::IO},
-      base::Bind(&crypto::IsTPMTokenReady, base::Closure()),
-      base::Bind(&CryptohomeWebUIHandler::DidGetNSSUtilInfoOnUIThread,
-                 weak_ptr_factory_.GetWeakPtr()));
+      base::BindOnce(&crypto::IsTPMTokenReady, base::Closure()),
+      base::BindOnce(&CryptohomeWebUIHandler::DidGetNSSUtilInfoOnUIThread,
+                     weak_ptr_factory_.GetWeakPtr()));
 }
 
 void CryptohomeWebUIHandler::DidGetNSSUtilInfoOnUIThread(

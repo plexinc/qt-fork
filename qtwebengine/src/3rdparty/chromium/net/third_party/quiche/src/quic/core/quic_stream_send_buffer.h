@@ -6,9 +6,10 @@
 #define QUICHE_QUIC_CORE_QUIC_STREAM_SEND_BUFFER_H_
 
 #include "net/third_party/quiche/src/quic/core/frames/quic_stream_frame.h"
+#include "net/third_party/quiche/src/quic/core/quic_circular_deque.h"
+#include "net/third_party/quiche/src/quic/core/quic_interval_deque.h"
 #include "net/third_party/quiche/src/quic/core/quic_interval_set.h"
 #include "net/third_party/quiche/src/quic/core/quic_types.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_containers.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_iovec.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_mem_slice.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_mem_slice_span.h"
@@ -26,7 +27,7 @@ class QuicDataWriter;
 // contiguous memory space. Please note, BufferedSlice is constructed when
 // stream data is saved in send buffer and is removed when stream data is fully
 // acked. It is move-only.
-struct BufferedSlice {
+struct QUIC_EXPORT_PRIVATE BufferedSlice {
   BufferedSlice(QuicMemSlice mem_slice, QuicStreamOffset offset);
   BufferedSlice(BufferedSlice&& other);
   BufferedSlice& operator=(BufferedSlice&& other);
@@ -35,14 +36,18 @@ struct BufferedSlice {
   BufferedSlice& operator=(const BufferedSlice& other) = delete;
   ~BufferedSlice();
 
+  // Return an interval representing the offset and length.
+  QuicInterval<std::size_t> interval() const;
+
   // Stream data of this data slice.
   QuicMemSlice slice;
   // Location of this data slice in the stream.
   QuicStreamOffset offset;
 };
 
-struct StreamPendingRetransmission {
-  StreamPendingRetransmission(QuicStreamOffset offset, QuicByteCount length)
+struct QUIC_EXPORT_PRIVATE StreamPendingRetransmission {
+  constexpr StreamPendingRetransmission(QuicStreamOffset offset,
+                                        QuicByteCount length)
       : offset(offset), length(length) {}
 
   // Starting offset of this pending retransmission.
@@ -50,8 +55,7 @@ struct StreamPendingRetransmission {
   // Length of this pending retransmission.
   QuicByteCount length;
 
-  QUIC_EXPORT_PRIVATE bool operator==(
-      const StreamPendingRetransmission& other) const;
+  bool operator==(const StreamPendingRetransmission& other) const;
 };
 
 // QuicStreamSendBuffer contains a list of QuicStreamDataSlices. New data slices
@@ -62,7 +66,7 @@ class QUIC_EXPORT_PRIVATE QuicStreamSendBuffer {
  public:
   explicit QuicStreamSendBuffer(QuicBufferAllocator* allocator);
   QuicStreamSendBuffer(const QuicStreamSendBuffer& other) = delete;
-  QuicStreamSendBuffer(QuicStreamSendBuffer&& other) = default;
+  QuicStreamSendBuffer(QuicStreamSendBuffer&& other) = delete;
   ~QuicStreamSendBuffer();
 
   // Save |data_length| of data starts at |iov_offset| in |iov| to send buffer.
@@ -141,7 +145,10 @@ class QUIC_EXPORT_PRIVATE QuicStreamSendBuffer {
   // Cleanup empty slices in order from buffered_slices_.
   void CleanUpBufferedSlices();
 
-  QuicDeque<BufferedSlice> buffered_slices_;
+  // |current_end_offset_| stores the end offset of the current slice to ensure
+  // data isn't being written out of order when using the |interval_deque_|.
+  QuicStreamOffset current_end_offset_;
+  QuicIntervalDeque<BufferedSlice> interval_deque_;
 
   // Offset of next inserted byte.
   QuicStreamOffset stream_offset_;

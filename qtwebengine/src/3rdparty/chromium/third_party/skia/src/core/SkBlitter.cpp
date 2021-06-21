@@ -25,6 +25,10 @@
 #include "src/core/SkXfermodeInterpretation.h"
 #include "src/shaders/SkShaderBase.h"
 
+// Hacks for testing.
+bool gUseSkVMBlitter{false};
+bool gSkForceRasterPipelineBlitter{false};
+
 SkBlitter::~SkBlitter() {}
 
 bool SkBlitter::isNullBlitter() const { return false; }
@@ -424,7 +428,7 @@ void SkRectClipBlitter::blitV(int x, int y, int height, SkAlpha alpha) {
 void SkRectClipBlitter::blitRect(int left, int y, int width, int height) {
     SkIRect    r;
 
-    r.set(left, y, left + width, y + height);
+    r.setLTRB(left, y, left + width, y + height);
     if (r.intersect(fClipRect)) {
         fBlitter->blitRect(r.fLeft, r.fTop, r.width(), r.height());
     }
@@ -435,7 +439,7 @@ void SkRectClipBlitter::blitAntiRect(int left, int y, int width, int height,
     SkIRect    r;
 
     // The *true* width of the rectangle blitted is width+2:
-    r.set(left, y, left + width + 2, y + height);
+    r.setLTRB(left, y, left + width + 2, y + height);
     if (r.intersect(fClipRect)) {
         if (r.fLeft != left) {
             SkASSERT(r.fLeft > left);
@@ -528,7 +532,7 @@ void SkRgnClipBlitter::blitAntiH(int x, int y, const SkAlpha aa[],
 
 void SkRgnClipBlitter::blitV(int x, int y, int height, SkAlpha alpha) {
     SkIRect    bounds;
-    bounds.set(x, y, x + 1, y + height);
+    bounds.setXYWH(x, y, 1, height);
 
     SkRegion::Cliperator    iter(*fRgn, bounds);
 
@@ -543,7 +547,7 @@ void SkRgnClipBlitter::blitV(int x, int y, int height, SkAlpha alpha) {
 
 void SkRgnClipBlitter::blitRect(int x, int y, int width, int height) {
     SkIRect    bounds;
-    bounds.set(x, y, x + width, y + height);
+    bounds.setXYWH(x, y, width, height);
 
     SkRegion::Cliperator    iter(*fRgn, bounds);
 
@@ -560,7 +564,7 @@ void SkRgnClipBlitter::blitAntiRect(int x, int y, int width, int height,
                                     SkAlpha leftAlpha, SkAlpha rightAlpha) {
     // The *true* width of the rectangle to blit is width + 2
     SkIRect    bounds;
-    bounds.set(x, y, x + width + 2, y + height);
+    bounds.setXYWH(x, y, width + 2, height);
 
     SkRegion::Cliperator    iter(*fRgn, bounds);
 
@@ -637,9 +641,6 @@ SkBlitter* SkBlitterClipper::apply(SkBlitter* blitter, const SkRegion* clip,
 
 #include "src/core/SkCoreBlitters.h"
 
-// hack for testing, not to be exposed to clients
-bool gSkForceRasterPipelineBlitter;
-
 bool SkBlitter::UseRasterPipelineBlitter(const SkPixmap& device, const SkPaint& paint,
                                          const SkMatrix& matrix) {
     if (gSkForceRasterPipelineBlitter) {
@@ -686,7 +687,8 @@ SkBlitter* SkBlitter::Choose(const SkPixmap& device,
                              const SkMatrix& matrix,
                              const SkPaint& origPaint,
                              SkArenaAlloc* alloc,
-                             bool drawCoverage) {
+                             bool drawCoverage,
+                             sk_sp<SkShader> clipShader) {
     SkASSERT(alloc);
 
     if (kUnknown_SkColorType == device.colorType()) {
@@ -718,6 +720,13 @@ SkBlitter* SkBlitter::Choose(const SkPixmap& device,
         p->setColor(0x00000000);
     }
 
+#ifndef SK_SUPPORT_LEGACY_COLORFILTER_NO_SHADER
+    if (paint->getColorFilter()) {
+        SkPaintPriv::RemoveColorFilter(paint.writable(), device.colorSpace());
+    }
+    SkASSERT(!paint->getColorFilter());
+#endif
+
     if (drawCoverage) {
         if (device.colorType() == kAlpha_8_SkColorType) {
             SkASSERT(!paint->getShader());
@@ -731,9 +740,19 @@ SkBlitter* SkBlitter::Choose(const SkPixmap& device,
         paint.writable()->setDither(false);
     }
 
+    bool try_skvm_blitter = gUseSkVMBlitter;
+#if defined(SK_USE_SKVM_BLITTER)
+    try_skvm_blitter = true;
+#endif
+    if (try_skvm_blitter) {
+        if (auto blitter = SkCreateSkVMBlitter(device, *paint, matrix, alloc, clipShader)) {
+            return blitter;
+        }
+    }
+
     // We'll end here for many interesting cases: color spaces, color filters, most color types.
-    if (UseRasterPipelineBlitter(device, *paint, matrix)) {
-        auto blitter = SkCreateRasterPipelineBlitter(device, *paint, matrix, alloc);
+    if (UseRasterPipelineBlitter(device, *paint, matrix) || clipShader) {
+        auto blitter = SkCreateRasterPipelineBlitter(device, *paint, matrix, alloc, clipShader);
         SkASSERT(blitter);
         return blitter;
     }
@@ -754,7 +773,7 @@ SkBlitter* SkBlitter::Choose(const SkPixmap& device,
 
         // Creating the context isn't always possible... we'll just fall back to raster pipeline.
         if (!shaderContext) {
-            auto blitter = SkCreateRasterPipelineBlitter(device, *paint, matrix, alloc);
+            auto blitter = SkCreateRasterPipelineBlitter(device, *paint, matrix, alloc, clipShader);
             SkASSERT(blitter);
             return blitter;
         }
@@ -776,7 +795,7 @@ SkBlitter* SkBlitter::Choose(const SkPixmap& device,
             if (shaderContext && SkRGB565_Shader_Blitter::Supports(device, *paint)) {
                 return alloc->make<SkRGB565_Shader_Blitter>(device, *paint, shaderContext);
             } else {
-                return SkCreateRasterPipelineBlitter(device, *paint, matrix, alloc);
+                return SkCreateRasterPipelineBlitter(device, *paint, matrix, alloc, clipShader);
             }
 
         default:

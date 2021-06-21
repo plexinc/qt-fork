@@ -178,11 +178,16 @@ sk_sp<PaintShader> PaintShader::MakeSweepGradient(SkScalar cx,
 sk_sp<PaintShader> PaintShader::MakeImage(const PaintImage& image,
                                           SkTileMode tx,
                                           SkTileMode ty,
-                                          const SkMatrix* local_matrix) {
+                                          const SkMatrix* local_matrix,
+                                          const SkRect* tile_rect) {
   sk_sp<PaintShader> shader(new PaintShader(Type::kImage));
 
   shader->image_ = image;
   shader->SetMatrixAndTiling(local_matrix, tx, ty);
+  if (tile_rect) {
+    DCHECK(image.IsPaintWorklet());
+    shader->tile_ = *tile_rect;
+  }
 
   shader->CreateSkShader();
   return shader;
@@ -334,6 +339,21 @@ sk_sp<PaintShader> PaintShader::CreateScaledPaintRecord(
   return shader;
 }
 
+sk_sp<PaintShader> PaintShader::CreatePaintWorkletRecord(
+    ImageProvider* image_provider) const {
+  DCHECK_EQ(shader_type_, Type::kImage);
+  DCHECK(image_ && image_.IsPaintWorklet());
+
+  ImageProvider::ScopedResult result =
+      image_provider->GetRasterContent(DrawImage(image_));
+  if (!result || !result.paint_record())
+    return nullptr;
+  SkMatrix local_matrix = GetLocalMatrix();
+  return PaintShader::MakePaintRecord(
+      sk_ref_sp<PaintRecord>(result.paint_record()), tile_, tx_, ty_,
+      &local_matrix);
+}
+
 sk_sp<PaintShader> PaintShader::CreateDecodedImage(
     const SkMatrix& ctm,
     SkFilterQuality quality,
@@ -375,7 +395,7 @@ sk_sp<PaintShader> PaintShader::CreateDecodedImage(
     decoded_paint_image =
         PaintImageBuilder::WithDefault()
             .set_id(image_.stable_id())
-            .set_image(std::move(sk_image), image_.content_id())
+            .set_image(std::move(sk_image), image_.GetContentIdForFrame(0u))
             .TakePaintImage();
   }
 
@@ -433,7 +453,7 @@ void PaintShader::CreateSkShader(const gfx::SizeF* raster_scale,
           flags_, base::OptionalOrNullptr(local_matrix_));
       break;
     case Type::kImage:
-      if (image_) {
+      if (image_ && !image_.IsPaintWorklet()) {
         cached_shader_ = image_.GetSkImage()->makeShader(
             tx_, ty_, base::OptionalOrNullptr(local_matrix_));
       }

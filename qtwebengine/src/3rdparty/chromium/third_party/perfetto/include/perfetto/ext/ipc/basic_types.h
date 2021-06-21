@@ -21,16 +21,12 @@
 #include <stdint.h>
 #include <sys/types.h>
 
-namespace google {
-namespace protobuf {
-class MessageLite;
-}  // namespace protobuf
-}  // namespace google
+#include "perfetto/protozero/cpp_message_obj.h"
 
 namespace perfetto {
 namespace ipc {
 
-using ProtoMessage = ::google::protobuf::MessageLite;
+using ProtoMessage = ::protozero::CppMessageObj;
 using ServiceID = uint32_t;
 using MethodID = uint32_t;
 using ClientID = uint64_t;
@@ -41,7 +37,6 @@ using RequestID = uint64_t;
 constexpr size_t kIPCBufferSize = 128 * 1024;
 
 constexpr uid_t kInvalidUid = static_cast<uid_t>(-1);
-constexpr pid_t kInvalidPid = static_cast<pid_t>(-1);
 
 }  // namespace ipc
 }  // namespace perfetto

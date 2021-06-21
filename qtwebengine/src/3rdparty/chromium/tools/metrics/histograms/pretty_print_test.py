@@ -12,6 +12,7 @@ ORIGINAL_XML = """
 <!-- Top level Comment 1 -->
 <!-- Top level Comment 2 -->
 <histogram-configuration>
+<!-- Second level Comment 1 -->
 <histograms>
  <histogram name="Test.Histogram" units="us">
    <owner>person@chromium.org</owner>
@@ -25,17 +26,37 @@ ORIGINAL_XML = """
        Removed 1/2019.
    </obsolete>
  </histogram>
- <histogram name="Foo.Bar" units="xxxxxxxxxxxxxxxxxxxyyyyyyyyyyyyyyyyyyyyyyzzzz">
+
+ <histogram name="Foo.Bar" units="xxxxxxxxxxxxxxxxxxyyyyyyyyyyyyyyyyyyyyyyzzzz">
   <summary>Foo</summary>
   <obsolete>Obsolete 1</obsolete>
   <obsolete>Obsolete 2</obsolete>
   <enums>This shouldn't be here</enums>
+  <component>Component</component>
+  <component>Other&gt;Component</component>
  </histogram>
+
+ <histogram_suffixes name="Test.HistogramSuffixes" separator=".">
+  <suffix name="TestSuffix" label="A misplaced histogram_suffixes"/>
+  <affected-histogram name="Test.Histogram"/>
+</histogram_suffixes>
+
 </histograms>
+
+<histogram_suffixes_list>
+
+<histogram name="Test.MisplacedHistogram" units="us">
+   <owner>person@chromium.org</owner>
+   <summary>A misplaced histogram
+   </summary>
+   Misplaced content.
+ </histogram>
+
+</histogram_suffixes_list>
+
 <enums>This shouldn't be here</enums>
 </histogram-configuration>
 """.strip()
-
 
 PRETTY_XML = """
 <!-- Top level Comment 1 -->
@@ -43,13 +64,17 @@ PRETTY_XML = """
 
 <histogram-configuration>
 
+<!-- Second level Comment 1 -->
+
 <histograms>
 
-<histogram name="Foo.Bar" units="xxxxxxxxxxxxxxxxxxxyyyyyyyyyyyyyyyyyyyyyyzzzz">
+<histogram name="Foo.Bar" units="xxxxxxxxxxxxxxxxxxyyyyyyyyyyyyyyyyyyyyyyzzzz">
   <obsolete>
     Obsolete 1
   </obsolete>
   <summary>Foo</summary>
+  <component>Component</component>
+  <component>Other&gt;Component</component>
 </histogram>
 
 <histogram name="Test.Histogram" units="microseconds">
@@ -66,7 +91,22 @@ PRETTY_XML = """
   Mixed content.
 </histogram>
 
+<histogram name="Test.MisplacedHistogram" units="microseconds">
+  <owner>person@chromium.org</owner>
+  <summary>A misplaced histogram</summary>
+  Misplaced content.
+</histogram>
+
 </histograms>
+
+<histogram_suffixes_list>
+
+<histogram_suffixes name="Test.HistogramSuffixes" separator=".">
+  <suffix name="TestSuffix" label="A misplaced histogram_suffixes"/>
+  <affected-histogram name="Test.Histogram"/>
+</histogram_suffixes>
+
+</histogram_suffixes_list>
 
 </histogram-configuration>
 """.strip()

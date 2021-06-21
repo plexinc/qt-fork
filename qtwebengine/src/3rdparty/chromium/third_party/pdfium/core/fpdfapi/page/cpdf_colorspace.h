@@ -72,6 +72,7 @@ class CPDF_ColorSpace : public Retainable, public Observable {
       const CPDF_Object* pObj,
       std::set<const CPDF_Object*>* pVisited);
   static uint32_t ComponentsForFamily(int family);
+  static bool IsValidIccComponents(int components);
 
   const CPDF_Array* GetArray() const { return m_pArray.Get(); }
   CPDF_Document* GetDocument() const { return m_pDocument.Get(); }
@@ -128,7 +129,7 @@ class CPDF_ColorSpace : public Retainable, public Observable {
   void SetComponentsForStockCS(uint32_t nComponents);
 
   UnownedPtr<CPDF_Document> const m_pDocument;
-  UnownedPtr<const CPDF_Array> m_pArray;
+  RetainPtr<const CPDF_Array> m_pArray;
   const int m_Family;
   uint32_t m_dwStdConversion = 0;
 

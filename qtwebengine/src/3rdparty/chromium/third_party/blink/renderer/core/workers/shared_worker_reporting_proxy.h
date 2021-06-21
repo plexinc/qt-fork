@@ -18,7 +18,7 @@ class WebSharedWorkerImpl;
 // and owned by WebSharedWorkerImpl on the main thread, accessed from a worker
 // thread, and destroyed on the main thread.
 class SharedWorkerReportingProxy final
-    : public GarbageCollectedFinalized<SharedWorkerReportingProxy>,
+    : public GarbageCollected<SharedWorkerReportingProxy>,
       public WorkerReportingProxy {
  public:
   SharedWorkerReportingProxy(WebSharedWorkerImpl*,
@@ -35,7 +35,6 @@ class SharedWorkerReportingProxy final
                             mojom::ConsoleMessageLevel,
                             const String& message,
                             SourceLocation*) override;
-  void DidFetchScript(int64_t app_cache_id) override;
   void DidFailToFetchClassicScript() override;
   void DidFailToFetchModuleScript() override;
   void DidEvaluateClassicScript(bool success) override;
@@ -44,7 +43,7 @@ class SharedWorkerReportingProxy final
   void WillDestroyWorkerGlobalScope() override {}
   void DidTerminateWorkerThread() override;
 
-  void Trace(blink::Visitor*);
+  void Trace(Visitor*);
 
  private:
   // Not owned because this outlives the reporting proxy.

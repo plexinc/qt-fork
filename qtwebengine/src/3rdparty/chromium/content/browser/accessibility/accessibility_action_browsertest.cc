@@ -2,7 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <string>
+
 #include "base/logging.h"
+#include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "content/browser/accessibility/browser_accessibility.h"
 #include "content/browser/accessibility/browser_accessibility_manager.h"
@@ -15,6 +18,7 @@
 #include "content/shell/browser/shell.h"
 #include "net/base/data_url.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/gfx/codec/png_codec.h"
 #include "url/gurl.h"
 
@@ -61,7 +65,7 @@ class AccessibilityActionBrowserTest : public ContentBrowserTest {
                                            ui::kAXModeComplete,
                                            ax::mojom::Event::kLoadComplete);
     GURL html_data_url("data:text/html," + html);
-    NavigateToURL(shell(), html_data_url);
+    EXPECT_TRUE(NavigateToURL(shell(), html_data_url));
     waiter.WaitForNotification();
   }
 
@@ -103,10 +107,16 @@ class AccessibilityActionBrowserTest : public ContentBrowserTest {
   BrowserAccessibility* FindNodeInSubtree(BrowserAccessibility& node,
                                           ax::mojom::Role role,
                                           const std::string& name_or_value) {
-    const auto& name =
+    const std::string& name =
         node.GetStringAttribute(ax::mojom::StringAttribute::kName);
-    const auto& value =
-        node.GetStringAttribute(ax::mojom::StringAttribute::kValue);
+    // Note that in the case of a text field, "BrowserAccessibility::GetValue"
+    // has the added functionality of computing the value of an ARIA text box
+    // from its inner text.
+    //
+    // <div contenteditable="true" role="textbox">Hello world.</div>
+    // Will expose no HTML value attribute, but some screen readers, such as
+    // Jaws, VoiceOver and Talkback, require one to be computed.
+    const std::string& value = base::UTF16ToUTF8(node.GetValue());
     if (node.GetRole() == role &&
         (name == name_or_value || value == name_or_value)) {
       return &node;
@@ -134,6 +144,38 @@ class AccessibilityCanvasActionBrowserTest
     ContentBrowserTest::SetUp();
   }
 };
+
+IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest, DoDefaultAction) {
+  LoadInitialAccessibilityTreeFromHtml(R"HTML(
+      <div id="button" role="button" tabIndex=0>Click</div>
+      <p></p>
+      <script>
+        document.getElementById('button').addEventListener('click', () => {
+          document.querySelector('p').setAttribute('aria-label', 'success');
+        });
+      </script>
+      )HTML");
+
+  BrowserAccessibility* target = FindNode(ax::mojom::Role::kButton, "Click");
+  ASSERT_NE(nullptr, target);
+
+  // Call DoDefaultAction.
+  AccessibilityNotificationWaiter waiter2(
+      shell()->web_contents(), ui::kAXModeComplete, ax::mojom::Event::kClicked);
+  GetManager()->DoDefaultAction(*target);
+  waiter2.WaitForNotification();
+
+  // Ensure that the button was clicked - it should change the paragraph
+  // text to "success".
+  WaitForAccessibilityTreeToContainNodeWithName(shell()->web_contents(),
+                                                "success");
+
+  // When calling DoDefault on a focusable element, the element should get
+  // focused, just like what happens when you click it with the mouse.
+  BrowserAccessibility* focus = GetManager()->GetFocus();
+  ASSERT_NE(nullptr, focus);
+  EXPECT_EQ(target->GetId(), focus->GetId());
+}
 
 IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest, FocusAction) {
   LoadInitialAccessibilityTreeFromHtml(R"HTML(
@@ -314,7 +356,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityCanvasActionBrowserTest,
 }
 
 IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest, ImgElementGetImage) {
-  NavigateToURL(shell(), GURL(url::kAboutBlankURL));
+  EXPECT_TRUE(NavigateToURL(shell(), GURL(url::kAboutBlankURL)));
 
   AccessibilityNotificationWaiter waiter(shell()->web_contents(),
                                          ui::kAXModeComplete,
@@ -326,7 +368,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest, ImgElementGetImage) {
       "8AAAD/AP///ywAAAAAAgADAAACBEwkAAUAOw=='>"
       "</body>");
 
-  NavigateToURL(shell(), url);
+  EXPECT_TRUE(NavigateToURL(shell(), url));
   waiter.WaitForNotification();
 
   BrowserAccessibility* target = FindNode(ax::mojom::Role::kImage, "");
@@ -418,7 +460,8 @@ IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest, TextareaSetValue) {
   // We should do it with accessibility flags instead. http://crbug.com/672205
 #if !defined(OS_ANDROID)
   // Check that it really does contain two lines.
-  auto start_pos = target->CreatePositionAt(0);
+  auto start_pos =
+      target->CreatePositionAt(0, ax::mojom::TextAffinity::kDownstream);
   auto end_of_line_1 = start_pos->CreateNextLineEndPosition(
       ui::AXBoundaryBehavior::CrossBoundary);
   EXPECT_EQ(5, end_of_line_1->text_offset());
@@ -452,7 +495,8 @@ IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest,
   // We should do it with accessibility flags instead. http://crbug.com/672205
 #if !defined(OS_ANDROID)
   // Check that it really does contain two lines.
-  auto start_pos = target->CreatePositionAt(0);
+  auto start_pos =
+      target->CreatePositionAt(0, ax::mojom::TextAffinity::kDownstream);
   auto end_of_line_1 = start_pos->CreateNextLineEndPosition(
       ui::AXBoundaryBehavior::CrossBoundary);
   EXPECT_EQ(5, end_of_line_1->text_offset());
@@ -481,7 +525,8 @@ IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest, ShowContextMenu) {
   target_node->AccessibilityPerformAction(context_menu_action);
   context_menu_filter->Wait();
 
-  ContextMenuParams context_menu_params = context_menu_filter->get_params();
+  UntrustworthyContextMenuParams context_menu_params =
+      context_menu_filter->get_params();
   EXPECT_EQ(base::ASCIIToUTF16("2"), context_menu_params.link_text);
   EXPECT_EQ(ui::MenuSourceType::MENU_SOURCE_NONE,
             context_menu_params.source_type);
@@ -489,7 +534,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest, ShowContextMenu) {
 
 IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest,
                        AriaGridSelectedChangedEvent) {
-  NavigateToURL(shell(), GURL(url::kAboutBlankURL));
+  EXPECT_TRUE(NavigateToURL(shell(), GURL(url::kAboutBlankURL)));
 
   AccessibilityNotificationWaiter waiter(shell()->web_contents(),
                                          ui::kAXModeComplete,
@@ -513,7 +558,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest,
       "</tr>"
       "</tbody></table>"
       "</body>");
-  NavigateToURL(shell(), url);
+  EXPECT_TRUE(NavigateToURL(shell(), url));
   waiter.WaitForNotification();
 
   BrowserAccessibility* cell1 = FindNode(ax::mojom::Role::kCell, "A");
@@ -565,7 +610,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest,
 
 IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest,
                        AriaControlsChangedEvent) {
-  NavigateToURL(shell(), GURL(url::kAboutBlankURL));
+  EXPECT_TRUE(NavigateToURL(shell(), GURL(url::kAboutBlankURL)));
 
   AccessibilityNotificationWaiter waiter(shell()->web_contents(),
                                          ui::kAXModeComplete,
@@ -584,7 +629,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest,
       "<div id='radio2' role='radio'>radio2</div>"
       "</div>"
       "</body>");
-  NavigateToURL(shell(), url);
+  EXPECT_TRUE(NavigateToURL(shell(), url));
   waiter.WaitForNotification();
 
   BrowserAccessibility* target =
@@ -616,7 +661,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest,
 }
 
 IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest, FocusLostOnDeletedNode) {
-  NavigateToURL(shell(), GURL(url::kAboutBlankURL));
+  EXPECT_TRUE(NavigateToURL(shell(), GURL(url::kAboutBlankURL)));
 
   GURL url(
       "data:text/html,"
@@ -625,7 +670,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest, FocusLostOnDeletedNode) {
       "<button id='2'>2</button>"
       "\"></iframe>");
 
-  NavigateToURL(shell(), url);
+  EXPECT_TRUE(NavigateToURL(shell(), url));
   EnableAccessibilityForWebContents(shell()->web_contents());
 
   auto FocusNodeAndReload = [this, &url](const std::string& node_name,
@@ -647,7 +692,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest, FocusLostOnDeletedNode) {
     AccessibilityNotificationWaiter load_waiter(
         shell()->web_contents(), ui::kAXModeComplete,
         ax::mojom::Event::kLoadComplete);
-    NavigateToURL(shell(), url);
+    EXPECT_TRUE(NavigateToURL(shell(), url));
     load_waiter.WaitForNotification();
   };
 

@@ -30,11 +30,6 @@ bool IsFoldingDiagonalLine(const CFX_PointF& a,
          (a.y - b.y) * (c.x - b.x) == (c.y - b.y) * (a.x - b.x);
 }
 
-bool IsClosedFigure(const FX_PATHPOINT& prev, const FX_PATHPOINT& next) {
-  return prev.m_Type == FXPT_TYPE::MoveTo && next.m_Type == FXPT_TYPE::LineTo &&
-         prev.m_Point == next.m_Point && next.m_CloseFigure;
-}
-
 void UpdateLineEndPoints(CFX_FloatRect* rect,
                          const CFX_PointF& start_pos,
                          const CFX_PointF& end_pos,
@@ -236,7 +231,7 @@ void CFX_PathData::AppendLine(const CFX_PointF& pt1, const CFX_PointF& pt2) {
   AppendPoint(pt2, FXPT_TYPE::LineTo, false);
 }
 
-void CFX_PathData::AppendRect(const CFX_FloatRect& rect) {
+void CFX_PathData::AppendFloatRect(const CFX_FloatRect& rect) {
   return AppendRect(rect.left, rect.bottom, rect.right, rect.top);
 }
 
@@ -423,12 +418,6 @@ bool CFX_PathData::GetZeroAreaPath(const CFX_Matrix* pMatrix,
       NewPath->AppendPoint(end.m_Point, FXPT_TYPE::LineTo, false);
       continue;
     }
-
-    if (IsClosedFigure(prev, next)) {
-      NewPath->AppendPoint(prev.m_Point, FXPT_TYPE::MoveTo, false);
-      NewPath->AppendPoint(cur.m_Point, FXPT_TYPE::LineTo, false);
-      *bThin = true;
-    }
   }
 
   size_t new_path_size = NewPath->GetPoints().size();
@@ -464,33 +453,28 @@ bool CFX_PathData::IsRect() const {
   return m_Points.size() == 5 || m_Points[3].m_CloseFigure;
 }
 
-bool CFX_PathData::IsRect(const CFX_Matrix* pMatrix,
-                          CFX_FloatRect* pRect) const {
+Optional<CFX_FloatRect> CFX_PathData::GetRect(const CFX_Matrix* pMatrix) const {
   if (!pMatrix) {
     if (!IsRect())
-      return false;
+      return pdfium::nullopt;
 
-    if (pRect) {
-      pRect->left = m_Points[0].m_Point.x;
-      pRect->right = m_Points[2].m_Point.x;
-      pRect->bottom = m_Points[0].m_Point.y;
-      pRect->top = m_Points[2].m_Point.y;
-      pRect->Normalize();
-    }
-    return true;
+    CFX_FloatRect rect(m_Points[0].m_Point.x, m_Points[0].m_Point.y,
+                       m_Points[2].m_Point.x, m_Points[2].m_Point.y);
+    rect.Normalize();
+    return rect;
   }
 
   if (m_Points.size() != 5 && m_Points.size() != 4)
-    return false;
+    return pdfium::nullopt;
 
   if ((m_Points.size() == 5 && m_Points[0].m_Point != m_Points[4].m_Point) ||
       m_Points[1].m_Point == m_Points[3].m_Point) {
-    return false;
+    return pdfium::nullopt;
   }
   // Note, both x,y not equal.
   if (m_Points.size() == 4 && m_Points[0].m_Point.x != m_Points[3].m_Point.x &&
       m_Points[0].m_Point.y != m_Points[3].m_Point.y) {
-    return false;
+    return pdfium::nullopt;
   }
 
   CFX_PointF points[5];
@@ -500,19 +484,14 @@ bool CFX_PathData::IsRect(const CFX_Matrix* pMatrix,
     if (i == 0)
       continue;
     if (m_Points[i].m_Type != FXPT_TYPE::LineTo)
-      return false;
+      return pdfium::nullopt;
     if (points[i].x != points[i - 1].x && points[i].y != points[i - 1].y)
-      return false;
+      return pdfium::nullopt;
   }
 
-  if (pRect) {
-    pRect->left = points[0].x;
-    pRect->right = points[2].x;
-    pRect->bottom = points[0].y;
-    pRect->top = points[2].y;
-    pRect->Normalize();
-  }
-  return true;
+  CFX_FloatRect rect(points[0].x, points[0].y, points[2].x, points[2].y);
+  rect.Normalize();
+  return rect;
 }
 
 CFX_RetainablePathData::CFX_RetainablePathData() = default;

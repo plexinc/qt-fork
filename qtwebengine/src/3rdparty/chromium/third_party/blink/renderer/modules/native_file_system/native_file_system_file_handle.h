@@ -5,26 +5,36 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_NATIVE_FILE_SYSTEM_NATIVE_FILE_SYSTEM_FILE_HANDLE_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_NATIVE_FILE_SYSTEM_NATIVE_FILE_SYSTEM_FILE_HANDLE_H_
 
+#include "mojo/public/cpp/bindings/pending_remote.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "third_party/blink/public/mojom/native_file_system/native_file_system_file_handle.mojom-blink.h"
 #include "third_party/blink/renderer/modules/native_file_system/native_file_system_handle.h"
-#include "third_party/blink/renderer/platform/mojo/revocable_interface_ptr.h"
 
 namespace blink {
+class FileSystemCreateWriterOptions;
 
 class NativeFileSystemFileHandle final : public NativeFileSystemHandle {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
   NativeFileSystemFileHandle(
+      ExecutionContext* context,
       const String& name,
-      RevocableInterfacePtr<mojom::blink::NativeFileSystemFileHandle>);
+      mojo::PendingRemote<mojom::blink::NativeFileSystemFileHandle>);
 
   bool isFile() const override { return true; }
 
-  ScriptPromise createWriter(ScriptState*);
-  ScriptPromise getFile(ScriptState*);
+  ScriptPromise createWriter(ScriptState*,
+                             const FileSystemCreateWriterOptions* options);
+  ScriptPromise createWritable(ScriptState*,
+                               const FileSystemCreateWriterOptions* options,
+                               ExceptionState&);
+  ScriptPromise getFile(ScriptState*, ExceptionState&);
 
-  mojom::blink::NativeFileSystemTransferTokenPtr Transfer() override;
+  mojo::PendingRemote<mojom::blink::NativeFileSystemTransferToken> Transfer()
+      override;
+
+  void ContextDestroyed() override;
 
   mojom::blink::NativeFileSystemFileHandle* MojoHandle() {
     return mojo_ptr_.get();
@@ -36,9 +46,14 @@ class NativeFileSystemFileHandle final : public NativeFileSystemHandle {
       base::OnceCallback<void(mojom::blink::PermissionStatus)>) override;
   void RequestPermissionImpl(
       bool writable,
-      base::OnceCallback<void(mojom::blink::PermissionStatus)>) override;
+      base::OnceCallback<void(mojom::blink::NativeFileSystemErrorPtr,
+                              mojom::blink::PermissionStatus)>) override;
+  void IsSameEntryImpl(
+      mojo::PendingRemote<mojom::blink::NativeFileSystemTransferToken> other,
+      base::OnceCallback<void(mojom::blink::NativeFileSystemErrorPtr, bool)>)
+      override;
 
-  RevocableInterfacePtr<mojom::blink::NativeFileSystemFileHandle> mojo_ptr_;
+  mojo::Remote<mojom::blink::NativeFileSystemFileHandle> mojo_ptr_;
 };
 
 }  // namespace blink

@@ -10,8 +10,9 @@
 #include "base/bind.h"
 #include "base/macros.h"
 #include "base/run_loop.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/test/test_simple_task_runner.h"
+#include "base/test/test_timeouts.h"
 #include "base/win/windows_version.h"
 #include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -33,7 +34,6 @@
 #include "ui/gfx/image/image.h"
 #include "ui/gfx/transform.h"
 #include "ui/gl/gl_implementation.h"
-#include "ui/wm/core/default_activation_client.h"
 
 namespace ui {
 namespace {
@@ -90,7 +90,8 @@ size_t GetFailedPixelsCount(const gfx::Image& image) {
 
 }  // namespace
 
-class SnapshotAuraTest : public testing::Test {
+// Param specifies whether to use SkiaRenderer or not
+class SnapshotAuraTest : public testing::TestWithParam<bool> {
  public:
   SnapshotAuraTest() {}
   ~SnapshotAuraTest() override {}
@@ -98,45 +99,44 @@ class SnapshotAuraTest : public testing::Test {
   void SetUp() override {
     testing::Test::SetUp();
 
-    scoped_task_environment_ =
-        std::make_unique<base::test::ScopedTaskEnvironment>(
-            base::test::ScopedTaskEnvironment::MainThreadType::UI);
+    task_environment_ = std::make_unique<base::test::TaskEnvironment>(
+        base::test::TaskEnvironment::MainThreadType::UI);
 
     // The ContextFactory must exist before any Compositors are created.
     // Snapshot test tests real drawing and readback, so needs pixel output.
     const bool enable_pixel_output = true;
-    context_factories_ =
-        std::make_unique<ui::TestContextFactories>(enable_pixel_output);
+    context_factories_ = std::make_unique<ui::TestContextFactories>(
+        enable_pixel_output, GetParam());
 
-    helper_ = std::make_unique<aura::test::AuraTestHelper>();
-    helper_->SetUp(context_factories_->GetContextFactory(),
-                   context_factories_->GetContextFactoryPrivate());
-    new ::wm::DefaultActivationClient(helper_->root_window());
+    helper_ = std::make_unique<aura::test::AuraTestHelper>(
+        context_factories_->GetContextFactory());
+    helper_->SetUp();
   }
 
   void TearDown() override {
     test_window_.reset();
     delegate_.reset();
     helper_->RunAllPendingInMessageLoop();
-    helper_->TearDown();
+    helper_.reset();
     context_factories_.reset();
-    scoped_task_environment_.reset();
+    task_environment_.reset();
     testing::Test::TearDown();
   }
 
  protected:
   aura::Window* test_window() { return test_window_.get(); }
-  aura::Window* root_window() { return helper_->root_window(); }
-  aura::TestScreen* test_screen() { return helper_->test_screen(); }
+  aura::Window* root_window() { return helper_->GetContext(); }
+  aura::TestScreen* test_screen() { return helper_->GetTestScreen(); }
 
   void WaitForDraw() {
-    helper_->host()->compositor()->ScheduleDraw();
+    helper_->GetHost()->compositor()->ScheduleDraw();
     ui::DrawWaiterForTest::WaitForCompositingEnded(
-        helper_->host()->compositor());
+        helper_->GetHost()->compositor());
   }
 
   void SetupTestWindow(const gfx::Rect& window_bounds) {
-    delegate_.reset(new TestPaintingWindowDelegate(window_bounds.size()));
+    delegate_ =
+        std::make_unique<TestPaintingWindowDelegate>(window_bounds.size());
     test_window_.reset(aura::test::CreateTestWindowWithDelegate(
         delegate_.get(), 0, window_bounds, root_window()));
   }
@@ -149,7 +149,7 @@ class SnapshotAuraTest : public testing::Test {
     scoped_refptr<SnapshotHolder> holder(new SnapshotHolder);
     ui::GrabWindowSnapshotAsync(
         root_window(), source_rect,
-        base::Bind(&SnapshotHolder::SnapshotCallback, holder));
+        base::BindOnce(&SnapshotHolder::SnapshotCallback, holder));
 
     holder->WaitForSnapshot();
     DCHECK(holder->completed());
@@ -181,7 +181,7 @@ class SnapshotAuraTest : public testing::Test {
     bool completed_;
   };
 
-  std::unique_ptr<base::test::ScopedTaskEnvironment> scoped_task_environment_;
+  std::unique_ptr<base::test::TaskEnvironment> task_environment_;
   std::unique_ptr<ui::TestContextFactories> context_factories_;
   std::unique_ptr<aura::test::AuraTestHelper> helper_;
   std::unique_ptr<aura::Window> test_window_;
@@ -191,13 +191,22 @@ class SnapshotAuraTest : public testing::Test {
   DISALLOW_COPY_AND_ASSIGN(SnapshotAuraTest);
 };
 
+INSTANTIATE_TEST_SUITE_P(All, SnapshotAuraTest, ::testing::Bool());
+
 #if defined(OS_WIN) && !defined(NDEBUG)
 // https://crbug.com/852512
 #define MAYBE_FullScreenWindow DISABLED_FullScreenWindow
 #else
 #define MAYBE_FullScreenWindow FullScreenWindow
 #endif
-TEST_F(SnapshotAuraTest, MAYBE_FullScreenWindow) {
+TEST_P(SnapshotAuraTest, MAYBE_FullScreenWindow) {
+#if defined(OS_LINUX)
+  // TODO(https://crbug.com/1002716): Fix this test to run in < action_timeout()
+  // on the Linux Debug & TSAN bots.
+  const base::test::ScopedRunLoopTimeout increased_run_timeout(
+      FROM_HERE, TestTimeouts::action_max_timeout());
+#endif  // defined(OS_LINUX)
+
 #if defined(OS_WIN)
   // TODO(https://crbug.com/850556): Make work on Win10.
   base::win::Version version = base::win::GetVersion();
@@ -213,7 +222,7 @@ TEST_F(SnapshotAuraTest, MAYBE_FullScreenWindow) {
   EXPECT_EQ(0u, GetFailedPixelsCount(snapshot));
 }
 
-TEST_F(SnapshotAuraTest, PartialBounds) {
+TEST_P(SnapshotAuraTest, PartialBounds) {
 #if defined(OS_WIN)
   // TODO(https://crbug.com/850556): Make work on Win10.
   base::win::Version version = base::win::GetVersion();
@@ -229,7 +238,7 @@ TEST_F(SnapshotAuraTest, PartialBounds) {
   EXPECT_EQ(0u, GetFailedPixelsCount(snapshot));
 }
 
-TEST_F(SnapshotAuraTest, Rotated) {
+TEST_P(SnapshotAuraTest, Rotated) {
 #if defined(OS_WIN)
   // TODO(https://crbug.com/850556): Make work on Win10.
   base::win::Version version = base::win::GetVersion();
@@ -247,7 +256,7 @@ TEST_F(SnapshotAuraTest, Rotated) {
   EXPECT_EQ(0u, GetFailedPixelsCount(snapshot));
 }
 
-TEST_F(SnapshotAuraTest, UIScale) {
+TEST_P(SnapshotAuraTest, UIScale) {
 #if defined(OS_WIN)
   // TODO(https://crbug.com/850556): Make work on Win10.
   base::win::Version version = base::win::GetVersion();
@@ -271,7 +280,7 @@ TEST_F(SnapshotAuraTest, UIScale) {
   EXPECT_EQ(0u, GetFailedPixelsCountWithScaleFactor(snapshot, 1 / kUIScale));
 }
 
-TEST_F(SnapshotAuraTest, DeviceScaleFactor) {
+TEST_P(SnapshotAuraTest, DeviceScaleFactor) {
 #if defined(OS_WIN)
   // TODO(https://crbug.com/850556): Make work on Win10.
   base::win::Version version = base::win::GetVersion();
@@ -294,7 +303,7 @@ TEST_F(SnapshotAuraTest, DeviceScaleFactor) {
   EXPECT_EQ(0u, GetFailedPixelsCountWithScaleFactor(snapshot, 2));
 }
 
-TEST_F(SnapshotAuraTest, RotateAndUIScale) {
+TEST_P(SnapshotAuraTest, RotateAndUIScale) {
 #if defined(OS_WIN)
   // TODO(https://crbug.com/850556): Make work on Win10.
   base::win::Version version = base::win::GetVersion();
@@ -305,7 +314,7 @@ TEST_F(SnapshotAuraTest, RotateAndUIScale) {
   test_screen()->SetUIScale(kUIScale);
   test_screen()->SetDisplayRotation(display::Display::ROTATE_90);
 
-  gfx::Rect test_bounds(100, 100, 300, 200);
+  gfx::Rect test_bounds(100, 100, 200, 300);
   SetupTestWindow(test_bounds);
   WaitForDraw();
 
@@ -319,7 +328,7 @@ TEST_F(SnapshotAuraTest, RotateAndUIScale) {
   EXPECT_EQ(0u, GetFailedPixelsCountWithScaleFactor(snapshot, 1 / kUIScale));
 }
 
-TEST_F(SnapshotAuraTest, RotateAndUIScaleAndScaleFactor) {
+TEST_P(SnapshotAuraTest, RotateAndUIScaleAndScaleFactor) {
 #if defined(OS_WIN)
   // TODO(https://crbug.com/850556): Make work on Win10.
   base::win::Version version = base::win::GetVersion();
@@ -331,7 +340,7 @@ TEST_F(SnapshotAuraTest, RotateAndUIScaleAndScaleFactor) {
   test_screen()->SetUIScale(kUIScale);
   test_screen()->SetDisplayRotation(display::Display::ROTATE_90);
 
-  gfx::Rect test_bounds(20, 30, 150, 100);
+  gfx::Rect test_bounds(20, 30, 100, 150);
   SetupTestWindow(test_bounds);
   WaitForDraw();
 

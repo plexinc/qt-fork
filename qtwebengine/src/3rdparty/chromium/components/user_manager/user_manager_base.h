@@ -13,6 +13,7 @@
 
 #include "base/feature_list.h"
 #include "base/macros.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/synchronization/lock.h"
@@ -27,7 +28,7 @@ class PrefRegistrySimple;
 
 namespace base {
 class ListValue;
-class TaskRunner;
+class SingleThreadTaskRunner;
 }
 
 namespace user_manager {
@@ -40,9 +41,9 @@ class RemoveUserDelegate;
 // Base implementation of the UserManager interface.
 class USER_MANAGER_EXPORT UserManagerBase : public UserManager {
  public:
-  // Creates UserManagerBase with |task_runner| for UI thread and
-  // |blocking_task_runner| for SequencedWorkerPool.
-  explicit UserManagerBase(scoped_refptr<base::TaskRunner> task_runner);
+  // Creates UserManagerBase with |task_runner| for UI thread.
+  explicit UserManagerBase(
+      scoped_refptr<base::SingleThreadTaskRunner> task_runner);
   ~UserManagerBase() override;
 
   // Registers UserManagerBase preferences.
@@ -79,7 +80,6 @@ class USER_MANAGER_EXPORT UserManagerBase : public UserManager {
   base::string16 GetUserDisplayName(const AccountId& account_id) const override;
   void SaveUserDisplayEmail(const AccountId& account_id,
                             const std::string& display_email) override;
-  std::string GetUserDisplayEmail(const AccountId& account_id) const override;
   void SaveUserType(const User* user) override;
   void UpdateUserAccountData(const AccountId& account_id,
                              const UserAccountData& account_data) override;
@@ -96,6 +96,8 @@ class USER_MANAGER_EXPORT UserManagerBase : public UserManager {
   bool IsLoggedInAsSupervisedUser() const override;
   bool IsLoggedInAsKioskApp() const override;
   bool IsLoggedInAsArcKioskApp() const override;
+  bool IsLoggedInAsWebKioskApp() const override;
+  bool IsLoggedInAsAnyKioskApp() const override;
   bool IsLoggedInAsStub() const override;
   bool IsUserNonCryptohomeDataEphemeral(
       const AccountId& account_id) const override;
@@ -169,7 +171,7 @@ class USER_MANAGER_EXPORT UserManagerBase : public UserManager {
       std::set<AccountId>* device_local_accounts_set) = 0;
 
   // Notifies observers that active user has changed.
-  void NotifyActiveUserChanged(const User* active_user);
+  void NotifyActiveUserChanged(User* active_user);
 
   // Notifies that user has logged in.
   virtual void NotifyOnLogin();
@@ -233,6 +235,9 @@ class USER_MANAGER_EXPORT UserManagerBase : public UserManager {
 
   // Indicates that an ARC kiosk app robot just logged in.
   virtual void ArcKioskAppLoggedIn(User* user) = 0;
+
+  // Indicates that an web kiosk app robot just logged in.
+  virtual void WebKioskAppLoggedIn(User* user) = 0;
 
   // Indicates that a user just logged into a public session.
   virtual void PublicAccountUserLoggedIn(User* user) = 0;
@@ -387,9 +392,9 @@ class USER_MANAGER_EXPORT UserManagerBase : public UserManager {
   bool last_session_active_account_id_initialized_ = false;
 
   // TaskRunner for UI thread.
-  scoped_refptr<base::TaskRunner> task_runner_;
+  scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
 
-  base::WeakPtrFactory<UserManagerBase> weak_factory_;
+  base::WeakPtrFactory<UserManagerBase> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(UserManagerBase);
 };

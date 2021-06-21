@@ -5,6 +5,7 @@
 #ifndef QUICHE_QUIC_TEST_TOOLS_SIMPLE_SESSION_NOTIFIER_H_
 #define QUICHE_QUIC_TEST_TOOLS_SIMPLE_SESSION_NOTIFIER_H_
 
+#include "net/third_party/quiche/src/quic/core/quic_circular_deque.h"
 #include "net/third_party/quiche/src/quic/core/quic_interval_set.h"
 #include "net/third_party/quiche/src/quic/core/session_notifier_interface.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
@@ -44,6 +45,9 @@ class SimpleSessionNotifier : public SessionNotifierInterface {
 
   // Called when connection_ becomes writable.
   void OnCanWrite();
+
+  // Called to reset stream.
+  void OnStreamReset(QuicStreamId id, QuicRstStreamErrorCode error);
 
   // Returns true if there are 1) unsent control frames and stream data, or 2)
   // lost control frames and stream data.
@@ -124,7 +128,7 @@ class SimpleSessionNotifier : public SessionNotifierInterface {
 
   bool StreamHasBufferedData(QuicStreamId id) const;
 
-  QuicDeque<QuicFrame> control_frames_;
+  QuicCircularDeque<QuicFrame> control_frames_;
 
   QuicLinkedHashMap<QuicControlFrameId, bool> lost_control_frames_;
 

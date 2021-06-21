@@ -6,62 +6,65 @@
 
 #include <utility>
 
+#include "gpu/command_buffer/service/skia_utils.h"
 #include "third_party/skia/include/core/SkSurface.h"
 
 namespace viz {
 
+namespace {
+
+// Some Vulkan drivers do not support kRGB_888x_SkColorType. Always use
+// kRGBA_8888_SkColorType instead and initialize surface to opaque as necessary.
+constexpr SkColorType kSurfaceColorType = kRGBA_8888_SkColorType;
+
+}  // namespace
+
 SkiaOutputDeviceOffscreen::SkiaOutputDeviceOffscreen(
-    GrContext* gr_context,
-    bool flipped,
+    scoped_refptr<gpu::SharedContextState> context_state,
+    gfx::SurfaceOrigin origin,
     bool has_alpha,
+    gpu::MemoryTracker* memory_tracker,
     DidSwapBufferCompleteCallback did_swap_buffer_complete_callback)
-    : SkiaOutputDevice(false /*need_swap_semaphore */,
-                       did_swap_buffer_complete_callback),
-      gr_context_(gr_context),
+    : SkiaOutputDevice(memory_tracker, did_swap_buffer_complete_callback),
+      context_state_(context_state),
       has_alpha_(has_alpha) {
-  capabilities_.flipped_output_surface = flipped;
+  capabilities_.uses_default_gl_framebuffer = false;
+  capabilities_.output_surface_origin = origin;
   capabilities_.supports_post_sub_buffer = true;
+
+  capabilities_.sk_color_type = kSurfaceColorType;
+  capabilities_.gr_backend_format =
+      context_state_->gr_context()->defaultBackendFormat(kSurfaceColorType,
+                                                         GrRenderable::kYes);
 }
 
-SkiaOutputDeviceOffscreen::~SkiaOutputDeviceOffscreen() = default;
+SkiaOutputDeviceOffscreen::~SkiaOutputDeviceOffscreen() {
+  DiscardBackbuffer();
+}
 
-void SkiaOutputDeviceOffscreen::Reshape(const gfx::Size& size,
+bool SkiaOutputDeviceOffscreen::Reshape(const gfx::Size& size,
                                         float device_scale_factor,
                                         const gfx::ColorSpace& color_space,
-                                        bool has_alpha,
+                                        gfx::BufferFormat format,
                                         gfx::OverlayTransform transform) {
   DCHECK_EQ(transform, gfx::OVERLAY_TRANSFORM_NONE);
 
-  // Some Vulkan drivers do not support kRGB_888x_SkColorType. Always use
-  // kRGBA_8888_SkColorType instead and initialize surface to opaque alpha.
-  image_info_ =
-      SkImageInfo::Make(size.width(), size.height(), kRGBA_8888_SkColorType,
-                        has_alpha_ ? kPremul_SkAlphaType : kOpaque_SkAlphaType,
-                        color_space.ToSkColorSpace());
-  sk_surface_ = SkSurface::MakeRenderTarget(
-      gr_context_, SkBudgeted::kNo, image_info_, 0 /* sampleCount */,
-      capabilities_.flipped_output_surface ? kTopLeft_GrSurfaceOrigin
-                                           : kBottomLeft_GrSurfaceOrigin,
-      nullptr /* surfaceProps */);
-  DCHECK(!!sk_surface_);
-
-  if (!has_alpha_) {
-    is_emulated_rgbx_ = true;
-    // Initialize alpha channel to opaque.
-    auto* canvas = sk_surface_->getCanvas();
-    canvas->clear(SkColorSetARGB(255, 0, 0, 0));
-  }
+  DiscardBackbuffer();
+  size_ = size;
+  sk_color_space_ = color_space.ToSkColorSpace();
+  EnsureBackbuffer();
+  return true;
 }
 
 void SkiaOutputDeviceOffscreen::SwapBuffers(
     BufferPresentedCallback feedback,
     std::vector<ui::LatencyInfo> latency_info) {
   // Reshape should have been called first.
-  DCHECK(sk_surface_);
+  DCHECK(backend_texture_.isValid());
 
   StartSwapBuffers(std::move(feedback));
   FinishSwapBuffers(gfx::SwapResult::SWAP_ACK,
-                    gfx::Size(sk_surface_->width(), sk_surface_->height()),
+                    gfx::Size(size_.width(), size_.height()),
                     std::move(latency_info));
 }
 
@@ -73,23 +76,66 @@ void SkiaOutputDeviceOffscreen::PostSubBuffer(
 }
 
 void SkiaOutputDeviceOffscreen::EnsureBackbuffer() {
-  if (!image_info_.isEmpty() && !sk_surface_) {
-    sk_surface_ = SkSurface::MakeRenderTarget(
-        gr_context_, SkBudgeted::kNo, image_info_, 0 /* sampleCount */,
-        capabilities_.flipped_output_surface ? kTopLeft_GrSurfaceOrigin
-                                             : kBottomLeft_GrSurfaceOrigin,
-        nullptr /* surfaceProps */);
+  // Ignore EnsureBackbuffer if Reshape has not been called yet.
+  if (size_.IsEmpty())
+    return;
+
+  if (has_alpha_) {
+    backend_texture_ = context_state_->gr_context()->createBackendTexture(
+        size_.width(), size_.height(), kSurfaceColorType, GrMipMapped::kNo,
+        GrRenderable::kYes);
+  } else {
+    is_emulated_rgbx_ = true;
+    // Initialize alpha channel to opaque.
+    backend_texture_ = context_state_->gr_context()->createBackendTexture(
+        size_.width(), size_.height(), kSurfaceColorType, SkColors::kBlack,
+        GrMipMapped::kNo, GrRenderable::kYes);
   }
+  DCHECK(backend_texture_.isValid());
+
+  DCHECK(!backbuffer_estimated_size_);
+  if (backend_texture_.backend() == GrBackendApi::kVulkan) {
+    GrVkImageInfo vk_image_info;
+    bool result = backend_texture_.getVkImageInfo(&vk_image_info);
+    DCHECK(result);
+    backbuffer_estimated_size_ = vk_image_info.fAlloc.fSize;
+  } else {
+    auto info = SkImageInfo::Make(size_.width(), size_.height(),
+                                  kSurfaceColorType, kUnpremul_SkAlphaType);
+    size_t estimated_size = info.computeMinByteSize();
+    backbuffer_estimated_size_ = estimated_size;
+  }
+  memory_type_tracker_->TrackMemAlloc(backbuffer_estimated_size_);
 }
 
 void SkiaOutputDeviceOffscreen::DiscardBackbuffer() {
-  sk_surface_.reset();
+  if (backend_texture_.isValid()) {
+    sk_surface_.reset();
+    DeleteGrBackendTexture(context_state_.get(), &backend_texture_);
+    backend_texture_ = GrBackendTexture();
+    memory_type_tracker_->TrackMemFree(backbuffer_estimated_size_);
+    backbuffer_estimated_size_ = 0u;
+  }
 }
 
-SkSurface* SkiaOutputDeviceOffscreen::BeginPaint() {
+SkSurface* SkiaOutputDeviceOffscreen::BeginPaint(
+    std::vector<GrBackendSemaphore>* end_semaphores) {
+  DCHECK(backend_texture_.isValid());
+  if (!sk_surface_) {
+    // LegacyFontHost will get LCD text and skia figures out what type to use.
+    SkSurfaceProps surface_props(0 /* flags */,
+                                 SkSurfaceProps::kLegacyFontHost_InitType);
+    sk_surface_ = SkSurface::MakeFromBackendTexture(
+        context_state_->gr_context(), backend_texture_,
+        capabilities_.output_surface_origin == gfx::SurfaceOrigin::kTopLeft
+            ? kTopLeft_GrSurfaceOrigin
+            : kBottomLeft_GrSurfaceOrigin,
+        0 /* sampleCount */, kSurfaceColorType, sk_color_space_,
+        &surface_props);
+  }
   return sk_surface_.get();
 }
 
-void SkiaOutputDeviceOffscreen::EndPaint(const GrBackendSemaphore& semaphore) {}
+void SkiaOutputDeviceOffscreen::EndPaint() {}
 
 }  // namespace viz

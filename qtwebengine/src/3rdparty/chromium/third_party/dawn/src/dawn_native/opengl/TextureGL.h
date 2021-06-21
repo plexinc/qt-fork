@@ -44,10 +44,11 @@ namespace dawn_native { namespace opengl {
 
       private:
         void DestroyImpl() override;
-        void ClearTexture(GLint baseMipLevel,
-                          GLint levelCount,
-                          GLint baseArrayLayer,
-                          uint32_t layerCount);
+        MaybeError ClearTexture(GLint baseMipLevel,
+                                GLint levelCount,
+                                GLint baseArrayLayer,
+                                GLint layerCount,
+                                TextureBase::ClearValue clearValue);
 
         GLuint mHandle;
         GLenum mTarget;

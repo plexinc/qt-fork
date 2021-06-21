@@ -8,6 +8,7 @@
 #include "third_party/blink/renderer/core/layout/ng/layout_ng_block_flow.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_block_layout_algorithm.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_constraint_space_builder.h"
+#include "third_party/blink/renderer/core/layout/ng/ng_fieldset_layout_algorithm.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_layout_result.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_length_utils.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_physical_box_fragment.h"
@@ -61,6 +62,22 @@ NGBaseLayoutAlgorithmTest::RunBlockLayoutAlgorithmForElement(Element* element) {
 }
 
 scoped_refptr<const NGPhysicalBoxFragment>
+NGBaseLayoutAlgorithmTest::RunFieldsetLayoutAlgorithm(
+    NGBlockNode node,
+    const NGConstraintSpace& space,
+    const NGBreakToken* break_token) {
+  NGFragmentGeometry fragment_geometry =
+      CalculateInitialFragmentGeometry(space, node);
+
+  scoped_refptr<const NGLayoutResult> result =
+      NGFieldsetLayoutAlgorithm(
+          {node, fragment_geometry, space, To<NGBlockBreakToken>(break_token)})
+          .Layout();
+
+  return To<NGPhysicalBoxFragment>(&result->PhysicalFragment());
+}
+
+scoped_refptr<const NGPhysicalBoxFragment>
 NGBaseLayoutAlgorithmTest::GetBoxFragmentByElementId(const char* id) {
   LayoutObject* layout_object = GetLayoutObjectByElementId(id);
   CHECK(layout_object && layout_object->IsLayoutNGMixin());
@@ -105,15 +122,15 @@ NGConstraintSpace ConstructBlockLayoutTestConstraintSpace(
           ? NGFragmentationType::kFragmentColumn
           : NGFragmentationType::kFragmentNone;
 
-  return NGConstraintSpaceBuilder(writing_mode, writing_mode,
-                                  is_new_formatting_context)
-      .SetAvailableSize(size)
-      .SetPercentageResolutionSize(size)
-      .SetTextDirection(direction)
-      .SetIsShrinkToFit(shrink_to_fit)
-      .SetFragmentainerSpaceAtBfcStart(fragmentainer_space_available)
-      .SetFragmentationType(block_fragmentation)
-      .ToConstraintSpace();
+  NGConstraintSpaceBuilder builder(writing_mode, writing_mode,
+                                   is_new_formatting_context);
+  builder.SetAvailableSize(size);
+  builder.SetPercentageResolutionSize(size);
+  builder.SetTextDirection(direction);
+  builder.SetIsShrinkToFit(shrink_to_fit);
+  builder.SetFragmentainerBlockSize(fragmentainer_space_available);
+  builder.SetFragmentationType(block_fragmentation);
+  return builder.ToConstraintSpace();
 }
 
 }  // namespace blink

@@ -63,7 +63,7 @@ class PLATFORM_EXPORT CompositorKeyframeModel {
   void SetStartTime(base::TimeTicks);
 
   double TimeOffset() const;
-  void SetTimeOffset(double monotonic_time);
+  void SetTimeOffset(base::TimeDelta monotonic_time);
 
   Direction GetDirection() const;
   void SetDirection(Direction);
@@ -83,7 +83,7 @@ class PLATFORM_EXPORT CompositorKeyframeModel {
   std::unique_ptr<CompositorColorAnimationCurve> ColorCurveForTesting() const;
 
   const std::string& GetCustomPropertyNameForTesting() const {
-    return keyframe_model_->GetCustomPropertyNameForTesting();
+    return keyframe_model_->custom_property_name();
   }
 
  private:

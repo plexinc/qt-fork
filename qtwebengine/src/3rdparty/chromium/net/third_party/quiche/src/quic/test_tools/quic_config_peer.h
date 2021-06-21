@@ -22,6 +22,18 @@ class QuicConfigPeer {
   static void SetReceivedInitialStreamFlowControlWindow(QuicConfig* config,
                                                         uint32_t window_bytes);
 
+  static void SetReceivedInitialMaxStreamDataBytesIncomingBidirectional(
+      QuicConfig* config,
+      uint32_t window_bytes);
+
+  static void SetReceivedInitialMaxStreamDataBytesOutgoingBidirectional(
+      QuicConfig* config,
+      uint32_t window_bytes);
+
+  static void SetReceivedInitialMaxStreamDataBytesUnidirectional(
+      QuicConfig* config,
+      uint32_t window_bytes);
+
   static void SetReceivedInitialSessionFlowControlWindow(QuicConfig* config,
                                                          uint32_t window_bytes);
 
@@ -33,16 +45,23 @@ class QuicConfigPeer {
 
   static void SetReceivedDisableConnectionMigration(QuicConfig* config);
 
-  static void SetReceivedMaxIncomingBidirectionalStreams(QuicConfig* config,
-                                                         uint32_t max_streams);
-  static void SetReceivedMaxIncomingUnidirectionalStreams(QuicConfig* config,
-                                                          uint32_t max_streams);
+  static void SetReceivedMaxBidirectionalStreams(QuicConfig* config,
+                                                 uint32_t max_streams);
+  static void SetReceivedMaxUnidirectionalStreams(QuicConfig* config,
+                                                  uint32_t max_streams);
 
   static void SetConnectionOptionsToSend(QuicConfig* config,
                                          const QuicTagVector& options);
 
   static void SetReceivedStatelessResetToken(QuicConfig* config,
                                              QuicUint128 token);
+
+  static void SetReceivedMaxPacketSize(QuicConfig* config,
+                                       uint32_t max_packet_size);
+
+  static void ReceiveIdleNetworkTimeout(QuicConfig* config,
+                                        HelloType hello_type,
+                                        uint32_t idle_timeout_seconds);
 };
 
 }  // namespace test

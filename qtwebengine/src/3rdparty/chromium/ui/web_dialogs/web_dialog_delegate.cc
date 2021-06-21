@@ -32,6 +32,18 @@ bool WebDialogDelegate::OnDialogCloseRequested() {
   return true;
 }
 
+bool WebDialogDelegate::ShouldCenterDialogTitleText() const {
+  return false;
+}
+
+bool WebDialogDelegate::ShouldCloseDialogOnEscape() const {
+  return true;
+}
+
+bool WebDialogDelegate::ShouldShowCloseButton() const {
+  return true;
+}
+
 void WebDialogDelegate::OnDialogCloseFromWebUI(
     const std::string& json_retval) {
   OnDialogClosed(json_retval);
@@ -50,8 +62,8 @@ bool WebDialogDelegate::HandleOpenURLFromTab(
   return false;
 }
 
-bool WebDialogDelegate::HandleShouldCreateWebContents() {
-  return true;
+bool WebDialogDelegate::HandleShouldOverrideWebContentsCreation() {
+  return false;
 }
 
 std::vector<Accelerator> WebDialogDelegate::GetAccelerators() {

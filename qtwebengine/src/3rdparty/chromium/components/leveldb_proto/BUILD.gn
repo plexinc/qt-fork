@@ -5,12 +5,10 @@
 import("//third_party/protobuf/proto_library.gni")
 
 proto_library("proto") {
-  sources = [
-    "internal/proto/shared_db_metadata.proto",
-  ]
+  sources = [ "internal/proto/shared_db_metadata.proto" ]
 }
 
-static_library("leveldb_proto") {
+component("leveldb_proto") {
   sources = [
     "internal/leveldb_database.cc",
     "internal/leveldb_database.h",
@@ -41,9 +39,8 @@ static_library("leveldb_proto") {
     "public/shared_proto_database_client_list.cc",
     "public/shared_proto_database_client_list.h",
   ]
-  deps = [
-    ":proto",
-  ]
+  defines = [ "IS_LEVELDB_PROTO_IMPL" ]
+  deps = [ ":proto" ]
 
   public_deps = [
     "//base",
@@ -54,9 +51,7 @@ static_library("leveldb_proto") {
 
 source_set("test_support") {
   testonly = true
-  sources = [
-    "testing/fake_db.h",
-  ]
+  sources = [ "testing/fake_db.h" ]
 
   public_deps = [
     ":leveldb_proto",
@@ -76,6 +71,7 @@ source_set("unit_tests") {
     "internal/unique_proto_database_unittest.cc",
   ]
   deps = [
+    ":proto",
     ":test_support",
     "//testing/gmock",
     "//testing/gtest",

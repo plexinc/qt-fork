@@ -13,8 +13,8 @@
 #include <vector>
 
 #include "base/callback.h"
-#include "components/safe_browsing/db/util.h"
-#include "components/safe_browsing/db/v4_protocol_manager_util.h"
+#include "components/safe_browsing/core/db/util.h"
+#include "components/safe_browsing/core/db/v4_protocol_manager_util.h"
 #include "url/gurl.h"
 
 namespace safe_browsing {
@@ -35,6 +35,10 @@ class SafeBrowsingApiHandler {
   virtual void StartURLCheck(std::unique_ptr<URLCheckCallbackMeta> callback,
                              const GURL& url,
                              const SBThreatTypeSet& threat_types) = 0;
+
+  virtual bool StartCSDAllowlistCheck(const GURL& url) = 0;
+
+  virtual bool StartHighConfidenceAllowlistCheck(const GURL& url) = 0;
 
   virtual ~SafeBrowsingApiHandler() {}
 

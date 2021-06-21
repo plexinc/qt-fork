@@ -205,6 +205,10 @@ tr.exportTo('tr.metrics.v8.utils', function() {
     return TOP_GC_EVENTS[event.title];
   }
 
+  function topGarbageCollectionEventNames() {
+    return Object.values(TOP_GC_EVENTS);
+  }
+
   function subGarbageCollectionEventName(event) {
     const topEvent = findParent(event, isTopGarbageCollectionEvent);
     const prefix = topEvent ? topGarbageCollectionEventName(topEvent) :
@@ -243,16 +247,28 @@ tr.exportTo('tr.metrics.v8.utils', function() {
    * @param {Function} groupCallback Takes event and a group object which can
    * be a string or number.
    * @param {Function} processCallback Takes a group, and an array of events.
+   * @param {!Array<String>} groups Optional list of groups. If it is provided,
+   * then discovered groups that are not in this list will be ignored.
    */
   function groupAndProcessEvents(model, filterCallback,
-      groupCallback, processCallback) {
+      groupCallback, processCallback, groups) {
     // Map: group -> [events].
     const groupToEvents = {};
+    if (groups) {
+      for (const group of groups) {
+        groupToEvents[group] = [];
+      }
+    }
     const threads = jsExecutionThreads(model);
     for (const thread of threads) {
       for (const event of thread.sliceGroup.childEvents()) {
         if (!filterCallback(event)) continue;
         const group = groupCallback(event);
+        if (groups && !(group in groupToEvents)) {
+          // The list of groups was provided explicitly and the current group
+          // is not in the list, so skip it.
+          continue;
+        }
         groupToEvents[group] = groupToEvents[group] || [];
         groupToEvents[group].push(event);
       }
@@ -261,6 +277,22 @@ tr.exportTo('tr.metrics.v8.utils', function() {
     for (const [group, events] of Object.entries(groupToEvents)) {
       processCallback(group, events);
     }
+  }
+
+  /**
+   * Returns the set of events that pass the |filterCallback| filter.
+   * @param {Function} filterCallback Takes an event and returns a boolean.
+   */
+  function filterEvents(model, filterCallback) {
+    const threads = jsExecutionThreads(model);
+    const events = [];
+    for (const thread of threads) {
+      for (const event of thread.sliceGroup.childEvents()) {
+        if (!filterCallback(event)) continue;
+        events.push(event);
+      }
+    }
+    return events;
   }
 
   /**
@@ -457,6 +489,8 @@ tr.exportTo('tr.metrics.v8.utils', function() {
 
     for (const rendererHelper of rendererHelpers) {
       if (rendererHelper.isChromeTracingUI) continue;
+      // Main thread may be missing. See crbug.com/1059726 for an example.
+      if (rendererHelper.mainThread === undefined) continue;
       const pauses = [];
       for (const event of rendererHelper.mainThread.sliceGroup.childEvents()) {
         if (eventFilter(event) && event.end > event.start) {
@@ -478,6 +512,7 @@ tr.exportTo('tr.metrics.v8.utils', function() {
     addMutatorUtilization,
     findParent,
     forcedGCEventName,
+    filterEvents,
     groupAndProcessEvents,
     isForcedGarbageCollectionEvent,
     isFullMarkCompactorEvent,
@@ -507,6 +542,7 @@ tr.exportTo('tr.metrics.v8.utils', function() {
     rangeForMemoryDumps,
     subGarbageCollectionEventName,
     topGarbageCollectionEventName,
+    topGarbageCollectionEventNames,
     unionOfIntervals,
   };
 });

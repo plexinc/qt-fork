@@ -10,6 +10,7 @@
 #include "third_party/blink/renderer/core/layout/layout_shift_region.h"
 #include "third_party/blink/renderer/core/scroll/scroll_types.h"
 #include "third_party/blink/renderer/platform/geometry/region.h"
+#include "third_party/blink/renderer/platform/graphics/dom_node_id.h"
 #include "third_party/blink/renderer/platform/timer.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 
@@ -30,17 +31,25 @@ class CORE_EXPORT LayoutShiftTracker {
  public:
   LayoutShiftTracker(LocalFrameView*);
   ~LayoutShiftTracker() {}
+  // |paint_offset_diff| is an additional amount by which the paint offset
+  // shifted that is not tracked in visual rects. Visual rects are in the
+  // local transform space of the LayoutObject. Any time the transform space is
+  // changed, the offset of that rect to the "origin" is reset. This offset
+  // is also known as the paint offset.
+  // In cases where we can communicate paint offset diffs across transform
+  // space change boundaries, |paint_offset_diff| is how to do it. In
+  // particular, many transform spaces are artificial and are used as an
+  // implementation detail of compositing to make it easier to isolate state for
+  // composited layers. We can easily pass the paint offset diff across such
+  // boundaries.
   void NotifyObjectPrePaint(const LayoutObject& object,
                             const PropertyTreeState& property_tree_state,
                             const IntRect& old_visual_rect,
-                            const IntRect& new_visual_rect);
-  // Layer rects are relative to old layer position.
-  void NotifyCompositedLayerMoved(const LayoutObject& object,
-                                  FloatRect old_layer_rect,
-                                  FloatRect new_layer_rect);
+                            const IntRect& new_visual_rect,
+                            FloatSize paint_offset_delta);
   void NotifyPrePaintFinished();
   void NotifyInput(const WebInputEvent&);
-  void NotifyScroll(ScrollType, ScrollOffset delta);
+  void NotifyScroll(mojom::blink::ScrollType, ScrollOffset delta);
   void NotifyViewportSizeChanged();
   bool IsActive();
   double Score() const { return score_; }
@@ -52,23 +61,44 @@ class CORE_EXPORT LayoutShiftTracker {
     return most_recent_input_timestamp_;
   }
 
+  // Saves and restores visual rects on layout objects when a layout tree is
+  // rebuilt by Node::ReattachLayoutTree.
+  class ReattachHook : public GarbageCollected<ReattachHook> {
+   public:
+    ReattachHook() : scope_(nullptr) {}
+    void Trace(Visitor*);
+
+    class Scope {
+     public:
+      Scope(const Node&);
+      ~Scope();
+
+     private:
+      bool active_;
+      Scope* outer_;
+    };
+
+    static void NotifyDetach(const Node&);
+    static void NotifyAttach(const Node&);
+
+   private:
+    Scope* scope_;
+    HeapHashMap<Member<const Node>, IntRect> visual_rects_;
+  };
+
  private:
   void ObjectShifted(const LayoutObject&,
                      const PropertyTreeState&,
                      FloatRect old_rect,
-                     FloatRect new_rect);
+                     FloatRect new_rect,
+                     FloatSize paint_offset_diff);
   void ReportShift(double score_delta, double weighted_score_delta);
   void TimerFired(TimerBase*) {}
   std::unique_ptr<TracedValue> PerFrameTraceData(double score_delta,
                                                  bool input_detected) const;
-  float RegionGranularityScale(const IntRect& viewport) const;
+  void AttributionsToTracedValue(TracedValue&) const;
   double SubframeWeightingFactor() const;
-  WebVector<gfx::Rect> ConvertIntRectsToGfxRects(
-      const Vector<IntRect>& int_rects,
-      double granularity_scale);
-  void SetLayoutShiftRects(const Vector<IntRect>& int_rects,
-                           double granularity_scale,
-                           bool using_sweep_line);
+  void SetLayoutShiftRects(const Vector<IntRect>& int_rects);
   void UpdateInputTimestamp(base::TimeTicks timestamp);
 
   // This owns us.
@@ -101,10 +131,7 @@ class CORE_EXPORT LayoutShiftTracker {
   PointerdownPendingData pointerdown_pending_data_;
 
   // The per-animation-frame impact region.
-  Region region_;
-
-  // Experimental impact region implementation using sweep-line algorithm.
-  LayoutShiftRegion region_experimental_;
+  LayoutShiftRegion region_;
 
   // Tracks the short period after an input event during which we ignore shifts
   // for the purpose of cumulative scoring, and report them to the web perf API
@@ -132,6 +159,29 @@ class CORE_EXPORT LayoutShiftTracker {
   // User input includes window resizing but not scrolling.
   base::TimeTicks most_recent_input_timestamp_;
   bool most_recent_input_timestamp_initialized_;
+
+  struct Attribution {
+    DOMNodeId node_id;
+    IntRect old_visual_rect;
+    IntRect new_visual_rect;
+
+    Attribution();
+    Attribution(DOMNodeId node_id,
+                IntRect old_visual_rect,
+                IntRect new_visual_rect);
+
+    explicit operator bool() const;
+    bool Encloses(const Attribution&) const;
+    bool MoreImpactfulThan(const Attribution&) const;
+    int Area() const;
+  };
+  static constexpr int kMaxAttributions = 5;
+
+  void MaybeRecordAttribution(const Attribution&);
+
+  // Nodes that have contributed to the impact region for the current frame, for
+  // use in trace event. Only populated while tracing.
+  std::array<Attribution, kMaxAttributions> attributions_;
 };
 
 }  // namespace blink

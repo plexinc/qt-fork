@@ -6,14 +6,14 @@
 
 #include <utility>
 
-#include "services/service_manager/public/cpp/interface_provider.h"
+#include "third_party/blink/public/common/browser_interface_broker_proxy.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_detected_text.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_point_2d.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/geometry/dom_rect.h"
 #include "third_party/blink/renderer/core/html/canvas/canvas_image_source.h"
 #include "third_party/blink/renderer/core/workers/worker_thread.h"
-#include "third_party/blink/renderer/modules/imagecapture/point_2d.h"
-#include "third_party/blink/renderer/modules/shapedetection/detected_text.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 
 namespace blink {
@@ -25,12 +25,10 @@ TextDetector* TextDetector::Create(ExecutionContext* context) {
 TextDetector::TextDetector(ExecutionContext* context) : ShapeDetector() {
   // See https://bit.ly/2S0zRAS for task types.
   auto task_runner = context->GetTaskRunner(TaskType::kMiscPlatformAPI);
-  auto request = mojo::MakeRequest(&text_service_, task_runner);
-  if (auto* interface_provider = context->GetInterfaceProvider()) {
-    interface_provider->GetInterface(std::move(request));
-  }
+  context->GetBrowserInterfaceBroker().GetInterface(
+      text_service_.BindNewPipeAndPassReceiver(task_runner));
 
-  text_service_.set_connection_error_handler(WTF::Bind(
+  text_service_.set_disconnect_handler(WTF::Bind(
       &TextDetector::OnTextServiceConnectionError, WrapWeakPersistent(this)));
 }
 
@@ -58,24 +56,26 @@ void TextDetector::OnDetectText(
   DCHECK(text_service_requests_.Contains(resolver));
   text_service_requests_.erase(resolver);
 
-  HeapVector<Member<DetectedText>> detected_text;
+  HeapVector<Member<DetectedText>> results;
   for (const auto& text : text_detection_results) {
     HeapVector<Member<Point2D>> corner_points;
     for (const auto& corner_point : text->corner_points) {
       Point2D* point = Point2D::Create();
-      point->setX(corner_point.x);
-      point->setY(corner_point.y);
+      point->setX(corner_point.x());
+      point->setY(corner_point.y());
       corner_points.push_back(point);
     }
-    detected_text.push_back(MakeGarbageCollected<DetectedText>(
-        text->raw_value,
-        DOMRectReadOnly::Create(text->bounding_box.x, text->bounding_box.y,
-                                text->bounding_box.width,
-                                text->bounding_box.height),
-        corner_points));
+
+    DetectedText* detected_text = DetectedText::Create();
+    detected_text->setRawValue(text->raw_value);
+    detected_text->setBoundingBox(DOMRectReadOnly::Create(
+        text->bounding_box.x(), text->bounding_box.y(),
+        text->bounding_box.width(), text->bounding_box.height()));
+    detected_text->setCornerPoints(corner_points);
+    results.push_back(detected_text);
   }
 
-  resolver->Resolve(detected_text);
+  resolver->Resolve(results);
 }
 
 void TextDetector::OnTextServiceConnectionError() {
@@ -88,7 +88,7 @@ void TextDetector::OnTextServiceConnectionError() {
   text_service_.reset();
 }
 
-void TextDetector::Trace(blink::Visitor* visitor) {
+void TextDetector::Trace(Visitor* visitor) {
   ShapeDetector::Trace(visitor);
   visitor->Trace(text_service_requests_);
 }

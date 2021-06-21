@@ -5,7 +5,9 @@
 #ifndef CONTENT_BROWSER_INDEXED_DB_INDEXED_DB_TOMBSTONE_SWEEPER_H_
 #define CONTENT_BROWSER_INDEXED_DB_INDEXED_DB_TOMBSTONE_SWEEPER_H_
 
+#include <map>
 #include <memory>
+#include <vector>
 
 #include "base/callback.h"
 #include "base/feature_list.h"
@@ -76,15 +78,16 @@ class WrappingIterator {
 class CONTENT_EXPORT IndexedDBTombstoneSweeper
     : public IndexedDBPreCloseTaskQueue::PreCloseTask {
  public:
-
   // The |database| must outlive this instance.
   IndexedDBTombstoneSweeper(int round_iterations,
                             int max_iterations,
                             leveldb::DB* database);
   ~IndexedDBTombstoneSweeper() override;
 
+  bool RequiresMetadata() const override;
+
   void SetMetadata(
-      std::vector<blink::IndexedDBDatabaseMetadata> const* metadata) override;
+      const std::vector<blink::IndexedDBDatabaseMetadata>* metadata) override;
 
   void Stop(IndexedDBPreCloseTaskQueue::StopReason reason) override;
 
@@ -177,7 +180,6 @@ class CONTENT_EXPORT IndexedDBTombstoneSweeper
   const base::TickClock* clock_for_testing_ = nullptr;
   base::Optional<base::TimeTicks> start_time_;
 
-  leveldb::DB* database_ = nullptr;
   bool has_writes_ = false;
   leveldb::WriteBatch round_deletion_batch_;
   base::TimeDelta total_deletion_time_;

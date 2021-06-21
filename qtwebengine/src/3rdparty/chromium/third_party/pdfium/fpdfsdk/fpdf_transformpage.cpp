@@ -26,6 +26,7 @@
 #include "core/fxge/render_defines.h"
 #include "fpdfsdk/cpdfsdk_helpers.h"
 #include "third_party/base/ptr_util.h"
+#include "third_party/base/span.h"
 
 namespace {
 
@@ -60,9 +61,43 @@ bool GetBoundingBox(CPDF_Page* page,
 }
 
 CPDF_Object* GetPageContent(CPDF_Dictionary* pPageDict) {
-  return pPageDict
-             ? pPageDict->GetDirectObjectFor(pdfium::page_object::kContents)
-             : nullptr;
+  return pPageDict->GetDirectObjectFor(pdfium::page_object::kContents);
+}
+
+void OutputPath(std::ostringstream& buf, CPDF_Path path) {
+  const CFX_PathData* pPathData = path.GetObject();
+  if (!pPathData)
+    return;
+
+  pdfium::span<const FX_PATHPOINT> points = pPathData->GetPoints();
+  if (path.IsRect()) {
+    CFX_PointF diff = points[2].m_Point - points[0].m_Point;
+    buf << points[0].m_Point.x << " " << points[0].m_Point.y << " " << diff.x
+        << " " << diff.y << " re\n";
+    return;
+  }
+
+  for (size_t i = 0; i < points.size(); ++i) {
+    buf << points[i].m_Point.x << " " << points[i].m_Point.y;
+    FXPT_TYPE point_type = points[i].m_Type;
+    if (point_type == FXPT_TYPE::MoveTo) {
+      buf << " m\n";
+    } else if (point_type == FXPT_TYPE::BezierTo) {
+      buf << " " << points[i + 1].m_Point.x << " " << points[i + 1].m_Point.y
+          << " " << points[i + 2].m_Point.x << " " << points[i + 2].m_Point.y;
+      buf << " c";
+      if (points[i + 2].m_CloseFigure)
+        buf << " h";
+      buf << "\n";
+
+      i += 2;
+    } else if (point_type == FXPT_TYPE::LineTo) {
+      buf << " l";
+      if (points[i].m_CloseFigure)
+        buf << " h";
+      buf << "\n";
+    }
+  }
 }
 
 }  // namespace
@@ -185,7 +220,7 @@ FPDFPage_TransFormWithClip(FPDF_PAGE page,
   text_buf << "q ";
 
   if (clipRect) {
-    CFX_FloatRect rect = CFXFloatRectFromFSRECTF(*clipRect);
+    CFX_FloatRect rect = CFXFloatRectFromFSRectF(*clipRect);
     rect.Normalize();
 
     WriteFloat(text_buf, rect.left) << " ";
@@ -208,12 +243,12 @@ FPDFPage_TransFormWithClip(FPDF_PAGE page,
 
   if (CPDF_Array* pContentArray = ToArray(pContentObj)) {
     pContentArray->InsertNewAt<CPDF_Reference>(0, pDoc, pStream->GetObjNum());
-    pContentArray->AddNew<CPDF_Reference>(pDoc, pEndStream->GetObjNum());
+    pContentArray->AppendNew<CPDF_Reference>(pDoc, pEndStream->GetObjNum());
   } else if (pContentObj->IsStream() && !pContentObj->IsInline()) {
     pContentArray = pDoc->NewIndirect<CPDF_Array>();
-    pContentArray->AddNew<CPDF_Reference>(pDoc, pStream->GetObjNum());
-    pContentArray->AddNew<CPDF_Reference>(pDoc, pContentObj->GetObjNum());
-    pContentArray->AddNew<CPDF_Reference>(pDoc, pEndStream->GetObjNum());
+    pContentArray->AppendNew<CPDF_Reference>(pDoc, pStream->GetObjNum());
+    pContentArray->AppendNew<CPDF_Reference>(pDoc, pContentObj->GetObjNum());
+    pContentArray->AppendNew<CPDF_Reference>(pDoc, pEndStream->GetObjNum());
     pPageDict->SetNewFor<CPDF_Reference>(pdfium::page_object::kContents, pDoc,
                                          pContentArray->GetObjNum());
   }
@@ -272,6 +307,59 @@ FPDFPageObj_TransformClipPath(FPDF_PAGEOBJECT page_object,
   pPageObj->TransformGeneralState(matrix);
 }
 
+FPDF_EXPORT FPDF_CLIPPATH FPDF_CALLCONV
+FPDFPageObj_GetClipPath(FPDF_PAGEOBJECT page_object) {
+  CPDF_PageObject* pPageObj = CPDFPageObjectFromFPDFPageObject(page_object);
+  if (!pPageObj)
+    return nullptr;
+
+  return FPDFClipPathFromCPDFClipPath(&pPageObj->m_ClipPath);
+}
+
+FPDF_EXPORT int FPDF_CALLCONV FPDFClipPath_CountPaths(FPDF_CLIPPATH clip_path) {
+  CPDF_ClipPath* pClipPath = CPDFClipPathFromFPDFClipPath(clip_path);
+  if (!pClipPath || !pClipPath->HasRef())
+    return -1;
+
+  return pClipPath->GetPathCount();
+}
+
+FPDF_EXPORT int FPDF_CALLCONV
+FPDFClipPath_CountPathSegments(FPDF_CLIPPATH clip_path, int path_index) {
+  CPDF_ClipPath* pClipPath = CPDFClipPathFromFPDFClipPath(clip_path);
+  if (!pClipPath || !pClipPath->HasRef())
+    return -1;
+
+  if (path_index < 0 ||
+      static_cast<size_t>(path_index) >= pClipPath->GetPathCount()) {
+    return -1;
+  }
+
+  return pdfium::CollectionSize<int>(
+      pClipPath->GetPath(path_index).GetPoints());
+}
+
+FPDF_EXPORT FPDF_PATHSEGMENT FPDF_CALLCONV
+FPDFClipPath_GetPathSegment(FPDF_CLIPPATH clip_path,
+                            int path_index,
+                            int segment_index) {
+  CPDF_ClipPath* pClipPath = CPDFClipPathFromFPDFClipPath(clip_path);
+  if (!pClipPath || !pClipPath->HasRef())
+    return nullptr;
+
+  if (path_index < 0 ||
+      static_cast<size_t>(path_index) >= pClipPath->GetPathCount()) {
+    return nullptr;
+  }
+
+  pdfium::span<const FX_PATHPOINT> points =
+      pClipPath->GetPath(path_index).GetPoints();
+  if (!pdfium::IndexInBounds(points, segment_index))
+    return nullptr;
+
+  return FPDFPathSegmentFromFXPathPoint(&points[segment_index]);
+}
+
 FPDF_EXPORT FPDF_CLIPPATH FPDF_CALLCONV FPDF_CreateClipPath(float left,
                                                             float bottom,
                                                             float right,
@@ -289,43 +377,6 @@ FPDF_EXPORT FPDF_CLIPPATH FPDF_CALLCONV FPDF_CreateClipPath(float left,
 FPDF_EXPORT void FPDF_CALLCONV FPDF_DestroyClipPath(FPDF_CLIPPATH clipPath) {
   // Take ownership back from caller and destroy.
   std::unique_ptr<CPDF_ClipPath>(CPDFClipPathFromFPDFClipPath(clipPath));
-}
-
-void OutputPath(std::ostringstream& buf, CPDF_Path path) {
-  const CFX_PathData* pPathData = path.GetObject();
-  if (!pPathData)
-    return;
-
-  const std::vector<FX_PATHPOINT>& pPoints = pPathData->GetPoints();
-  if (path.IsRect()) {
-    CFX_PointF diff = pPoints[2].m_Point - pPoints[0].m_Point;
-    buf << pPoints[0].m_Point.x << " " << pPoints[0].m_Point.y << " " << diff.x
-        << " " << diff.y << " re\n";
-    return;
-  }
-
-  ByteString temp;
-  for (size_t i = 0; i < pPoints.size(); i++) {
-    buf << pPoints[i].m_Point.x << " " << pPoints[i].m_Point.y;
-    FXPT_TYPE point_type = pPoints[i].m_Type;
-    if (point_type == FXPT_TYPE::MoveTo) {
-      buf << " m\n";
-    } else if (point_type == FXPT_TYPE::BezierTo) {
-      buf << " " << pPoints[i + 1].m_Point.x << " " << pPoints[i + 1].m_Point.y
-          << " " << pPoints[i + 2].m_Point.x << " " << pPoints[i + 2].m_Point.y;
-      buf << " c";
-      if (pPoints[i + 2].m_CloseFigure)
-        buf << " h";
-      buf << "\n";
-
-      i += 2;
-    } else if (point_type == FXPT_TYPE::LineTo) {
-      buf << " l";
-      if (pPoints[i].m_CloseFigure)
-        buf << " h";
-      buf << "\n";
-    }
-  }
 }
 
 FPDF_EXPORT void FPDF_CALLCONV FPDFPage_InsertClipPath(FPDF_PAGE page,
@@ -366,8 +417,8 @@ FPDF_EXPORT void FPDF_CALLCONV FPDFPage_InsertClipPath(FPDF_PAGE page,
     pArray->InsertNewAt<CPDF_Reference>(0, pDoc, pStream->GetObjNum());
   } else if (pContentObj->IsStream() && !pContentObj->IsInline()) {
     CPDF_Array* pContentArray = pDoc->NewIndirect<CPDF_Array>();
-    pContentArray->AddNew<CPDF_Reference>(pDoc, pStream->GetObjNum());
-    pContentArray->AddNew<CPDF_Reference>(pDoc, pContentObj->GetObjNum());
+    pContentArray->AppendNew<CPDF_Reference>(pDoc, pStream->GetObjNum());
+    pContentArray->AppendNew<CPDF_Reference>(pDoc, pContentObj->GetObjNum());
     pPageDict->SetNewFor<CPDF_Reference>(pdfium::page_object::kContents, pDoc,
                                          pContentArray->GetObjNum());
   }

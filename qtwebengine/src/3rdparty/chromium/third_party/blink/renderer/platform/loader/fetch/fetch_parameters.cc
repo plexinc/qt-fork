@@ -33,21 +33,23 @@
 
 namespace blink {
 
-FetchParameters::FetchParameters(const ResourceRequest& resource_request)
-    : resource_request_(resource_request),
+FetchParameters::FetchParameters(ResourceRequest resource_request)
+    : resource_request_(std::move(resource_request)),
       decoder_options_(TextResourceDecoderOptions::kPlainTextContent),
       speculative_preload_type_(SpeculativePreloadType::kNotSpeculative),
       defer_(kNoDefer),
       image_request_optimization_(kNone) {}
 
-FetchParameters::FetchParameters(const ResourceRequest& resource_request,
+FetchParameters::FetchParameters(ResourceRequest resource_request,
                                  const ResourceLoaderOptions& options)
-    : resource_request_(resource_request),
+    : resource_request_(std::move(resource_request)),
       decoder_options_(TextResourceDecoderOptions::kPlainTextContent),
       options_(options),
       speculative_preload_type_(SpeculativePreloadType::kNotSpeculative),
       defer_(kNoDefer),
       image_request_optimization_(kNone) {}
+
+FetchParameters::FetchParameters(FetchParameters&&) = default;
 
 FetchParameters::~FetchParameters() = default;
 
@@ -94,8 +96,7 @@ void FetchParameters::SetResourceWidth(ResourceWidth resource_width) {
 }
 
 void FetchParameters::SetSpeculativePreloadType(
-    SpeculativePreloadType speculative_preload_type,
-    double discovery_time) {
+    SpeculativePreloadType speculative_preload_type) {
   speculative_preload_type_ = speculative_preload_type;
 }
 
@@ -108,12 +109,6 @@ void FetchParameters::MakeSynchronous() {
   if (IsMainThread())
     resource_request_.SetSkipServiceWorker(true);
   options_.synchronous_policy = kRequestSynchronously;
-}
-
-void FetchParameters::SetClientLoFiPlaceholder() {
-  resource_request_.SetPreviewsState(resource_request_.GetPreviewsState() |
-                                     WebURLRequest::kClientLoFiOn);
-  SetAllowImagePlaceholder();
 }
 
 void FetchParameters::SetLazyImagePlaceholder() {
@@ -142,10 +137,8 @@ void FetchParameters::SetAllowImagePlaceholder() {
     // Make sure that the request isn't marked as using an image preview type,
     // since without loading an image placeholder, Client Lo-Fi isn't really
     // in use.
-    resource_request_.SetPreviewsState(
-        resource_request_.GetPreviewsState() &
-        ~(WebURLRequest::kClientLoFiOn |
-          WebURLRequest::kLazyImageLoadDeferred));
+    resource_request_.SetPreviewsState(resource_request_.GetPreviewsState() &
+                                       ~WebURLRequest::kLazyImageLoadDeferred);
     return;
   }
 

@@ -33,10 +33,9 @@ namespace blink {
 
 class PluginInfo;
 
-class CORE_EXPORT MimeClassInfo final
-    : public GarbageCollectedFinalized<MimeClassInfo> {
+class CORE_EXPORT MimeClassInfo final : public GarbageCollected<MimeClassInfo> {
  public:
-  void Trace(blink::Visitor*);
+  void Trace(Visitor*);
 
   MimeClassInfo(const String& type, const String& desc, PluginInfo&);
 
@@ -54,10 +53,9 @@ class CORE_EXPORT MimeClassInfo final
   Member<PluginInfo> plugin_;
 };
 
-class CORE_EXPORT PluginInfo final
-    : public GarbageCollectedFinalized<PluginInfo> {
+class CORE_EXPORT PluginInfo final : public GarbageCollected<PluginInfo> {
  public:
-  void Trace(blink::Visitor*);
+  void Trace(Visitor*);
 
   PluginInfo(const String& name,
              const String& filename,
@@ -90,10 +88,9 @@ class CORE_EXPORT PluginInfo final
   HeapVector<Member<MimeClassInfo>> mimes_;
 };
 
-class CORE_EXPORT PluginData final
-    : public GarbageCollectedFinalized<PluginData> {
+class CORE_EXPORT PluginData final : public GarbageCollected<PluginData> {
  public:
-  void Trace(blink::Visitor*);
+  void Trace(Visitor*);
 
   PluginData() = default;
 

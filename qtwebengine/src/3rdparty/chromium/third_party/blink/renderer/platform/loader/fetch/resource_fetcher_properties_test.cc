@@ -4,7 +4,10 @@
 
 #include "third_party/blink/renderer/platform/loader/fetch/resource_fetcher_properties.h"
 
+#include "services/network/public/mojom/ip_address_space.mojom-blink.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/mojom/security_context/insecure_request_policy.mojom-blink.h"
+#include "third_party/blink/public/mojom/service_worker/controller_service_worker_mode.mojom-blink.h"
 #include "third_party/blink/renderer/platform/loader/fetch/fetch_client_settings_object.h"
 #include "third_party/blink/renderer/platform/loader/fetch/fetch_client_settings_object_snapshot.h"
 #include "third_party/blink/renderer/platform/loader/testing/test_resource_fetcher_properties.h"
@@ -16,7 +19,7 @@ namespace {
 class DetachableResourceFetcherPropertiesTest : public testing::Test {
  public:
   const FetchClientSettingsObjectSnapshot& CreateFetchClientSettingsObject(
-      mojom::IPAddressSpace address_space) {
+      network::mojom::IPAddressSpace address_space) {
     return *MakeGarbageCollected<FetchClientSettingsObjectSnapshot>(
         KURL("https://example.com/foo.html"),
         KURL("https://example.com/foo.html"),
@@ -24,15 +27,14 @@ class DetachableResourceFetcherPropertiesTest : public testing::Test {
         network::mojom::ReferrerPolicy::kDefault,
         "https://example.com/foo.html", HttpsState::kModern,
         AllowedByNosniff::MimeTypeCheck::kStrict, address_space,
-        kLeaveInsecureRequestsAlone,
-        FetchClientSettingsObject::InsecureNavigationsSet(),
-        false /* mixed_autoupgrade_opt_out */);
+        mojom::blink::InsecureRequestPolicy::kLeaveInsecureRequestsAlone,
+        FetchClientSettingsObject::InsecureNavigationsSet());
   }
 };
 
 TEST_F(DetachableResourceFetcherPropertiesTest, DetachWithDefaultValues) {
   const auto& original_client_settings_object =
-      CreateFetchClientSettingsObject(mojom::IPAddressSpace::kPublic);
+      CreateFetchClientSettingsObject(network::mojom::IPAddressSpace::kPublic);
   auto& properties = *MakeGarbageCollected<DetachableResourceFetcherProperties>(
       *MakeGarbageCollected<TestResourceFetcherProperties>(
           original_client_settings_object));
@@ -71,7 +73,7 @@ TEST_F(DetachableResourceFetcherPropertiesTest, DetachWithDefaultValues) {
 
 TEST_F(DetachableResourceFetcherPropertiesTest, DetachWithNonDefaultValues) {
   const auto& original_client_settings_object =
-      CreateFetchClientSettingsObject(mojom::IPAddressSpace::kPublic);
+      CreateFetchClientSettingsObject(network::mojom::IPAddressSpace::kPublic);
   auto& original_properties =
       *MakeGarbageCollected<TestResourceFetcherProperties>(
           original_client_settings_object);

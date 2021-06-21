@@ -119,20 +119,25 @@ bool WebContentsDelegate::OnGoToEntryOffset(int offset) {
   return true;
 }
 
-bool WebContentsDelegate::ShouldCreateWebContents(
-    WebContents* web_contents,
+bool WebContentsDelegate::IsWebContentsCreationOverridden(
+    SiteInstance* source_site_instance,
+    content::mojom::WindowContainerType window_container_type,
+    const GURL& opener_url,
+    const std::string& frame_name,
+    const GURL& target_url) {
+  return false;
+}
+
+WebContents* WebContentsDelegate::CreateCustomWebContents(
     RenderFrameHost* opener,
     SiteInstance* source_site_instance,
-    int32_t route_id,
-    int32_t main_frame_route_id,
-    int32_t main_frame_widget_route_id,
-    content::mojom::WindowContainerType window_container_type,
+    bool is_new_browsing_instance,
     const GURL& opener_url,
     const std::string& frame_name,
     const GURL& target_url,
     const std::string& partition_id,
     SessionStorageNamespace* session_storage_namespace) {
-  return true;
+  return nullptr;
 }
 
 JavaScriptDialogManager* WebContentsDelegate::GetJavaScriptDialogManager(
@@ -146,9 +151,12 @@ std::unique_ptr<BluetoothChooser> WebContentsDelegate::RunBluetoothChooser(
   return nullptr;
 }
 
-std::unique_ptr<SmsDialog> WebContentsDelegate::CreateSmsDialog() {
-  return nullptr;
-}
+void WebContentsDelegate::CreateSmsPrompt(
+    RenderFrameHost* host,
+    const url::Origin& origin,
+    const std::string& one_time_code,
+    base::OnceCallback<void()> on_confirm,
+    base::OnceCallback<void()> on_cancel) {}
 
 std::unique_ptr<BluetoothScanningPrompt>
 WebContentsDelegate::ShowBluetoothScanningPrompt(
@@ -166,9 +174,9 @@ bool WebContentsDelegate::IsFullscreenForTabOrPending(
   return false;
 }
 
-blink::WebDisplayMode WebContentsDelegate::GetDisplayMode(
+blink::mojom::DisplayMode WebContentsDelegate::GetDisplayMode(
     const WebContents* web_contents) {
-  return blink::kWebDisplayModeBrowser;
+  return blink::mojom::DisplayMode::kBrowser;
 }
 
 ColorChooser* WebContentsDelegate::OpenColorChooser(
@@ -255,7 +263,7 @@ gfx::Size WebContentsDelegate::GetSizeForNewRenderView(
   return gfx::Size();
 }
 
-bool WebContentsDelegate::IsNeverVisible(WebContents* web_contents) {
+bool WebContentsDelegate::IsNeverComposited(WebContents* web_contents) {
   return false;
 }
 
@@ -267,10 +275,10 @@ bool WebContentsDelegate::SaveFrame(const GURL& url, const Referrer& referrer) {
   return false;
 }
 
-blink::WebSecurityStyle WebContentsDelegate::GetSecurityStyle(
+blink::SecurityStyle WebContentsDelegate::GetSecurityStyle(
     WebContents* web_contents,
     SecurityStyleExplanations* security_style_explanations) {
-  return blink::kWebSecurityStyleUnknown;
+  return blink::SecurityStyle::kUnknown;
 }
 
 bool WebContentsDelegate::ShouldAllowRunningInsecureContent(
@@ -285,8 +293,20 @@ int WebContentsDelegate::GetTopControlsHeight() {
   return 0;
 }
 
+int WebContentsDelegate::GetTopControlsMinHeight() {
+  return 0;
+}
+
 int WebContentsDelegate::GetBottomControlsHeight() {
   return 0;
+}
+
+int WebContentsDelegate::GetBottomControlsMinHeight() {
+  return 0;
+}
+
+bool WebContentsDelegate::ShouldAnimateBrowserControlsHeightChanges() {
+  return false;
 }
 
 bool WebContentsDelegate::DoBrowserControlsShrinkRendererSize(
@@ -305,16 +325,35 @@ bool WebContentsDelegate::ShouldAllowLazyLoad() {
   return true;
 }
 
-std::unique_ptr<WebContents> WebContentsDelegate::SwapWebContents(
-    WebContents* old_contents,
-    std::unique_ptr<WebContents> new_contents,
-    bool did_start_load,
-    bool did_finish_load) {
-  return new_contents;
+std::unique_ptr<WebContents> WebContentsDelegate::ActivatePortalWebContents(
+    WebContents* predecessor_contents,
+    std::unique_ptr<WebContents> portal_contents) {
+  return portal_contents;
 }
 
 bool WebContentsDelegate::ShouldShowStaleContentOnEviction(
     WebContents* source) {
   return false;
 }
+
+bool WebContentsDelegate::IsFrameLowPriority(
+    const WebContents* web_contents,
+    const RenderFrameHost* render_frame_host) {
+  return false;
+}
+
+WebContents* WebContentsDelegate::GetResponsibleWebContents(
+    WebContents* web_contents) {
+  return web_contents;
+}
+
+base::WeakPtr<WebContentsDelegate> WebContentsDelegate::GetDelegateWeakPtr() {
+  return nullptr;
+}
+
+bool WebContentsDelegate::ShouldNavigateOnBackForwardMouseButtons()
+{
+  return true;
+}
+
 }  // namespace content

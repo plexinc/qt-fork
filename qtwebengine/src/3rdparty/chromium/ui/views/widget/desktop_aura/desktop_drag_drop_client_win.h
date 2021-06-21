@@ -7,6 +7,8 @@
 
 #include <wrl/client.h>
 
+#include <memory>
+
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
@@ -56,7 +58,7 @@ class VIEWS_EXPORT DesktopDragDropClientWin
 
   scoped_refptr<DesktopDropTargetWin> drop_target_;
 
-  base::WeakPtrFactory<DesktopDragDropClientWin> weak_factory_;
+  base::WeakPtrFactory<DesktopDragDropClientWin> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(DesktopDragDropClientWin);
 };

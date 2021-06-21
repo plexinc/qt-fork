@@ -90,16 +90,12 @@ class CORE_EXPORT LayoutReplaced : public LayoutBox {
 
   void Paint(const PaintInfo&) const override;
 
-  // Replaced objects often have contents to paint.
-  bool PaintedOutputOfObjectHasNoEffectRegardlessOfSize() const override {
-    return false;
-  }
-
   // This function is public only so we can call it when computing
   // intrinsic size in LayoutNG.
   virtual void ComputeIntrinsicSizingInfo(IntrinsicSizingInfo&) const;
 
-  // This callback is invoked whenever the intrinsic size changed.
+  // This callback must be invoked whenever the underlying intrinsic size has
+  // changed.
   //
   // The intrinsic size can change due to the network (from the default
   // intrinsic size [see above] to the actual intrinsic size) or to some
@@ -111,15 +107,31 @@ class CORE_EXPORT LayoutReplaced : public LayoutBox {
 
   void UpdateLayout() override;
 
-  LayoutSize IntrinsicSize() const final { return intrinsic_size_; }
+  LayoutSize IntrinsicSize() const final {
+    return LayoutSize(IntrinsicWidth(), IntrinsicHeight());
+  }
+
+  LayoutUnit IntrinsicWidth() const {
+    if (HasOverrideIntrinsicContentWidth())
+      return OverrideIntrinsicContentWidth();
+    else if (ShouldApplySizeContainment())
+      return LayoutUnit();
+    return intrinsic_size_.Width();
+  }
+  LayoutUnit IntrinsicHeight() const {
+    if (HasOverrideIntrinsicContentHeight())
+      return OverrideIntrinsicContentHeight();
+    else if (ShouldApplySizeContainment())
+      return LayoutUnit();
+    return intrinsic_size_.Height();
+  }
 
   void ComputePositionedLogicalWidth(
       LogicalExtentComputedValues&) const override;
   void ComputePositionedLogicalHeight(
       LogicalExtentComputedValues&) const override;
 
-  void ComputeIntrinsicLogicalWidths(LayoutUnit& min_logical_width,
-                                     LayoutUnit& max_logical_width) const final;
+  MinMaxSizes ComputeIntrinsicLogicalWidths() const final;
 
   // This function calculates the placement of the replaced contents. It takes
   // intrinsic size of the replaced contents, stretch to fit CSS content box
@@ -146,7 +158,7 @@ class CORE_EXPORT LayoutReplaced : public LayoutBox {
   }
 
  private:
-  void ComputePreferredLogicalWidths() final;
+  MinMaxSizes PreferredLogicalWidths() const final;
 
   void ComputeIntrinsicSizingInfoForReplacedContent(IntrinsicSizingInfo&) const;
   FloatSize ConstrainIntrinsicSizeToMinMax(const IntrinsicSizingInfo&) const;

@@ -11,7 +11,7 @@
 #include "net/third_party/quiche/src/quic/core/crypto/quic_crypter.h"
 #include "net/third_party/quiche/src/quic/core/quic_packets.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_string_piece.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 
@@ -19,7 +19,8 @@ class QUIC_EXPORT_PRIVATE QuicEncrypter : public QuicCrypter {
  public:
   virtual ~QuicEncrypter() {}
 
-  static std::unique_ptr<QuicEncrypter> Create(QuicTag algorithm);
+  static std::unique_ptr<QuicEncrypter> Create(const ParsedQuicVersion& version,
+                                               QuicTag algorithm);
 
   // Creates an IETF QuicEncrypter based on |cipher_suite| which must be an id
   // returned by SSL_CIPHER_get_id. The caller is responsible for taking
@@ -35,8 +36,8 @@ class QUIC_EXPORT_PRIVATE QuicEncrypter : public QuicCrypter {
   // |associated_data|. If |output| overlaps with |plaintext| then
   // |plaintext| must be <= |output|.
   virtual bool EncryptPacket(uint64_t packet_number,
-                             QuicStringPiece associated_data,
-                             QuicStringPiece plaintext,
+                             quiche::QuicheStringPiece associated_data,
+                             quiche::QuicheStringPiece plaintext,
                              char* output,
                              size_t* output_length,
                              size_t max_output_length) = 0;
@@ -45,15 +46,8 @@ class QUIC_EXPORT_PRIVATE QuicEncrypter : public QuicCrypter {
   // generate a mask to use for header protection, and returns that mask. On
   // success, the mask will be at least 5 bytes long; on failure the string will
   // be empty.
-  virtual std::string GenerateHeaderProtectionMask(QuicStringPiece sample) = 0;
-
-  // GetKeySize() and GetNoncePrefixSize() tell the HKDF class how many bytes
-  // of key material needs to be derived from the master secret.
-  // NOTE: the sizes returned by GetKeySize() and GetNoncePrefixSize() are
-  // also correct for the QuicDecrypter of the same algorithm.
-
-  // Returns the size in bytes of the fixed initial part of the nonce.
-  virtual size_t GetNoncePrefixSize() const = 0;
+  virtual std::string GenerateHeaderProtectionMask(
+      quiche::QuicheStringPiece sample) = 0;
 
   // Returns the maximum length of plaintext that can be encrypted
   // to ciphertext no larger than |ciphertext_size|.
@@ -64,8 +58,8 @@ class QUIC_EXPORT_PRIVATE QuicEncrypter : public QuicCrypter {
   virtual size_t GetCiphertextSize(size_t plaintext_size) const = 0;
 
   // For use by unit tests only.
-  virtual QuicStringPiece GetKey() const = 0;
-  virtual QuicStringPiece GetNoncePrefix() const = 0;
+  virtual quiche::QuicheStringPiece GetKey() const = 0;
+  virtual quiche::QuicheStringPiece GetNoncePrefix() const = 0;
 };
 
 }  // namespace quic

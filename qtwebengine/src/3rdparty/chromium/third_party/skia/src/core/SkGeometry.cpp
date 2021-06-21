@@ -769,12 +769,12 @@ static int solve_cubic_poly(const SkScalar coeff[4], SkScalar tValues[3]) {
 
     if (R2MinusQ3 < 0) { // we have 3 real roots
         // the divide/root can, due to finite precisions, be slightly outside of -1...1
-        SkScalar theta = SkScalarACos(SkScalarPin(R / SkScalarSqrt(Q3), -1, 1));
+        SkScalar theta = SkScalarACos(SkTPin(R / SkScalarSqrt(Q3), -1.0f, 1.0f));
         SkScalar neg2RootQ = -2 * SkScalarSqrt(Q);
 
-        tValues[0] = SkScalarPin(neg2RootQ * SkScalarCos(theta/3) - adiv3, 0, 1);
-        tValues[1] = SkScalarPin(neg2RootQ * SkScalarCos((theta + 2*SK_ScalarPI)/3) - adiv3, 0, 1);
-        tValues[2] = SkScalarPin(neg2RootQ * SkScalarCos((theta - 2*SK_ScalarPI)/3) - adiv3, 0, 1);
+        tValues[0] = SkTPin(neg2RootQ * SkScalarCos(theta/3) - adiv3, 0.0f, 1.0f);
+        tValues[1] = SkTPin(neg2RootQ * SkScalarCos((theta + 2*SK_ScalarPI)/3) - adiv3, 0.0f, 1.0f);
+        tValues[2] = SkTPin(neg2RootQ * SkScalarCos((theta - 2*SK_ScalarPI)/3) - adiv3, 0.0f, 1.0f);
         SkDEBUGCODE(test_collaps_duplicates();)
 
         // now sort the roots
@@ -789,7 +789,7 @@ static int solve_cubic_poly(const SkScalar coeff[4], SkScalar tValues[3]) {
         if (A != 0) {
             A += Q / A;
         }
-        tValues[0] = SkScalarPin(A - adiv3, 0, 1);
+        tValues[0] = SkTPin(A - adiv3, 0.0f, 1.0f);
         return 1;
     }
 }
@@ -1366,11 +1366,11 @@ void SkConic::computeTightBounds(SkRect* bounds) const {
     if (this->findYExtrema(&t)) {
         this->evalAt(t, &pts[count++]);
     }
-    bounds->set(pts, count);
+    bounds->setBounds(pts, count);
 }
 
 void SkConic::computeFastBounds(SkRect* bounds) const {
-    bounds->set(fPts, 3);
+    bounds->setBounds(fPts, 3);
 }
 
 #if 0  // unimplemented

@@ -4,6 +4,8 @@
 
 #include "extensions/browser/value_store/leveldb_scoped_database.h"
 
+#include <utility>
+
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "third_party/leveldatabase/src/include/leveldb/write_batch.h"
@@ -49,7 +51,7 @@ LeveldbScopedDatabase::~LeveldbScopedDatabase() {}
 ValueStore::Status LeveldbScopedDatabase::Read(
     const std::string& scope,
     const std::string& key,
-    std::unique_ptr<base::Value>* value) {
+    base::Optional<base::Value>* value) {
   ValueStore::Status status = EnsureDbIsOpen();
   if (!status.ok())
     return status;

@@ -18,9 +18,11 @@
 #include "chrome/browser/devtools/device/adb/adb_client_socket.h"
 #include "chrome/browser/net/system_network_context_manager.h"
 #include "content/public/browser/browser_task_traits.h"
-#include "mojo/public/cpp/bindings/binding.h"
+#include "mojo/public/cpp/bindings/receiver.h"
 #include "net/base/completion_repeating_callback.h"
 #include "net/base/net_errors.h"
+#include "net/base/network_isolation_key.h"
+#include "net/dns/public/resolve_error_info.h"
 #include "net/log/net_log_source.h"
 #include "net/log/net_log_with_source.h"
 #include "net/socket/tcp_client_socket.h"
@@ -42,25 +44,38 @@ static void RunSocketCallback(
 class ResolveHostAndOpenSocket final : public network::ResolveHostClientBase {
  public:
   ResolveHostAndOpenSocket(const net::HostPortPair& address,
-                           const AdbClientSocket::SocketCallback& callback,
-                           network::mojom::HostResolverPtr* host_resolver)
-      : callback_(callback), binding_(this) {
-    network::mojom::ResolveHostClientPtr client_ptr;
-    binding_.Bind(mojo::MakeRequest(&client_ptr));
-    binding_.set_connection_error_handler(
+                           const AdbClientSocket::SocketCallback& callback)
+      : callback_(callback) {
+    mojo::Remote<network::mojom::HostResolver> resolver;
+    base::PostTask(FROM_HERE, {content::BrowserThread::UI},
+                   base::BindOnce(
+                       [](mojo::PendingReceiver<network::mojom::HostResolver>
+                              pending_receiver) {
+                         g_browser_process->system_network_context_manager()
+                             ->GetContext()
+                             ->CreateHostResolver(base::nullopt,
+                                                  std::move(pending_receiver));
+                       },
+                       resolver.BindNewPipeAndPassReceiver()));
+    // Fine to use a transient NetworkIsolationKey here - this is for debugging,
+    // so performance doesn't matter, and it doesn't need to share a DNS cache
+    // with anything else.
+    resolver->ResolveHost(address, net::NetworkIsolationKey::CreateTransient(),
+                          nullptr, receiver_.BindNewPipeAndPassRemote());
+    receiver_.set_disconnect_handler(
         base::BindOnce(&ResolveHostAndOpenSocket::OnComplete,
-                       base::Unretained(this), net::ERR_FAILED, base::nullopt));
-
-    (*host_resolver)->ResolveHost(address, nullptr, std::move(client_ptr));
+                       base::Unretained(this), net::ERR_NAME_NOT_RESOLVED,
+                       net::ResolveErrorInfo(net::ERR_FAILED), base::nullopt));
   }
 
  private:
   // network::mojom::ResolveHostClient implementation:
   void OnComplete(
       int result,
+      const net::ResolveErrorInfo& resolve_error_info,
       const base::Optional<net::AddressList>& resolved_addresses) override {
     if (result != net::OK) {
-      RunSocketCallback(callback_, nullptr, result);
+      RunSocketCallback(callback_, nullptr, resolve_error_info.error);
       delete this;
       return;
     }
@@ -77,7 +92,7 @@ class ResolveHostAndOpenSocket final : public network::ResolveHostClientBase {
   }
 
   AdbClientSocket::SocketCallback callback_;
-  mojo::Binding<network::mojom::ResolveHostClient> binding_;
+  mojo::Receiver<network::mojom::ResolveHostClient> receiver_{this};
 };
 
 }  // namespace
@@ -132,15 +147,7 @@ void TCPDeviceProvider::OpenSocket(const std::string& serial,
   // (debugging purposes).
   int port;
   base::StringToInt(socket_name, &port);
-  net::HostPortPair host_port(serial, port);
-
-  // OpenSocket() is run on the devtools ADB thread, while TCPDeviceProvider is
-  // created on the UI thread, so do any initialization of |host_resolver_|
-  // here.
-  if (!host_resolver_) {
-    InitializeHostResolver();
-  }
-  new ResolveHostAndOpenSocket(host_port, callback, &host_resolver_);
+  new ResolveHostAndOpenSocket(net::HostPortPair(serial, port), callback);
 }
 
 void TCPDeviceProvider::ReleaseDevice(const std::string& serial) {
@@ -154,20 +161,4 @@ void TCPDeviceProvider::set_release_callback_for_test(
 }
 
 TCPDeviceProvider::~TCPDeviceProvider() {
-}
-
-void TCPDeviceProvider::InitializeHostResolver() {
-  base::PostTaskWithTraits(
-      FROM_HERE, {content::BrowserThread::UI},
-      base::BindOnce(&TCPDeviceProvider::InitializeHostResolverOnUI, this,
-                     mojo::MakeRequest(&host_resolver_)));
-  host_resolver_.set_connection_error_handler(base::BindOnce(
-      &TCPDeviceProvider::InitializeHostResolver, base::Unretained(this)));
-}
-
-void TCPDeviceProvider::InitializeHostResolverOnUI(
-    network::mojom::HostResolverRequest request) {
-  g_browser_process->system_network_context_manager()
-      ->GetContext()
-      ->CreateHostResolver(base::nullopt, std::move(request));
 }

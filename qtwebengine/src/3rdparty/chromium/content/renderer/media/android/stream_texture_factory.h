@@ -20,9 +20,11 @@
 #include "ui/gfx/geometry/size.h"
 
 namespace gpu {
+class ClientSharedImageInterface;
 class GpuChannelHost;
 class SharedImageInterface;
 struct SyncToken;
+struct VulkanYCbCrInfo;
 }  // namespace gpu
 
 namespace content {
@@ -33,6 +35,9 @@ class StreamTextureFactory;
 // when a new video frame is available.
 class CONTENT_EXPORT StreamTextureProxy : public StreamTextureHost::Listener {
  public:
+  using SetYcbcrInfoCb =
+      base::OnceCallback<void(base::Optional<gpu::VulkanYCbCrInfo>)>;
+
   ~StreamTextureProxy() override;
 
   // Initialize and bind to |task_runner|, which becomes the thread that the
@@ -40,10 +45,13 @@ class CONTENT_EXPORT StreamTextureProxy : public StreamTextureHost::Listener {
   // must be called with the same |task_runner| every time.
   void BindToTaskRunner(
       const base::RepeatingClosure& received_frame_cb,
+      SetYcbcrInfoCb set_ycbcr_info_cb,
       scoped_refptr<base::SingleThreadTaskRunner> task_runner);
 
   // StreamTextureHost::Listener implementation:
   void OnFrameAvailable() override;
+  void OnFrameWithYcbcrInfoAvailable(
+      base::Optional<gpu::VulkanYCbCrInfo> ycbcr_info) override;
 
   // Sends an IPC to the GPU process.
   // Asks the StreamTexture to forward its SurfaceTexture to the
@@ -74,11 +82,15 @@ class CONTENT_EXPORT StreamTextureProxy : public StreamTextureHost::Listener {
   void BindOnThread();
   void Release();
 
+  // Clears |set_ycbcr_info_cb_| in a thread safe way.
+  void ClearSetYcbcrInfoCB();
+
   const std::unique_ptr<StreamTextureHost> host_;
 
   // Protects access to |received_frame_cb_| and |task_runner_|.
   base::Lock lock_;
   base::RepeatingClosure received_frame_cb_;
+  SetYcbcrInfoCb set_ycbcr_info_cb_;
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
 
   DISALLOW_IMPLICIT_CONSTRUCTORS(StreamTextureProxy);
@@ -113,6 +125,7 @@ class CONTENT_EXPORT StreamTextureFactory
   unsigned CreateStreamTexture();
 
   scoped_refptr<gpu::GpuChannelHost> channel_;
+  std::unique_ptr<gpu::ClientSharedImageInterface> shared_image_interface_;
 
   DISALLOW_IMPLICIT_CONSTRUCTORS(StreamTextureFactory);
 };

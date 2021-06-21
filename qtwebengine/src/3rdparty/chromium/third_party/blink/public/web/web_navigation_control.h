@@ -7,6 +7,7 @@
 
 #include <memory>
 
+#include "base/callback.h"
 #include "base/unguessable_token.h"
 #include "third_party/blink/public/web/web_document_loader.h"
 #include "third_party/blink/public/web/web_frame_load_type.h"
@@ -35,7 +36,9 @@ class WebNavigationControl : public WebLocalFrame {
   virtual bool DispatchBeforeUnloadEvent(bool is_reload) = 0;
 
   // Commits a cross-document navigation in the frame. See WebNavigationParams
-  // for details.
+  // for details. Calls WebLocalFrameClient::DidCommitNavigation synchronously
+  // after new document commit, but before loading any content, unless commit
+  // fails.
   // TODO(dgozman): return mojom::CommitResult.
   virtual void CommitNavigation(
       std::unique_ptr<WebNavigationParams> navigation_params,
@@ -67,11 +70,6 @@ class WebNavigationControl : public WebLocalFrame {
   // On load failure, attempts to make frame's parent render fallback content.
   virtual FallbackContentResult MaybeRenderFallbackContent(
       const WebURLError&) const = 0;
-
-  // When load failure is in a cross-process frame this notifies the frame here
-  // that its owner should render fallback content if any. Only called on owners
-  // that render their own content (i.e., <object>).
-  virtual void RenderFallbackContent() const = 0;
 
   // Override the normal rules for whether a load has successfully committed
   // in this frame. Used to propagate state when this frame has navigated

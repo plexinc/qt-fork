@@ -28,6 +28,7 @@
 #include "third_party/blink/renderer/platform/scheduler/main_thread/main_thread_task_queue.h"
 #include "third_party/blink/renderer/platform/scheduler/main_thread/page_visibility_state.h"
 #include "third_party/blink/renderer/platform/scheduler/public/frame_scheduler.h"
+#include "third_party/blink/renderer/platform/scheduler/public/web_scheduling_priority.h"
 #include "third_party/blink/renderer/platform/scheduler/worker/worker_scheduler_proxy.h"
 #include "third_party/blink/renderer/platform/wtf/hash_map.h"
 
@@ -48,6 +49,7 @@ class UkmRecorder;
 namespace blink {
 
 class MainThreadSchedulerTest;
+class WebSchedulingTaskQueue;
 
 namespace scheduler {
 
@@ -78,6 +80,9 @@ class PLATFORM_EXPORT FrameSchedulerImpl : public FrameScheduler,
       FrameScheduler::FrameType frame_type);
   ~FrameSchedulerImpl() override;
 
+  // FrameOrWorkerScheduler implementation:
+  void SetPreemptedForCooperativeScheduling(Preempted) override;
+
   // FrameScheduler implementation:
   void SetFrameVisible(bool frame_visible) override;
   bool IsFrameVisible() const override;
@@ -88,8 +93,8 @@ class PLATFORM_EXPORT FrameSchedulerImpl : public FrameScheduler,
   void SetPaused(bool frame_paused) override;
   void SetShouldReportPostedTasksWhenDisabled(bool should_report) override;
 
-  void SetCrossOrigin(bool cross_origin) override;
-  bool IsCrossOrigin() const override;
+  void SetCrossOriginToMainFrame(bool cross_origin) override;
+  bool IsCrossOriginToMainFrame() const override;
 
   void SetIsAdFrame() override;
   bool IsAdFrame() const override;
@@ -113,6 +118,7 @@ class PLATFORM_EXPORT FrameSchedulerImpl : public FrameScheduler,
   WebScopedVirtualTimePauser CreateWebScopedVirtualTimePauser(
       const WTF::String& name,
       WebScopedVirtualTimePauser::VirtualTaskDuration duration) override;
+  void OnFirstContentfulPaint() override;
   void OnFirstMeaningfulPaint() override;
   void AsValueInto(base::trace_event::TracedValue* state) const;
   bool IsExemptFromBudgetBasedThrottling() const override;
@@ -154,16 +160,6 @@ class PLATFORM_EXPORT FrameSchedulerImpl : public FrameScheduler,
       MainThreadTaskQueue*,
       base::sequence_manager::TaskQueue::QueueEnabledVoter*) override;
 
-  using FrameTaskTypeToQueueTraitsArray =
-      std::array<base::Optional<MainThreadTaskQueue::QueueTraits>,
-                 static_cast<size_t>(TaskType::kCount)>;
-
-  // Initializes the mapping from TaskType to QueueTraits for frame-level tasks.
-  // We control the policy and initialize this, but the map is stored with main
-  // thread scheduling settings to avoid redundancy.
-  static void InitializeTaskTypeQueueTraitsMap(
-      FrameTaskTypeToQueueTraitsArray&);
-
   // Returns the list of active features which currently tracked by the
   // scheduler for back-forward cache metrics.
   WTF::HashSet<SchedulingPolicy::Feature>
@@ -177,6 +173,12 @@ class PLATFORM_EXPORT FrameSchedulerImpl : public FrameScheduler,
   // No calls will be issued to the delegate if the set of features didn't
   // change since the previous call.
   void ReportFeaturesToDelegate();
+
+  std::unique_ptr<WebSchedulingTaskQueue> CreateWebSchedulingTaskQueue(
+      WebSchedulingPriority) override;
+  void OnWebSchedulingTaskQueuePriorityChanged(MainThreadTaskQueue*);
+
+  const base::UnguessableToken& GetAgentClusterId() const;
 
  protected:
   FrameSchedulerImpl(MainThreadSchedulerImpl* main_thread_scheduler,
@@ -257,8 +259,8 @@ class PLATFORM_EXPORT FrameSchedulerImpl : public FrameScheduler,
 
   // Create the QueueTraits for a specific TaskType. This returns base::nullopt
   // for loading tasks and non-frame-level tasks.
-  static base::Optional<MainThreadTaskQueue::QueueTraits>
-      CreateQueueTraitsForTaskType(TaskType);
+  static MainThreadTaskQueue::QueueTraits CreateQueueTraitsForTaskType(
+      TaskType);
 
   // Reset the state which should not persist across navigations.
   void ResetForNavigation();
@@ -280,6 +282,9 @@ class PLATFORM_EXPORT FrameSchedulerImpl : public FrameScheduler,
   static MainThreadTaskQueue::QueueTraits ForegroundOnlyTaskQueueTraits();
   static MainThreadTaskQueue::QueueTraits
   DoesNotUseVirtualTimeTaskQueueTraits();
+  static MainThreadTaskQueue::QueueTraits LoadingTaskQueueTraits();
+  static MainThreadTaskQueue::QueueTraits LoadingControlTaskQueueTraits();
+  static MainThreadTaskQueue::QueueTraits FindInPageTaskQueueTraits();
 
   const FrameScheduler::FrameType frame_type_;
 
@@ -312,6 +317,8 @@ class PLATFORM_EXPORT FrameSchedulerImpl : public FrameScheduler,
   TraceableState<bool, TracingCategoryName::kInfo> subresource_loading_paused_;
   StateTracer<TracingCategoryName::kInfo> url_tracer_;
   TraceableState<bool, TracingCategoryName::kInfo> task_queues_throttled_;
+  TraceableState<bool, TracingCategoryName::kInfo>
+      preempted_for_cooperative_scheduling_;
   // TODO(kraynov): https://crbug.com/827113
   // Trace the count of aggressive throttling opt outs.
   int aggressive_throttling_opt_out_count;
@@ -328,6 +335,9 @@ class PLATFORM_EXPORT FrameSchedulerImpl : public FrameScheduler,
   // Delegate::UpdateActiveSchedulerTrackedFeatures.
   uint64_t last_uploaded_active_features_ = 0;
   bool feature_report_scheduled_ = false;
+  base::sequence_manager::TaskQueue::QueuePriority
+      default_loading_task_priority_ =
+          base::sequence_manager::TaskQueue::QueuePriority::kNormalPriority;
 
   // These are the states of the Page.
   // They should be accessed via GetPageScheduler()->SetPageState().

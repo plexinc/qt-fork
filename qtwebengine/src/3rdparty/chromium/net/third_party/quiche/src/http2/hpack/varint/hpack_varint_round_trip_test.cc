@@ -16,9 +16,10 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "net/third_party/quiche/src/http2/hpack/tools/hpack_block_builder.h"
 #include "net/third_party/quiche/src/http2/platform/api/http2_logging.h"
-#include "net/third_party/quiche/src/http2/platform/api/http2_string_piece.h"
 #include "net/third_party/quiche/src/http2/platform/api/http2_string_utils.h"
 #include "net/third_party/quiche/src/http2/tools/random_decoder_test.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_str_cat.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 using ::testing::AssertionFailure;
 using ::testing::AssertionSuccess;
@@ -161,10 +162,10 @@ class HpackVarintRoundTripTest : public RandomDecoderTest {
     for (const uint64_t value : values) {
       Encode(value, prefix_length);  // Sets buffer_.
 
-      Http2String msg = Http2StrCat("value=", value, " (0x", Http2Hex(value),
-                                    "), prefix_length=", prefix_length,
-                                    ", expected_bytes=", expected_bytes, "\n",
-                                    Http2HexDump(buffer_));
+      std::string msg = quiche::QuicheStrCat(
+          "value=", value, " (0x", Http2Hex(value),
+          "), prefix_length=", prefix_length,
+          ", expected_bytes=", expected_bytes, "\n", Http2HexDump(buffer_));
 
       if (value == minimum) {
         HTTP2_LOG(INFO) << "Checking minimum; " << msg;
@@ -241,7 +242,7 @@ class HpackVarintRoundTripTest : public RandomDecoderTest {
   }
 
   HpackVarintDecoder decoder_;
-  Http2String buffer_;
+  std::string buffer_;
   uint8_t prefix_length_;
 };
 
@@ -283,7 +284,7 @@ TEST_F(HpackVarintRoundTripTest, Encode) {
 
     for (uint64_t value : values) {
       EncodeNoRandom(value, prefix_length);
-      Http2String dump = Http2HexDump(buffer_);
+      std::string dump = Http2HexDump(buffer_);
       HTTP2_LOG(INFO) << Http2StringPrintf("%10llu %0#18x ", value, value)
                       << Http2HexDump(buffer_).substr(7);
     }
@@ -291,7 +292,7 @@ TEST_F(HpackVarintRoundTripTest, Encode) {
 }
 
 TEST_F(HpackVarintRoundTripTest, FromSpec1337) {
-  DecodeBuffer b(Http2StringPiece("\x1f\x9a\x0a"));
+  DecodeBuffer b(quiche::QuicheStringPiece("\x1f\x9a\x0a"));
   uint32_t prefix_length = 5;
   uint8_t p = b.DecodeUInt8();
   EXPECT_EQ(1u, b.Offset());

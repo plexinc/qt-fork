@@ -23,6 +23,7 @@
 #include "gpu/command_buffer/service/feature_info.h"
 #include "gpu/command_buffer/service/memory_tracking.h"
 #include "gpu/command_buffer/service/sampler_manager.h"
+#include "gpu/command_buffer/service/shared_image_representation.h"
 #include "gpu/command_buffer/service/texture_base.h"
 #include "gpu/gpu_gles2_export.h"
 #include "ui/gfx/geometry/rect.h"
@@ -30,10 +31,6 @@
 
 namespace gl {
 class ProgressReporter;
-}
-
-namespace media {
-class SharedImageVideo;
 }
 
 namespace gpu {
@@ -44,15 +41,18 @@ class ServiceDiscardableManager;
 class SharedImageBackingGLTexture;
 class SharedImageBackingFactoryGLTexture;
 class SharedImageBackingAHB;
+class SharedImageBackingEglImage;
 class SharedImageRepresentationGLTexture;
+class SharedImageRepresentationEglImageGLTexture;
 class SharedImageRepresentationGLTextureAHB;
 class SharedImageRepresentationSkiaGLAHB;
 class SharedImageBackingIOSurface;
 class SharedImageRepresentationGLTextureIOSurface;
 class SharedImageRepresentationSkiaIOSurface;
-class SharedImageBackingDXGISwapChain;
+class SharedImageRepresentationGLOzone;
+class SharedImageVideo;
 class StreamTexture;
-class SwapChainFactoryDXGI;
+class TestSharedImageBacking;
 
 namespace gles2 {
 class GLStreamTextureImage;
@@ -434,24 +434,25 @@ class GPU_GLES2_EXPORT Texture final : public TextureBase {
   friend class MailboxManagerTest;
   friend class gpu::ExternalVkImageBacking;
   friend class gpu::ExternalVkImageGlRepresentation;
-  friend class media::SharedImageVideo;
+  friend class gpu::SharedImageVideo;
   friend class gpu::SharedImageBackingGLTexture;
   friend class gpu::SharedImageBackingFactoryGLTexture;
   friend class gpu::SharedImageBackingAHB;
+  friend class gpu::SharedImageBackingEglImage;
   friend class gpu::SharedImageRepresentationGLTextureAHB;
+  friend class gpu::SharedImageRepresentationEglImageGLTexture;
   friend class gpu::SharedImageRepresentationSkiaGLAHB;
   friend class gpu::SharedImageBackingIOSurface;
-  friend class gpu::SharedImageBackingDXGISwapChain;
-  friend class gpu::SwapChainFactoryDXGI;
   friend class gpu::SharedImageRepresentationGLTextureIOSurface;
   friend class gpu::SharedImageRepresentationSkiaIOSurface;
+  friend class gpu::SharedImageRepresentationGLOzone;
   friend class gpu::StreamTexture;
+  friend class gpu::TestSharedImageBacking;
   friend class AbstractTextureImplOnSharedContext;
   friend class TextureDefinition;
   friend class TextureManager;
   friend class TextureRef;
   friend class TextureTestHelper;
-  friend class TestSharedImageBacking;
   FRIEND_TEST_ALL_PREFIXES(TextureMemoryTrackerTest, LightweightRef);
 
   ~Texture() override;
@@ -796,6 +797,13 @@ class GPU_GLES2_EXPORT TextureRef : public base::RefCounted<TextureRef> {
   SharedImageRepresentationGLTexture* shared_image() const {
     return shared_image_.get();
   }
+  const std::unique_ptr<SharedImageRepresentationGLTexture::ScopedAccess>&
+  shared_image_scoped_access() const {
+    return shared_image_scoped_access_;
+  }
+
+  bool BeginAccessSharedImage(GLenum mode);
+  void EndAccessSharedImage();
 
   // When the TextureRef is destroyed, it will assume that the context has been
   // lost, regardless of the state of the TextureManager.
@@ -818,6 +826,8 @@ class GPU_GLES2_EXPORT TextureRef : public base::RefCounted<TextureRef> {
   bool force_context_lost_;
 
   std::unique_ptr<SharedImageRepresentationGLTexture> shared_image_;
+  std::unique_ptr<SharedImageRepresentationGLTexture::ScopedAccess>
+      shared_image_scoped_access_;
 
   DISALLOW_COPY_AND_ASSIGN(TextureRef);
 };
@@ -1155,7 +1165,7 @@ class GPU_GLES2_EXPORT TextureManager
   }
 
   struct DoTexImageArguments {
-    enum TexImageCommandType {
+    enum class CommandType {
       kTexImage2D,
       kTexImage3D,
     };
@@ -1172,7 +1182,7 @@ class GPU_GLES2_EXPORT TextureManager
     const void* pixels;
     uint32_t pixels_size;
     uint32_t padding;
-    TexImageCommandType command_type;
+    CommandType command_type;
   };
 
   bool ValidateTexImage(ContextState* state,
@@ -1191,7 +1201,7 @@ class GPU_GLES2_EXPORT TextureManager
                              const DoTexImageArguments& args);
 
   struct DoTexSubImageArguments {
-    enum TexSubImageCommandType {
+    enum class CommandType {
       kTexSubImage2D,
       kTexSubImage3D,
     };
@@ -1209,7 +1219,7 @@ class GPU_GLES2_EXPORT TextureManager
     const void* pixels;
     uint32_t pixels_size;
     uint32_t padding;
-    TexSubImageCommandType command_type;
+    CommandType command_type;
   };
 
   bool ValidateTexSubImage(ContextState* state,

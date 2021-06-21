@@ -274,6 +274,9 @@ QQuickSlider::QQuickSlider(QQuickItem *parent)
     setActiveFocusOnTab(true);
     setFocusPolicy(Qt::StrongFocus);
     setAcceptedMouseButtons(Qt::LeftButton);
+#if QT_CONFIG(quicktemplates2_multitouch)
+    setAcceptTouchEvents(true);
+#endif
 #if QT_CONFIG(cursor)
     setCursor(Qt::ArrowCursor);
 #endif
@@ -579,7 +582,7 @@ void QQuickSlider::setHandle(QQuickItem *handle)
     const qreal oldImplicitHandleHeight = implicitHandleHeight();
 
     d->removeImplicitSizeListener(d->handle);
-    delete d->handle;
+    QQuickControlPrivate::hideOldItem(d->handle);
     d->handle = handle;
 
     if (handle) {

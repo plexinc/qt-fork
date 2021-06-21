@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "third_party/blink/public/web/modules/mediastream/media_stream_constraints_util_video_device.h"
+#include "third_party/blink/renderer/modules/mediastream/media_stream_constraints_util_video_device.h"
 
 #include <algorithm>
 #include <cmath>
@@ -11,12 +11,13 @@
 #include <vector>
 
 #include "media/base/limits.h"
-#include "media/mojo/interfaces/display_media_information.mojom-blink.h"
-#include "third_party/blink/public/platform/web_media_constraints.h"
+#include "media/mojo/mojom/display_media_information.mojom-blink.h"
 #include "third_party/blink/public/platform/web_string.h"
-#include "third_party/blink/public/web/modules/mediastream/media_stream_constraints_util.h"
-#include "third_party/blink/public/web/modules/mediastream/media_stream_constraints_util_sets.h"
 #include "third_party/blink/public/web/modules/mediastream/media_stream_video_source.h"
+#include "third_party/blink/renderer/modules/mediastream/media_stream_constraints_util.h"
+#include "third_party/blink/renderer/modules/mediastream/media_stream_constraints_util_sets.h"
+#include "third_party/blink/renderer/platform/mediastream/media_constraints.h"
+#include "third_party/blink/renderer/platform/wtf/wtf_size_t.h"
 
 namespace blink {
 
@@ -185,7 +186,7 @@ class CandidateFormat {
   // false is returned, and the name of one of the constraints that
   // could not be satisfied is returned in |failed_constraint_name| if
   // |failed_constraint_name| is not null.
-  bool ApplyConstraintSet(const WebMediaTrackConstraintSet& constraint_set,
+  bool ApplyConstraintSet(const MediaTrackConstraintSetPlatform& constraint_set,
                           const char** failed_constraint_name = nullptr) {
     auto rescale_intersection =
         rescale_set_.Intersection(media_constraints::RescaleSetFromConstraint(
@@ -252,7 +253,7 @@ class CandidateFormat {
   // The track settings that correspond to this fitness are returned on the
   // |track_settings| output parameter. The fitness function is based on
   // https://w3c.github.io/mediacapture-main/#dfn-fitness-distance.
-  double Fitness(const WebMediaTrackConstraintSet& basic_constraint_set,
+  double Fitness(const MediaTrackConstraintSetPlatform& basic_constraint_set,
                  VideoTrackAdapterSettings* track_settings) const {
     DCHECK(!rescale_set_.IsEmpty());
     double track_fitness_with_rescale = HUGE_VAL;
@@ -337,7 +338,8 @@ class CandidateFormat {
   // the corresponding width, height and frameRate properties.
   // This distance is intended to be used to break ties among candidates that
   // are equally good according to the standard fitness distance.
-  double NativeFitness(const WebMediaTrackConstraintSet& constraint_set) const {
+  double NativeFitness(
+      const MediaTrackConstraintSetPlatform& constraint_set) const {
     return NumericRangeNativeFitness(constraint_set.width, MinWidth(),
                                      MaxWidth(), NativeWidth()) +
            NumericRangeNativeFitness(constraint_set.height, MinHeight(),
@@ -350,9 +352,10 @@ class CandidateFormat {
   bool SatisfiesFrameRateConstraint(const DoubleConstraint& constraint) {
     double constraint_min =
         ConstraintHasMin(constraint) ? ConstraintMin(constraint) : -1.0;
-    double constraint_max = ConstraintHasMax(constraint)
-                                ? ConstraintMax(constraint)
-                                : media::limits::kMaxFramesPerSecond;
+    double constraint_max =
+        ConstraintHasMax(constraint)
+            ? ConstraintMax(constraint)
+            : static_cast<double>(media::limits::kMaxFramesPerSecond);
     bool constraint_min_out_of_range =
         ((constraint_min > NativeFrameRate()) ||
          (constraint_min > MaxFrameRateConstraint().value_or(
@@ -394,7 +397,7 @@ bool FacingModeSatisfiesConstraint(media::VideoFacingMode value,
                                    const StringConstraint& constraint) {
   WebString string_value = ToWebString(value);
   if (string_value.IsNull())
-    return constraint.Exact().empty();
+    return constraint.Exact().IsEmpty();
 
   return constraint.Matches(string_value);
 }
@@ -405,16 +408,15 @@ bool FacingModeSatisfiesConstraint(media::VideoFacingMode value,
 // satisfied.
 bool DeviceSatisfiesConstraintSet(
     const DeviceInfo& device,
-    const WebMediaTrackConstraintSet& constraint_set,
+    const MediaTrackConstraintSetPlatform& constraint_set,
     const char** failed_constraint_name = nullptr) {
-  if (!constraint_set.device_id.Matches(
-          WebString::FromUTF8(device.device_id))) {
+  if (!constraint_set.device_id.Matches(WebString(device.device_id))) {
     UpdateFailedConstraintName(constraint_set.device_id,
                                failed_constraint_name);
     return false;
   }
 
-  if (!constraint_set.group_id.Matches(WebString::FromUTF8(device.group_id))) {
+  if (!constraint_set.group_id.Matches(WebString(device.group_id))) {
     UpdateFailedConstraintName(constraint_set.group_id, failed_constraint_name);
     return false;
   }
@@ -447,10 +449,10 @@ bool OptionalBoolSatisfiesConstraint(
 }
 
 double DeviceFitness(const DeviceInfo& device,
-                     const WebMediaTrackConstraintSet& constraint_set) {
-  return StringConstraintFitnessDistance(WebString::FromUTF8(device.device_id),
+                     const MediaTrackConstraintSetPlatform& constraint_set) {
+  return StringConstraintFitnessDistance(WebString(device.device_id),
                                          constraint_set.device_id) +
-         StringConstraintFitnessDistance(WebString::FromUTF8(device.group_id),
+         StringConstraintFitnessDistance(WebString(device.group_id),
                                          constraint_set.group_id) +
          StringConstraintFitnessDistance(ToWebString(device.facing_mode),
                                          constraint_set.facing_mode);
@@ -464,7 +466,7 @@ double DeviceFitness(const DeviceInfo& device,
 double CandidateFitness(const DeviceInfo& device,
                         const CandidateFormat& candidate_format,
                         const base::Optional<bool>& noise_reduction,
-                        const WebMediaTrackConstraintSet& constraint_set,
+                        const MediaTrackConstraintSetPlatform& constraint_set,
                         VideoTrackAdapterSettings* track_settings) {
   return DeviceFitness(device, constraint_set) +
          candidate_format.Fitness(constraint_set, track_settings) +
@@ -488,7 +490,8 @@ void AppendDistancesFromDefault(
     double default_frame_rate,
     DistanceVector* distance_vector) {
   // Favor IDs that appear first in the enumeration.
-  for (size_t i = 0; i < capabilities.device_capabilities.size(); ++i) {
+  for (WTF::wtf_size_t i = 0; i < capabilities.device_capabilities.size();
+       ++i) {
     if (device.device_id == capabilities.device_capabilities[i].device_id) {
       distance_vector->push_back(i);
       break;
@@ -518,9 +521,9 @@ void AppendDistancesFromDefault(
 VideoInputDeviceCapabilities::VideoInputDeviceCapabilities() = default;
 
 VideoInputDeviceCapabilities::VideoInputDeviceCapabilities(
-    std::string device_id,
-    std::string group_id,
-    std::vector<media::VideoCaptureFormat> formats,
+    String device_id,
+    String group_id,
+    Vector<media::VideoCaptureFormat> formats,
     media::VideoFacingMode facing_mode)
     : device_id(std::move(device_id)),
       group_id(std::move(group_id)),
@@ -563,7 +566,7 @@ VideoDeviceCaptureCapabilities& VideoDeviceCaptureCapabilities::operator=(
 
 VideoCaptureSettings SelectSettingsVideoDeviceCapture(
     const VideoDeviceCaptureCapabilities& capabilities,
-    const WebMediaConstraints& constraints,
+    const MediaConstraints& constraints,
     int default_width,
     int default_height,
     double default_frame_rate) {
@@ -655,8 +658,8 @@ VideoCaptureSettings SelectSettingsVideoDeviceCapture(
           media::VideoCaptureParams capture_params;
           capture_params.requested_format = candidate_format.format();
           result = VideoCaptureSettings(
-              device.device_id, capture_params, noise_reduction, track_settings,
-              candidate_format.constrained_frame_rate().Min(),
+              device.device_id.Utf8(), capture_params, noise_reduction,
+              track_settings, candidate_format.constrained_frame_rate().Min(),
               candidate_format.constrained_frame_rate().Max());
         }
       }

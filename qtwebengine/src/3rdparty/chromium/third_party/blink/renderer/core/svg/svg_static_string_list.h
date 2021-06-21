@@ -43,9 +43,8 @@ class SVGElement;
 // SVGStringList property implementations for SVGTests properties.
 // Inherits SVGAnimatedPropertyBase to enable XML attribute synchronization, but
 // this is never animated.
-class SVGStaticStringList final
-    : public GarbageCollectedFinalized<SVGStaticStringList>,
-      public SVGAnimatedPropertyBase {
+class SVGStaticStringList final : public GarbageCollected<SVGStaticStringList>,
+                                  public SVGAnimatedPropertyBase {
   USING_GARBAGE_COLLECTED_MIXIN(SVGStaticStringList);
 
  public:
@@ -75,7 +74,7 @@ class SVGStaticStringList final
   SVGStringListBase* Value() { return value_.Get(); }
   SVGStringListTearOff* TearOff();
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
 
  private:
   Member<SVGStringListBase> value_;

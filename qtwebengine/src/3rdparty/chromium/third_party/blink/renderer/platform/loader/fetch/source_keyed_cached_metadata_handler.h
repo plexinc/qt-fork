@@ -32,7 +32,7 @@ class PLATFORM_EXPORT SourceKeyedCachedMetadataHandler final
   SingleCachedMetadataHandler* HandlerForSource(const String& source);
 
   void ClearCachedMetadata(
-      CachedMetadataHandler::CacheType cache_type) override;
+      CachedMetadataHandler::ClearCacheType cache_type) override;
   String Encoding() const override;
   bool IsServedFromCacheStorage() const override {
     return sender_->IsServedFromCacheStorage();
@@ -45,7 +45,7 @@ class PLATFORM_EXPORT SourceKeyedCachedMetadataHandler final
     return 0;
   }
 
-  void SetSerializedCachedMetadata(const uint8_t*, size_t);
+  void SetSerializedCachedMetadata(mojo_base::BigBuffer data);
 
  private:
   // Keys are SHA-256, which are 256/8 = 32 bytes.

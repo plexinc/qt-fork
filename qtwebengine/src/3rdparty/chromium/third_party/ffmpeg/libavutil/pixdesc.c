@@ -2344,6 +2344,10 @@ static const AVPixFmtDescriptor av_pix_fmt_descriptors[AV_PIX_FMT_NB] = {
         },
         .flags = AV_PIX_FMT_FLAG_PLANAR,
     },
+    [AV_PIX_FMT_VULKAN] = {
+        .name = "vulkan",
+        .flags = AV_PIX_FMT_FLAG_HWACCEL,
+    },
 };
 #if FF_API_PLUS1_MINUS1
 FF_ENABLE_DEPRECATION_WARNINGS
@@ -2369,7 +2373,7 @@ static const char * const color_primaries_names[AVCOL_PRI_NB] = {
     [AVCOL_PRI_SMPTE428] = "smpte428",
     [AVCOL_PRI_SMPTE431] = "smpte431",
     [AVCOL_PRI_SMPTE432] = "smpte432",
-    [AVCOL_PRI_JEDEC_P22] = "jedec-p22",
+    [AVCOL_PRI_EBU3213] = "ebu3213",
 };
 
 static const char * const color_transfer_names[] = {

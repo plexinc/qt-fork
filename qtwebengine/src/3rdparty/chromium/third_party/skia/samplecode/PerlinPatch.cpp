@@ -10,7 +10,7 @@
 #include "include/effects/SkPerlinNoiseShader.h"
 #include "samplecode/Sample.h"
 #include "src/utils/SkPatchUtils.h"
-#include "tools/ModifierKey.h"
+#include "tools/skui/ModifierKey.h"
 
 static void draw_control_points(SkCanvas* canvas, const SkPoint cubics[12]) {
     //draw control points
@@ -167,11 +167,12 @@ protected:
         return SkPoint::Length(pt.fX - x, pt.fY - y) < SkIntToScalar(5);
     }
 
-    Sample::Click* onFindClickHandler(SkScalar x, SkScalar y, ModifierKey modi) override {
-        if (ModifierKey::kShift == modi) {
+    Sample::Click* onFindClickHandler(SkScalar x, SkScalar y, skui::ModifierKey modi) override {
+        modi &= ~skui::ModifierKey::kFirstPress;  // ignore this
+        if (skui::ModifierKey::kShift == modi) {
             return new PtClick(-1);
         }
-        if (ModifierKey::kControl == modi) {
+        if (skui::ModifierKey::kControl == modi) {
             return new PtClick(-2);
         }
         SkPoint clickPoint = {x, y};
@@ -196,7 +197,7 @@ protected:
         } else if (-2 == ptClick->fIndex) {
             SkScalar yDiff = click->fCurr.fY - click->fPrev.fY;
             fTexScale += yDiff / 10.0f;
-            fTexScale = SkTMax(0.1f, SkTMin(20.f, fTexScale));
+            fTexScale = std::max(0.1f, std::min(20.f, fTexScale));
         }
         return true;
     }

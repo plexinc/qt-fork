@@ -155,7 +155,10 @@ class StyleSheetHandler final : public CSSParserObserver {
   StyleSheetHandler(const String& parsed_text,
                     Document* document,
                     CSSRuleSourceDataList* result)
-      : parsed_text_(parsed_text), document_(document), result_(result) {
+      : parsed_text_(parsed_text),
+        document_(document),
+        result_(result),
+        current_rule_data_(nullptr) {
     DCHECK(result_);
   }
 
@@ -177,10 +180,10 @@ class StyleSheetHandler final : public CSSParserObserver {
   inline void SetRuleHeaderEnd(const CharacterType*, unsigned);
 
   const String& parsed_text_;
-  Member<Document> document_;
-  Member<CSSRuleSourceDataList> result_;
+  Document* document_;
+  CSSRuleSourceDataList* result_;
   CSSRuleSourceDataList current_rule_data_stack_;
-  Member<CSSRuleSourceData> current_rule_data_;
+  CSSRuleSourceData* current_rule_data_;
 };
 
 void StyleSheetHandler::StartRuleHeader(StyleRule::RuleType type,
@@ -539,7 +542,6 @@ void CollectFlatRules(RuleList rule_list, CSSRuleVector* result) {
       case CSSRule::kFontFaceRule:
       case CSSRule::kViewportRule:
       case CSSRule::kKeyframeRule:
-      case CSSRule::kFontFeatureValuesRule:
         result->push_back(rule);
         break;
       case CSSRule::kMediaRule:
@@ -730,8 +732,6 @@ InspectorStyle::InspectorStyle(CSSStyleDeclaration* style,
   DCHECK(style_);
 }
 
-InspectorStyle::~InspectorStyle() = default;
-
 std::unique_ptr<protocol::CSS::CSSStyle> InspectorStyle::BuildObjectForStyle() {
   std::unique_ptr<protocol::CSS::CSSStyle> result = StyleWithProperties();
   if (source_data_) {
@@ -898,7 +898,7 @@ String InspectorStyle::ShorthandValue(const String& shorthand_property) {
   return builder.ToString();
 }
 
-void InspectorStyle::Trace(blink::Visitor* visitor) {
+void InspectorStyle::Trace(Visitor* visitor) {
   visitor->Trace(style_);
   visitor->Trace(parent_style_sheet_);
   visitor->Trace(source_data_);
@@ -948,18 +948,6 @@ bool InspectorStyleSheetBase::LineNumberAndColumnToOffset(
   return true;
 }
 
-InspectorStyleSheet* InspectorStyleSheet::Create(
-    InspectorNetworkAgent* network_agent,
-    CSSStyleSheet* page_style_sheet,
-    const String& origin,
-    const String& document_url,
-    InspectorStyleSheetBase::Listener* listener,
-    InspectorResourceContainer* resource_container) {
-  return MakeGarbageCollected<InspectorStyleSheet>(
-      network_agent, page_style_sheet, origin, document_url, listener,
-      resource_container);
-}
-
 InspectorStyleSheet::InspectorStyleSheet(
     InspectorNetworkAgent* network_agent,
     CSSStyleSheet* page_style_sheet,
@@ -985,7 +973,7 @@ InspectorStyleSheet::InspectorStyleSheet(
 
 InspectorStyleSheet::~InspectorStyleSheet() = default;
 
-void InspectorStyleSheet::Trace(blink::Visitor* visitor) {
+void InspectorStyleSheet::Trace(Visitor* visitor) {
   visitor->Trace(resource_container_);
   visitor->Trace(network_agent_);
   visitor->Trace(page_style_sheet_);
@@ -1009,8 +997,7 @@ String InspectorStyleSheet::FinalURL() {
 bool InspectorStyleSheet::SetText(const String& text,
                                   ExceptionState& exception_state) {
   InnerSetText(text, true);
-  page_style_sheet_->SetText(text, true /* allow_import_rules */,
-                             exception_state);
+  page_style_sheet_->SetText(text, true /* allow_import_rules */, nullptr);
   OnStyleSheetTextChanged();
   return true;
 }
@@ -1045,7 +1032,8 @@ CSSStyleRule* InspectorStyleSheet::SetRuleSelector(
   }
 
   CSSStyleRule* style_rule = InspectorCSSAgent::AsCSSStyleRule(rule);
-  style_rule->setSelectorText(page_style_sheet_->OwnerDocument(), text);
+  style_rule->setSelectorText(
+      page_style_sheet_->OwnerDocument()->GetExecutionContext(), text);
 
   ReplaceText(source_data->rule_header_range, text, new_range, old_text);
   OnStyleSheetTextChanged();
@@ -1124,7 +1112,8 @@ CSSRule* InspectorStyleSheet::SetStyleText(const SourceRange& range,
     style = style_rule->style();
   else
     style = To<CSSKeyframeRule>(rule)->style();
-  style->setCSSText(page_style_sheet_->OwnerDocument(), text, exception_state);
+  style->setCSSText(page_style_sheet_->OwnerDocument()->GetExecutionContext(),
+                    text, exception_state);
 
   ReplaceText(source_data->rule_body_range, text, new_range, old_text);
   OnStyleSheetTextChanged();
@@ -1162,7 +1151,8 @@ CSSMediaRule* InspectorStyleSheet::SetMediaRuleText(
   }
 
   CSSMediaRule* media_rule = InspectorCSSAgent::AsCSSMediaRule(rule);
-  media_rule->media()->setMediaText(text);
+  media_rule->media()->setMediaText(
+      page_style_sheet_->OwnerDocument()->GetExecutionContext(), text);
 
   ReplaceText(source_data->rule_header_range, text, new_range, old_text);
   OnStyleSheetTextChanged();
@@ -1218,8 +1208,9 @@ CSSStyleRule* InspectorStyleSheet::InsertCSSOMRuleInMediaRule(
       break;
   }
 
-  media_rule->insertRule(page_style_sheet_->OwnerDocument(), rule_text, index,
-                         exception_state);
+  media_rule->insertRule(
+      page_style_sheet_->OwnerDocument()->GetExecutionContext(), rule_text,
+      index, exception_state);
   CSSRule* rule = media_rule->Item(index);
   CSSStyleRule* style_rule = InspectorCSSAgent::AsCSSStyleRule(rule);
   if (!style_rule) {
@@ -1448,6 +1439,29 @@ void InspectorStyleSheet::InnerSetText(const String& text,
   }
 }
 
+namespace {
+
+TextPosition TextPositionFromOffsetAndLineEndingsRelativeToStartPosition(
+    unsigned offset,
+    const Vector<unsigned>& line_endings,
+    const TextPosition& start_position) {
+  TextPosition position =
+      TextPosition::FromOffsetAndLineEndings(offset, line_endings);
+  unsigned column = position.column_.ZeroBasedInt();
+  // A non-zero `start_position.column_` means that the text started in the
+  // middle of a line, so the start column position must be added if `offset`
+  // translates to a `position` in the first line of the text.
+  if (position.line_.ZeroBasedInt() == 0) {
+    column += start_position.column_.ZeroBasedInt();
+  }
+  unsigned line_index =
+      start_position.line_.ZeroBasedInt() + position.line_.ZeroBasedInt();
+  return TextPosition(OrdinalNumber::FromZeroBasedInt(line_index),
+                      OrdinalNumber::FromZeroBasedInt(column));
+}
+
+}  // namespace
+
 std::unique_ptr<protocol::CSS::CSSStyleSheetHeader>
 InspectorStyleSheet::BuildObjectForStyleSheetInfo() {
   CSSStyleSheet* style_sheet = PageStyleSheet();
@@ -1456,8 +1470,16 @@ InspectorStyleSheet::BuildObjectForStyleSheetInfo() {
 
   Document* document = style_sheet->OwnerDocument();
   LocalFrame* frame = document ? document->GetFrame() : nullptr;
-  String text;
-  GetText(&text);
+  const LineEndings* line_endings = this->GetLineEndings();
+  TextPosition start = style_sheet->StartPositionInSource();
+  TextPosition end = start;
+  unsigned text_length = 0;
+  if (line_endings->size() > 0) {
+    text_length = line_endings->back();
+    end = TextPositionFromOffsetAndLineEndingsRelativeToStartPosition(
+        text_length, *line_endings, start);
+  }
+
   std::unique_ptr<protocol::CSS::CSSStyleSheetHeader> result =
       protocol::CSS::CSSStyleSheetHeader::create()
           .setStyleSheetId(Id())
@@ -1467,11 +1489,11 @@ InspectorStyleSheet::BuildObjectForStyleSheetInfo() {
           .setTitle(style_sheet->title())
           .setFrameId(frame ? IdentifiersFactory::FrameId(frame) : "")
           .setIsInline(style_sheet->IsInline() && !StartsAtZero())
-          .setStartLine(
-              style_sheet->StartPositionInSource().line_.ZeroBasedInt())
-          .setStartColumn(
-              style_sheet->StartPositionInSource().column_.ZeroBasedInt())
-          .setLength(text.length())
+          .setStartLine(start.line_.ZeroBasedInt())
+          .setStartColumn(start.column_.ZeroBasedInt())
+          .setLength(text_length)
+          .setEndLine(end.line_.ZeroBasedInt())
+          .setEndColumn(end.column_.ZeroBasedInt())
           .build();
 
   if (HasSourceURL())
@@ -1715,6 +1737,11 @@ String InspectorStyleSheet::SourceMapURL() {
   return page_style_sheet_->Contents()->SourceMapURL();
 }
 
+const Document* InspectorStyleSheet::GetDocument() {
+  return CSSStyleSheet::SingleOwnerDocument(
+      InspectorStyleSheet::PageStyleSheet());
+}
+
 CSSRuleSourceData* InspectorStyleSheet::FindRuleByHeaderRange(
     const SourceRange& source_range) {
   if (!source_data_)
@@ -1861,7 +1888,8 @@ Element* InspectorStyleSheet::OwnerStyleElement() {
   if (!owner_element)
     return nullptr;
 
-  if (!IsHTMLStyleElement(owner_element) && !IsSVGStyleElement(owner_element))
+  if (!IsA<HTMLStyleElement>(owner_element) &&
+      !IsA<SVGStyleElement>(owner_element))
     return nullptr;
   return owner_element;
 }
@@ -1889,13 +1917,6 @@ bool InspectorStyleSheet::InspectorStyleSheetText(String* result) {
   return true;
 }
 
-InspectorStyleSheetForInlineStyle* InspectorStyleSheetForInlineStyle::Create(
-    Element* element,
-    Listener* listener) {
-  return MakeGarbageCollected<InspectorStyleSheetForInlineStyle>(element,
-                                                                 listener);
-}
-
 InspectorStyleSheetForInlineStyle::InspectorStyleSheetForInlineStyle(
     Element* element,
     Listener* listener)
@@ -1919,7 +1940,7 @@ bool InspectorStyleSheetForInlineStyle::SetText(
 
   {
     InspectorCSSAgent::InlineStyleOverrideScope override_scope(
-        element_->ownerDocument());
+        &element_->ownerDocument()->GetSecurityContext());
     element_->setAttribute("style", AtomicString(text), exception_state);
   }
   if (!exception_state.HadException())
@@ -1970,10 +1991,14 @@ const String& InspectorStyleSheetForInlineStyle::ElementStyleText() {
   return element_->getAttribute("style").GetString();
 }
 
-void InspectorStyleSheetForInlineStyle::Trace(blink::Visitor* visitor) {
+void InspectorStyleSheetForInlineStyle::Trace(Visitor* visitor) {
   visitor->Trace(element_);
   visitor->Trace(inspector_style_);
   InspectorStyleSheetBase::Trace(visitor);
+}
+
+const Document* InspectorStyleSheetForInlineStyle::GetDocument() {
+  return &InspectorStyleSheetForInlineStyle::element_->GetDocument();
 }
 
 }  // namespace blink

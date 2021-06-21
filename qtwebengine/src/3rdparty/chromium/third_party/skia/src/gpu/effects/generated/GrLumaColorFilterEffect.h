@@ -11,6 +11,7 @@
 #ifndef GrLumaColorFilterEffect_DEFINED
 #define GrLumaColorFilterEffect_DEFINED
 #include "include/core/SkTypes.h"
+#include "include/core/SkM44.h"
 
 #include "src/gpu/GrCoordTransform.h"
 #include "src/gpu/GrFragmentProcessor.h"
@@ -32,7 +33,8 @@ public:
 
 private:
     GrLumaColorFilterEffect()
-            : INHERITED(kGrLumaColorFilterEffect_ClassID, kNone_OptimizationFlags) {}
+            : INHERITED(kGrLumaColorFilterEffect_ClassID,
+                        (OptimizationFlags)kConstantOutputForConstantInput_OptimizationFlag) {}
     GrGLSLFragmentProcessor* onCreateGLSLInstance() const override;
     void onGetGLSLProcessorKey(const GrShaderCaps&, GrProcessorKeyBuilder*) const override;
     bool onIsEqual(const GrFragmentProcessor&) const override;

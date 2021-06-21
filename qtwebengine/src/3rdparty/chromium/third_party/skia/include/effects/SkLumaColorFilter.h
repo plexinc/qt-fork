@@ -38,8 +38,8 @@ public:
     static sk_sp<SkColorFilter> Make();
 
 #if SK_SUPPORT_GPU
-    std::unique_ptr<GrFragmentProcessor> asFragmentProcessor(
-            GrRecordingContext*, const GrColorSpaceInfo&) const override;
+    std::unique_ptr<GrFragmentProcessor> asFragmentProcessor(GrRecordingContext*,
+                                                             const GrColorInfo&) const override;
 #endif
 
 protected:
@@ -50,6 +50,8 @@ private:
 
     SkLumaColorFilter();
     bool onAppendStages(const SkStageRec& rec, bool shaderIsOpaque) const override;
+    skvm::Color onProgram(skvm::Builder*, skvm::Color,
+                          SkColorSpace* dstCS, skvm::Uniforms*, SkArenaAlloc*) const override;
 
     typedef SkColorFilter INHERITED;
 };

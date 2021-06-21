@@ -18,15 +18,16 @@
 #include "base/scoped_observer.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
-#include "content/browser/devtools/devtools_frame_metadata.h"
+#include "cc/trees/render_frame_metadata.h"
 #include "content/browser/devtools/devtools_video_consumer.h"
 #include "content/browser/devtools/protocol/devtools_domain_handler.h"
 #include "content/browser/devtools/protocol/devtools_download_manager_delegate.h"
 #include "content/browser/devtools/protocol/page.h"
+#include "content/public/browser/download_manager.h"
 #include "content/public/browser/javascript_dialog_manager.h"
+#include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/render_widget_host_observer.h"
 #include "content/public/common/javascript_dialog_type.h"
-#include "third_party/blink/public/mojom/choosers/file_chooser.mojom.h"
 #include "third_party/blink/public/mojom/manifest/manifest_manager.mojom.h"
 #include "url/gurl.h"
 
@@ -47,7 +48,6 @@ struct WebDeviceEmulationParams;
 namespace content {
 
 class DevToolsAgentHostImpl;
-class FileSelectListener;
 class FrameTreeNode;
 class NavigationRequest;
 class RenderFrameHostImpl;
@@ -55,15 +55,16 @@ class WebContentsImpl;
 
 namespace protocol {
 
+class BrowserHandler;
 class EmulationHandler;
 
 class PageHandler : public DevToolsDomainHandler,
                     public Page::Backend,
-                    public RenderWidgetHostObserver {
+                    public RenderWidgetHostObserver,
+                    public download::DownloadItem::Observer {
  public:
-  PageHandler(EmulationHandler* handler,
-              void** active_file_chooser_interceptor,
-              bool allow_set_download_behavior,
+  PageHandler(EmulationHandler* emulation_handler,
+              BrowserHandler* browser_handler,
               bool allow_file_access);
   ~PageHandler() override;
 
@@ -76,7 +77,7 @@ class PageHandler : public DevToolsDomainHandler,
                    RenderFrameHostImpl* frame_host) override;
   // Instrumentation signals.
   void OnSynchronousSwapCompositorFrame(
-      const DevToolsFrameMetadata& frame_metadata);
+      const cc::RenderFrameMetadata& frame_metadata);
   void DidAttachInterstitialPage();
   void DidDetachInterstitialPage();
   bool screencast_enabled() const { return enabled_ && screencast_enabled_; }
@@ -93,7 +94,7 @@ class PageHandler : public DevToolsDomainHandler,
                                  JavaScriptDialogCallback callback);
   void DidCloseJavaScriptDialog(bool success, const base::string16& user_input);
   void NavigationReset(NavigationRequest* navigation_request);
-  void DownloadWillBegin(FrameTreeNode* ftn, const GURL& url);
+  void DownloadWillBegin(FrameTreeNode* ftn, download::DownloadItem* item);
 
   WebContentsImpl* GetWebContents();
 
@@ -109,6 +110,7 @@ class PageHandler : public DevToolsDomainHandler,
                 Maybe<std::string> referrer,
                 Maybe<std::string> transition_type,
                 Maybe<std::string> frame_id,
+                Maybe<std::string> referrer_policy,
                 std::unique_ptr<NavigateCallback> callback) override;
   Response StopLoading() override;
 
@@ -118,10 +120,6 @@ class PageHandler : public DevToolsDomainHandler,
       std::unique_ptr<NavigationEntries>* entries) override;
   Response NavigateToHistoryEntry(int entry_id) override;
   Response ResetNavigationHistory() override;
-  Response SetInterceptFileChooserDialog(bool enabled) override;
-  Response HandleFileChooser(
-      const std::string& action,
-      Maybe<protocol::Array<std::string>> files) override;
 
   void CaptureScreenshot(
       Maybe<std::string> format,
@@ -172,9 +170,8 @@ class PageHandler : public DevToolsDomainHandler,
   void GetInstallabilityErrors(
       std::unique_ptr<GetInstallabilityErrorsCallback> callback) override;
 
-  bool InterceptFileChooser(RenderFrameHostImpl* rfh,
-                            std::unique_ptr<FileSelectListener>* listener,
-                            const blink::mojom::FileChooserParams& params);
+  void GetManifestIcons(
+      std::unique_ptr<GetManifestIconsCallback> callback) override;
 
  private:
   enum EncodingFormat { PNG, JPEG };
@@ -188,7 +185,6 @@ class PageHandler : public DevToolsDomainHandler,
   void ScreencastFrameEncoded(
       std::unique_ptr<Page::ScreencastFrameMetadata> metadata,
       const protocol::Binary& data);
-  void FallbackOrCancelFileChooser();
 
   void ScreenshotCaptured(
       std::unique_ptr<CaptureScreenshotCallback> callback,
@@ -201,12 +197,17 @@ class PageHandler : public DevToolsDomainHandler,
 
   void GotManifest(std::unique_ptr<GetAppManifestCallback> callback,
                    const GURL& manifest_url,
+                   const ::blink::Manifest& parsed_manifest,
                    blink::mojom::ManifestDebugInfoPtr debug_info);
 
   // RenderWidgetHostObserver overrides.
   void RenderWidgetHostVisibilityChanged(RenderWidgetHost* widget_host,
                                          bool became_visible) override;
   void RenderWidgetHostDestroyed(RenderWidgetHost* widget_host) override;
+
+  // DownloadItem::Observer overrides
+  void OnDownloadUpdated(download::DownloadItem* item) override;
+  void OnDownloadDestroyed(download::DownloadItem* item) override;
 
   bool enabled_;
 
@@ -217,7 +218,7 @@ class PageHandler : public DevToolsDomainHandler,
   int screencast_max_height_;
   int capture_every_nth_frame_;
   int capture_retry_count_;
-  base::Optional<DevToolsFrameMetadata> frame_metadata_;
+  base::Optional<cc::RenderFrameMetadata> frame_metadata_;
   int session_id_;
   int frame_counter_;
   int frames_in_flight_;
@@ -233,19 +234,14 @@ class PageHandler : public DevToolsDomainHandler,
 
   RenderFrameHostImpl* host_;
   EmulationHandler* emulation_handler_;
-  void** active_file_chooser_interceptor_;
-  bool allow_set_download_behavior_;
-  const bool allow_file_access_;
+  BrowserHandler* browser_handler_;
 
   std::unique_ptr<Page::Frontend> frontend_;
-  ScopedObserver<RenderWidgetHost, RenderWidgetHostObserver> observer_;
+  ScopedObserver<RenderWidgetHost, RenderWidgetHostObserver> observer_{this};
   JavaScriptDialogCallback pending_dialog_;
-  scoped_refptr<DevToolsDownloadManagerDelegate> download_manager_delegate_;
   base::flat_map<base::UnguessableToken, std::unique_ptr<NavigateCallback>>
       navigate_callbacks_;
-  std::unique_ptr<FileSelectListener> file_chooser_listener_;
-  std::unique_ptr<blink::mojom::FileChooserParams> file_chooser_params_;
-  base::Optional<std::pair<int, int>> file_chooser_rfh_id_;
+  base::flat_set<download::DownloadItem*> pending_downloads_;
 
   base::WeakPtrFactory<PageHandler> weak_factory_{this};
 

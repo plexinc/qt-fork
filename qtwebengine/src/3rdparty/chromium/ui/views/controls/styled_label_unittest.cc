@@ -8,6 +8,7 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 
 #include "base/command_line.h"
 #include "base/i18n/base_i18n_switches.h"
@@ -154,9 +155,7 @@ TEST_F(StyledLabelTest, BasicWrapping) {
   // Also respect the border.
   styled()->SetBorder(CreateEmptyBorder(3, 3, 3, 3));
   styled()->SetBounds(
-      0,
-      0,
-      styled()->GetInsets().width() + label_preferred_size.width(),
+      0, 0, styled()->GetInsets().width() + label_preferred_size.width(),
       styled()->GetInsets().height() + 2 * label_preferred_size.height());
   styled()->Layout();
   ASSERT_EQ(2u, styled()->children().size());
@@ -376,19 +375,23 @@ TEST_F(StyledLabelTest, Color) {
 
   Widget* widget = new Widget();
   Widget::InitParams params = CreateParams(Widget::InitParams::TYPE_POPUP);
-  widget->Init(params);
+  widget->Init(std::move(params));
   View* container = new View();
   widget->SetContentsView(container);
+
+  // The code below is not prepared to deal with dark mode.
+  widget->GetNativeTheme()->set_use_dark_colors(false);
+
   container->AddChildView(styled());
 
   // Obtain the default text color for a label.
-  Label* label = new Label(ASCIIToUTF16(text));
-  container->AddChildView(label);
+  Label* label =
+      container->AddChildView(std::make_unique<Label>(ASCIIToUTF16(text)));
   const SkColor kDefaultTextColor = label->GetEnabledColor();
 
   // Obtain the default text color for a link.
-  Link* link = new Link(ASCIIToUTF16(text_link));
-  container->AddChildView(link);
+  Link* link =
+      container->AddChildView(std::make_unique<Link>(ASCIIToUTF16(text_link)));
   const SkColor kDefaultLinkColor = link->GetEnabledColor();
 
   EXPECT_EQ(SK_ColorBLUE, LabelAt(0)->GetEnabledColor());
@@ -428,8 +431,8 @@ TEST_F(StyledLabelTest, StyledRangeWithTooltip) {
                           StyledLabel::RangeStyleInfo::CreateForLink());
 
   // Break line inside the range with the tooltip.
-  Label label(ASCIIToUTF16(
-       text + tooltip_text.substr(0, tooltip_text.size() - 3)));
+  Label label(
+      ASCIIToUTF16(text + tooltip_text.substr(0, tooltip_text.size() - 3)));
   gfx::Size label_preferred_size = label.GetPreferredSize();
   int pref_height = styled()->GetHeightForWidth(label_preferred_size.width());
   EXPECT_EQ(label_preferred_size.height() * 3,
@@ -467,9 +470,7 @@ TEST_F(StyledLabelTest, SetTextContextAndDefaultStyle) {
   Label label(ASCIIToUTF16(text), style::CONTEXT_DIALOG_TITLE,
               style::STYLE_DISABLED);
 
-  styled()->SetBounds(0,
-                      0,
-                      label.GetPreferredSize().width(),
+  styled()->SetBounds(0, 0, label.GetPreferredSize().width(),
                       label.GetPreferredSize().height());
 
   // Make sure we have the same sizing as a label with the same style.
@@ -591,7 +592,6 @@ TEST_F(StyledLabelTest, LineHeightWithShorterCustomView) {
   const int less_height = 10;
   std::unique_ptr<View> custom_view = std::make_unique<StaticSizedView>(
       gfx::Size(20, default_height - less_height));
-  custom_view->set_owned_by_client();
   StyledLabel::RangeStyleInfo style_info;
   style_info.custom_view = custom_view.get();
   InitStyledLabel(text + custom_view_text);
@@ -611,7 +611,6 @@ TEST_F(StyledLabelTest, LineHeightWithTallerCustomView) {
   const int more_height = 10;
   std::unique_ptr<View> custom_view = std::make_unique<StaticSizedView>(
       gfx::Size(20, default_height + more_height));
-  custom_view->set_owned_by_client();
   StyledLabel::RangeStyleInfo style_info;
   style_info.custom_view = custom_view.get();
   InitStyledLabel(text + custom_view_text);
@@ -632,7 +631,6 @@ TEST_F(StyledLabelTest, LineWrapperWithCustomView) {
   int custom_view_height = 25;
   std::unique_ptr<View> custom_view =
       std::make_unique<StaticSizedView>(gfx::Size(200, custom_view_height));
-  custom_view->set_owned_by_client();
   StyledLabel::RangeStyleInfo style_info;
   style_info.custom_view = custom_view.get();
   InitStyledLabel(text_before + custom_view_text + text_after);
@@ -719,7 +717,6 @@ TEST_F(StyledLabelTest, ViewsCenteredWithLinkAndCustomView) {
   int custom_view_height = 25;
   std::unique_ptr<View> custom_view =
       std::make_unique<StaticSizedView>(gfx::Size(20, custom_view_height));
-  custom_view->set_owned_by_client();
   StyledLabel::RangeStyleInfo style_info;
   style_info.custom_view = custom_view.get();
   styled()->AddStyleRange(
@@ -730,16 +727,92 @@ TEST_F(StyledLabelTest, ViewsCenteredWithLinkAndCustomView) {
 
   styled()->SetBounds(0, 0, 1000, 500);
   styled()->Layout();
-  int height = styled()->GetPreferredSize().height();
+  const int height = styled()->GetPreferredSize().height();
+  for (const auto* child : styled()->children())
+    EXPECT_EQ(height / 2, child->bounds().CenterPoint().y());
+}
 
-  ASSERT_EQ(3u, styled()->children().size());
-  const auto is_centered = [this, height](size_t index) {
-    const auto* child = styled()->children()[index];
-    return child->bounds().y() == ((height - child->bounds().height()) / 2);
-  };
-  EXPECT_TRUE(is_centered(0));
-  EXPECT_TRUE(is_centered(1));
-  EXPECT_TRUE(is_centered(2));
+TEST_F(StyledLabelTest, ViewsCenteredForEvenAndOddSizes) {
+  constexpr int kViewWidth = 30;
+  for (int height : {60, 61}) {
+    InitStyledLabel("abc");
+
+    const int view_heights[] = {height, height / 2, height / 2 + 1};
+    for (uint32_t i = 0; i < 3; ++i) {
+      auto view = std::make_unique<StaticSizedView>(
+          gfx::Size(kViewWidth, view_heights[i]));
+      StyledLabel::RangeStyleInfo style_info;
+      style_info.custom_view = view.get();
+      styled()->AddStyleRange(gfx::Range(i, i + 1), style_info);
+      styled()->AddCustomView(std::move(view));
+    }
+
+    styled()->SetBounds(0, 0, kViewWidth * 3, height);
+    styled()->Layout();
+
+    for (const auto* child : styled()->children())
+      EXPECT_EQ(height / 2, child->bounds().CenterPoint().y());
+  }
+}
+
+TEST_F(StyledLabelTest, CacheSizeWithAlignment) {
+  const std::string text("text");
+  InitStyledLabel(text);
+  styled()->SetHorizontalAlignment(gfx::ALIGN_RIGHT);
+  styled()->SetBounds(0, 0, 1000, 1000);
+  styled()->Layout();
+  ASSERT_EQ(1u, styled()->children().size());
+  const View* child = styled()->children().front();
+  EXPECT_EQ(1000, child->bounds().right());
+
+  styled()->SetSize({800, 1000});
+  styled()->Layout();
+  ASSERT_EQ(1u, styled()->children().size());
+  const View* new_child = styled()->children().front();
+  EXPECT_EQ(child, new_child);
+  EXPECT_EQ(800, new_child->bounds().right());
+}
+
+// Verifies that calling SizeToFit() on a label which requires less width still
+// causes it to take the whole requested width.
+TEST_F(StyledLabelTest, SizeToFit) {
+  const std::string text("text");
+  InitStyledLabel(text);
+  styled()->SetHorizontalAlignment(gfx::ALIGN_RIGHT);
+  styled()->SizeToFit(1000);
+  styled()->Layout();
+  ASSERT_EQ(1u, styled()->children().size());
+  EXPECT_EQ(1000, styled()->children().front()->bounds().right());
+}
+
+// Verifies that a non-empty label has a preferred size by default.
+TEST_F(StyledLabelTest, PreferredSizeNonEmpty) {
+  const std::string text("text");
+  InitStyledLabel(text);
+  EXPECT_FALSE(styled()->GetPreferredSize().IsEmpty());
+}
+
+// Verifies that GetPreferredSize() respects the existing wrapping.
+TEST_F(StyledLabelTest, PreferredSizeRespectsWrapping) {
+  const std::string text("Long text that can be split across lines");
+  InitStyledLabel(text);
+  gfx::Size size = styled()->GetPreferredSize();
+  size.set_width(size.width() / 2);
+  size.set_height(styled()->GetHeightForWidth(size.width()));
+  styled()->SetSize(size);
+  styled()->Layout();
+  const gfx::Size new_size = styled()->GetPreferredSize();
+  EXPECT_LE(new_size.width(), size.width());
+  EXPECT_EQ(new_size.height(), size.height());
+}
+
+// Verifies that calling a const method does not change the preferred size.
+TEST_F(StyledLabelTest, PreferredSizeAcrossConstCall) {
+  const std::string text("Long text that can be split across lines");
+  InitStyledLabel(text);
+  const gfx::Size size = styled()->GetPreferredSize();
+  styled()->GetHeightForWidth(size.width() / 2);
+  EXPECT_EQ(size, styled()->GetPreferredSize());
 }
 
 }  // namespace views

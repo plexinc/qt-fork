@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/scoped_observer.h"
@@ -18,7 +19,9 @@
 #include "extensions/browser/event_router.h"
 #include "extensions/browser/extension_event_histogram_value.h"
 #include "extensions/common/api/hid.h"
-#include "mojo/public/cpp/bindings/associated_binding.h"
+#include "mojo/public/cpp/bindings/associated_receiver.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "services/device/public/mojom/hid.mojom.h"
 
 namespace device {
@@ -78,8 +81,10 @@ class HidDeviceManager : public BrowserContextKeyedAPI,
   // the first API customer makes a request or registers an event listener.
   virtual void LazyInitialize();
 
-  void SetFakeHidManagerForTesting(
-      device::mojom::HidManagerPtr fake_hid_manager);
+  // Allows tests to override where this class binds a HidManager receiver.
+  using HidManagerBinder = base::RepeatingCallback<void(
+      mojo::PendingReceiver<device::mojom::HidManager>)>;
+  static void OverrideHidManagerBinderForTesting(HidManagerBinder binder);
 
  private:
   friend class BrowserContextKeyedAPIFactory<HidDeviceManager>;
@@ -122,8 +127,8 @@ class HidDeviceManager : public BrowserContextKeyedAPI,
   content::BrowserContext* browser_context_ = nullptr;
   EventRouter* event_router_ = nullptr;
   bool initialized_ = false;
-  device::mojom::HidManagerPtr hid_manager_;
-  mojo::AssociatedBinding<device::mojom::HidManagerClient> binding_;
+  mojo::Remote<device::mojom::HidManager> hid_manager_;
+  mojo::AssociatedReceiver<device::mojom::HidManagerClient> receiver_{this};
   bool enumeration_ready_ = false;
   std::vector<std::unique_ptr<GetApiDevicesParams>> pending_enumerations_;
   int next_resource_id_ = 0;

@@ -89,7 +89,7 @@ protected:
             "kModulateRGBA",
             "kModulateA",
         };
-        GR_STATIC_ASSERT(SK_ARRAY_COUNT(kModeStrs) == GrConstColorProcessor::kInputModeCnt);
+        static_assert(SK_ARRAY_COUNT(kModeStrs) == GrConstColorProcessor::kInputModeCnt);
 
         SkScalar y = kPad;
         SkScalar x = kPad;
@@ -112,7 +112,7 @@ protected:
                     } else {
                         skPaint.setColor(kPaintColors[paintType]);
                     }
-                    SkAssertResult(SkPaintToGrPaint(context, renderTargetContext->colorSpaceInfo(),
+                    SkAssertResult(SkPaintToGrPaint(context, renderTargetContext->colorInfo(),
                                                     skPaint, viewMatrix, &grPaint));
 
                     GrConstColorProcessor::InputMode mode = (GrConstColorProcessor::InputMode) m;
@@ -168,8 +168,8 @@ protected:
 
                     // update x and y for the next test case.
                     SkScalar height = renderRect.height();
-                    SkScalar width = SkTMax(inputLabelBounds.fRight, procLabelBounds.fRight);
-                    maxW = SkTMax(maxW, width);
+                    SkScalar width = std::max(inputLabelBounds.fRight, procLabelBounds.fRight);
+                    maxW = std::max(maxW, width);
                     y += height + kPad;
                     if (y + height > kHeight) {
                         y = kPad;

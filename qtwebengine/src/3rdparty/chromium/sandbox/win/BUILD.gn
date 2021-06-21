@@ -2,6 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//testing/libfuzzer/fuzzer_test.gni")
 import("//testing/test.gni")
 
 declare_args() {
@@ -109,6 +110,8 @@ source_set("sandbox") {
     "src/restricted_token_utils.h",
     "src/sandbox.cc",
     "src/sandbox.h",
+    "src/sandbox_constants.cc",
+    "src/sandbox_constants.h",
     "src/sandbox_factory.h",
     "src/sandbox_globals.cc",
     "src/sandbox_nt_types.h",
@@ -117,6 +120,8 @@ source_set("sandbox") {
     "src/sandbox_policy.h",
     "src/sandbox_policy_base.cc",
     "src/sandbox_policy_base.h",
+    "src/sandbox_policy_diagnostic.cc",
+    "src/sandbox_policy_diagnostic.h",
     "src/sandbox_rand.cc",
     "src/sandbox_rand.h",
     "src/sandbox_types.h",
@@ -255,9 +260,7 @@ test("sbox_integration_tests") {
 }
 
 executable("cfi_unittest_exe") {
-  sources = [
-    "tests/integration_tests/cfi_unittest_exe.cc",
-  ]
+  sources = [ "tests/integration_tests/cfi_unittest_exe.cc" ]
   deps = [
     "//base",
     "//build/win:default_exe_manifest",
@@ -386,4 +389,19 @@ shared_library("pocdll") {
   ]
 
   defines = [ "POCDLL_EXPORTS" ]
+}
+
+# This fuzzer will only work on Windows, add fuzz targets which could run on Linux
+# to //sandbox/ directly.
+fuzzer_test("sandbox_policy_rule_fuzzer") {
+  set_sources_assignment_filter([])
+  sources = [
+    "fuzzer/fuzzer_types.h",
+    "fuzzer/sandbox_policy_rule_fuzzer.cc",
+  ]
+  dict = "fuzzer/sandbox_policy_rule.dict"
+  deps = [
+    "//base",
+    "//sandbox",
+  ]
 }

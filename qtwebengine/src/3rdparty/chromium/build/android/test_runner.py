@@ -45,6 +45,7 @@ from pylib.base import test_run_factory
 from pylib.results import json_results
 from pylib.results import report_results
 from pylib.results.presentation import test_results_presentation
+from pylib.utils import local_utils
 from pylib.utils import logdog_helper
 from pylib.utils import logging_utils
 from pylib.utils import test_filter
@@ -305,6 +306,28 @@ def AddDeviceOptions(parser):
            'to the specified file.')
 
 
+def AddEmulatorOptions(parser):
+  """Adds emulator-specific options to |parser|."""
+  parser = parser.add_argument_group('emulator arguments')
+
+  parser.add_argument(
+      '--avd-config',
+      type=os.path.realpath,
+      help='Path to the avd config textpb. '
+      '(See //tools/android/avd/proto/ for message definition'
+      ' and existing textpb files.)')
+  parser.add_argument(
+      '--emulator-count',
+      type=int,
+      default=1,
+      help='Number of emulators to use.')
+  parser.add_argument(
+      '--emulator-window',
+      action='store_true',
+      default=False,
+      help='Enable graphical window display on the emulator.')
+
+
 def AddGTestOptions(parser):
   """Adds gtest options to |parser|."""
 
@@ -379,7 +402,7 @@ def AddGTestOptions(parser):
 def AddInstrumentationTestOptions(parser):
   """Adds Instrumentation test options to |parser|."""
 
-  parser.add_argument_group('instrumentation arguments')
+  parser = parser.add_argument_group('instrumentation arguments')
 
   parser.add_argument(
       '--additional-apk',
@@ -399,6 +422,18 @@ def AddInstrumentationTestOptions(parser):
   parser.add_argument(
       '--apk-under-test',
       help='Path or name of the apk under test.')
+  parser.add_argument(
+      '--module',
+      action='append',
+      dest='modules',
+      help='Specify Android App Bundle modules to install in addition to the '
+      'base module.')
+  parser.add_argument(
+      '--fake-module',
+      action='append',
+      dest='fake_modules',
+      help='Specify Android App Bundle modules to fake install in addition to '
+      'the real modules.')
   parser.add_argument(
       '--coverage-dir',
       type=os.path.realpath,
@@ -509,6 +544,59 @@ def AddInstrumentationTestOptions(parser):
       help=argparse.SUPPRESS)
 
 
+def AddSkiaGoldTestOptions(parser):
+  """Adds Skia Gold test options to |parser|."""
+  parser = parser.add_argument_group("Skia Gold arguments")
+  parser.add_argument(
+      '--git-revision', help='The git commit currently being tested.')
+  parser.add_argument(
+      '--gerrit-issue',
+      help='The Gerrit issue this test is being run on, if applicable.')
+  parser.add_argument(
+      '--gerrit-patchset',
+      help='The Gerrit patchset this test is being run on, if applicable.')
+  parser.add_argument(
+      '--buildbucket-id',
+      help='The Buildbucket build ID that this test was triggered from, if '
+      'applicable.')
+  local_group = parser.add_mutually_exclusive_group()
+  local_group.add_argument(
+      '--local-pixel-tests',
+      action='store_true',
+      default=None,
+      help='Specifies to run the Skia Gold pixel tests in local mode. When run '
+      'in local mode, uploading to Gold is disabled and traditional '
+      'generated/golden/diff images are output instead of triage links. '
+      'Running in local mode also implies --no-luci-auth. If both this '
+      'and --no-local-pixel-tests are left unset, the test harness will '
+      'attempt to detect whether it is running on a workstation or not '
+      'and set the options accordingly.')
+  local_group.add_argument(
+      '--no-local-pixel-tests',
+      action='store_false',
+      dest='local_pixel_tests',
+      help='Specifies to run the Skia Gold pixel tests in non-local (bot) '
+      'mode. When run in this mode, data is actually uploaded to Gold and '
+      'triage links are generated. If both this and --local-pixel-tests '
+      'are left unset, the test harness will attempt to detect whether '
+      'it is running on a workstation or not and set the options '
+      'accordingly.')
+  parser.add_argument(
+      '--no-luci-auth',
+      action='store_true',
+      default=False,
+      help="Don't use the serve account provided by LUCI for authentication "
+      'with Skia Gold, instead relying on gsutil to be pre-authenticated. '
+      'Meant for testing locally instead of on the bots.')
+  parser.add_argument(
+      '--bypass-skia-gold-functionality',
+      action='store_true',
+      default=False,
+      help='Bypass all interaction with Skia Gold, effectively disabling the '
+      'image comparison portion of any tests that use Gold. Only meant to be '
+      'used in case a Gold outage occurs and cannot be fixed quickly.')
+
+
 def AddJUnitTestOptions(parser):
   """Adds junit test options to |parser|."""
 
@@ -552,7 +640,7 @@ def AddJUnitTestOptions(parser):
 
 def AddLinkerTestOptions(parser):
 
-  parser.add_argument_group('linker arguments')
+  parser = parser.add_argument_group('linker arguments')
 
   parser.add_argument(
       '--test-apk',
@@ -832,7 +920,7 @@ def RunTestsInPlatformMode(args):
                          str(tot_tests),
                          str(iteration_count))
 
-    if args.local_output:
+    if args.local_output or not local_utils.IsOnSwarming():
       with out_manager.ArchivedTempfile(
           'test_results_presentation.html',
           'test_results_presentation',
@@ -877,6 +965,7 @@ def main():
       help='googletest-based C++ tests')
   AddCommonOptions(subp)
   AddDeviceOptions(subp)
+  AddEmulatorOptions(subp)
   AddGTestOptions(subp)
   AddTracingOptions(subp)
   AddCommandLineOptions(subp)
@@ -886,7 +975,9 @@ def main():
       help='InstrumentationTestCase-based Java tests')
   AddCommonOptions(subp)
   AddDeviceOptions(subp)
+  AddEmulatorOptions(subp)
   AddInstrumentationTestOptions(subp)
+  AddSkiaGoldTestOptions(subp)
   AddTracingOptions(subp)
   AddCommandLineOptions(subp)
 
@@ -901,6 +992,7 @@ def main():
       help='linker tests')
   AddCommonOptions(subp)
   AddDeviceOptions(subp)
+  AddEmulatorOptions(subp)
   AddLinkerTestOptions(subp)
 
   subp = command_parsers.add_parser(
@@ -908,6 +1000,7 @@ def main():
       help="tests based on Android's monkey command")
   AddCommonOptions(subp)
   AddDeviceOptions(subp)
+  AddEmulatorOptions(subp)
   AddMonkeyTestOptions(subp)
 
   subp = command_parsers.add_parser(

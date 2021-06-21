@@ -47,8 +47,6 @@ bool ViewsContentMainDelegate::BasicStartupComplete(int* exit_code) {
   std::string process_type =
       command_line.GetSwitchValueASCII(switches::kProcessType);
 
-  content::SetContentClient(&content_client_);
-
   logging::LoggingSettings settings;
   settings.logging_dest =
       logging::LOG_TO_SYSTEM_DEBUG_LOG | logging::LOG_TO_STDERR;
@@ -86,9 +84,14 @@ void ViewsContentMainDelegate::PreCreateMainMessageLoop() {
   ViewsContentClientMainParts::PreCreateMainMessageLoop();
 }
 
+content::ContentClient* ViewsContentMainDelegate::CreateContentClient() {
+  return &content_client_;
+}
+
 content::ContentBrowserClient*
     ViewsContentMainDelegate::CreateContentBrowserClient() {
-  browser_client_.reset(new ViewsContentBrowserClient(views_content_client_));
+  browser_client_ =
+      std::make_unique<ViewsContentBrowserClient>(views_content_client_);
   return browser_client_.get();
 }
 

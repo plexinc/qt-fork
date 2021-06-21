@@ -11,11 +11,12 @@
 #include "base/run_loop.h"
 #include "base/task/post_task.h"
 #include "base/task/task_traits.h"
+#include "base/task/thread_pool.h"
 #include "net/base/ip_address.h"
 #include "net/base/ip_endpoint.h"
 #include "net/dns/dns_hosts.h"
 #include "net/dns/test_dns_config_service.h"
-#include "net/test/test_with_scoped_task_environment.h"
+#include "net/test/test_with_task_environment.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -30,13 +31,13 @@ const DnsConfig kConfig(kNameservers);
 const DnsConfig kConfig2(kNameservers2);
 }  // namespace
 
-class SystemDnsConfigChangeNotifierTest : public TestWithScopedTaskEnvironment {
+class SystemDnsConfigChangeNotifierTest : public TestWithTaskEnvironment {
  public:
   // Set up a change notifier, owned on a dedicated blockable task runner, with
   // a faked underlying DnsConfigService.
   SystemDnsConfigChangeNotifierTest()
       : notifier_task_runner_(
-            base::CreateSequencedTaskRunnerWithTraits({base::MayBlock()})) {
+            base::ThreadPool::CreateSequencedTaskRunner({base::MayBlock()})) {
     auto test_service = std::make_unique<TestDnsConfigService>();
     notifier_task_runner_->PostTask(
         FROM_HERE,

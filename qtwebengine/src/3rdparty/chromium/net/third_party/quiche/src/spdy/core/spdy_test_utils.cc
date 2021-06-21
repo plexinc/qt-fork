@@ -11,17 +11,17 @@
 #include <utility>
 #include <vector>
 
+#include "net/third_party/quiche/src/common/platform/api/quiche_test.h"
 #include "net/third_party/quiche/src/spdy/platform/api/spdy_endianness_util.h"
 #include "net/third_party/quiche/src/spdy/platform/api/spdy_logging.h"
-#include "net/third_party/quiche/src/spdy/platform/api/spdy_test.h"
 
 namespace spdy {
 namespace test {
 
-SpdyString HexDumpWithMarks(const unsigned char* data,
-                            int length,
-                            const bool* marks,
-                            int mark_length) {
+std::string HexDumpWithMarks(const unsigned char* data,
+                             int length,
+                             const bool* marks,
+                             int mark_length) {
   static const char kHexChars[] = "0123456789abcdef";
   static const int kColumns = 4;
 
@@ -32,7 +32,7 @@ SpdyString HexDumpWithMarks(const unsigned char* data,
     mark_length = std::min(mark_length, kSizeLimit);
   }
 
-  SpdyString hex;
+  std::string hex;
   for (const unsigned char* row = data; length > 0;
        row += kColumns, length -= kColumns) {
     for (const unsigned char* p = row; p < row + 4; ++p) {
@@ -58,7 +58,7 @@ SpdyString HexDumpWithMarks(const unsigned char* data,
   return hex;
 }
 
-void CompareCharArraysWithHexError(const SpdyString& description,
+void CompareCharArraysWithHexError(const std::string& description,
                                    const unsigned char* actual,
                                    const int actual_len,
                                    const unsigned char* expected,
@@ -104,7 +104,8 @@ void TestHeadersHandler::OnHeaderBlockStart() {
   block_.clear();
 }
 
-void TestHeadersHandler::OnHeader(SpdyStringPiece name, SpdyStringPiece value) {
+void TestHeadersHandler::OnHeader(quiche::QuicheStringPiece name,
+                                  quiche::QuicheStringPiece value) {
   block_.AppendValueOrAddHeader(name, value);
 }
 

@@ -160,18 +160,18 @@ void LayoutTable::AddChild(LayoutObject* child, LayoutObject* before_child) {
       case EDisplay::kTableHeaderGroup:
         ResetSectionPointerIfNotBefore(head_, before_child);
         if (!head_) {
-          head_ = ToLayoutTableSection(child);
+          head_ = To<LayoutTableSection>(child);
         } else {
           ResetSectionPointerIfNotBefore(first_body_, before_child);
           if (!first_body_)
-            first_body_ = ToLayoutTableSection(child);
+            first_body_ = To<LayoutTableSection>(child);
         }
         wrap_in_anonymous_section = false;
         break;
       case EDisplay::kTableFooterGroup:
         ResetSectionPointerIfNotBefore(foot_, before_child);
         if (!foot_) {
-          foot_ = ToLayoutTableSection(child);
+          foot_ = To<LayoutTableSection>(child);
           wrap_in_anonymous_section = false;
           break;
         }
@@ -179,7 +179,7 @@ void LayoutTable::AddChild(LayoutObject* child, LayoutObject* before_child) {
       case EDisplay::kTableRowGroup:
         ResetSectionPointerIfNotBefore(first_body_, before_child);
         if (!first_body_)
-          first_body_ = ToLayoutTableSection(child);
+          first_body_ = To<LayoutTableSection>(child);
         wrap_in_anonymous_section = false;
         break;
       default:
@@ -273,6 +273,33 @@ void LayoutTable::RemoveColumn(const LayoutTableCol*) {
   ColumnStructureChanged();
 }
 
+LayoutNGTableSectionInterface* LayoutTable::FirstBodyInterface() const {
+  return FirstBody();
+}
+
+LayoutNGTableSectionInterface* LayoutTable::TopSectionInterface() const {
+  return TopSection();
+}
+
+LayoutNGTableSectionInterface* LayoutTable::BottomSectionInterface() const {
+  return BottomSection();
+}
+
+LayoutNGTableSectionInterface* LayoutTable::TopNonEmptySectionInterface()
+    const {
+  return TopNonEmptySection();
+}
+
+LayoutNGTableSectionInterface* LayoutTable::SectionBelowInterface(
+    const LayoutNGTableSectionInterface* section,
+    SkipEmptySectionsValue skip_empty_sections) const {
+  return SectionBelow(section->ToLayoutTableSection(), skip_empty_sections);
+}
+LayoutNGTableSectionInterface* LayoutTable::BottomNonEmptySectionInterface()
+    const {
+  return BottomNonEmptySection();
+}
+
 bool LayoutTable::IsLogicalWidthAuto() const {
   const Length& style_logical_width = StyleRef().LogicalWidth();
   return (!style_logical_width.IsSpecified() ||
@@ -283,11 +310,10 @@ bool LayoutTable::IsLogicalWidthAuto() const {
 void LayoutTable::UpdateLogicalWidth() {
   RecalcSectionsIfNeeded();
 
-  // Recalculate preferred logical widths now, rather than relying on them being
-  // lazily recalculated, via MinPreferredLogicalWidth() further below. We might
-  // not even get there.
-  if (PreferredLogicalWidthsDirty())
-    ComputePreferredLogicalWidths();
+  // Recalculate the intrinsic logical widths now, rather than relying on them
+  // being lazily recalculated, via PreferredLogicalWidths() further below. We
+  // might not even get there.
+  UpdateCachedIntrinsicLogicalWidthsIfNeeded();
 
   if (IsFlexItemIncludingDeprecatedAndNG() || IsGridItem()) {
     // TODO(jfernandez): Investigate whether the grid layout algorithm provides
@@ -316,6 +342,8 @@ void LayoutTable::UpdateLogicalWidth() {
       has_perpendicular_containing_block
           ? PerpendicularContainingBlockLogicalHeight()
           : available_logical_width;
+
+  MinMaxSizes preferred_logical_widths = PreferredLogicalWidths();
 
   if (!IsLogicalWidthAuto()) {
     SetLogicalWidth(ConvertStyleLogicalWidthToComputedWidth(
@@ -348,11 +376,11 @@ void LayoutTable::UpdateLogicalWidth() {
     }
 
     // Ensure we aren't bigger than our available width.
-    LayoutUnit max_width = MaxPreferredLogicalWidth();
+    LayoutUnit max_width = preferred_logical_widths.max_size;
     // scaledWidthFromPercentColumns depends on m_layoutStruct in
-    // TableLayoutAlgorithmAuto, which maxPreferredLogicalWidth fills in. So
-    // scaledWidthFromPercentColumns has to be called after
-    // maxPreferredLogicalWidth.
+    // TableLayoutAlgorithmAuto, which |PreferredLogicalWidths()| fills in. So
+    // |ScaledWidthFromPercentColumns()| has to be called after
+    // |PreferredLogicalWidths()|.
     LayoutUnit scaled_width = table_layout_->ScaledWidthFromPercentColumns() +
                               BordersPaddingAndSpacingInRowDirection();
     max_width = std::max(scaled_width, max_width);
@@ -375,8 +403,8 @@ void LayoutTable::UpdateLogicalWidth() {
   // Ensure we aren't smaller than our min preferred width. This MUST be done
   // after 'max-width' as we ignore it if it means we wouldn't accommodate our
   // content.
-  SetLogicalWidth(
-      LayoutUnit(std::max(LogicalWidth(), MinPreferredLogicalWidth()).Floor()));
+  SetLogicalWidth(LayoutUnit(
+      std::max(LogicalWidth(), preferred_logical_widths.min_size).Floor()));
 
   // Ensure we aren't smaller than our min-width style.
   const Length& style_min_logical_width = StyleRef().LogicalMinWidth();
@@ -404,7 +432,7 @@ void LayoutTable::UpdateLogicalWidth() {
   // nor what authors expect.
   // FIXME: When we convert to sub-pixel layout for tables we can remove the int
   // conversion. http://crbug.com/241198
-  DCHECK_GE(LogicalWidth().Floor(), MinPreferredLogicalWidth().Floor());
+  DCHECK_GE(LogicalWidth().Floor(), preferred_logical_widths.min_size.Floor());
 }
 
 // This method takes a ComputedStyle's logical width, min-width, or max-width
@@ -412,15 +440,15 @@ void LayoutTable::UpdateLogicalWidth() {
 LayoutUnit LayoutTable::ConvertStyleLogicalWidthToComputedWidth(
     const Length& style_logical_width,
     LayoutUnit available_width) const {
-  if (style_logical_width.IsIntrinsic())
-    return ComputeIntrinsicLogicalWidthUsing(
-        style_logical_width, available_width,
-        BordersPaddingAndSpacingInRowDirection());
+  if (style_logical_width.IsIntrinsic()) {
+    return ComputeIntrinsicLogicalWidthUsing(style_logical_width,
+                                             available_width);
+  }
 
   // HTML tables' width styles already include borders and paddings, but CSS
   // tables' width styles do not.
   LayoutUnit borders;
-  bool is_css_table = !IsHTMLTableElement(GetNode());
+  bool is_css_table = !IsA<HTMLTableElement>(GetNode());
   if (is_css_table && style_logical_width.IsSpecified() &&
       style_logical_width.IsPositive() &&
       StyleRef().BoxSizing() == EBoxSizing::kContentBox) {
@@ -448,7 +476,7 @@ LayoutUnit LayoutTable::ConvertStyleLogicalHeightToComputedHeight(
     LayoutUnit borders = LayoutUnit();
     // FIXME: We cannot apply box-sizing: content-box on <table> which other
     // browsers allow.
-    if (IsHTMLTableElement(GetNode()) ||
+    if (IsA<HTMLTableElement>(GetNode()) ||
         StyleRef().BoxSizing() == EBoxSizing::kBorderBox) {
       borders = border_and_padding;
     }
@@ -756,7 +784,7 @@ void LayoutTable::UpdateLayout() {
          child = child->NextSibling()) {
       if (child->IsTableSection()) {
         if (child != Header() && child != Footer()) {
-          LayoutTableSection& section = *ToLayoutTableSection(child);
+          LayoutTableSection& section = *To<LayoutTableSection>(child);
           LayoutSection(section, layouter, section_logical_left,
                         table_height_changing);
         }
@@ -849,11 +877,6 @@ void LayoutTable::UpdateLayout() {
 
     ComputeLayoutOverflow(ClientLogicalBottom());
     UpdateAfterLayout();
-
-    if (state.IsPaginated() && IsPageLogicalHeightKnown()) {
-      block_offset_to_first_repeatable_header_ = state.PageLogicalOffset(
-          *this, top_section ? top_section->LogicalTop() : LayoutUnit());
-    }
   }
 
   // FIXME: This value isn't the intrinsic content logical height, but we need
@@ -930,7 +953,7 @@ void LayoutTable::InvalidateCollapsedBordersForAllCellsIfNeeded() {
        section = section->NextSibling()) {
     if (!section->IsTableSection())
       continue;
-    for (LayoutTableRow* row = ToLayoutTableSection(section)->FirstRow(); row;
+    for (LayoutTableRow* row = To<LayoutTableSection>(section)->FirstRow(); row;
          row = row->NextRow()) {
       for (LayoutTableCell* cell = row->FirstCell(); cell;
            cell = cell->NextCell()) {
@@ -952,6 +975,7 @@ void LayoutTable::ComputeVisualOverflow(bool) {
   AddVisualOverflowFromTheme();
 
   if (VisualOverflowRect() != previous_visual_overflow_rect) {
+    InvalidateIntersectionObserverCachedRects();
     SetShouldCheckForPaintInvalidation();
     GetFrameView()->SetIntersectionObservationState(LocalFrameView::kDesired);
   }
@@ -1050,7 +1074,7 @@ void LayoutTable::MarkAllCellsWidthsDirtyAndOrNeedsLayout(
        child = child->NextSibling()) {
     if (!child->IsTableSection())
       continue;
-    LayoutTableSection* section = ToLayoutTableSection(child);
+    LayoutTableSection* section = To<LayoutTableSection>(child);
     section->MarkAllCellsWidthsDirtyAndOrNeedsLayout(what_to_mark);
   }
 }
@@ -1066,38 +1090,30 @@ void LayoutTable::PaintMask(const PaintInfo& paint_info,
   TablePainter(*this).PaintMask(paint_info, paint_offset);
 }
 
-void LayoutTable::ComputeIntrinsicLogicalWidths(LayoutUnit& min_width,
-                                                LayoutUnit& max_width) const {
+MinMaxSizes LayoutTable::ComputeIntrinsicLogicalWidths() const {
   RecalcSectionsIfNeeded();
   // FIXME: Restructure the table layout code so that we can make this method
   // const.
+  MinMaxSizes sizes;
   const_cast<LayoutTable*>(this)->table_layout_->ComputeIntrinsicLogicalWidths(
-      min_width, max_width);
+      sizes.min_size, sizes.max_size);
 
   // FIXME: We should include captions widths here like we do in
   // computePreferredLogicalWidths.
+  sizes += LayoutUnit(BordersPaddingAndSpacingInRowDirection().ToInt());
+  return sizes;
 }
 
-void LayoutTable::ComputePreferredLogicalWidths() {
-  DCHECK(PreferredLogicalWidthsDirty());
+MinMaxSizes LayoutTable::PreferredLogicalWidths() const {
+  MinMaxSizes sizes = IntrinsicLogicalWidths();
 
-  ComputeIntrinsicLogicalWidths(min_preferred_logical_width_,
-                                max_preferred_logical_width_);
+  table_layout_->ApplyPreferredLogicalWidthQuirks(sizes.min_size,
+                                                  sizes.max_size);
 
-  int borders_padding_and_spacing =
-      BordersPaddingAndSpacingInRowDirection().ToInt();
-  min_preferred_logical_width_ += borders_padding_and_spacing;
-  max_preferred_logical_width_ += borders_padding_and_spacing;
-
-  table_layout_->ApplyPreferredLogicalWidthQuirks(min_preferred_logical_width_,
-                                                  max_preferred_logical_width_);
-
-  for (unsigned i = 0; i < captions_.size(); i++) {
-    min_preferred_logical_width_ = std::max(
-        min_preferred_logical_width_, captions_[i]->MinPreferredLogicalWidth());
-    // Note: using captions' min-width is intentional here:
-    max_preferred_logical_width_ = std::max(
-        max_preferred_logical_width_, captions_[i]->MinPreferredLogicalWidth());
+  for (const auto* caption : captions_) {
+    LayoutUnit min_preferred_logical_width =
+        caption->PreferredLogicalWidths().min_size;
+    sizes.Encompass(min_preferred_logical_width);
   }
 
   const ComputedStyle& style_to_use = StyleRef();
@@ -1105,14 +1121,8 @@ void LayoutTable::ComputePreferredLogicalWidths() {
   // able to use percentage or calc values for min-width.
   if (style_to_use.LogicalMinWidth().IsFixed() &&
       style_to_use.LogicalMinWidth().Value() > 0) {
-    max_preferred_logical_width_ =
-        std::max(max_preferred_logical_width_,
-                 AdjustContentBoxLogicalWidthForBoxSizing(
-                     style_to_use.LogicalMinWidth().Value()));
-    min_preferred_logical_width_ =
-        std::max(min_preferred_logical_width_,
-                 AdjustContentBoxLogicalWidthForBoxSizing(
-                     style_to_use.LogicalMinWidth().Value()));
+    sizes.Encompass(AdjustBorderBoxLogicalWidthForBoxSizing(
+        style_to_use.LogicalMinWidth().Value()));
   }
 
   // FIXME: This should probably be checking for isSpecified since you should be
@@ -1120,10 +1130,9 @@ void LayoutTable::ComputePreferredLogicalWidths() {
   if (style_to_use.LogicalMaxWidth().IsFixed()) {
     // We don't constrain m_minPreferredLogicalWidth as the table should be at
     // least the size of its min-content, regardless of 'max-width'.
-    max_preferred_logical_width_ =
-        std::min(max_preferred_logical_width_,
-                 AdjustContentBoxLogicalWidthForBoxSizing(
-                     style_to_use.LogicalMaxWidth().Value()));
+    sizes.max_size =
+        std::min(sizes.max_size, AdjustBorderBoxLogicalWidthForBoxSizing(
+                                     style_to_use.LogicalMaxWidth().Value()));
   }
 
   // 2 cases need this:
@@ -1132,13 +1141,8 @@ void LayoutTable::ComputePreferredLogicalWidths() {
   // 2. We buggily calculate min > max for some tables with colspans and
   //    percent widths. See fast/table/spans-min-greater-than-max-crash.html and
   //    http://crbug.com/857185
-  max_preferred_logical_width_ =
-      std::max(min_preferred_logical_width_, max_preferred_logical_width_);
-
-  // FIXME: We should be adding borderAndPaddingLogicalWidth here, but
-  // m_tableLayout->computePreferredLogicalWidths already does, so a bunch of
-  // tests break doing this naively.
-  ClearPreferredLogicalWidthsDirty();
+  sizes.max_size = std::max(sizes.min_size, sizes.max_size);
+  return sizes;
 }
 
 LayoutTableSection* LayoutTable::TopNonEmptySection() const {
@@ -1169,7 +1173,7 @@ void LayoutTable::SplitEffectiveColumn(unsigned index, unsigned first_span) {
     if (!child->IsTableSection())
       continue;
 
-    LayoutTableSection* section = ToLayoutTableSection(child);
+    LayoutTableSection* section = To<LayoutTableSection>(child);
     if (section->NeedsCellRecalc())
       continue;
 
@@ -1198,7 +1202,7 @@ void LayoutTable::AppendEffectiveColumn(unsigned span) {
     if (!child->IsTableSection())
       continue;
 
-    LayoutTableSection* section = ToLayoutTableSection(child);
+    LayoutTableSection* section = To<LayoutTableSection>(child);
     if (section->NeedsCellRecalc())
       continue;
 
@@ -1295,7 +1299,7 @@ void LayoutTable::RecalcSections() const {
         break;
       case EDisplay::kTableHeaderGroup:
         if (child->IsTableSection()) {
-          LayoutTableSection* section = ToLayoutTableSection(child);
+          LayoutTableSection* section = To<LayoutTableSection>(child);
           if (!head_)
             head_ = section;
           else if (!first_body_)
@@ -1305,7 +1309,7 @@ void LayoutTable::RecalcSections() const {
         break;
       case EDisplay::kTableFooterGroup:
         if (child->IsTableSection()) {
-          LayoutTableSection* section = ToLayoutTableSection(child);
+          LayoutTableSection* section = To<LayoutTableSection>(child);
           if (!foot_)
             foot_ = section;
           else if (!first_body_)
@@ -1315,7 +1319,7 @@ void LayoutTable::RecalcSections() const {
         break;
       case EDisplay::kTableRowGroup:
         if (child->IsTableSection()) {
-          LayoutTableSection* section = ToLayoutTableSection(child);
+          LayoutTableSection* section = To<LayoutTableSection>(child);
           if (!first_body_)
             first_body_ = section;
           section->RecalcCellsIfNeeded();
@@ -1332,7 +1336,7 @@ void LayoutTable::RecalcSections() const {
   for (LayoutObject* child = FirstChild(); child;
        child = child->NextSibling()) {
     if (child->IsTableSection()) {
-      LayoutTableSection* section = ToLayoutTableSection(child);
+      LayoutTableSection* section = To<LayoutTableSection>(child);
       if (column_structure_changed_) {
         section->MarkAllCellsWidthsDirtyAndOrNeedsLayout(
             LayoutTable::kMarkDirtyAndNeedsLayout);
@@ -1399,14 +1403,14 @@ LayoutTableSection* LayoutTable::SectionAbove(
     if (prev_section->IsTableSection() && prev_section != head_ &&
         prev_section != foot_ &&
         (skip_empty_sections == kDoNotSkipEmptySections ||
-         ToLayoutTableSection(prev_section)->NumRows()))
+         To<LayoutTableSection>(prev_section)->NumRows()))
       break;
     prev_section = prev_section->PreviousSibling();
   }
   if (!prev_section && head_ &&
       (skip_empty_sections == kDoNotSkipEmptySections || head_->NumRows()))
     prev_section = head_;
-  return ToLayoutTableSection(prev_section);
+  return To<LayoutTableSection>(prev_section);
 }
 
 LayoutTableSection* LayoutTable::SectionBelow(
@@ -1423,14 +1427,14 @@ LayoutTableSection* LayoutTable::SectionBelow(
     if (next_section->IsTableSection() && next_section != head_ &&
         next_section != foot_ &&
         (skip_empty_sections == kDoNotSkipEmptySections ||
-         ToLayoutTableSection(next_section)->NumRows()))
+         To<LayoutTableSection>(next_section)->NumRows()))
       break;
     next_section = next_section->NextSibling();
   }
   if (!next_section && foot_ &&
       (skip_empty_sections == kDoNotSkipEmptySections || foot_->NumRows()))
     next_section = foot_;
-  return ToLayoutTableSection(next_section);
+  return To<LayoutTableSection>(next_section);
 }
 
 LayoutTableSection* LayoutTable::BottomSection() const {
@@ -1447,7 +1451,7 @@ LayoutTableSection* LayoutTable::BottomSection() const {
     if (child == head_)
       continue;
     if (child->IsTableSection())
-      return ToLayoutTableSection(child);
+      return To<LayoutTableSection>(child);
   }
 
   return nullptr;
@@ -1843,9 +1847,10 @@ void LayoutTable::UpdateCollapsedOuterBorders() const {
       max_border_end - collapsed_outer_border_end_;
 }
 
-bool LayoutTable::PaintedOutputOfObjectHasNoEffectRegardlessOfSize() const {
-  return LayoutBlock::PaintedOutputOfObjectHasNoEffectRegardlessOfSize() &&
-         !should_paint_all_collapsed_borders_;
+// LayoutNGTableCellInterface API
+bool LayoutTable::IsFirstCell(const LayoutNGTableCellInterface& cell) const {
+  const LayoutTableCell& layout_cell = *cell.ToLayoutTableCell();
+  return !(CellPreceding(layout_cell) || CellAbove(layout_cell));
 }
 
 }  // namespace blink

@@ -28,18 +28,17 @@ class SourceKeyedCachedMetadataHandler::SingleKeyHandler final
 
   void SetCachedMetadata(uint32_t data_type_id,
                          const uint8_t* data,
-                         size_t size,
-                         CacheType cache_type) override {
+                         size_t size) override {
     DCHECK(!parent_->cached_metadata_map_.Contains(key_));
     parent_->cached_metadata_map_.insert(
         key_, CachedMetadata::Create(data_type_id, data, size));
-    if (cache_type == CachedMetadataHandler::kSendToPlatform)
+    if (!disable_send_to_platform_for_testing_)
       parent_->SendToPlatform();
   }
 
-  void ClearCachedMetadata(CacheType cache_type) override {
+  void ClearCachedMetadata(ClearCacheType cache_type) override {
     parent_->cached_metadata_map_.erase(key_);
-    if (cache_type == CachedMetadataHandler::kSendToPlatform)
+    if (cache_type == CachedMetadataHandler::kClearPersistentStorage)
       parent_->SendToPlatform();
   }
 
@@ -104,9 +103,9 @@ SingleCachedMetadataHandler* SourceKeyedCachedMetadataHandler::HandlerForSource(
 }
 
 void SourceKeyedCachedMetadataHandler::ClearCachedMetadata(
-    CachedMetadataHandler::CacheType cache_type) {
+    CachedMetadataHandler::ClearCacheType cache_type) {
   cached_metadata_map_.clear();
-  if (cache_type == CachedMetadataHandler::kSendToPlatform)
+  if (cache_type == CachedMetadataHandler::kClearPersistentStorage)
     SendToPlatform();
 }
 
@@ -159,8 +158,10 @@ T ReadVal(const uint8_t* data) {
 }  // namespace
 
 void SourceKeyedCachedMetadataHandler::SetSerializedCachedMetadata(
-    const uint8_t* data,
-    size_t size) {
+    mojo_base::BigBuffer data_buffer) {
+  const uint8_t* data = data_buffer.data();
+  size_t size = data_buffer.size();
+
   // We only expect to receive cached metadata from the platform once. If this
   // triggers, it indicates an efficiency problem which is most likely
   // unexpected in code designed to improve performance.
@@ -236,10 +237,11 @@ void SourceKeyedCachedMetadataHandler::SendToPlatform() {
                            sizeof(num_entries));
     for (const auto& metadata : cached_metadata_map_) {
       serialized_data.Append(metadata.key.data(), kKeySize);
-      size_t entry_size = metadata.value->SerializedData().size();
+      base::span<const uint8_t> data = metadata.value->SerializedData();
+      size_t entry_size = data.size();
       serialized_data.Append(reinterpret_cast<const uint8_t*>(&entry_size),
                              sizeof(entry_size));
-      serialized_data.AppendVector(metadata.value->SerializedData());
+      serialized_data.Append(data.data(), data.size());
     }
     sender_->Send(serialized_data.data(), serialized_data.size());
   }

@@ -62,6 +62,7 @@ RasterWindowContext_mac::RasterWindowContext_mac(const MacWindowInfo& info,
 }
 
 RasterWindowContext_mac::~RasterWindowContext_mac() {
+    [NSOpenGLContext clearCurrentContext];
     [fPixelFormat release];
     fPixelFormat = nil;
     [fGLContext release];
@@ -134,7 +135,7 @@ sk_sp<const GrGLInterface> RasterWindowContext_mac::onInitializeContext() {
     GLint sampleCount;
     [fPixelFormat getValues:&sampleCount forAttribute:NSOpenGLPFASamples forVirtualScreen:0];
     fSampleCount = sampleCount;
-    fSampleCount = SkTMax(fSampleCount, 1);
+    fSampleCount = std::max(fSampleCount, 1);
 
     const NSRect viewportRect = [fMainView frame];
     fWidth = viewportRect.size.width;
@@ -174,10 +175,10 @@ void RasterWindowContext_mac::resize(int w, int h) {
 namespace sk_app {
 namespace window_context_factory {
 
-WindowContext* NewRasterForMac(const MacWindowInfo& info, const DisplayParams& params) {
-    WindowContext* ctx = new RasterWindowContext_mac(info, params);
+std::unique_ptr<WindowContext> MakeRasterForMac(const MacWindowInfo& info,
+                                                const DisplayParams& params) {
+    std::unique_ptr<WindowContext> ctx(new RasterWindowContext_mac(info, params));
     if (!ctx->isValid()) {
-        delete ctx;
         return nullptr;
     }
     return ctx;

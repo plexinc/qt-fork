@@ -39,9 +39,8 @@ WebURLLoaderMockFactoryImpl::WebURLLoaderMockFactoryImpl(
 
 WebURLLoaderMockFactoryImpl::~WebURLLoaderMockFactoryImpl() = default;
 
-std::unique_ptr<WebURLLoader> WebURLLoaderMockFactoryImpl::CreateURLLoader(
-    std::unique_ptr<WebURLLoader> default_loader) {
-  return std::make_unique<WebURLLoaderMock>(this, std::move(default_loader));
+std::unique_ptr<WebURLLoader> WebURLLoaderMockFactoryImpl::CreateURLLoader() {
+  return std::make_unique<WebURLLoaderMock>(this);
 }
 
 void WebURLLoaderMockFactoryImpl::RegisterURL(const WebURL& url,
@@ -119,17 +118,18 @@ void WebURLLoaderMockFactoryImpl::ServeAsynchronousRequests() {
   while (!pending_loaders_.IsEmpty()) {
     LoaderToRequestMap::iterator iter = pending_loaders_.begin();
     base::WeakPtr<WebURLLoaderMock> loader(iter->key->GetWeakPtr());
-    const WebURLRequest request = iter->value;
+    std::unique_ptr<network::ResourceRequest> request = std::move(iter->value);
     pending_loaders_.erase(loader.get());
 
     WebURLResponse response;
     base::Optional<WebURLError> error;
     WebData data;
-    LoadRequest(request.Url(), &response, &error, &data);
+    LoadRequest(WebURL(KURL(request->url)), &response, &error, &data);
     // Follow any redirects while the loader is still active.
     while (response.HttpStatusCode() >= 300 &&
            response.HttpStatusCode() < 400) {
-      WebURL new_url = loader->ServeRedirect(request, response);
+      WebURL new_url = loader->ServeRedirect(
+          WebString::FromLatin1(request->method), response);
       RunUntilIdle();
       if (!loader || loader->is_cancelled() || loader->is_deferred())
         break;
@@ -151,7 +151,8 @@ void WebURLLoaderMockFactoryImpl::FillNavigationParamsResponse(
     ResourceResponse response;
     scoped_refptr<SharedBuffer> buffer;
     int result;
-    std::tie(result, response, buffer) = network_utils::ParseDataURL(kurl);
+    std::tie(result, response, buffer) =
+        network_utils::ParseDataURL(kurl, params->http_method);
     DCHECK(buffer);
     DCHECK_EQ(net::OK, result);
     params->response = WrappedResourceResponse(response);
@@ -204,20 +205,20 @@ void WebURLLoaderMockFactoryImpl::CancelLoad(WebURLLoaderMock* loader) {
 }
 
 void WebURLLoaderMockFactoryImpl::LoadSynchronously(
-    const WebURLRequest& request,
+    std::unique_ptr<network::ResourceRequest> request,
     WebURLResponse* response,
     base::Optional<WebURLError>* error,
     WebData* data,
     int64_t* encoded_data_length) {
-  LoadRequest(request.Url(), response, error, data);
+  LoadRequest(WebURL(KURL(request->url)), response, error, data);
   *encoded_data_length = data->size();
 }
 
 void WebURLLoaderMockFactoryImpl::LoadAsynchronouly(
-    const WebURLRequest& request,
+    std::unique_ptr<network::ResourceRequest> request,
     WebURLLoaderMock* loader) {
   DCHECK(!pending_loaders_.Contains(loader));
-  pending_loaders_.Set(loader, request);
+  pending_loaders_.Set(loader, std::move(request));
 }
 
 void WebURLLoaderMockFactoryImpl::RunUntilIdle() {

@@ -184,6 +184,7 @@ namespace autofillPrivate {
   callback ValidatePhoneNumbersCallback =
       void(DOMString[] validatedPhoneNumbers);
   callback GetCreditCardListCallback = void(CreditCardEntry[] entries);
+  callback GetUpiIdListCallback = void(DOMString[] entries);
 
   interface Functions {
     // Saves the given address. If |address| has an empty string as its ID, it
@@ -239,17 +240,20 @@ namespace autofillPrivate {
 
     // Logs that the server cards edit link was clicked.
     static void logServerCardLinkClicked();
+
+    // Enables or disables FIDO Authentication for credit card unmasking.
+    static void setCreditCardFIDOAuthEnabledState(boolean enabled);
+
+    // Gets the list of UPI IDs (a.k.a. Virtual Payment Addresses).
+    // |callback|: Callback which will be called with the list of UPI IDs.
+    static void getUpiIdList(GetUpiIdListCallback callback);
   };
 
   interface Events {
-    // Fired when the address list has changed, meaning that an entry has been
-    // added, removed, or changed.
-    // |entries| The updated list of entries.
-    static void onAddressListChanged(AddressEntry[] entries);
-
-    // Fired when the credit card list has changed, meaning that an entry has
+    // Fired when the personal data has changed, meaning that an entry has
     // been added, removed, or changed.
     // |entries| The updated list of entries.
-    static void onCreditCardListChanged(CreditCardEntry[] entries);
+    static void onPersonalDataChanged(AddressEntry[] addressEntries,
+        CreditCardEntry[] creditCardEntries);
   };
 };

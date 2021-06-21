@@ -71,8 +71,11 @@ class PLATFORM_EXPORT FetchParameters {
     ResourceWidth() : width(0), is_set(false) {}
   };
 
-  explicit FetchParameters(const ResourceRequest&);
-  FetchParameters(const ResourceRequest&, const ResourceLoaderOptions&);
+  explicit FetchParameters(ResourceRequest);
+  FetchParameters(ResourceRequest, const ResourceLoaderOptions&);
+  FetchParameters(const FetchParameters&) = delete;
+  FetchParameters& operator=(const FetchParameters&) = delete;
+  FetchParameters(FetchParameters&&);
   ~FetchParameters();
 
   ResourceRequest& MutableResourceRequest() { return resource_request_; }
@@ -83,6 +86,10 @@ class PLATFORM_EXPORT FetchParameters {
 
   void SetRequestContext(mojom::RequestContextType context) {
     resource_request_.SetRequestContext(context);
+  }
+
+  void SetRequestDestination(network::mojom::RequestDestination destination) {
+    resource_request_.SetRequestDestination(destination);
   }
 
   void SetFetchImportanceMode(mojom::FetchImportanceMode importance_mode) {
@@ -123,8 +130,7 @@ class PLATFORM_EXPORT FetchParameters {
   SpeculativePreloadType GetSpeculativePreloadType() const {
     return speculative_preload_type_;
   }
-  void SetSpeculativePreloadType(SpeculativePreloadType,
-                                 double discovery_time = 0);
+  void SetSpeculativePreloadType(SpeculativePreloadType);
 
   bool IsLinkPreload() const { return options_.initiator_info.is_link_preload; }
   void SetLinkPreload(bool is_link_preload) {
@@ -137,7 +143,7 @@ class PLATFORM_EXPORT FetchParameters {
   }
 
   void SetContentSecurityCheck(
-      ContentSecurityPolicyDisposition content_security_policy_option) {
+      network::mojom::CSPDisposition content_security_policy_option) {
     options_.content_security_policy_option = content_security_policy_option;
   }
   // Configures the request to use the "cors" mode and the credentials mode
@@ -176,10 +182,6 @@ class PLATFORM_EXPORT FetchParameters {
   ImageRequestOptimization GetImageRequestOptimization() const {
     return image_request_optimization_;
   }
-
-  // Configures the request to load an image as a placeholder and sets the
-  // Client LoFi preview bit.
-  void SetClientLoFiPlaceholder();
 
   // Configures the request to load an image as a placeholder or defers the
   // image and sets the lazy image load bit.

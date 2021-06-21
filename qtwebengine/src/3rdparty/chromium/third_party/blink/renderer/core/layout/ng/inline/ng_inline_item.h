@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef NGInlineItem_h
-#define NGInlineItem_h
+#ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_INLINE_NG_INLINE_ITEM_H_
+#define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_INLINE_NG_INLINE_ITEM_H_
 
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/layout/layout_inline.h"
@@ -66,7 +66,8 @@ class CORE_EXPORT NGInlineItem {
   NGInlineItem(NGInlineItemType type,
                unsigned start,
                unsigned end,
-               LayoutObject* layout_object = nullptr);
+               LayoutObject* layout_object,
+               bool is_first_for_node);
   ~NGInlineItem();
 
   // Copy constructor adjusting start/end and shape results.
@@ -123,6 +124,10 @@ class CORE_EXPORT NGInlineItem {
   }
 
   LayoutObject* GetLayoutObject() const { return layout_object_; }
+
+  bool IsImage() const {
+    return GetLayoutObject() && GetLayoutObject()->IsLayoutImage();
+  }
 
   void SetOffset(unsigned start, unsigned end) {
     DCHECK_GE(end, start);
@@ -195,6 +200,11 @@ class CORE_EXPORT NGInlineItem {
 
   static void Split(Vector<NGInlineItem>&, unsigned index, unsigned offset);
 
+  // Return true if this is the first item created for the node. A node may be
+  // split into multiple inline items due e.g. hard line breaks or bidi
+  // segments.
+  bool IsFirstForNode() const { return is_first_for_node_; }
+
   // RunSegmenter properties.
   unsigned SegmentData() const { return segment_data_; }
   static void SetSegmentData(const RunSegmenter::RunSegmenterRange& range,
@@ -249,7 +259,9 @@ class CORE_EXPORT NGInlineItem {
   unsigned is_end_collapsible_newline_ : 1;
   unsigned is_symbol_marker_ : 1;
   unsigned is_generated_for_line_break_ : 1;
+  unsigned is_first_for_node_ : 1;
   friend class NGInlineNode;
+  friend class NGInlineNodeDataEditor;
 };
 
 inline void NGInlineItem::AssertOffset(unsigned offset) const {
@@ -292,4 +304,4 @@ struct CORE_EXPORT NGInlineItemsData {
 
 }  // namespace blink
 
-#endif  // NGInlineItem_h
+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_INLINE_NG_INLINE_ITEM_H_

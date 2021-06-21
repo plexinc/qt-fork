@@ -46,6 +46,12 @@ CoreAccountId AccountsMutatorImpl::AddOrUpdateAccount(
       account_tracker_service_->SeedAccountInfo(gaia_id, email);
   account_tracker_service_->SetIsAdvancedProtectionAccount(
       account_id, is_under_advanced_protection);
+
+  // Flush the account changes to disk. Otherwise, in case of a browser crash,
+  // the account may be added to the token service but not to the account
+  // tracker, which is not intended.
+  account_tracker_service_->CommitPendingAccountChanges();
+
   token_service_->UpdateCredentials(account_id, refresh_token, source);
 
   return account_id;
@@ -80,7 +86,7 @@ void AccountsMutatorImpl::RemoveAllAccounts(
 void AccountsMutatorImpl::InvalidateRefreshTokenForPrimaryAccount(
     signin_metrics::SourceForRefreshTokenOperation source) {
   DCHECK(primary_account_manager_->IsAuthenticated());
-  AccountInfo primary_account_info =
+  CoreAccountInfo primary_account_info =
       primary_account_manager_->GetAuthenticatedAccountInfo();
   AddOrUpdateAccount(primary_account_info.gaia, primary_account_info.email,
                      GaiaConstants::kInvalidRefreshToken,
@@ -105,12 +111,5 @@ void AccountsMutatorImpl::MoveAccount(AccountsMutator* target,
   RecreateSigninScopedDeviceId(pref_service_);
 }
 #endif
-
-void AccountsMutatorImpl::LegacySetRefreshTokenForSupervisedUser(
-    const std::string& refresh_token) {
-  token_service_->UpdateCredentials(
-      CoreAccountId("managed_user@localhost"), refresh_token,
-      signin_metrics::SourceForRefreshTokenOperation::kSupervisedUser_InitSync);
-}
 
 }  // namespace signin

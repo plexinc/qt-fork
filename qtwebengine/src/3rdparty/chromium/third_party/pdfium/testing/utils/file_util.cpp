@@ -5,6 +5,9 @@
 #include "testing/utils/file_util.h"
 
 #include <stdio.h>
+#include <string.h>
+
+#include "testing/utils/path_service.h"
 
 std::unique_ptr<char, pdfium::FreeDeleter> GetFileContents(const char* filename,
                                                            size_t* retlen) {
@@ -32,4 +35,34 @@ std::unique_ptr<char, pdfium::FreeDeleter> GetFileContents(const char* filename,
   }
   *retlen = bytes_read;
   return buffer;
+}
+
+FileAccessForTesting::FileAccessForTesting(const std::string& file_name) {
+  std::string file_path;
+  if (!PathService::GetTestFilePath(file_name, &file_path))
+    return;
+
+  file_contents_ = GetFileContents(file_path.c_str(), &file_length_);
+  if (!file_contents_)
+    return;
+
+  m_FileLen = static_cast<unsigned long>(file_length_);
+  m_GetBlock = SGetBlock;
+  m_Param = this;
+}
+
+int FileAccessForTesting::GetBlockImpl(unsigned long pos,
+                                       unsigned char* pBuf,
+                                       unsigned long size) {
+  memcpy(pBuf, file_contents_.get() + pos, size);
+  return size;
+}
+
+// static
+int FileAccessForTesting::SGetBlock(void* param,
+                                    unsigned long pos,
+                                    unsigned char* pBuf,
+                                    unsigned long size) {
+  auto* file_access = static_cast<FileAccessForTesting*>(param);
+  return file_access->GetBlockImpl(pos, pBuf, size);
 }

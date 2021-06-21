@@ -17,7 +17,7 @@ class SyncManager;
 class ServiceWorkerRegistration;
 
 class ServiceWorkerRegistrationSync final
-    : public GarbageCollectedFinalized<ServiceWorkerRegistrationSync>,
+    : public GarbageCollected<ServiceWorkerRegistrationSync>,
       public Supplement<ServiceWorkerRegistration> {
   USING_GARBAGE_COLLECTED_MIXIN(ServiceWorkerRegistrationSync);
 
@@ -38,7 +38,7 @@ class ServiceWorkerRegistrationSync final
   PeriodicSyncManager* periodicSync();
   SyncManager* sync();
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
 
  private:
   Member<ServiceWorkerRegistration> registration_;

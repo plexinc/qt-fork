@@ -14,6 +14,7 @@
 #include "base/lazy_instance.h"
 #include "base/sampling_heap_profiler/sampling_heap_profiler.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/trace_event/heap_profiler_event_filter.h"
 #include "base/trace_event/malloc_dump_provider.h"
 #include "base/trace_event/memory_dump_manager.h"
@@ -29,11 +30,13 @@ namespace heap_profiling {
 ProfilingClient::ProfilingClient() = default;
 ProfilingClient::~ProfilingClient() = default;
 
-void ProfilingClient::BindToInterface(mojom::ProfilingClientRequest request) {
-  bindings_.AddBinding(this, std::move(request));
+void ProfilingClient::BindToInterface(
+    mojo::PendingReceiver<mojom::ProfilingClient> receiver) {
+  receivers_.Add(this, std::move(receiver));
 }
 
-void ProfilingClient::StartProfiling(mojom::ProfilingParamsPtr params) {
+void ProfilingClient::StartProfiling(mojom::ProfilingParamsPtr params,
+                                     StartProfilingCallback callback) {
   if (started_profiling_)
     return;
   started_profiling_ = true;
@@ -50,7 +53,7 @@ void ProfilingClient::StartProfiling(mojom::ProfilingParamsPtr params) {
     defined(OFFICIAL_BUILD)
   // On Android the unwinder initialization requires file reading before
   // initializing shim. So, post task on background thread.
-  base::PostTaskWithTraitsAndReply(
+  base::ThreadPool::PostTaskAndReply(
       FROM_HERE,
       {base::TaskPriority::BEST_EFFORT, base::MayBlock(),
        base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN},
@@ -61,9 +64,10 @@ void ProfilingClient::StartProfiling(mojom::ProfilingParamsPtr params) {
         DCHECK(can_unwind);
       }),
       base::BindOnce(&ProfilingClient::StartProfilingInternal,
-                     base::Unretained(this), std::move(params)));
+                     base::Unretained(this), std::move(params),
+                     std::move(callback)));
 #else
-  StartProfilingInternal(std::move(params));
+  StartProfilingInternal(std::move(params), std::move(callback));
 #endif
 }
 
@@ -168,13 +172,15 @@ bool SetOnInitAllocatorShimCallbackForTesting(
   return false;
 }
 
-void ProfilingClient::StartProfilingInternal(mojom::ProfilingParamsPtr params) {
+void ProfilingClient::StartProfilingInternal(mojom::ProfilingParamsPtr params,
+                                             StartProfilingCallback callback) {
   size_t sampling_rate = params->sampling_rate;
   InitAllocationRecorder(std::move(params));
   auto* profiler = base::SamplingHeapProfiler::Get();
   profiler->SetSamplingInterval(sampling_rate);
   profiler->Start();
   AllocatorHooksHaveBeenInitialized();
+  std::move(callback).Run();
 }
 
 void ProfilingClient::RetrieveHeapProfile(
@@ -192,6 +198,7 @@ void ProfilingClient::RetrieveHeapProfile(
     auto mojo_sample = mojom::HeapProfileSample::New();
     mojo_sample->allocator = ConvertType(sample.allocator);
     mojo_sample->size = sample.size;
+    mojo_sample->total = sample.total;
     mojo_sample->context_id = reinterpret_cast<uintptr_t>(sample.context);
     mojo_sample->stack.reserve(sample.stack.size() +
                                (g_include_thread_names ? 1 : 0));

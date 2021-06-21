@@ -15,12 +15,13 @@
 #include "osp/public/presentation/presentation_controller.h"
 #include "osp/public/presentation/presentation_receiver.h"
 #include "osp/public/protocol_connection.h"
-#include "platform/api/logging.h"
+#include "util/logging.h"
 #include "util/std_util.h"
 
-// TODO(issue/27): Address TODOs in this file
+// TODO(crbug.com/openscreen/27): Address TODOs in this file
+
 namespace openscreen {
-namespace presentation {
+namespace osp {
 
 namespace {
 
@@ -180,13 +181,12 @@ void ConnectionManager::RemoveConnection(Connection* connection) {
 // TODO(jophba): refine the RegisterWatch/OnStreamMessage API. We
 // should add a layer between the message logic and the parse/dispatch
 // logic, and remove the CBOR information from ConnectionManager.
-ErrorOr<size_t> ConnectionManager::OnStreamMessage(
-    uint64_t endpoint_id,
-    uint64_t connection_id,
-    msgs::Type message_type,
-    const uint8_t* buffer,
-    size_t buffer_size,
-    platform::Clock::time_point now) {
+ErrorOr<size_t> ConnectionManager::OnStreamMessage(uint64_t endpoint_id,
+                                                   uint64_t connection_id,
+                                                   msgs::Type message_type,
+                                                   const uint8_t* buffer,
+                                                   size_t buffer_size,
+                                                   Clock::time_point now) {
   switch (message_type) {
     case msgs::Type::kPresentationConnectionMessage: {
       msgs::PresentationConnectionMessage message;
@@ -199,7 +199,7 @@ ErrorOr<size_t> ConnectionManager::OnStreamMessage(
 
       Connection* connection = GetConnection(message.connection_id);
       if (!connection) {
-        return Error::Code::kNoItemFound;
+        return Error::Code::kItemNotFound;
       }
 
       switch (message.message.which) {
@@ -291,5 +291,5 @@ Connection* ConnectionManager::GetConnection(uint64_t connection_id) {
   return nullptr;
 }
 
-}  // namespace presentation
+}  // namespace osp
 }  // namespace openscreen

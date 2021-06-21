@@ -16,6 +16,7 @@
 #include "build/build_config.h"
 #include "components/autofill/core/browser/autofill_client.h"
 #include "components/autofill/core/browser/mock_autocomplete_history_manager.h"
+#include "components/autofill/core/browser/payments/legal_message_line.h"
 #include "components/autofill/core/browser/payments/test_payments_client.h"
 #include "components/autofill/core/browser/payments/test_strike_database.h"
 #include "components/autofill/core/browser/test_address_normalizer.h"
@@ -47,6 +48,10 @@ class TestAutofillClient : public AutofillClient {
   ukm::SourceId GetUkmSourceId() override;
   AddressNormalizer* GetAddressNormalizer() override;
   security_state::SecurityLevel GetSecurityLevelForUmaHistograms() override;
+#if !defined(OS_ANDROID) && !defined(OS_IOS)
+  std::vector<std::string> GetMerchantWhitelistForVirtualCards() override;
+  std::vector<std::string> GetBinRangeWhitelistForVirtualCards() override;
+#endif
   void ShowAutofillSettings(bool show_credit_card_settings) override;
   void ShowUnmaskPrompt(const CreditCard& card,
                         UnmaskCardReason reason,
@@ -55,7 +60,7 @@ class TestAutofillClient : public AutofillClient {
   void ShowLocalCardMigrationDialog(
       base::OnceClosure show_migration_dialog_closure) override;
   void ConfirmMigrateLocalCardToCloud(
-      std::unique_ptr<base::DictionaryValue> legal_message,
+      const LegalMessageLines& legal_message_lines,
       const std::string& user_email,
       const std::vector<MigratableCreditCard>& migratable_credit_cards,
       LocalCardMigrationCallback start_migrating_cards_callback) override;
@@ -64,30 +69,44 @@ class TestAutofillClient : public AutofillClient {
       const base::string16& tip_message,
       const std::vector<MigratableCreditCard>& migratable_credit_cards,
       MigrationDeleteCardCallback delete_local_card_callback) override;
+#if !defined(OS_ANDROID) && !defined(OS_IOS)
+  void ShowWebauthnOfferDialog(
+      WebauthnDialogCallback offer_dialog_callback) override;
+  void ShowWebauthnVerifyPendingDialog(
+      WebauthnDialogCallback verify_pending_dialog_callback) override;
+  void UpdateWebauthnOfferDialogWithError() override;
+  bool CloseWebauthnDialog() override;
+  void ConfirmSaveUpiIdLocally(
+      const std::string& upi_id,
+      base::OnceCallback<void(bool accept)> callback) override;
+  void OfferVirtualCardOptions(
+      const std::vector<CreditCard*>& candidates,
+      base::OnceCallback<void(const std::string&)> callback) override;
+#endif
   void ConfirmSaveAutofillProfile(const AutofillProfile& profile,
                                   base::OnceClosure callback) override;
   void ConfirmSaveCreditCardLocally(
       const CreditCard& card,
       SaveCreditCardOptions options,
       LocalSaveCardPromptCallback callback) override;
-#if defined(OS_ANDROID)
+#if defined(OS_ANDROID) || defined(OS_IOS)
   void ConfirmAccountNameFixFlow(
       base::OnceCallback<void(const base::string16&)> callback) override;
   void ConfirmExpirationDateFixFlow(
       const CreditCard& card,
       base::OnceCallback<void(const base::string16&, const base::string16&)>
           callback) override;
-#endif  // defined(OS_ANDROID)
+#endif  // defined(OS_ANDROID) || defined(OS_IOS)
   void ConfirmSaveCreditCardToCloud(
       const CreditCard& card,
-      std::unique_ptr<base::DictionaryValue> legal_message,
+      const LegalMessageLines& legal_message_lines,
       SaveCreditCardOptions options,
       UploadSaveCardPromptCallback callback) override;
   void CreditCardUploadCompleted(bool card_saved) override;
   void ConfirmCreditCardFillAssist(const CreditCard& card,
                                    base::OnceClosure callback) override;
   bool HasCreditCardScanFeature() override;
-  void ScanCreditCard(const CreditCardScanCallback& callback) override;
+  void ScanCreditCard(CreditCardScanCallback callback) override;
   void ShowAutofillPopup(
       const gfx::RectF& element_bounds,
       base::i18n::TextDirection text_direction,
@@ -98,7 +117,11 @@ class TestAutofillClient : public AutofillClient {
   void UpdateAutofillPopupDataListValues(
       const std::vector<base::string16>& values,
       const std::vector<base::string16>& labels) override;
-  void HideAutofillPopup() override;
+  base::span<const autofill::Suggestion> GetPopupSuggestions() const override;
+  void PinPopupView() override;
+  void UpdatePopup(const std::vector<autofill::Suggestion>& suggestions,
+                   PopupType popup_type) override;
+  void HideAutofillPopup(PopupHidingReason reason) override;
   bool IsAutocompleteEnabled() override;
   void PropagateAutofillPredictions(
       content::RenderFrameHost* rfh,
@@ -151,12 +174,28 @@ class TestAutofillClient : public AutofillClient {
     security_level_ = security_level;
   }
 
+#if !defined(OS_ANDROID) && !defined(OS_IOS)
+  void set_merchant_whitelist(
+      const std::vector<std::string>& merchant_whitelist) {
+    merchant_whitelist_ = merchant_whitelist;
+  }
+
+  void set_bin_range_whitelist(
+      const std::vector<std::string>& bin_range_whitelist) {
+    bin_range_whitelist_ = bin_range_whitelist;
+  }
+#endif
+
   bool ConfirmSaveCardLocallyWasCalled() {
     return confirm_save_credit_card_locally_called_;
   }
 
   bool get_offer_to_save_credit_card_bubble_was_shown() {
     return offer_to_save_credit_card_bubble_was_shown_.value();
+  }
+
+  SaveCreditCardOptions get_save_credit_card_options() {
+    return save_credit_card_options_.value();
   }
 
   MockAutocompleteHistoryManager* GetMockAutocompleteHistoryManager() {
@@ -200,7 +239,15 @@ class TestAutofillClient : public AutofillClient {
   // otherwise.
   base::Optional<bool> credit_card_name_fix_flow_bubble_was_shown_;
 
+  // Populated if local save or upload was offered.
+  base::Optional<SaveCreditCardOptions> save_credit_card_options_;
+
   std::vector<std::string> migration_card_selection_;
+
+#if !defined(OS_ANDROID) && !defined(OS_IOS)
+  std::vector<std::string> merchant_whitelist_;
+  std::vector<std::string> bin_range_whitelist_;
+#endif
 
   DISALLOW_COPY_AND_ASSIGN(TestAutofillClient);
 };

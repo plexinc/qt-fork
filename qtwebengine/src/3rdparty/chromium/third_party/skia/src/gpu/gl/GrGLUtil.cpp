@@ -121,7 +121,7 @@ void GrGLGetDriverInfo(GrGLStandard standard,
     }
 
     static const char kChromium[] = "Chromium";
-    char suffix[SK_ARRAY_COUNT(kChromium)];
+    char suffix[SK_ARRAY_COUNT(kChromium)] = {0};
     if (0 == strcmp(rendererString, kChromium) ||
         (3 == sscanf(versionString, "OpenGL ES %d.%d %8s", &major, &minor, suffix) &&
          0 == strcmp(kChromium, suffix))) {
@@ -130,12 +130,12 @@ void GrGLGetDriverInfo(GrGLStandard standard,
     }
 
     if (GR_IS_GR_GL(standard)) {
-        if (kNVIDIA_GrGLVendor == vendor) {
+        if (vendor == kNVIDIA_GrGLVendor) {
             *outDriver = kNVIDIA_GrGLDriver;
             int n = sscanf(versionString, "%d.%d.%d NVIDIA %d.%d",
                            &major, &minor, &rev, &driverMajor, &driverMinor);
             // Some older NVIDIA drivers don't report the driver version.
-            if (5 == n) {
+            if (n == 5) {
                 *outVersion = GR_GL_DRIVER_VER(driverMajor, driverMinor, 0);
             }
             return;
@@ -146,18 +146,18 @@ void GrGLGetDriverInfo(GrGLStandard standard,
             n = sscanf(versionString, "%d.%d (Core Profile) Mesa %d.%d",
                        &major, &minor, &driverMajor, &driverMinor);
         }
-        if (4 == n) {
+        if (n == 4) {
             *outDriver = kMesa_GrGLDriver;
             *outVersion = GR_GL_DRIVER_VER(driverMajor, driverMinor, 0);
             return;
         }
     } else if (GR_IS_GR_GL_ES(standard)) {
-        if (kNVIDIA_GrGLVendor == vendor) {
+        if (vendor == kNVIDIA_GrGLVendor) {
             *outDriver = kNVIDIA_GrGLDriver;
             int n = sscanf(versionString, "OpenGL ES %d.%d NVIDIA %d.%d",
                            &major, &minor, &driverMajor, &driverMinor);
             // Some older NVIDIA drivers don't report the driver version.
-            if (4 == n) {
+            if (n == 4) {
                 *outVersion = GR_GL_DRIVER_VER(driverMajor, driverMinor, 0);
             }
             return;
@@ -165,7 +165,7 @@ void GrGLGetDriverInfo(GrGLStandard standard,
 
         int n = sscanf(versionString, "OpenGL ES %d.%d Mesa %d.%d",
                        &major, &minor, &driverMajor, &driverMinor);
-        if (4 == n) {
+        if (n == 4) {
             *outDriver = kMesa_GrGLDriver;
             *outVersion = GR_GL_DRIVER_VER(driverMajor, driverMinor, 0);
             return;
@@ -174,14 +174,14 @@ void GrGLGetDriverInfo(GrGLStandard standard,
             *outDriver = kANGLE_GrGLDriver;
             n = sscanf(versionString, "OpenGL ES %d.%d (ANGLE %d.%d", &major, &minor, &driverMajor,
                                                                       &driverMinor);
-            if (4 == n) {
+            if (n == 4) {
                 *outVersion = GR_GL_DRIVER_VER(driverMajor, driverMinor, 0);
             }
             return;
         }
     }
 
-    if (kGoogle_GrGLVendor == vendor) {
+    if (vendor == kGoogle_GrGLVendor) {
         // Swiftshader is the only Google vendor at the moment
         *outDriver = kSwiftShader_GrGLDriver;
 
@@ -190,13 +190,13 @@ void GrGLGetDriverInfo(GrGLStandard standard,
         // As of writing, version is 4.0.0.6
         int n = sscanf(versionString, "OpenGL ES %d.%d SwiftShader %d.%d.0.%d", &major, &minor,
                        &driverMajor, &driverMinor, &driverPoint);
-        if (5 == n) {
+        if (n == 5) {
             *outVersion = GR_GL_DRIVER_VER(driverMajor, driverMinor, driverPoint);
         }
         return;
     }
 
-    if (kIntel_GrGLVendor == vendor) {
+    if (vendor == kIntel_GrGLVendor) {
         // We presume we're on the Intel driver since it hasn't identified itself as Mesa.
         *outDriver = kIntel_GrGLDriver;
 
@@ -204,19 +204,36 @@ void GrGLGetDriverInfo(GrGLStandard standard,
         // OSes.
         int n = sscanf(versionString, "%d.%d INTEL-%d.%d.%d", &major, &minor, &driverMajor,
                        &driverMinor, &driverPoint);
-        if (5 == n) {
+        if (n == 5) {
             *outVersion = GR_GL_DRIVER_VER(driverMajor, driverMinor, driverPoint);
         }
     }
 
-    if (kQualcomm_GrGLVendor == vendor) {
+    if (vendor == kQualcomm_GrGLVendor) {
         *outDriver = kQualcomm_GrGLDriver;
         int n = sscanf(versionString, "OpenGL ES %d.%d V@%d.%d", &major, &minor, &driverMajor,
                        &driverMinor);
-        if (4 == n) {
+        if (n == 4) {
             *outVersion = GR_GL_DRIVER_VER(driverMajor, driverMinor, 0);
         }
         return;
+    }
+
+    if (vendor == kImagination_GrGLVendor) {
+        int revision;
+        int n = sscanf(versionString, "OpenGL ES %d.%d build %d.%d@%d", &major, &minor,
+                       &driverMajor, &driverMinor, &revision);
+        if (n == 5) {
+            // Revision is a large number (looks like a source control revision number) that
+            // doesn't fit into the 'patch' bits, so omit it until we need it.
+            *outVersion = GR_GL_DRIVER_VER(driverMajor, driverMinor, 0);
+        }
+        return;
+    }
+
+    static constexpr char kEmulatorPrefix[] = "Android Emulator OpenGL ES Translator";
+    if (0 == strncmp(kEmulatorPrefix, rendererString, strlen(kEmulatorPrefix))) {
+        *outDriver = kAndroidEmulator_GrGLDriver;
     }
 }
 
@@ -376,6 +393,15 @@ GrGLRenderer GrGLGetRendererFromStrings(const char* rendererString,
                 if (adrenoNumber < 600) {
                     return kAdreno5xx_GrGLRenderer;
                 }
+                if (adrenoNumber == 615) {
+                    return kAdreno615_GrGLRenderer;
+                }
+                if (adrenoNumber == 630) {
+                    return kAdreno630_GrGLRenderer;
+                }
+                if (adrenoNumber == 640) {
+                    return kAdreno640_GrGLRenderer;
+                }
             }
         }
         if (0 == strcmp("Google SwiftShader", rendererString)) {
@@ -451,28 +477,44 @@ GrGLRenderer GrGLGetRendererFromStrings(const char* rendererString,
         }
 
         // The AMD string can have a somewhat arbitrary preamble (see skbug.com/7195)
-        if (const char* amdString = strstr(rendererString, "Radeon")) {
+        static constexpr char kRadeonStr[] = "Radeon ";
+        if (const char* amdString = strstr(rendererString, kRadeonStr)) {
+            amdString += strlen(kRadeonStr);
             char amdGeneration, amdTier, amdRevision;
-            n = sscanf(amdString, "Radeon (TM) R9 M%c%c%c",
-                                       &amdGeneration, &amdTier, &amdRevision);
+            // Sometimes there is a (TM) and sometimes not.
+            static constexpr char kTMStr[] = "(TM) ";
+            if (!strncmp(amdString, kTMStr, strlen(kTMStr))) {
+                amdString += strlen(kTMStr);
+            }
+            n = sscanf(amdString, "R9 M%c%c%c", &amdGeneration, &amdTier, &amdRevision);
             if (3 == n) {
-                if ('4' == amdGeneration) {
+                if ('3' == amdGeneration) {
+                    return kAMDRadeonR9M3xx_GrGLRenderer;
+                } else if ('4' == amdGeneration) {
                     return kAMDRadeonR9M4xx_GrGLRenderer;
                 }
             }
 
             char amd0, amd1, amd2;
-            n = sscanf(amdString, "Radeon HD 7%c%c%c Series", &amd0, &amd1, &amd2);
+            n = sscanf(amdString, "HD 7%c%c%c Series", &amd0, &amd1, &amd2);
             if (3 == n) {
                 return kAMDRadeonHD7xxx_GrGLRenderer;
             }
+
+            int amdVegaModel=0;
+            n = sscanf(amdString, "Pro Vega %i", &amdVegaModel);
+            if (1 == n) {
+                return kAMDRadeonProVegaxx_GrGLRenderer;
+            }
+
         }
 
-        if (0 == strcmp("Mesa Offscreen", rendererString)) {
-            return kOSMesa_GrGLRenderer;
-        }
         if (strstr(rendererString, "llvmpipe")) {
             return kGalliumLLVM_GrGLRenderer;
+        }
+        static const char kMaliGStr[] = "Mali-G";
+        if (0 == strncmp(rendererString, kMaliGStr, SK_ARRAY_COUNT(kMaliGStr) - 1)) {
+            return kMaliG_GrGLRenderer;
         }
         static const char kMaliTStr[] = "Mali-T";
         if (0 == strncmp(rendererString, kMaliTStr, SK_ARRAY_COUNT(kMaliTStr) - 1)) {
@@ -581,14 +623,14 @@ GrGLenum GrToGLStencilFunc(GrStencilTest test) {
         GR_GL_EQUAL,            // kEqual
         GR_GL_NOTEQUAL,         // kNotEqual
     };
-    GR_STATIC_ASSERT(0 == (int)GrStencilTest::kAlways);
-    GR_STATIC_ASSERT(1 == (int)GrStencilTest::kNever);
-    GR_STATIC_ASSERT(2 == (int)GrStencilTest::kGreater);
-    GR_STATIC_ASSERT(3 == (int)GrStencilTest::kGEqual);
-    GR_STATIC_ASSERT(4 == (int)GrStencilTest::kLess);
-    GR_STATIC_ASSERT(5 == (int)GrStencilTest::kLEqual);
-    GR_STATIC_ASSERT(6 == (int)GrStencilTest::kEqual);
-    GR_STATIC_ASSERT(7 == (int)GrStencilTest::kNotEqual);
+    static_assert(0 == (int)GrStencilTest::kAlways, "");
+    static_assert(1 == (int)GrStencilTest::kNever, "");
+    static_assert(2 == (int)GrStencilTest::kGreater, "");
+    static_assert(3 == (int)GrStencilTest::kGEqual, "");
+    static_assert(4 == (int)GrStencilTest::kLess, "");
+    static_assert(5 == (int)GrStencilTest::kLEqual, "");
+    static_assert(6 == (int)GrStencilTest::kEqual, "");
+    static_assert(7 == (int)GrStencilTest::kNotEqual, "");
     SkASSERT(test < (GrStencilTest)kGrStencilTestCount);
 
     return gTable[(int)test];
@@ -596,8 +638,10 @@ GrGLenum GrToGLStencilFunc(GrStencilTest test) {
 
 bool GrGLFormatIsCompressed(GrGLFormat format) {
     switch (format) {
-        case GrGLFormat::kCOMPRESSED_RGB8_ETC2:
         case GrGLFormat::kCOMPRESSED_ETC1_RGB8:
+        case GrGLFormat::kCOMPRESSED_RGB8_ETC2:
+        case GrGLFormat::kCOMPRESSED_RGB8_BC1:
+        case GrGLFormat::kCOMPRESSED_RGBA8_BC1:
             return true;
 
         case GrGLFormat::kRGBA8:
@@ -613,7 +657,6 @@ bool GrGLFormatIsCompressed(GrGLFormat format) {
         case GrGLFormat::kRG8:
         case GrGLFormat::kRGB10_A2:
         case GrGLFormat::kRGBA4:
-        case GrGLFormat::kRGBA32F:
         case GrGLFormat::kSRGB8_ALPHA8:
         case GrGLFormat::kR16:
         case GrGLFormat::kRG16:
@@ -625,12 +668,15 @@ bool GrGLFormatIsCompressed(GrGLFormat format) {
     SkUNREACHABLE;
 }
 
-bool GrGLFormatToCompressionType(GrGLFormat format, SkImage::CompressionType* compressionType) {
+SkImage::CompressionType GrGLFormatToCompressionType(GrGLFormat format) {
     switch (format) {
-        case GrGLFormat::kCOMPRESSED_RGB8_ETC2:
         case GrGLFormat::kCOMPRESSED_ETC1_RGB8:
-            *compressionType = SkImage::kETC1_CompressionType;
-            return true;
+        case GrGLFormat::kCOMPRESSED_RGB8_ETC2:
+            return SkImage::CompressionType::kETC2_RGB8_UNORM;
+        case GrGLFormat::kCOMPRESSED_RGB8_BC1:
+            return SkImage::CompressionType::kBC1_RGB8_UNORM;
+        case GrGLFormat::kCOMPRESSED_RGBA8_BC1:
+            return SkImage::CompressionType::kBC1_RGBA8_UNORM;
 
         case GrGLFormat::kRGBA8:
         case GrGLFormat::kR8:
@@ -645,55 +691,14 @@ bool GrGLFormatToCompressionType(GrGLFormat format, SkImage::CompressionType* co
         case GrGLFormat::kRG8:
         case GrGLFormat::kRGB10_A2:
         case GrGLFormat::kRGBA4:
-        case GrGLFormat::kRGBA32F:
         case GrGLFormat::kSRGB8_ALPHA8:
         case GrGLFormat::kR16:
         case GrGLFormat::kRG16:
         case GrGLFormat::kRGBA16:
         case GrGLFormat::kRG16F:
         case GrGLFormat::kUnknown:
-            return false;
+            return SkImage::CompressionType::kNone;
     }
     SkUNREACHABLE;
 }
 
-size_t GrGLBytesPerFormat(GrGLFormat glFormat) {
-    switch (glFormat) {
-        case GrGLFormat::kLUMINANCE8:
-        case GrGLFormat::kALPHA8:
-        case GrGLFormat::kR8:
-            return 1;
-
-        case GrGLFormat::kRGB565:
-        case GrGLFormat::kRGBA4:
-        case GrGLFormat::kRG8:
-        case GrGLFormat::kR16F:
-        case GrGLFormat::kLUMINANCE16F:
-        case GrGLFormat::kR16:
-            return 2;
-
-        case GrGLFormat::kRGB8:
-            return 3;
-
-        case GrGLFormat::kRGBA8:
-        case GrGLFormat::kSRGB8_ALPHA8:
-        case GrGLFormat::kBGRA8:
-        case GrGLFormat::kRGB10_A2:
-        case GrGLFormat::kRG16:
-        case GrGLFormat::kRG16F:
-            return 4;
-
-        case GrGLFormat::kRGBA16F:
-        case GrGLFormat::kRGBA16:
-            return 8;
-
-        case GrGLFormat::kRGBA32F:
-            return 16;
-
-        case GrGLFormat::kCOMPRESSED_RGB8_ETC2:
-        case GrGLFormat::kCOMPRESSED_ETC1_RGB8:
-        case GrGLFormat::kUnknown:
-            return 0;
-    }
-    SkUNREACHABLE;
-}

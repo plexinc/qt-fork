@@ -15,7 +15,7 @@
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/scoped_mock_time_message_loop_task_runner.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "components/password_manager/core/browser/android_affiliation/affiliation_service.h"
 #include "components/password_manager/core/browser/android_affiliation/affiliation_utils.h"
 #include "components/password_manager/core/browser/test_password_store.h"
@@ -270,8 +270,8 @@ class AffiliatedMatchHelperTest : public testing::Test {
     expecting_result_callback_ = true;
     match_helper()->GetAffiliatedAndroidRealms(
         observed_form,
-        base::Bind(&AffiliatedMatchHelperTest::OnAffiliatedRealmsCallback,
-                   base::Unretained(this)));
+        base::BindOnce(&AffiliatedMatchHelperTest::OnAffiliatedRealmsCallback,
+                       base::Unretained(this)));
     RunUntilIdle();
     EXPECT_FALSE(expecting_result_callback_);
     return last_result_realms_;
@@ -282,8 +282,8 @@ class AffiliatedMatchHelperTest : public testing::Test {
     expecting_result_callback_ = true;
     match_helper()->GetAffiliatedWebRealms(
         android_form,
-        base::Bind(&AffiliatedMatchHelperTest::OnAffiliatedRealmsCallback,
-                   base::Unretained(this)));
+        base::BindOnce(&AffiliatedMatchHelperTest::OnAffiliatedRealmsCallback,
+                       base::Unretained(this)));
     RunUntilIdle();
     EXPECT_FALSE(expecting_result_callback_);
     return last_result_realms_;
@@ -295,8 +295,8 @@ class AffiliatedMatchHelperTest : public testing::Test {
     expecting_result_callback_ = true;
     match_helper()->InjectAffiliationAndBrandingInformation(
         std::move(forms),
-        base::Bind(&AffiliatedMatchHelperTest::OnFormsCallback,
-                   base::Unretained(this)));
+        base::BindOnce(&AffiliatedMatchHelperTest::OnFormsCallback,
+                       base::Unretained(this)));
     RunUntilIdle();
     EXPECT_FALSE(expecting_result_callback_);
     return std::move(last_result_forms_);
@@ -334,7 +334,7 @@ class AffiliatedMatchHelperTest : public testing::Test {
     mock_affiliation_service_ = service.get();
 
     password_store_ = new TestPasswordStore;
-    password_store_->Init(syncer::SyncableService::StartSyncFlare(), nullptr);
+    password_store_->Init(nullptr);
 
     match_helper_.reset(
         new AffiliatedMatchHelper(password_store_.get(), std::move(service)));
@@ -348,7 +348,7 @@ class AffiliatedMatchHelperTest : public testing::Test {
     RunUntilIdle();
   }
 
-  base::test::ScopedTaskEnvironment task_environment_;
+  base::test::SingleThreadTaskEnvironment task_environment_;
   base::ScopedMockTimeMessageLoopTaskRunner mock_time_task_runner_;
 
   std::vector<std::string> last_result_realms_;

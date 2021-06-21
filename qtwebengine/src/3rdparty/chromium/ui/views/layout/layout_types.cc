@@ -6,34 +6,12 @@
 
 #include <algorithm>
 
-#include "base/strings/stringprintf.h"
-#include "ui/gfx/geometry/size.h"
+#include "base/strings/strcat.h"
+#include "base/strings/string_number_conversions.h"
 
 namespace views {
 
-namespace {
-
-std::string OptionalToString(const base::Optional<int>& opt) {
-  if (!opt.has_value())
-    return "_";
-  return base::StringPrintf("%d", opt.value());
-}
-
-}  // namespace
-
 // SizeBounds ------------------------------------------------------------------
-
-SizeBounds::SizeBounds() = default;
-
-SizeBounds::SizeBounds(const base::Optional<int>& width,
-                       const base::Optional<int>& height)
-    : width_(width), height_(height) {}
-
-SizeBounds::SizeBounds(const SizeBounds& other)
-    : width_(other.width()), height_(other.height()) {}
-
-SizeBounds::SizeBounds(const gfx::Size& other)
-    : width_(other.width()), height_(other.height()) {}
 
 void SizeBounds::Enlarge(int width, int height) {
   if (width_)
@@ -42,21 +20,14 @@ void SizeBounds::Enlarge(int width, int height) {
     height_ = std::max(0, *height_ + height);
 }
 
-bool SizeBounds::operator==(const SizeBounds& other) const {
-  return width_ == other.width_ && height_ == other.height_;
-}
-
-bool SizeBounds::operator!=(const SizeBounds& other) const {
-  return !(*this == other);
-}
-
-bool SizeBounds::operator<(const SizeBounds& other) const {
-  return std::tie(height_, width_) < std::tie(other.height_, other.width_);
-}
-
 std::string SizeBounds::ToString() const {
-  return base::StringPrintf("%s x %s", OptionalToString(width()).c_str(),
-                            OptionalToString(height()).c_str());
+  return base::StrCat({width_ ? base::NumberToString(*width_) : "_", " x ",
+                       height_ ? base::NumberToString(*height_) : "_"});
+}
+
+bool CanFitInBounds(const gfx::Size& size, const SizeBounds& bounds) {
+  return (!bounds.width() || (*bounds.width() >= size.width())) &&
+         (!bounds.height() || (*bounds.height() >= size.height()));
 }
 
 }  // namespace views

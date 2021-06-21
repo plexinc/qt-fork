@@ -12,7 +12,8 @@
 #include "net/third_party/quiche/src/quic/platform/api/quic_flag_utils.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_str_cat.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_str_cat.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 namespace {
@@ -33,8 +34,7 @@ QuicStreamSequencerBuffer::QuicStreamSequencerBuffer(size_t max_capacity_bytes)
     : max_buffer_capacity_bytes_(max_capacity_bytes),
       blocks_count_(CalculateBlockCount(max_capacity_bytes)),
       total_bytes_read_(0),
-      blocks_(nullptr),
-      total_bytes_prefetched_(0) {
+      blocks_(nullptr) {
   Clear();
 }
 
@@ -53,23 +53,22 @@ void QuicStreamSequencerBuffer::Clear() {
   num_bytes_buffered_ = 0;
   bytes_received_.Clear();
   bytes_received_.Add(0, total_bytes_read_);
-  total_bytes_prefetched_ = total_bytes_read_;
 }
 
-bool QuicStreamSequencerBuffer::RetireBlock(size_t idx) {
-  if (blocks_[idx] == nullptr) {
+bool QuicStreamSequencerBuffer::RetireBlock(size_t index) {
+  if (blocks_[index] == nullptr) {
     QUIC_BUG << "Try to retire block twice";
     return false;
   }
-  delete blocks_[idx];
-  blocks_[idx] = nullptr;
-  QUIC_DVLOG(1) << "Retired block with index: " << idx;
+  delete blocks_[index];
+  blocks_[index] = nullptr;
+  QUIC_DVLOG(1) << "Retired block with index: " << index;
   return true;
 }
 
 QuicErrorCode QuicStreamSequencerBuffer::OnStreamData(
     QuicStreamOffset starting_offset,
-    QuicStringPiece data,
+    quiche::QuicheStringPiece data,
     size_t* const bytes_buffered,
     std::string* error_details) {
   *bytes_buffered = 0;
@@ -136,7 +135,7 @@ QuicErrorCode QuicStreamSequencerBuffer::OnStreamData(
 }
 
 bool QuicStreamSequencerBuffer::CopyStreamData(QuicStreamOffset offset,
-                                               QuicStringPiece data,
+                                               quiche::QuicheStringPiece data,
                                                size_t* bytes_copy,
                                                std::string* error_details) {
   *bytes_copy = 0;
@@ -170,7 +169,7 @@ bool QuicStreamSequencerBuffer::CopyStreamData(QuicStreamOffset offset,
     }
 
     if (write_block_num >= blocks_count_) {
-      *error_details = QuicStrCat(
+      *error_details = quiche::QuicheStrCat(
           "QuicStreamSequencerBuffer error: OnStreamData() exceed array bounds."
           "write offset = ",
           offset, " write_block_num = ", write_block_num,
@@ -195,12 +194,12 @@ bool QuicStreamSequencerBuffer::CopyStreamData(QuicStreamOffset offset,
                   << " length: " << bytes_to_copy;
 
     if (dest == nullptr || source == nullptr) {
-      *error_details = QuicStrCat(
+      *error_details = quiche::QuicheStrCat(
           "QuicStreamSequencerBuffer error: OnStreamData()"
           " dest == nullptr: ",
           (dest == nullptr), " source == nullptr: ", (source == nullptr),
-          " Writing at offset ", offset, " Gaps: ", GapsDebugString(),
-          " Remaining frames: ", ReceivedFramesDebugString(),
+          " Writing at offset ", offset,
+          " Received frames: ", ReceivedFramesDebugString(),
           " total_bytes_read_ = ", total_bytes_read_);
       return false;
     }
@@ -232,13 +231,12 @@ QuicErrorCode QuicStreamSequencerBuffer::Readv(const iovec* dest_iov,
           std::min<size_t>(bytes_available_in_block, dest_remaining);
       DCHECK_GT(bytes_to_copy, 0u);
       if (blocks_[block_idx] == nullptr || dest == nullptr) {
-        *error_details = QuicStrCat(
+        *error_details = quiche::QuicheStrCat(
             "QuicStreamSequencerBuffer error:"
             " Readv() dest == nullptr: ",
             (dest == nullptr), " blocks_[", block_idx,
             "] == nullptr: ", (blocks_[block_idx] == nullptr),
-            " Gaps: ", GapsDebugString(),
-            " Remaining frames: ", ReceivedFramesDebugString(),
+            " Received frames: ", ReceivedFramesDebugString(),
             " total_bytes_read_ = ", total_bytes_read_);
         return QUIC_STREAM_SEQUENCER_INVALID_STATE;
       }
@@ -257,26 +255,25 @@ QuicErrorCode QuicStreamSequencerBuffer::Readv(const iovec* dest_iov,
       if (bytes_to_copy == bytes_available_in_block) {
         bool retire_successfully = RetireBlockIfEmpty(block_idx);
         if (!retire_successfully) {
-          *error_details = QuicStrCat(
+          *error_details = quiche::QuicheStrCat(
               "QuicStreamSequencerBuffer error: fail to retire block ",
               block_idx,
               " as the block is already released, total_bytes_read_ = ",
-              total_bytes_read_, " Gaps: ", GapsDebugString());
+              total_bytes_read_,
+              " Received frames: ", ReceivedFramesDebugString());
           return QUIC_STREAM_SEQUENCER_INVALID_STATE;
         }
       }
     }
   }
-  total_bytes_prefetched_ =
-      std::max(total_bytes_prefetched_, total_bytes_read_);
 
   return QUIC_NO_ERROR;
 }
 
 int QuicStreamSequencerBuffer::GetReadableRegions(struct iovec* iov,
-                                                  int iov_count) const {
+                                                  int iov_len) const {
   DCHECK(iov != nullptr);
-  DCHECK_GT(iov_count, 0);
+  DCHECK_GT(iov_len, 0);
 
   if (ReadableBytes() == 0) {
     iov[0].iov_base = nullptr;
@@ -311,7 +308,7 @@ int QuicStreamSequencerBuffer::GetReadableRegions(struct iovec* iov,
   // a region.
   int iov_used = 1;
   size_t block_idx = (start_block_idx + iov_used) % blocks_count_;
-  while (block_idx != end_block_idx && iov_used < iov_count) {
+  while (block_idx != end_block_idx && iov_used < iov_len) {
     DCHECK(nullptr != blocks_[block_idx]);
     iov[iov_used].iov_base = blocks_[block_idx]->buffer;
     iov[iov_used].iov_len = GetBlockCapacity(block_idx);
@@ -321,7 +318,7 @@ int QuicStreamSequencerBuffer::GetReadableRegions(struct iovec* iov,
   }
 
   // Deal with last block if |iov| can hold more.
-  if (iov_used < iov_count) {
+  if (iov_used < iov_len) {
     DCHECK(nullptr != blocks_[block_idx]);
     iov[iov_used].iov_base = blocks_[end_block_idx]->buffer;
     iov[iov_used].iov_len = end_block_offset + 1;
@@ -367,24 +364,11 @@ bool QuicStreamSequencerBuffer::PeekRegion(QuicStreamOffset offset,
   return true;
 }
 
-bool QuicStreamSequencerBuffer::PrefetchNextRegion(iovec* iov) {
-  DCHECK(iov);
-  DCHECK_LE(total_bytes_read_, total_bytes_prefetched_);
-  DCHECK_LE(total_bytes_prefetched_, FirstMissingByte());
-
-  if (!PeekRegion(total_bytes_prefetched_, iov)) {
+bool QuicStreamSequencerBuffer::MarkConsumed(size_t bytes_consumed) {
+  if (bytes_consumed > ReadableBytes()) {
     return false;
   }
-
-  total_bytes_prefetched_ += iov->iov_len;
-  return true;
-}
-
-bool QuicStreamSequencerBuffer::MarkConsumed(size_t bytes_used) {
-  if (bytes_used > ReadableBytes()) {
-    return false;
-  }
-  size_t bytes_to_consume = bytes_used;
+  size_t bytes_to_consume = bytes_consumed;
   while (bytes_to_consume > 0) {
     size_t block_idx = NextBlockToRead();
     size_t offset_in_block = ReadOffset();
@@ -400,8 +384,7 @@ bool QuicStreamSequencerBuffer::MarkConsumed(size_t bytes_used) {
       RetireBlockIfEmpty(block_idx);
     }
   }
-  total_bytes_prefetched_ =
-      std::max(total_bytes_read_, total_bytes_prefetched_);
+
   return true;
 }
 
@@ -498,11 +481,6 @@ size_t QuicStreamSequencerBuffer::GetBlockCapacity(size_t block_index) const {
   } else {
     return kBlockSizeBytes;
   }
-}
-
-std::string QuicStreamSequencerBuffer::GapsDebugString() const {
-  // TODO(vasilvv): this should return the complement of |bytes_received_|.
-  return bytes_received_.ToString();
 }
 
 std::string QuicStreamSequencerBuffer::ReceivedFramesDebugString() const {

@@ -29,7 +29,7 @@
  */
 
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/blink/public/platform/platform.h"
+#include "third_party/blink/public/platform/web_float_rect.h"
 #include "third_party/blink/public/platform/web_url_loader_mock_factory.h"
 #include "third_party/blink/public/web/web_console_message.h"
 #include "third_party/blink/public/web/web_frame.h"
@@ -64,18 +64,20 @@ class ViewportTest : public testing::Test {
       : base_url_("http://www.test.com/"), chrome_url_("chrome://") {}
 
   ~ViewportTest() override {
-    Platform::Current()
-        ->GetURLLoaderMockFactory()
-        ->UnregisterAllURLsAndClearMemoryCache();
+    url_test_helpers::UnregisterAllURLsAndClearMemoryCache();
   }
 
   void RegisterMockedHttpURLLoad(const std::string& file_name) {
+    // TODO(crbug.com/751425): We should use the mock functionality
+    // via the WebViewHelper instance in each test case.
     url_test_helpers::RegisterMockedURLLoadFromBase(
         WebString::FromUTF8(base_url_), test::CoreTestDataPath(),
         WebString::FromUTF8(file_name));
   }
 
   void RegisterMockedChromeURLLoad(const std::string& file_name) {
+    // TODO(crbug.com/751425): We should use the mock functionality
+    // via the WebViewHelper instance in each test case.
     url_test_helpers::RegisterMockedURLLoadFromBase(
         WebString::FromUTF8(chrome_url_), test::CoreTestDataPath(),
         WebString::FromUTF8(file_name));
@@ -2920,7 +2922,7 @@ TEST_F(ViewportTest, viewportLimitsAdjustedForNoUserScale) {
       nullptr, nullptr, nullptr, SetViewportSettings);
 
   web_view_helper.GetWebView()->MainFrameWidget()->UpdateAllLifecyclePhases(
-      WebWidget::LifecycleUpdateReason::kTest);
+      DocumentUpdateReason::kTest);
   Page* page = web_view_helper.GetWebView()->GetPage();
   PageScaleConstraints constraints = RunViewportTest(page, 10, 10);
 
@@ -2938,7 +2940,7 @@ TEST_F(ViewportTest, viewportLimitsAdjustedForUserScale) {
       base_url_ + "viewport/viewport-limits-adjusted-for-user-scale.html",
       nullptr, nullptr, nullptr, SetViewportSettings);
   web_view_helper.GetWebView()->MainFrameWidget()->UpdateAllLifecyclePhases(
-      WebWidget::LifecycleUpdateReason::kTest);
+      DocumentUpdateReason::kTest);
   Page* page = web_view_helper.GetWebView()->GetPage();
   PageScaleConstraints constraints = RunViewportTest(page, 10, 10);
 

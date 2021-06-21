@@ -14,7 +14,6 @@ namespace style_change_reason {
 const char kActiveStylesheetsUpdate[] = "ActiveStylesheetsUpdate";
 const char kAnimation[] = "Animation";
 const char kAttribute[] = "Attribute";
-const char kCleanupPlaceholderStyles[] = "CleanupPlaceholderStyles";
 const char kControlValue[] = "ControlValue";
 const char kControl[] = "Control";
 const char kDeclarativeContent[] = "Extension declarativeContent.css";
@@ -28,7 +27,6 @@ const char kFrame[] = "Frame";
 const char kFullscreen[] = "Fullscreen";
 const char kInheritedStyleChangeFromParentFrame[] =
     "InheritedStyleChangeFromParentFrame";
-const char kInline[] = "Inline";
 const char kInlineCSSStyleMutated[] =
     "Inline CSS style declaration was mutated";
 const char kInspector[] = "Inspector";

@@ -23,7 +23,7 @@ class RemoteDOMWindow final : public DOMWindow {
   ExecutionContext* GetExecutionContext() const override;
 
   // DOMWindow overrides:
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
   void blur() override;
 
   void FrameDetached();
@@ -42,8 +42,7 @@ class RemoteDOMWindow final : public DOMWindow {
 
   void ForwardPostMessage(MessageEvent*,
                           scoped_refptr<const SecurityOrigin> target,
-                          Document* source,
-                          bool has_user_gesture);
+                          Document* source);
 };
 
 template <>

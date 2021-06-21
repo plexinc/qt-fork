@@ -12,10 +12,6 @@
 
 class SkMatrix;
 
-#ifndef SK_USE_LEGACY_DISTANCE_FIELDS
-    #define SK_USE_LEGACY_DISTANCE_FIELDS
-#endif
-
 /** Given a vector path, generate the associated distance field.
 
  *  @param distanceField     The distance field to be generated. Should already be allocated
@@ -30,10 +26,10 @@ bool GrGenerateDistanceFieldFromPath(unsigned char* distanceField,
                                      const SkPath& path, const SkMatrix& viewMatrix,
                                      int width, int height, size_t rowBytes);
 
-inline bool IsDistanceFieldSupportedFillType(SkPath::FillType fFillType)
+inline bool IsDistanceFieldSupportedFillType(SkPathFillType fFillType)
 {
-    return (SkPath::kEvenOdd_FillType == fFillType ||
-            SkPath::kInverseEvenOdd_FillType == fFillType);
+    return (SkPathFillType::kEvenOdd == fFillType ||
+            SkPathFillType::kInverseEvenOdd == fFillType);
 }
 
 #endif

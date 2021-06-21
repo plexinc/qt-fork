@@ -35,6 +35,7 @@ class CopyOutputRequest;
 
 namespace gfx {
 struct PresentationFeedback;
+struct SwapTimings;
 }
 
 namespace ui {
@@ -78,13 +79,16 @@ class VIZ_SERVICE_EXPORT Surface final {
  public:
   class PresentationHelper {
    public:
-    PresentationHelper(base::WeakPtr<Surface> surface, uint32_t frame_token);
+    PresentationHelper(base::WeakPtr<SurfaceClient> surface_client,
+                       uint32_t frame_token);
     ~PresentationHelper();
 
-    void DidPresent(const gfx::PresentationFeedback& feedback);
+    void DidPresent(base::TimeTicks draw_start_timestamp,
+                    const gfx::SwapTimings& timings,
+                    const gfx::PresentationFeedback& feedback);
 
    private:
-    base::WeakPtr<Surface> surface_;
+    base::WeakPtr<SurfaceClient> surface_client_;
     const uint32_t frame_token_;
 
     DISALLOW_COPY_AND_ASSIGN(PresentationHelper);
@@ -126,12 +130,6 @@ class VIZ_SERVICE_EXPORT Surface final {
 
   // Decrements the reference count on resources specified by |resources|.
   void UnrefResources(const std::vector<ReturnedResource>& resources);
-
-  // If |surface_client_| is dead, we can't return resources so sync tokens
-  // don't matter anyway.
-  bool needs_sync_tokens() const {
-    return surface_client_ ? surface_client_->NeedsSyncTokens() : false;
-  }
 
   // Returns false if |frame| is invalid.
   // |frame_rejected_callback| will be called once if the frame will not be
@@ -186,8 +184,6 @@ class VIZ_SERVICE_EXPORT Surface final {
   // PresentationHelper, at the appropriate point in the future.
   std::unique_ptr<Surface::PresentationHelper>
   TakePresentationHelperForPresentNotification();
-  void DidPresentSurface(uint32_t presentation_token,
-                         const gfx::PresentationFeedback& feedback);
   void SendAckToClient();
   void MarkAsDrawn();
   void NotifyAggregatedDamage(const gfx::Rect& damage_rect,
@@ -287,8 +283,7 @@ class VIZ_SERVICE_EXPORT Surface final {
   void ActivatePendingFrame();
 
   // Called when all of the surface's dependencies have been resolved.
-  void ActivateFrame(FrameData frame_data,
-                     base::Optional<base::TimeDelta> duration);
+  void ActivateFrame(FrameData frame_data);
 
   // Resolve the activation deadline specified by |current_frame| into a wall
   // time to be used by SurfaceDependencyDeadline.

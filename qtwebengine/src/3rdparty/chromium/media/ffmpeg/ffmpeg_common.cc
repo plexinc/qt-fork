@@ -19,6 +19,10 @@
 #include "media/formats/mp4/box_definitions.h"
 #include "media/media_buildflags.h"
 
+#if BUILDFLAG(USE_PROPRIETARY_CODECS)
+#include "media/formats/mp4/aac.h"
+#endif
+
 namespace media {
 
 namespace {
@@ -26,7 +30,7 @@ namespace {
 EncryptionScheme GetEncryptionScheme(const AVStream* stream) {
   AVDictionaryEntry* key =
       av_dict_get(stream->metadata, "enc_key_id", nullptr, 0);
-  return key ? AesCtrEncryptionScheme() : Unencrypted();
+  return key ? EncryptionScheme::kCenc : EncryptionScheme::kUnencrypted;
 }
 
 }  // namespace
@@ -80,7 +84,7 @@ AudioCodec CodecIDToAudioCodec(AVCodecID codec_id) {
   switch (codec_id) {
     case AV_CODEC_ID_AAC:
       return kCodecAAC;
-#if BUILDFLAG(ENABLE_AC3_EAC3_AUDIO_DEMUXING)
+#if BUILDFLAG(ENABLE_PLATFORM_AC3_EAC3_AUDIO)
     case AV_CODEC_ID_AC3:
       return kCodecAC3;
     case AV_CODEC_ID_EAC3:
@@ -116,6 +120,10 @@ AudioCodec CodecIDToAudioCodec(AVCodecID codec_id) {
       return kCodecOpus;
     case AV_CODEC_ID_ALAC:
       return kCodecALAC;
+#if BUILDFLAG(ENABLE_PLATFORM_MPEG_H_AUDIO)
+    case AV_CODEC_ID_MPEGH_3D_AUDIO:
+      return kCodecMpegHAudio;
+#endif
     default:
       DVLOG(1) << "Unknown audio CodecID: " << codec_id;
   }
@@ -167,6 +175,10 @@ AVCodecID AudioCodecToCodecID(AudioCodec audio_codec,
       return AV_CODEC_ID_PCM_MULAW;
     case kCodecOpus:
       return AV_CODEC_ID_OPUS;
+#if BUILDFLAG(ENABLE_PLATFORM_MPEG_H_AUDIO)
+    case kCodecMpegHAudio:
+      return AV_CODEC_ID_MPEGH_3D_AUDIO;
+#endif
     default:
       DVLOG(1) << "Unknown AudioCodec: " << audio_codec;
   }
@@ -178,7 +190,7 @@ static VideoCodec CodecIDToVideoCodec(AVCodecID codec_id) {
   switch (codec_id) {
     case AV_CODEC_ID_H264:
       return kCodecH264;
-#if BUILDFLAG(ENABLE_HEVC_DEMUXING)
+#if BUILDFLAG(ENABLE_PLATFORM_HEVC)
     case AV_CODEC_ID_HEVC:
       return kCodecHEVC;
 #endif
@@ -202,7 +214,7 @@ AVCodecID VideoCodecToCodecID(VideoCodec video_codec) {
   switch (video_codec) {
     case kCodecH264:
       return AV_CODEC_ID_H264;
-#if BUILDFLAG(ENABLE_HEVC_DEMUXING)
+#if BUILDFLAG(ENABLE_PLATFORM_HEVC)
     case kCodecHEVC:
       return AV_CODEC_ID_HEVC;
 #endif
@@ -318,10 +330,9 @@ static AVSampleFormat SampleFormatToAVSampleFormat(SampleFormat sample_format) {
   return AV_SAMPLE_FMT_NONE;
 }
 
-bool AVCodecContextToAudioDecoderConfig(
-    const AVCodecContext* codec_context,
-    const EncryptionScheme& encryption_scheme,
-    AudioDecoderConfig* config) {
+bool AVCodecContextToAudioDecoderConfig(const AVCodecContext* codec_context,
+                                        EncryptionScheme encryption_scheme,
+                                        AudioDecoderConfig* config) {
   DCHECK_EQ(codec_context->codec_type, AVMEDIA_TYPE_AUDIO);
 
   AudioCodec codec = CodecIDToAudioCodec(codec_context->codec_id);
@@ -341,7 +352,7 @@ bool AVCodecContextToAudioDecoderConfig(
     // not fill |sample_fmt|.
     case kCodecAC3:
     case kCodecEAC3:
-#if BUILDFLAG(ENABLE_AC3_EAC3_AUDIO_DEMUXING)
+#if BUILDFLAG(ENABLE_PLATFORM_AC3_EAC3_AUDIO)
       // The spec for AC3/EAC3 audio is ETSI TS 102 366. According to sections
       // F.3.1 and F.5.1 in that spec the sample_format for AC3/EAC3 must be 16.
       sample_format = kSampleFormatS16;
@@ -349,6 +360,12 @@ bool AVCodecContextToAudioDecoderConfig(
       NOTREACHED();
 #endif
       break;
+#if BUILDFLAG(ENABLE_PLATFORM_MPEG_H_AUDIO)
+    case kCodecMpegHAudio:
+      channel_layout = CHANNEL_LAYOUT_BITSTREAM;
+      sample_format = kSampleFormatMpegHAudio;
+      break;
+#endif
 
     default:
       break;
@@ -382,11 +399,27 @@ bool AVCodecContextToAudioDecoderConfig(
   if (channel_layout == CHANNEL_LAYOUT_DISCRETE)
     config->SetChannelsForDiscrete(codec_context->channels);
 
-#if BUILDFLAG(ENABLE_AC3_EAC3_AUDIO_DEMUXING)
+#if BUILDFLAG(ENABLE_PLATFORM_AC3_EAC3_AUDIO)
   // These are bitstream formats unknown to ffmpeg, so they don't have
   // a known sample format size.
   if (codec == kCodecAC3 || codec == kCodecEAC3)
     return true;
+#endif
+#if BUILDFLAG(ENABLE_PLATFORM_MPEG_H_AUDIO)
+  if (codec == kCodecMpegHAudio)
+    return true;
+#endif
+
+#if BUILDFLAG(USE_PROPRIETARY_CODECS)
+  // TODO(dalecurtis): Just use the profile from the codec context if ffmpeg
+  // ever starts supporting xHE-AAC.
+  if (codec == kCodecAAC && codec_context->profile == FF_PROFILE_UNKNOWN) {
+    // Errors aren't fatal here, so just drop any MediaLog messages.
+    NullMediaLog media_log;
+    mp4::AAC aac_parser;
+    if (aac_parser.Parse(extra_data, &media_log))
+      config->set_profile(aac_parser.GetProfile());
+  }
 #endif
 
   // Verify that AudioConfig.bits_per_channel was calculated correctly for
@@ -521,7 +554,7 @@ bool AVStreamToVideoDecoderConfig(const AVStream* stream,
     case kCodecAV1:
       profile = AV1PROFILE_PROFILE_MAIN;
       break;
-#if BUILDFLAG(ENABLE_HEVC_DEMUXING)
+#if BUILDFLAG(ENABLE_PLATFORM_HEVC)
     case kCodecHEVC:
       profile = HEVCPROFILE_MAIN;
       break;

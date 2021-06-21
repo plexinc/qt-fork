@@ -51,11 +51,11 @@ class PLATFORM_EXPORT MediaStreamDescriptorClient
   virtual void StreamEnded() = 0;
   virtual void AddTrackByComponentAndFireEvents(MediaStreamComponent*) = 0;
   virtual void RemoveTrackByComponentAndFireEvents(MediaStreamComponent*) = 0;
-  void Trace(blink::Visitor* visitor) override {}
+  void Trace(Visitor* visitor) override {}
 };
 
 class PLATFORM_EXPORT MediaStreamDescriptor final
-    : public GarbageCollectedFinalized<MediaStreamDescriptor> {
+    : public GarbageCollected<MediaStreamDescriptor> {
  private:
   static int GenerateUniqueId();
 
@@ -111,7 +111,7 @@ class PLATFORM_EXPORT MediaStreamDescriptor final
   void AddObserver(WebMediaStreamObserver*);
   void RemoveObserver(WebMediaStreamObserver*);
 
-  void Trace(blink::Visitor*);
+  void Trace(Visitor*);
 
  private:
   Member<MediaStreamDescriptorClient> client_;

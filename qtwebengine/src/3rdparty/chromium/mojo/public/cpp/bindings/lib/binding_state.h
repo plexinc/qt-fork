@@ -17,9 +17,9 @@
 #include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/sequenced_task_runner.h"
+#include "mojo/public/cpp/bindings/async_flusher.h"
 #include "mojo/public/cpp/bindings/connection_error_callback.h"
 #include "mojo/public/cpp/bindings/connection_group.h"
-#include "mojo/public/cpp/bindings/filter_chain.h"
 #include "mojo/public/cpp/bindings/interface_endpoint_client.h"
 #include "mojo/public/cpp/bindings/interface_id.h"
 #include "mojo/public/cpp/bindings/interface_ptr.h"
@@ -28,6 +28,7 @@
 #include "mojo/public/cpp/bindings/lib/multiplex_router.h"
 #include "mojo/public/cpp/bindings/lib/pending_receiver_state.h"
 #include "mojo/public/cpp/bindings/message_header_validator.h"
+#include "mojo/public/cpp/bindings/pending_flush.h"
 #include "mojo/public/cpp/bindings/scoped_interface_endpoint_handle.h"
 #include "mojo/public/cpp/system/core.h"
 
@@ -40,7 +41,7 @@ class COMPONENT_EXPORT(MOJO_CPP_BINDINGS) BindingStateBase {
   BindingStateBase();
   ~BindingStateBase();
 
-  void AddFilter(std::unique_ptr<MessageReceiver> filter);
+  void SetFilter(std::unique_ptr<MessageFilter> filter);
 
   bool HasAssociatedInterfaces() const;
 
@@ -49,6 +50,9 @@ class COMPONENT_EXPORT(MOJO_CPP_BINDINGS) BindingStateBase {
 
   bool WaitForIncomingMethodCall(
       MojoDeadline deadline = MOJO_DEADLINE_INDEFINITE);
+
+  void PauseRemoteCallbacksUntilFlushCompletes(PendingFlush flush);
+  void FlushAsync(AsyncFlusher flusher);
 
   void Close();
   void CloseWithReason(uint32_t custom_reason, const std::string& description);

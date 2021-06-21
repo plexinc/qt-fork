@@ -29,11 +29,22 @@
 #include "base/strings/utf_string_conversions.h"
 #include "components/strings/grit/components_strings.h"
 #include "ui/base/l10n/l10n_util.h"
-#endif
+#endif  // defined(OS_WIN)
+
+#if defined(OS_CHROMEOS)
+#include "base/feature_list.h"
+#include "components/printing/browser/ipp_l10n.h"
+#include "components/strings/grit/components_strings.h"
+#include "printing/printing_features.h"
+#include "ui/base/l10n/l10n_util.h"
+#endif  // defined(OS_CHROMEOS)
 
 #if BUILDFLAG(PRINT_MEDIA_L10N_ENABLED)
 #include "components/printing/browser/print_media_l10n.h"
-#endif
+#if defined(OS_MACOSX)
+#include "printing/printing_features.h"
+#endif  // defined(OS_MACOSX)
+#endif  // BUILDFLAG(PRINT_MEDIA_L10N_ENABLED)
 
 namespace printing {
 
@@ -43,38 +54,58 @@ namespace {
 
 #if BUILDFLAG(PRINT_MEDIA_L10N_ENABLED)
 // Iterate on the Papers of a given printer |info| and set the
-// display_name members, localizing where possible.
+// display_name members, localizing where possible. We expect the
+// backend to have populated non-empty display names already, so we
+// don't touch media display names that we can't localize.
 void PopulateAllPaperDisplayNames(PrinterSemanticCapsAndDefaults* info) {
-  info->default_paper.display_name =
+  std::string default_paper_display =
       LocalizePaperDisplayName(info->default_paper.vendor_id);
+  if (!default_paper_display.empty()) {
+    info->default_paper.display_name = default_paper_display;
+  }
+
   for (PrinterSemanticCapsAndDefaults::Paper& paper : info->papers) {
-    paper.display_name = LocalizePaperDisplayName(paper.vendor_id);
+    std::string display = LocalizePaperDisplayName(paper.vendor_id);
+    if (!display.empty()) {
+      paper.display_name = display;
+    }
   }
 }
 #endif  // BUILDFLAG(PRINT_MEDIA_L10N_ENABLED)
 
+#if defined(OS_CHROMEOS)
+void PopulateAdvancedCapsLocalization(
+    std::vector<AdvancedCapability>* advanced_capabilities) {
+  auto& l10n_map = CapabilityLocalizationMap();
+  for (AdvancedCapability& capability : *advanced_capabilities) {
+    auto it = l10n_map.find(capability.name);
+    if (it != l10n_map.end())
+      capability.display_name = l10n_util::GetStringUTF8(it->second);
+
+    for (AdvancedCapabilityValue& value : capability.values) {
+      auto it = l10n_map.find(capability.name + "/" + value.name);
+      if (it != l10n_map.end())
+        value.display_name = l10n_util::GetStringUTF8(it->second);
+    }
+  }
+}
+#endif  // defined(OS_CHROMEOS)
+
 // Returns a dictionary representing printer capabilities as CDD.  Returns
 // an empty dictionary if a dictionary could not be generated.
-base::Value GetPrinterCapabilitiesOnBlockingPoolThread(
+base::Value GetPrinterCapabilitiesOnBlockingTaskRunner(
     const std::string& device_name,
-    const PrinterSemanticCapsAndDefaults::Papers& additional_papers,
+    PrinterSemanticCapsAndDefaults::Papers user_defined_papers,
     bool has_secure_protocol,
-    scoped_refptr<PrintBackend> print_backend) {
+    scoped_refptr<PrintBackend> backend) {
+  DCHECK(!device_name.empty());
+
   base::ScopedBlockingCall scoped_blocking_call(FROM_HERE,
                                                 base::BlockingType::MAY_BLOCK);
-  DCHECK(!device_name.empty());
-  scoped_refptr<PrintBackend> backend =
-      print_backend ? print_backend
-                    : printing::PrintBackend::CreateInstance(nullptr);
 
   VLOG(1) << "Get printer capabilities start for " << device_name;
   crash_keys::ScopedPrinterInfo crash_key(
       backend->GetPrinterDriverInfo(device_name));
-
-  if (!backend->IsValidPrinter(device_name)) {
-    LOG(WARNING) << "Invalid printer " << device_name;
-    return base::Value(base::Value::Type::DICTIONARY);
-  }
 
   PrinterSemanticCapsAndDefaults info;
   if (!backend->GetPrinterSemanticCapsAndDefaults(device_name, &info)) {
@@ -83,13 +114,26 @@ base::Value GetPrinterCapabilitiesOnBlockingPoolThread(
   }
 
 #if BUILDFLAG(PRINT_MEDIA_L10N_ENABLED)
-  PopulateAllPaperDisplayNames(&info);
+  bool populate_paper_display_names = true;
+#if defined(OS_MACOSX)
+  // Paper display name localization requires standardized vendor ID names
+  // populated by CUPS IPP. If the CUPS IPP backend is not enabled, localization
+  // will not properly occur.
+  populate_paper_display_names =
+      base::FeatureList::IsEnabled(features::kCupsIppPrintingBackend);
 #endif
-  info.papers.insert(info.papers.end(), additional_papers.begin(),
-                     additional_papers.end());
+  if (populate_paper_display_names)
+    PopulateAllPaperDisplayNames(&info);
+#endif  // BUILDFLAG(PRINT_MEDIA_L10N_ENABLED)
+
+  info.user_defined_papers = std::move(user_defined_papers);
+
 #if defined(OS_CHROMEOS)
   if (!has_secure_protocol)
     info.pin_supported = false;
+
+  if (base::FeatureList::IsEnabled(printing::features::kAdvancedPpdAttributes))
+    PopulateAdvancedCapsLocalization(&info.advanced_capabilities);
 #endif  // defined(OS_CHROMEOS)
 
   return cloud_print::PrinterSemanticCapsAndDefaultsToCdd(info);
@@ -118,10 +162,10 @@ std::string GetUserFriendlyName(const std::string& printer_name) {
 }
 #endif
 
-base::Value GetSettingsOnBlockingPool(
+base::Value GetSettingsOnBlockingTaskRunner(
     const std::string& device_name,
     const PrinterBasicInfo& basic_info,
-    const PrinterSemanticCapsAndDefaults::Papers& additional_papers,
+    PrinterSemanticCapsAndDefaults::Papers user_defined_papers,
     bool has_secure_protocol,
     scoped_refptr<PrintBackend> print_backend) {
   SCOPED_UMA_HISTOGRAM_TIMER("Printing.PrinterCapabilities");
@@ -134,17 +178,24 @@ base::Value GetSettingsOnBlockingPool(
                       base::Value(basic_info.display_name));
   printer_info.SetKey(kSettingPrinterDescription,
                       base::Value(basic_info.printer_description));
+
+  base::Value options(base::Value::Type::DICTIONARY);
+
+#if defined(OS_CHROMEOS)
   printer_info.SetKey(
       kCUPSEnterprisePrinter,
       base::Value(base::Contains(basic_info.options, kCUPSEnterprisePrinter) &&
                   basic_info.options.at(kCUPSEnterprisePrinter) == kValueTrue));
+#endif  // defined(OS_CHROMEOS)
+
+  printer_info.SetKey(kSettingPrinterOptions, std::move(options));
 
   base::Value printer_info_capabilities(base::Value::Type::DICTIONARY);
   printer_info_capabilities.SetKey(kPrinter, std::move(printer_info));
   printer_info_capabilities.SetKey(
-      kSettingCapabilities,
-      GetPrinterCapabilitiesOnBlockingPoolThread(
-          device_name, additional_papers, has_secure_protocol, print_backend));
+      kSettingCapabilities, GetPrinterCapabilitiesOnBlockingTaskRunner(
+                                device_name, std::move(user_defined_papers),
+                                has_secure_protocol, print_backend));
   return printer_info_capabilities;
 }
 

@@ -6,11 +6,14 @@
 
 #include <stddef.h>
 
+#include <memory>
 #include <numeric>
+#include <utility>
 
 #include "base/i18n/rtl.h"
 #include "base/strings/string_split.h"
 #include "base/strings/utf_string_conversions.h"
+#include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/clipboard/clipboard.h"
 #include "ui/base/clipboard/scoped_clipboard_writer.h"
@@ -18,7 +21,6 @@
 #include "ui/views/border.h"
 #include "ui/views/controls/button/checkbox.h"
 #include "ui/views/controls/label.h"
-#include "ui/views/controls/link.h"
 #include "ui/views/controls/scroll_view.h"
 #include "ui/views/controls/textfield/textfield.h"
 #include "ui/views/layout/box_layout.h"
@@ -44,8 +46,8 @@ constexpr int kDefaultMessageWidth = 400;
 // 0085          ; B # Cc       <control-0085>
 // 2029          ; B # Zp       PARAGRAPH SEPARATOR
 bool IsParagraphSeparator(base::char16 c) {
-  return ( c == 0x000A || c == 0x000D || c == 0x001C || c == 0x001D ||
-           c == 0x001E || c == 0x0085 || c == 0x2029);
+  return (c == 0x000A || c == 0x000D || c == 0x001C || c == 0x001D ||
+          c == 0x001E || c == 0x0085 || c == 0x2029);
 }
 
 // Splits |text| into a vector of paragraphs.
@@ -84,13 +86,13 @@ MessageBoxView::InitParams::~InitParams() = default;
 MessageBoxView::MessageBoxView(const InitParams& params)
     : inter_row_vertical_spacing_(params.inter_row_vertical_spacing),
       message_width_(params.message_width) {
-  Init(params);
+  Init(std::move(params));
 }
 
 MessageBoxView::~MessageBoxView() = default;
 
 base::string16 MessageBoxView::GetInputText() {
-  return prompt_field_ ? prompt_field_->text() : base::string16();
+  return prompt_field_ ? prompt_field_->GetText() : base::string16();
 }
 
 bool MessageBoxView::IsCheckBoxSelected() {
@@ -117,26 +119,16 @@ void MessageBoxView::SetCheckBoxSelected(bool selected) {
 }
 
 void MessageBoxView::SetLink(const base::string16& text,
-                             LinkListener* listener) {
-  size_t child_count = children().size();
-  if (text.empty()) {
-    DCHECK(!listener);
-    delete link_;
-    link_ = nullptr;
-  } else {
-    DCHECK(listener);
-    if (!link_) {
-      // See the comment above in SetCheckBoxLabel();
-      SetLayoutManager(nullptr);
-      link_ = AddChildView(std::make_unique<Link>(text));
-      link_->SetHorizontalAlignment(gfx::ALIGN_LEFT);
-    } else {
-      link_->SetText(text);
-    }
-    link_->set_listener(listener);
-  }
-  if (child_count != children().size())
-    ResetLayoutManager();
+                             Link::ClickedCallback callback) {
+  DCHECK(!text.empty());
+  DCHECK(!callback.is_null());
+  DCHECK(!link_);
+  // See the comment in SetCheckBoxLabel();
+  SetLayoutManager(nullptr);
+  link_ = AddChildView(std::make_unique<Link>(text));
+  link_->SetHorizontalAlignment(gfx::ALIGN_LEFT);
+  link_->set_callback(std::move(callback));
+  ResetLayoutManager();
 }
 
 void MessageBoxView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
@@ -169,7 +161,7 @@ bool MessageBoxView::AcceleratorPressed(const ui::Accelerator& accelerator) {
   if (message_labels_.size() == 1u && message_labels_[0]->GetSelectable())
     return false;
 
-  ui::ScopedClipboardWriter scw(ui::ClipboardType::kCopyPaste);
+  ui::ScopedClipboardWriter scw(ui::ClipboardBuffer::kCopyPaste);
   scw.WriteText(std::accumulate(message_labels_.cbegin(),
                                 message_labels_.cend(), base::string16(),
                                 [](base::string16& left, Label* right) {

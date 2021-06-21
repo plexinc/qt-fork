@@ -13,7 +13,7 @@
 #include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/browser/bookmark_model_observer.h"
@@ -54,17 +54,13 @@ class ManagedBookmarksTrackerTest : public testing::Test {
 
   void CreateModel() {
     // Simulate the creation of the managed node by the BookmarkClient.
-    auto owned_managed_node =
-        std::make_unique<BookmarkPermanentNode>(100, BookmarkNode::FOLDER);
-    BookmarkPermanentNode* managed_node = owned_managed_node.get();
+    auto client = std::make_unique<TestBookmarkClient>();
+    managed_node_ = client->EnableManagedNode();
     ManagedBookmarksTracker::LoadInitial(
-        managed_node, prefs_.GetList(prefs::kManagedBookmarks), 101);
-    managed_node->set_visible(!managed_node->children().empty());
-    managed_node->SetTitle(l10n_util::GetStringUTF16(
+        managed_node_, prefs_.GetList(prefs::kManagedBookmarks), 101);
+    managed_node_->SetTitle(l10n_util::GetStringUTF16(
         IDS_BOOKMARK_BAR_MANAGED_FOLDER_DEFAULT_NAME));
 
-    std::unique_ptr<TestBookmarkClient> client(new TestBookmarkClient);
-    client->SetManagedNodeToLoad(std::move(owned_managed_node));
     model_.reset(new BookmarkModel(std::move(client)));
 
     model_->AddObserver(&observer_);
@@ -75,14 +71,9 @@ class ManagedBookmarksTrackerTest : public testing::Test {
     test::WaitForBookmarkModelToLoad(model_.get());
     Mock::VerifyAndClearExpectations(&observer_);
 
-    TestBookmarkClient* client_ptr =
-        static_cast<TestBookmarkClient*>(model_->client());
-    managed_node_ = client_ptr->managed_node();
-
-    managed_bookmarks_tracker_.reset(new ManagedBookmarksTracker(
-        model_.get(),
-        &prefs_,
-        base::Bind(&ManagedBookmarksTrackerTest::GetManagementDomain)));
+    managed_bookmarks_tracker_ = std::make_unique<ManagedBookmarksTracker>(
+        model_.get(), &prefs_,
+        base::BindRepeating(&ManagedBookmarksTrackerTest::GetManagementDomain));
     managed_bookmarks_tracker_->Init(managed_node_);
   }
 
@@ -165,7 +156,7 @@ class ManagedBookmarksTrackerTest : public testing::Test {
   }
 
   base::ScopedTempDir scoped_temp_dir_;
-  base::test::ScopedTaskEnvironment task_environment_;
+  base::test::SingleThreadTaskEnvironment task_environment_;
   TestingPrefServiceSimple prefs_;
   std::unique_ptr<BookmarkModel> model_;
   MockBookmarkModelObserver observer_;

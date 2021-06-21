@@ -20,7 +20,10 @@ class WebThemeEngineAndroid : public blink::WebThemeEngine {
              blink::WebThemeEngine::Part part,
              blink::WebThemeEngine::State state,
              const blink::WebRect& rect,
-             const blink::WebThemeEngine::ExtraParams* extra_params) override;
+             const blink::WebThemeEngine::ExtraParams* extra_params,
+             blink::WebColorScheme color_scheme) override;
+  blink::ForcedColors GetForcedColors() const override;
+  void SetForcedColors(const blink::ForcedColors forced_colors) override;
 };
 
 }  // namespace content

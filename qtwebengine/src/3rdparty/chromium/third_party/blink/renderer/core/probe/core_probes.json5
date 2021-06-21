@@ -13,6 +13,7 @@
       "third_party/blink/renderer/core/loader/frame_loader_types.h",
       "third_party/blink/renderer/core/page/chrome_client.h",
       "third_party/blink/renderer/core/probe/core_probes.h",
+      "third_party/blink/public/web/web_media_inspector.h",
     ],
   },
   observers: {
@@ -34,6 +35,11 @@
       probes: [
         "NetworkStateChanged",
         "UpdateApplicationCacheStatus",
+      ]
+    },
+    InspectorAuditsAgent: {
+      probes: [
+        "InspectorIssueAdded"
       ]
     },
     InspectorCSSAgent: {
@@ -60,11 +66,13 @@
         "DomContentLoadedEventFired",
         "FrameDocumentUpdated",
         "FrameOwnerContentUpdated",
+        "NodeCreated",
         "PseudoElementCreated",
         "PseudoElementDestroyed",
         "WillModifyDOMAttr",
         "WillPopShadowRoot",
         "WillRemoveDOMNode",
+        "PortalRemoteFrameCreated"
       ]
     },
     InspectorDOMDebuggerAgent: {
@@ -105,7 +113,6 @@
     },
     InspectorLayerTreeAgent: {
       probes: [
-        "DidPaint",
         "LayerTreeDidChange",
         "LayerTreePainted",
       ]
@@ -113,6 +120,13 @@
     InspectorLogAgent: {
       probes: [
         "ConsoleMessageAdded",
+      ]
+    },
+    InspectorMediaAgent: {
+      probes: [
+        "PlayerEventsAdded",
+        "PlayerPropertiesChanged",
+        "PlayersCreated"
       ]
     },
     InspectorNetworkAgent: {
@@ -161,6 +175,7 @@
         "DidResizeMainFrame",
         "DidRunJavaScriptDialog",
         "DomContentLoadedEventFired",
+        "FileChooserOpened",
         "FrameAttachedToParent",
         "FrameClearedScheduledNavigation",
         "FrameDetachedFromParent",
@@ -198,6 +213,8 @@
         "RecalculateStyle",
         "UpdateLayout",
         "V8Compile",
+        "WillStartDebuggerTask",
+        "DidFinishDebuggerTask",
       ]
     },
     InspectorTraceEvents: {
@@ -209,6 +226,7 @@
         "DidReceiveData",
         "DidReceiveResourceResponse",
         "FrameStartedLoading",
+        "MarkResourceAsCached",
         "PaintTiming",
         "WillSendRequest",
         "WillSendNavigationRequest",
@@ -220,6 +238,8 @@
         "DidStartProvisionalLoad",
         "DidFailProvisionalLoad",
         "DidCommitLoad",
+        "PaintTiming",
+        "DomContentLoadedEventFired",
       ]
     },
   }

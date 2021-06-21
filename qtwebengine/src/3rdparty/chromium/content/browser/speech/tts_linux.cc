@@ -15,6 +15,7 @@
 #include "base/memory/singleton.h"
 #include "base/synchronization/lock.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "content/browser/speech/tts_platform_impl.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -111,10 +112,10 @@ TtsPlatformImplLinux::TtsPlatformImplLinux() : utterance_id_(0) {
   if (!command_line.HasSwitch(switches::kEnableSpeechDispatcher))
     return;
 
-  base::PostTaskWithTraits(FROM_HERE,
-                           {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
-                           base::BindOnce(&TtsPlatformImplLinux::Initialize,
-                                          base::Unretained(this)));
+  base::ThreadPool::PostTask(
+      FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
+      base::BindOnce(&TtsPlatformImplLinux::Initialize,
+                     base::Unretained(this)));
 }
 
 void TtsPlatformImplLinux::Initialize() {
@@ -344,7 +345,7 @@ void TtsPlatformImplLinux::NotificationCallback(size_t msg_id,
   // be in a separate thread.
   if (!BrowserThread::CurrentlyOn(BrowserThread::UI)) {
     current_notification_ = type;
-    base::PostTaskWithTraits(
+    base::PostTask(
         FROM_HERE, {BrowserThread::UI},
         base::BindOnce(&TtsPlatformImplLinux::OnSpeechEvent,
                        base::Unretained(TtsPlatformImplLinux::GetInstance()),
@@ -364,7 +365,7 @@ void TtsPlatformImplLinux::IndexMarkCallback(size_t msg_id,
   // be in a separate thread.
   if (!BrowserThread::CurrentlyOn(BrowserThread::UI)) {
     current_notification_ = state;
-    base::PostTaskWithTraits(
+    base::PostTask(
         FROM_HERE, {BrowserThread::UI},
         base::BindOnce(&TtsPlatformImplLinux::OnSpeechEvent,
                        base::Unretained(TtsPlatformImplLinux::GetInstance()),

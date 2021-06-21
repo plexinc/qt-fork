@@ -19,6 +19,7 @@
 #include "components/ntp_snippets/user_classifier.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/signin/public/identity_manager/primary_account_access_token_fetcher.h"
+#include "components/signin/public/identity_manager/scope_set.h"
 #include "components/variations/variations_associated_data.h"
 #include "net/base/url_util.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
@@ -257,7 +258,6 @@ void RemoteSuggestionsFetcherImpl::FetchSnippetsAuthenticated(
       fetch_url_, builder.is_interactive_request());
 
   builder.SetUrl(url).SetAuthentication(
-      identity_manager_->GetPrimaryAccountId(),
       base::StringPrintf(kAuthorizationRequestHeaderFormat,
                          oauth_access_token.c_str()));
   StartRequest(std::move(builder), std::move(callback),
@@ -283,7 +283,7 @@ void RemoteSuggestionsFetcherImpl::StartTokenRequest() {
   }
 
   base::Time token_start_time = clock_->Now();
-  identity::ScopeSet scopes{kContentSuggestionsApiScope};
+  signin::ScopeSet scopes{kContentSuggestionsApiScope};
   token_fetcher_ = std::make_unique<signin::PrimaryAccountAccessTokenFetcher>(
       "ntp_snippets", identity_manager_, scopes,
       base::BindOnce(&RemoteSuggestionsFetcherImpl::AccessTokenFetchFinished,
@@ -391,8 +391,8 @@ void RemoteSuggestionsFetcherImpl::FetchFinished(
   DCHECK(fetch_result == FetchResult::SUCCESS || !categories.has_value());
 
   if (fetch_result == FetchResult::HTTP_ERROR_UNAUTHORIZED) {
-    identity::ScopeSet scopes{kContentSuggestionsApiScope};
-    std::string account_id = identity_manager_->GetPrimaryAccountId();
+    signin::ScopeSet scopes{kContentSuggestionsApiScope};
+    CoreAccountId account_id = identity_manager_->GetPrimaryAccountId();
     identity_manager_->RemoveAccessTokenFromCache(account_id, scopes,
                                                   access_token);
   }

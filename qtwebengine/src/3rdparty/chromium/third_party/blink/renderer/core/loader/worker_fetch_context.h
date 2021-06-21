@@ -7,8 +7,8 @@
 
 #include <memory>
 #include "base/single_thread_task_runner.h"
-#include "third_party/blink/public/mojom/loader/request_context_frame_type.mojom-blink.h"
-#include "third_party/blink/public/mojom/service_worker/service_worker_object.mojom-blink.h"
+#include "third_party/blink/public/mojom/loader/request_context_frame_type.mojom-blink-forward.h"
+#include "third_party/blink/public/mojom/service_worker/service_worker_object.mojom-blink-forward.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/loader/base_fetch_context.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
@@ -18,7 +18,6 @@ namespace blink {
 class CoreProbeSink;
 class SubresourceFilter;
 class WebWorkerFetchContext;
-class WorkerContentSettingsClient;
 class WorkerResourceTimingNotifier;
 class WorkerSettings;
 class WorkerOrWorkletGlobalScope;
@@ -41,7 +40,7 @@ class WorkerFetchContext final : public BaseFetchContext {
   ~WorkerFetchContext() override;
 
   // BaseFetchContext implementation:
-  KURL GetSiteForCookies() const override;
+  net::SiteForCookies GetSiteForCookies() const override;
   scoped_refptr<const SecurityOrigin> GetTopFrameOrigin() const override;
 
   SubresourceFilter* GetSubresourceFilter() const override;
@@ -60,11 +59,10 @@ class WorkerFetchContext final : public BaseFetchContext {
   bool ShouldBlockWebSocketByMixedContentCheck(const KURL&) const override;
   std::unique_ptr<WebSocketHandshakeThrottle> CreateWebSocketHandshakeThrottle()
       override;
-  bool ShouldBlockFetchByMixedContentCheck(
-      mojom::RequestContextType,
-      ResourceRequest::RedirectStatus,
-      const KURL&,
-      SecurityViolationReportingPolicy) const override;
+  bool ShouldBlockFetchByMixedContentCheck(mojom::RequestContextType,
+                                           const Vector<KURL>& redirect_chain,
+                                           const KURL&,
+                                           ReportingDisposition) const override;
   bool ShouldBlockFetchAsCredentialedSubresource(const ResourceRequest&,
                                                  const KURL&) const override;
   const KURL& Url() const override;
@@ -83,14 +81,18 @@ class WorkerFetchContext final : public BaseFetchContext {
                                const ClientHintsPreferences&,
                                const FetchParameters::ResourceWidth&,
                                ResourceRequest&) override;
+  mojo::PendingReceiver<mojom::blink::WorkerTimingContainer>
+  TakePendingWorkerTimingReceiver(int request_id) override;
 
   WorkerSettings* GetWorkerSettings() const;
-  WorkerContentSettingsClient* GetWorkerContentSettingsClient() const;
   WebWorkerFetchContext* GetWebWorkerFetchContext() const {
     return web_context_.get();
   }
 
-  void Trace(blink::Visitor*) override;
+  bool AllowRunningInsecureContent(bool enabled_per_settings,
+                                   const KURL& url) const;
+
+  void Trace(Visitor*) override;
 
  private:
   void SetFirstPartyCookie(ResourceRequest&);

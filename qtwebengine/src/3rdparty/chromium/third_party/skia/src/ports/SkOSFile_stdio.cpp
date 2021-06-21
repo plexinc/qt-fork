@@ -72,7 +72,10 @@ FILE* sk_fopen(const char path[], SkFILE_Flags flags) {
         *p++ = 'r';
     }
     if (flags & kWrite_SkFILE_Flag) {
+        SkASSERT(!(flags & kAppend_SkFILE_Flag));
         *p++ = 'w';
+    } else if (flags & kAppend_SkFILE_Flag) {
+        *p++ = 'a';
     }
     *p = 'b';
 
@@ -183,6 +186,9 @@ bool sk_mkdir(const char* path) {
     retval = _mkdir(path);
 #else
     retval = mkdir(path, 0777);
+    if (retval) {
+      perror("mkdir() failed with error: ");
+    }
 #endif
     return 0 == retval;
 }

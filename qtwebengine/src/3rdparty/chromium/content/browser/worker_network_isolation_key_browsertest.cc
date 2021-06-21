@@ -14,6 +14,7 @@
 #include "content/public/test/url_loader_interceptor.h"
 #include "content/shell/browser/shell.h"
 #include "net/base/features.h"
+#include "net/dns/mock_host_resolver.h"
 #include "services/network/public/cpp/features.h"
 
 namespace content {
@@ -36,31 +37,19 @@ enum class WorkerType {
   kSharedWorker,
 };
 
-class WorkerNetworkIsolationKeyBrowserTest
-    : public ContentBrowserTest,
-      public ::testing::WithParamInterface<
-          std::tuple<bool /* test_same_network_isolation_key */, WorkerType>> {
+class WorkerNetworkIsolationKeyBrowserTest : public ContentBrowserTest {
  public:
-  void SetUp() override {
-    feature_list_.InitAndEnableFeature(
-        net::features::kSplitCacheByNetworkIsolationKey);
-    ContentBrowserTest::SetUp();
-  }
-
   void SetUpOnMainThread() override {
-    ASSERT_TRUE(embedded_test_server()->Start());
+    host_resolver()->AddRule("*", "127.0.0.1");
+    https_server_ = std::make_unique<net::EmbeddedTestServer>(
+        net::EmbeddedTestServer::TYPE_HTTPS);
+    https_server_->SetSSLConfig(net::EmbeddedTestServer::CERT_TEST_NAMES);
+    https_server_->AddDefaultHandlers(GetTestDataFilePath());
+    content::SetupCrossSiteRedirector(https_server_.get());
+    ASSERT_TRUE(https_server_->Start());
   }
 
-  // Does a cross-process navigation to clear the in-memory cache.
-  // We are relying on this navigation to discard the old process.
-  void CrossProcessNavigation() {
-    RenderProcessHost* process =
-        shell()->web_contents()->GetMainFrame()->GetProcess();
-    RenderProcessHostWatcher process_watcher(
-        process, RenderProcessHostWatcher::WATCH_FOR_PROCESS_EXIT);
-    NavigateToURL(shell(), GetWebUIURL("version"));
-    process_watcher.Wait();
-  }
+  net::EmbeddedTestServer* https_server() { return https_server_.get(); }
 
   // Register a service/shared worker |main_script_file| in the scope of
   // |subframe_rfh|'s origin.
@@ -109,6 +98,20 @@ class WorkerNetworkIsolationKeyBrowserTest
     return subframe_rfh;
   }
 
+ protected:
+  void InitFeatures(bool append_frame_origin_to_network_isolation_key) {
+    if (append_frame_origin_to_network_isolation_key) {
+      feature_list_.InitWithFeatures(
+          {net::features::kSplitCacheByNetworkIsolationKey,
+           net::features::kAppendFrameOriginToNetworkIsolationKey},
+          {});
+    } else {
+      feature_list_.InitWithFeatures(
+          {net::features::kSplitCacheByNetworkIsolationKey},
+          {net::features::kAppendFrameOriginToNetworkIsolationKey});
+    }
+  }
+
  private:
   void RegisterWorkerWithUrlParameters(
       RenderFrameHost* subframe_rfh,
@@ -145,50 +148,48 @@ class WorkerNetworkIsolationKeyBrowserTest
 
   size_t subframe_id_ = 0;
   base::test::ScopedFeatureList feature_list_;
+  std::unique_ptr<net::EmbeddedTestServer> https_server_;
+};
+
+class WorkerImportScriptsAndFetchRequestNetworkIsolationKeyBrowserTest
+    : public WorkerNetworkIsolationKeyBrowserTest,
+      public ::testing::WithParamInterface<
+          std::tuple<bool /* append_frame_origin_to_network_isolation_key */,
+                     bool /* test_same_network_isolation_key */,
+                     WorkerType>> {
+ public:
+  void SetUp() override {
+    bool append_frame_origin_to_network_isolation_key;
+    std::tie(append_frame_origin_to_network_isolation_key, std::ignore,
+             std::ignore) = GetParam();
+    InitFeatures(append_frame_origin_to_network_isolation_key);
+    ContentBrowserTest::SetUp();
+  }
 };
 
 // Test that network isolation key is filled in correctly for service/shared
-// workers. The test navigates to "a.com" and creates two cross-origin iframes
+// workers. The test navigates to "a.test" and creates two cross-origin iframes
 // that each start a worker. The frames/workers may have the same origin, so
-// worker1 is on "b.com" and worker2 is on either "b.com" or "c.com". The test
-// checks the cache status of importScripts() and a fetch() request from the
-// workers to another origin "d.com". When the workers had the same origin (the
-// same network isolation key), we expect the second importScripts() and fetch()
-// request to exist in the cache. When the origins are different, we expect the
-// second requests to not exist in the cache.
-IN_PROC_BROWSER_TEST_P(WorkerNetworkIsolationKeyBrowserTest,
-                       ImportScriptsAndFetchRequest) {
+// worker1 is on "b.test" and worker2 is on either "b.test" or "c.test". The
+// test checks the cache status of importScripts() and a fetch() request from
+// the workers to another origin "d.test". When the workers had the same origin
+// (the same network isolation key), we expect the second importScripts() and
+// fetch() request to exist in the cache. When the origins are different, we
+// expect the second requests to not exist in the cache.
+IN_PROC_BROWSER_TEST_P(
+    WorkerImportScriptsAndFetchRequestNetworkIsolationKeyBrowserTest,
+    ImportScriptsAndFetchRequest) {
   bool test_same_network_isolation_key;
   WorkerType worker_type;
-  std::tie(test_same_network_isolation_key, worker_type) = GetParam();
-
-  // TODO(http://crbug.com/984099): Fix this with network service disabled.
-  if (!base::FeatureList::IsEnabled(network::features::kNetworkService))
-    return;
+  std::tie(std::ignore, test_same_network_isolation_key, worker_type) =
+      GetParam();
 
   if (worker_type == WorkerType::kSharedWorker && !SupportsSharedWorker())
     return;
 
-  // Discard the old process to clear the in-memory cache.
-  CrossProcessNavigation();
-
-  net::EmbeddedTestServer cross_origin_server_1;
-  cross_origin_server_1.ServeFilesFromSourceDirectory(GetTestDataFilePath());
-  ASSERT_TRUE(cross_origin_server_1.Start());
-
-  net::EmbeddedTestServer cross_origin_server_tmp;
-  cross_origin_server_tmp.ServeFilesFromSourceDirectory(GetTestDataFilePath());
-  ASSERT_TRUE(cross_origin_server_tmp.Start());
-
-  auto& cross_origin_server_2 = test_same_network_isolation_key
-                                    ? cross_origin_server_1
-                                    : cross_origin_server_tmp;
-
-  net::EmbeddedTestServer resource_request_server;
-  resource_request_server.ServeFilesFromSourceDirectory(GetTestDataFilePath());
-  ASSERT_TRUE(resource_request_server.Start());
-  GURL import_script_url = resource_request_server.GetURL("/workers/empty.js");
-  GURL fetch_url = resource_request_server.GetURL("/workers/empty.html");
+  GURL import_script_url =
+      https_server()->GetURL("d.test", "/workers/empty.js");
+  GURL fetch_url = https_server()->GetURL("d.test", "/workers/empty.html");
 
   std::map<GURL, size_t> request_completed_count;
 
@@ -219,16 +220,17 @@ IN_PROC_BROWSER_TEST_P(WorkerNetworkIsolationKeyBrowserTest,
       {});
 
   NavigateToURLBlockUntilNavigationsComplete(
-      shell(), embedded_test_server()->GetURL("/workers/frame_factory.html"),
+      shell(), https_server()->GetURL("a.test", "/workers/frame_factory.html"),
       1);
   RenderFrameHost* subframe_rfh_1 = CreateSubframe(
-      cross_origin_server_1.GetURL("/workers/service_worker_setup.html"));
+      https_server()->GetURL("b.test", "/workers/service_worker_setup.html"));
   RegisterWorkerThatDoesImportScriptsAndFetch(subframe_rfh_1, worker_type,
                                               "worker_with_import_and_fetch.js",
                                               import_script_url, fetch_url);
 
-  RenderFrameHost* subframe_rfh_2 = CreateSubframe(
-      cross_origin_server_2.GetURL("/workers/service_worker_setup.html"));
+  RenderFrameHost* subframe_rfh_2 = CreateSubframe(https_server()->GetURL(
+      test_same_network_isolation_key ? "b.test" : "c.test",
+      "/workers/service_worker_setup.html"));
   RegisterWorkerThatDoesImportScriptsAndFetch(
       subframe_rfh_2, worker_type, "worker_with_import_and_fetch_2.js",
       import_script_url, fetch_url);
@@ -237,48 +239,47 @@ IN_PROC_BROWSER_TEST_P(WorkerNetworkIsolationKeyBrowserTest,
 }
 
 INSTANTIATE_TEST_SUITE_P(
-    /* no prefix */,
-    WorkerNetworkIsolationKeyBrowserTest,
+    All,
+    WorkerImportScriptsAndFetchRequestNetworkIsolationKeyBrowserTest,
     ::testing::Combine(testing::Bool(),
+                       testing::Bool(),
                        ::testing::Values(WorkerType::kServiceWorker,
                                          WorkerType::kSharedWorker)));
 
+class ServiceWorkerMainScriptRequestNetworkIsolationKeyBrowserTest
+    : public WorkerNetworkIsolationKeyBrowserTest,
+      public ::testing::WithParamInterface<
+          bool /* append_frame_origin_to_network_isolation_key */> {
+ public:
+  void SetUp() override {
+    bool append_frame_origin_to_network_isolation_key = GetParam();
+    InitFeatures(append_frame_origin_to_network_isolation_key);
+    ContentBrowserTest::SetUp();
+  }
+};
+
 // Test that network isolation key is filled in correctly for service worker's
-// main script request. The test navigates to "a.com" and creates an iframe
-// having origin "c.com" that registers |worker1|. The test then navigates to
-// "b.com" and creates an iframe also having origin "c.com". We now want to test
-// a second register request for |worker1| but just calling register() would be
-// a no-op since |worker1| is already the current worker. So we register a new
-// |worker2| and then |worker1| again.
+// main script request. The test navigates to "a.test" and creates an iframe
+// having origin "c.test" that registers |worker1|. The test then navigates to
+// "b.test" and creates an iframe also having origin "c.test". We now want to
+// test a second register request for |worker1| but just calling register()
+// would be a no-op since |worker1| is already the current worker. So we
+// register a new |worker2| and then |worker1| again.
 //
-// Note that the second navigation to "c.com" also triggers an update check for
+// Note that the second navigation to "c.test" also triggers an update check for
 // |worker1|. We expect both the second register request for |worker1| and this
 // update request to exist in the cache.
 //
 // Note that it's sufficient not to test the cache miss when subframe origins
 // are different as in that case the two script urls must be different and it
 // also won't trigger an update.
-IN_PROC_BROWSER_TEST_F(WorkerNetworkIsolationKeyBrowserTest,
-                       ServiceWorkerMainScriptRequest) {
-  // TODO(http://crbug.com/984099): Fix this with network service disabled.
-  if (!base::FeatureList::IsEnabled(network::features::kNetworkService))
-    return;
-
-  // Discard the old process to clear the in-memory cache.
-  CrossProcessNavigation();
-
-  net::EmbeddedTestServer subframe_server;
-  subframe_server.ServeFilesFromSourceDirectory(GetTestDataFilePath());
-  ASSERT_TRUE(subframe_server.Start());
-
-  net::EmbeddedTestServer new_tab_server;
-  new_tab_server.ServeFilesFromSourceDirectory(GetTestDataFilePath());
-  ASSERT_TRUE(new_tab_server.Start());
-
+IN_PROC_BROWSER_TEST_P(
+    ServiceWorkerMainScriptRequestNetworkIsolationKeyBrowserTest,
+    ServiceWorkerMainScriptRequest) {
   size_t num_completed = 0;
   std::string main_script_file = "empty.js";
   GURL main_script_request_url =
-      subframe_server.GetURL("/workers/" + main_script_file);
+      https_server()->GetURL("c.test", "/workers/" + main_script_file);
 
   base::RunLoop cache_status_waiter;
   URLLoaderInterceptor interceptor(
@@ -303,25 +304,102 @@ IN_PROC_BROWSER_TEST_F(WorkerNetworkIsolationKeyBrowserTest,
           }),
       {});
 
-  // Navigate to "a.com" and create the iframe "c.com", which registers
+  // Navigate to "a.test" and create the iframe "c.test", which registers
   // |worker1|.
   NavigateToURLBlockUntilNavigationsComplete(
-      shell(), embedded_test_server()->GetURL("/workers/frame_factory.html"),
+      shell(), https_server()->GetURL("a.test", "/workers/frame_factory.html"),
       1);
   RenderFrameHost* subframe_rfh_1 = CreateSubframe(
-      subframe_server.GetURL("/workers/service_worker_setup.html"));
+      https_server()->GetURL("c.test", "/workers/service_worker_setup.html"));
   RegisterWorker(subframe_rfh_1, WorkerType::kServiceWorker, "empty.js");
 
-  // Navigate to "b.com" and create the another iframe on "c.com", which
+  // Navigate to "b.test" and create the another iframe on "c.test", which
   // registers |worker2| and then |worker1| again.
   NavigateToURLBlockUntilNavigationsComplete(
-      shell(), new_tab_server.GetURL("/workers/frame_factory.html"), 1);
+      shell(), https_server()->GetURL("b.test", "/workers/frame_factory.html"),
+      1);
   RenderFrameHost* subframe_rfh_2 = CreateSubframe(
-      subframe_server.GetURL("/workers/service_worker_setup.html"));
+      https_server()->GetURL("c.test", "/workers/service_worker_setup.html"));
   RegisterWorker(subframe_rfh_2, WorkerType::kServiceWorker, "empty2.js");
   RegisterWorker(subframe_rfh_2, WorkerType::kServiceWorker, "empty.js");
 
   cache_status_waiter.Run();
 }
+
+INSTANTIATE_TEST_SUITE_P(
+    All,
+    ServiceWorkerMainScriptRequestNetworkIsolationKeyBrowserTest,
+    testing::Bool());
+
+using SharedWorkerMainScriptRequestNetworkIsolationKeyBrowserTest =
+    ServiceWorkerMainScriptRequestNetworkIsolationKeyBrowserTest;
+
+// Test that network isolation key is filled in correctly for shared worker's
+// main script request. The test navigates to "a.test" and creates an iframe
+// having origin "c.test" that creates |worker1|. The test then navigates to
+// "b.test" and creates an iframe also having origin "c.test" that creates
+// |worker1| again.
+//
+// We expect the second creation request for |worker1| to exist in the cache.
+//
+// Note that it's sufficient not to test the cache miss when subframe origins
+// are different as in that case the two script urls must be different.
+IN_PROC_BROWSER_TEST_P(
+    SharedWorkerMainScriptRequestNetworkIsolationKeyBrowserTest,
+    SharedWorkerMainScriptRequest) {
+  if (!SupportsSharedWorker())
+    return;
+
+  size_t num_completed = 0;
+  std::string main_script_file = "empty.js";
+  GURL main_script_request_url =
+      https_server()->GetURL("c.test", "/workers/" + main_script_file);
+
+  base::RunLoop cache_status_waiter;
+  URLLoaderInterceptor interceptor(
+      base::BindLambdaForTesting(
+          [&](URLLoaderInterceptor::RequestParams* params) { return false; }),
+      base::BindLambdaForTesting(
+          [&](const GURL& request_url,
+              const network::URLLoaderCompletionStatus& status) {
+            if (request_url == main_script_request_url) {
+              num_completed += 1;
+              if (num_completed == 1) {
+                EXPECT_FALSE(status.exists_in_cache);
+              } else if (num_completed == 2) {
+                EXPECT_TRUE(status.exists_in_cache);
+                cache_status_waiter.Quit();
+              } else {
+                NOTREACHED();
+              }
+            }
+          }),
+      {});
+
+  // Navigate to "a.test" and create the iframe "c.test", which creates
+  // |worker1|.
+  NavigateToURLBlockUntilNavigationsComplete(
+      shell(), https_server()->GetURL("a.test", "/workers/frame_factory.html"),
+      1);
+  RenderFrameHost* subframe_rfh_1 = CreateSubframe(
+      https_server()->GetURL("c.test", "/workers/service_worker_setup.html"));
+  RegisterWorker(subframe_rfh_1, WorkerType::kSharedWorker, "empty.js");
+
+  // Navigate to "b.test" and create the another iframe on "c.test", which
+  // creates |worker1| again.
+  NavigateToURLBlockUntilNavigationsComplete(
+      shell(), https_server()->GetURL("b.test", "/workers/frame_factory.html"),
+      1);
+  RenderFrameHost* subframe_rfh_2 = CreateSubframe(
+      https_server()->GetURL("c.test", "/workers/service_worker_setup.html"));
+  RegisterWorker(subframe_rfh_2, WorkerType::kSharedWorker, "empty.js");
+
+  cache_status_waiter.Run();
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    All,
+    SharedWorkerMainScriptRequestNetworkIsolationKeyBrowserTest,
+    testing::Bool());
 
 }  // namespace content

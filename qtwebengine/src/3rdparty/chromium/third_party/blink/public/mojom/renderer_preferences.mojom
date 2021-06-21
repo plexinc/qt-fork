@@ -6,7 +6,8 @@ module blink.mojom;
 
 import "mojo/public/mojom/base/string16.mojom";
 import "mojo/public/mojom/base/time.mojom";
-import "ui/gfx/mojo/font_render_params.mojom";
+import "ui/gfx/mojom/font_render_params.mojom";
+import "third_party/blink/public/mojom/user_agent/user_agent_metadata.mojom";
 
 const int64 kDefaultCaretBlinkIntervalInMilliseconds = 500;
 
@@ -40,7 +41,7 @@ struct RendererPreferences {
   // positions for glyphs.  Currently only used by Linux.
   bool use_subpixel_positioning = false;
 
-  // The color of the focus ring. Currently only used on Linux.
+  // The color of the focus ring.
   uint32 focus_ring_color = 0xFFE59700;
 
   // The colors used in selection text. Currently only used on Linux and Ash.
@@ -63,7 +64,6 @@ struct RendererPreferences {
   bool use_custom_colors = true;
 
   // Set to false to not send referrers.
-  // The default value should be in sync with blink::PrivacyPreferences.
   bool enable_referrers = true;
 
   // Set to true to allow third-party sub-content to pop-up HTTP basic auth
@@ -71,7 +71,6 @@ struct RendererPreferences {
   bool allow_cross_origin_auth_prompt = false;
 
   // Set to true to indicate that the preference to set DNT to 1 is enabled.
-  // The default value should be in sync with blink::PrivacyPreferences.
   bool enable_do_not_track = false;
 
   // Whether to allow the use of Encrypted Media Extensions (EME), except for
@@ -89,9 +88,11 @@ struct RendererPreferences {
   uint16 webrtc_udp_min_port = 0;
   uint16 webrtc_udp_max_port = 0;
 
+  array<string> webrtc_local_ips_allowed_urls;
+
   // The user agent given to WebKit when it requests one and the user agent is
   // being overridden for the current navigation.
-  string user_agent_override;
+  UserAgentOverride user_agent_override;
 
   // The accept-languages of the browser, comma-separated.
   string accept_languages;
@@ -102,9 +103,6 @@ struct RendererPreferences {
 
   // Determines whether plugins are allowed to enter fullscreen mode.
   bool plugin_fullscreen_allowed = true;
-
-  // Country iso of the mobile network for content detection purpose.
-  string network_contry_iso;
 
   [EnableIf=renderer_pref_system_font_family_name]
   string system_font_family_name;

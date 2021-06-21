@@ -64,8 +64,9 @@ void HeapProfiler::BuildEmbedderGraph(Isolate* isolate,
 
 HeapSnapshot* HeapProfiler::TakeSnapshot(
     v8::ActivityControl* control,
-    v8::HeapProfiler::ObjectNameResolver* resolver) {
-  HeapSnapshot* result = new HeapSnapshot(this);
+    v8::HeapProfiler::ObjectNameResolver* resolver,
+    bool treat_global_objects_as_roots) {
+  HeapSnapshot* result = new HeapSnapshot(this, treat_global_objects_as_roots);
   {
     HeapSnapshotGenerator generator(result, control, resolver, heap());
     if (!generator.GenerateSnapshot()) {
@@ -149,6 +150,17 @@ SnapshotObjectId HeapProfiler::GetSnapshotObjectId(Handle<Object> obj) {
   if (!obj->IsHeapObject())
     return v8::HeapProfiler::kUnknownObjectId;
   return ids_->FindEntry(HeapObject::cast(*obj).address());
+}
+
+SnapshotObjectId HeapProfiler::GetSnapshotObjectId(NativeObject obj) {
+  // Try to find id of regular native node first.
+  SnapshotObjectId id = ids_->FindEntry(reinterpret_cast<Address>(obj));
+  // In case no id has been found, check whether there exists an entry where the
+  // native objects has been merged into a V8 entry.
+  if (id == v8::HeapProfiler::kUnknownObjectId) {
+    id = ids_->FindMergedNativeEntry(obj);
+  }
+  return id;
 }
 
 void HeapProfiler::ObjectMoveEvent(Address from, Address to, int size) {

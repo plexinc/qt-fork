@@ -5,25 +5,23 @@
 #include "third_party/blink/renderer/modules/content_index/content_index.h"
 
 #include "base/optional.h"
-#include "base/time/time.h"
-#include "services/service_manager/public/cpp/interface_provider.h"
+#include "third_party/blink/public/common/browser_interface_broker_proxy.h"
 #include "third_party/blink/public/platform/web_size.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_content_icon_definition.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
-#include "third_party/blink/renderer/core/loader/threaded_icon_loader.h"
 #include "third_party/blink/renderer/modules/content_index/content_description_type_converter.h"
+#include "third_party/blink/renderer/modules/content_index/content_index_icon_loader.h"
 #include "third_party/blink/renderer/modules/service_worker/service_worker_registration.h"
+#include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
-#include "third_party/blink/renderer/platform/loader/fetch/resource_request.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
 
 namespace blink {
 
 namespace {
-
-constexpr base::TimeDelta kIconFetchTimeout = base::TimeDelta::FromSeconds(30);
 
 // Validates |description|. If there is an error, an error message to be passed
 // to a TypeError is passed. Otherwise a null string is returned.
@@ -40,16 +38,17 @@ WTF::String ValidateDescription(const ContentDescription& description,
   if (description.description().IsEmpty())
     return "Description cannot be empty";
 
-  if (description.iconUrl().IsEmpty())
-    return "Invalid icon URL provided";
-
   if (description.launchUrl().IsEmpty())
     return "Invalid launch URL provided";
 
-  KURL icon_url =
-      registration->GetExecutionContext()->CompleteURL(description.iconUrl());
-  if (!icon_url.ProtocolIsInHTTPFamily())
-    return "Invalid icon URL protocol";
+  for (const auto& icon : description.icons()) {
+    if (icon->src().IsEmpty())
+      return "Invalid icon URL provided";
+    KURL icon_url =
+        registration->GetExecutionContext()->CompleteURL(icon->src());
+    if (!icon_url.ProtocolIsInHTTPFamily())
+      return "Invalid icon URL protocol";
+  }
 
   KURL launch_url =
       registration->GetExecutionContext()->CompleteURL(description.launchUrl());
@@ -75,66 +74,77 @@ ContentIndex::ContentIndex(ServiceWorkerRegistration* registration,
 ContentIndex::~ContentIndex() = default;
 
 ScriptPromise ContentIndex::add(ScriptState* script_state,
-                                const ContentDescription* description) {
+                                const ContentDescription* description,
+                                ExceptionState& exception_state) {
   if (!registration_->active()) {
-    return ScriptPromise::Reject(
-        script_state,
-        V8ThrowException::CreateTypeError(script_state->GetIsolate(),
-                                          "No active registration available on "
-                                          "the ServiceWorkerRegistration."));
+    exception_state.ThrowTypeError(
+        "No active registration available on the ServiceWorkerRegistration.");
+    return ScriptPromise();
   }
 
   WTF::String description_error =
       ValidateDescription(*description, registration_.Get());
   if (!description_error.IsNull()) {
-    return ScriptPromise::Reject(
-        script_state, V8ThrowException::CreateTypeError(
-                          script_state->GetIsolate(), description_error));
+    exception_state.ThrowTypeError(description_error);
+    return ScriptPromise();
   }
 
   auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
   ScriptPromise promise = resolver->Promise();
 
-  KURL icon_url =
-      registration_->GetExecutionContext()->CompleteURL(description->iconUrl());
-  ResourceRequest resource_request(icon_url);
-  resource_request.SetRequestContext(mojom::RequestContextType::IMAGE);
-  resource_request.SetPriority(ResourceLoadPriority::kMedium);
-  resource_request.SetTimeoutInterval(kIconFetchTimeout);
-
-  auto* threaded_icon_loader = MakeGarbageCollected<ThreadedIconLoader>();
-  // TODO(crbug.com/973844): Use ideal icon dimensions instead of the max.
-  threaded_icon_loader->Start(
-      registration_->GetExecutionContext(), resource_request,
-      /* resize_dimensions= */
-      WebSize(mojom::blink::ContentIndexService::kMaxIconDimension,
-              mojom::blink::ContentIndexService::kMaxIconDimension),
-      WTF::Bind(&ContentIndex::DidGetIcon, WrapPersistent(this),
-                WrapPersistent(resolver), WrapPersistent(threaded_icon_loader),
-                mojom::blink::ContentDescription::From(description)));
+  auto mojo_description = mojom::blink::ContentDescription::From(description);
+  auto category = mojo_description->category;
+  GetService()->GetIconSizes(
+      category,
+      WTF::Bind(&ContentIndex::DidGetIconSizes, WrapPersistent(this),
+                WrapPersistent(resolver), std::move(mojo_description)));
 
   return promise;
 }
 
-void ContentIndex::DidGetIcon(ScriptPromiseResolver* resolver,
-                              ThreadedIconLoader* loader,
-                              mojom::blink::ContentDescriptionPtr description,
-                              SkBitmap icon,
-                              double resize_scale) {
+void ContentIndex::DidGetIconSizes(
+    ScriptPromiseResolver* resolver,
+    mojom::blink::ContentDescriptionPtr description,
+    const Vector<gfx::Size>& icon_sizes) {
+  if (!icon_sizes.IsEmpty() && description->icons.IsEmpty()) {
+    ScriptState* script_state = resolver->GetScriptState();
+    ScriptState::Scope scope(script_state);
+    resolver->Reject(V8ThrowException::CreateTypeError(
+        script_state->GetIsolate(), "icons must be provided"));
+    return;
+  }
+
+  if (icon_sizes.IsEmpty()) {
+    DidGetIcons(resolver, std::move(description), /* icons= */ {});
+    return;
+  }
+
+  auto* icon_loader = MakeGarbageCollected<ContentIndexIconLoader>();
+  icon_loader->Start(registration_->GetExecutionContext(),
+                     std::move(description), icon_sizes,
+                     WTF::Bind(&ContentIndex::DidGetIcons, WrapPersistent(this),
+                               WrapPersistent(resolver)));
+}
+
+void ContentIndex::DidGetIcons(ScriptPromiseResolver* resolver,
+                               mojom::blink::ContentDescriptionPtr description,
+                               Vector<SkBitmap> icons) {
   ScriptState* script_state = resolver->GetScriptState();
   ScriptState::Scope scope(script_state);
 
-  if (icon.isNull()) {
-    resolver->Reject(V8ThrowException::CreateTypeError(
-        script_state->GetIsolate(), "Icon could not be loaded"));
-    return;
+  for (const auto& icon : icons) {
+    if (icon.isNull()) {
+      resolver->Reject(V8ThrowException::CreateTypeError(
+          script_state->GetIsolate(), "Icon could not be loaded"));
+      return;
+    }
   }
 
   KURL launch_url = registration_->GetExecutionContext()->CompleteURL(
       description->launch_url);
 
   GetService()->Add(registration_->RegistrationId(), std::move(description),
-                    icon, launch_url,
+                    icons, launch_url,
                     WTF::Bind(&ContentIndex::DidAdd, WrapPersistent(this),
                               WrapPersistent(resolver)));
 }
@@ -157,17 +167,20 @@ void ContentIndex::DidAdd(ScriptPromiseResolver* resolver,
       // The renderer should have been killed.
       NOTREACHED();
       return;
+    case mojom::blink::ContentIndexError::NO_SERVICE_WORKER:
+      resolver->Reject(V8ThrowException::CreateTypeError(
+          script_state->GetIsolate(), "Service worker must be active"));
+      return;
   }
 }
 
 ScriptPromise ContentIndex::deleteDescription(ScriptState* script_state,
-                                              const String& id) {
+                                              const String& id,
+                                              ExceptionState& exception_state) {
   if (!registration_->active()) {
-    return ScriptPromise::Reject(
-        script_state,
-        V8ThrowException::CreateTypeError(script_state->GetIsolate(),
-                                          "No active registration available on "
-                                          "the ServiceWorkerRegistration."));
+    exception_state.ThrowTypeError(
+        "No active registration available on the ServiceWorkerRegistration.");
+    return ScriptPromise();
   }
 
   auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
@@ -199,16 +212,19 @@ void ContentIndex::DidDeleteDescription(ScriptPromiseResolver* resolver,
       // The renderer should have been killed.
       NOTREACHED();
       return;
+    case mojom::blink::ContentIndexError::NO_SERVICE_WORKER:
+      // This value shouldn't apply to this callback.
+      NOTREACHED();
+      return;
   }
 }
 
-ScriptPromise ContentIndex::getDescriptions(ScriptState* script_state) {
+ScriptPromise ContentIndex::getDescriptions(ScriptState* script_state,
+                                            ExceptionState& exception_state) {
   if (!registration_->active()) {
-    return ScriptPromise::Reject(
-        script_state,
-        V8ThrowException::CreateTypeError(script_state->GetIsolate(),
-                                          "No active registration available on "
-                                          "the ServiceWorkerRegistration."));
+    exception_state.ThrowTypeError(
+        "No active registration available on the ServiceWorkerRegistration.");
+    return ScriptPromise();
   }
 
   auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
@@ -247,18 +263,24 @@ void ContentIndex::DidGetDescriptions(
       // The renderer should have been killed.
       NOTREACHED();
       return;
+    case mojom::blink::ContentIndexError::NO_SERVICE_WORKER:
+      // This value shouldn't apply to this callback.
+      NOTREACHED();
+      return;
   }
 }
 
-void ContentIndex::Trace(blink::Visitor* visitor) {
+void ContentIndex::Trace(Visitor* visitor) {
   visitor->Trace(registration_);
   ScriptWrappable::Trace(visitor);
 }
 
 mojom::blink::ContentIndexService* ContentIndex::GetService() {
   if (!content_index_service_) {
-    registration_->GetExecutionContext()->GetInterfaceProvider()->GetInterface(
-        mojo::MakeRequest(&content_index_service_, task_runner_));
+    registration_->GetExecutionContext()
+        ->GetBrowserInterfaceBroker()
+        .GetInterface(
+            content_index_service_.BindNewPipeAndPassReceiver(task_runner_));
   }
   return content_index_service_.get();
 }

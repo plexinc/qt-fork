@@ -5,10 +5,8 @@
 #ifndef COMPONENTS_SIGNIN_CORE_BROWSER_SIGNIN_ERROR_CONTROLLER_H_
 #define COMPONENTS_SIGNIN_CORE_BROWSER_SIGNIN_ERROR_CONTROLLER_H_
 
-#include <set>
 #include <string>
 
-#include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "base/observer_list.h"
 #include "base/scoped_observer.h"
@@ -28,8 +26,8 @@ class SigninErrorController : public KeyedService,
     // are in error state, only one of the errors is reported.
     ANY_ACCOUNT,
 
-    // Only errors on the primary account are reported. Other accounts are
-    // ignored.
+    // Only errors on the primary account are reported. The primary account
+    // must have sync consent. Other accounts are ignored.
     PRIMARY_ACCOUNT
   };
 
@@ -57,7 +55,7 @@ class SigninErrorController : public KeyedService,
   void AddObserver(Observer* observer);
   void RemoveObserver(Observer* observer);
 
-  const std::string& error_account_id() const { return error_account_id_; }
+  const CoreAccountId& error_account_id() const { return error_account_id_; }
   const GoogleServiceAuthError& auth_error() const { return auth_error_; }
 
  private:
@@ -71,8 +69,8 @@ class SigninErrorController : public KeyedService,
   // Note: This function must not be called if |account_mode_| is
   // |AccountMode::PRIMARY_ACCOUNT|.
   bool UpdateSecondaryAccountErrors(
-      const std::string& primary_account_id,
-      const std::string& prev_account_id,
+      const CoreAccountId& primary_account_id,
+      const CoreAccountId& prev_account_id,
       const GoogleServiceAuthError::State& prev_error_state);
 
   // signin::IdentityManager::Observer:
@@ -88,11 +86,11 @@ class SigninErrorController : public KeyedService,
   const AccountMode account_mode_;
   signin::IdentityManager* identity_manager_;
 
-  ScopedObserver<signin::IdentityManager, SigninErrorController>
-      scoped_identity_manager_observer_;
+  ScopedObserver<signin::IdentityManager, signin::IdentityManager::Observer>
+      scoped_identity_manager_observer_{this};
 
   // The account that generated the last auth error.
-  std::string error_account_id_;
+  CoreAccountId error_account_id_;
 
   // The auth error detected the last time AuthStatusChanged() was invoked (or
   // NONE if AuthStatusChanged() has never been invoked).

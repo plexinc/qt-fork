@@ -10,7 +10,7 @@
  **************************************************************************************************/
 #include "GrSweepGradientLayout.h"
 
-#include "include/gpu/GrTexture.h"
+#include "src/gpu/GrTexture.h"
 #include "src/gpu/glsl/GrGLSLFragmentProcessor.h"
 #include "src/gpu/glsl/GrGLSLFragmentShaderBuilder.h"
 #include "src/gpu/glsl/GrGLSLProgramBuilder.h"
@@ -32,7 +32,8 @@ public:
         biasVar = args.fUniformHandler->addUniform(kFragment_GrShaderFlag, kHalf_GrSLType, "bias");
         scaleVar =
                 args.fUniformHandler->addUniform(kFragment_GrShaderFlag, kHalf_GrSLType, "scale");
-        SkString sk_TransformedCoords2D_0 = fragBuilder->ensureCoords2D(args.fTransformedCoords[0]);
+        SkString sk_TransformedCoords2D_0 =
+                fragBuilder->ensureCoords2D(args.fTransformedCoords[0].fVaryingPoint);
         fragBuilder->codeAppendf(
                 "half angle;\nif (sk_Caps.atan2ImplementedAsAtanYOverX) {\n    angle = half(2.0 * "
                 "atan(-%s.y, length(%s) - %s.x));\n} else {\n    angle = half(atan(-%s.y, "
@@ -106,7 +107,7 @@ std::unique_ptr<GrFragmentProcessor> GrSweepGradientLayout::TestCreate(GrProcess
                                                         params.fStops, params.fColorCount);
     GrTest::TestAsFPArgs asFPArgs(d);
     std::unique_ptr<GrFragmentProcessor> fp = as_SB(shader)->asFragmentProcessor(asFPArgs.args());
-    GrAlwaysAssert(fp);
+    SkASSERT_RELEASE(fp);
     return fp;
 }
 #endif
@@ -114,7 +115,7 @@ std::unique_ptr<GrFragmentProcessor> GrSweepGradientLayout::TestCreate(GrProcess
 std::unique_ptr<GrFragmentProcessor> GrSweepGradientLayout::Make(const SkSweepGradient& grad,
                                                                  const GrFPArgs& args) {
     SkMatrix matrix;
-    if (!grad.totalLocalMatrix(args.fPreLocalMatrix, args.fPostLocalMatrix)->invert(&matrix)) {
+    if (!grad.totalLocalMatrix(args.fPreLocalMatrix)->invert(&matrix)) {
         return nullptr;
     }
     matrix.postConcat(grad.getGradientMatrix());

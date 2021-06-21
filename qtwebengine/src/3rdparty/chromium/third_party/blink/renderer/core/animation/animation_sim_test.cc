@@ -3,10 +3,13 @@
 // found in the LICENSE file.
 
 #include "third_party/blink/public/web/web_script_source.h"
-#include "third_party/blink/renderer/core/animation/animatable.h"
+#include "third_party/blink/renderer/core/animation/document_timeline.h"
+#include "third_party/blink/renderer/core/animation/keyframe_effect.h"
+#include "third_party/blink/renderer/core/animation/keyframe_effect_model.h"
+#include "third_party/blink/renderer/core/animation/string_keyframe.h"
 #include "third_party/blink/renderer/core/css/css_style_sheet.h"
-#include "third_party/blink/renderer/core/css/property_descriptor.h"
-#include "third_party/blink/renderer/core/css/property_registration.h"
+#include "third_party/blink/renderer/core/css/css_test_helpers.h"
+#include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/core/frame/web_local_frame_impl.h"
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/testing/sim/sim_compositor.h"
@@ -14,7 +17,6 @@
 #include "third_party/blink/renderer/core/testing/sim/sim_test.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
-#include "third_party/blink/renderer/platform/wtf/time.h"
 
 namespace blink {
 
@@ -33,9 +35,7 @@ TEST_F(AnimationSimTest, CustomPropertyBaseComputedStyle) {
   // animation.
 
   ScopedCSSVariables2ForTest css_variables2(true);
-  ScopedCSSAdditiveAnimationsForTest css_additive_animation(true);
-  ScopedStackedCSSPropertyAnimationsForTest stacked_css_property_animation(
-      true);
+  ScopedWebAnimationsAPIForTest web_animations(true);
 
   SimRequest main_resource("https://example.com/", "text/html");
   LoadURL("https://example.com/");
@@ -49,19 +49,13 @@ TEST_F(AnimationSimTest, CustomPropertyBaseComputedStyle) {
   //   initialValue: '0%',
   //   inherits: false
   // })
-  DummyExceptionStateForTesting exception_state;
-  PropertyDescriptor* property_descriptor = PropertyDescriptor::Create();
-  property_descriptor->setName("--x");
-  property_descriptor->setSyntax("<percentage>");
-  property_descriptor->setInitialValue("0%");
-  property_descriptor->setInherits(false);
-  PropertyRegistration::registerProperty(&GetDocument(), property_descriptor,
-                                         exception_state);
-  EXPECT_FALSE(exception_state.HadException());
+  css_test_helpers::RegisterProperty(GetDocument(), "--x", "<percentage>", "0%",
+                                     false);
 
+  DummyExceptionStateForTesting exception_state;
   // target.style.setProperty('--x', '100%');
-  target->style()->setProperty(&GetDocument(), "--x", "100%", g_empty_string,
-                               exception_state);
+  target->style()->setProperty(GetDocument().GetExecutionContext(), "--x",
+                               "100%", g_empty_string, exception_state);
   EXPECT_FALSE(exception_state.HadException());
 
   // target.animate({'--x': '100%'}, 1000);
@@ -73,17 +67,19 @@ TEST_F(AnimationSimTest, CustomPropertyBaseComputedStyle) {
   keyframes.push_back(keyframe);
   Timing timing;
   timing.iteration_duration = AnimationTimeDelta::FromSecondsD(1);
-  Animatable::animateInternal(
-      *target, MakeGarbageCollected<StringKeyframeEffectModel>(keyframes),
+
+  auto* keyframe_effect = MakeGarbageCollected<KeyframeEffect>(
+      target, MakeGarbageCollected<StringKeyframeEffectModel>(keyframes),
       timing);
+  target->GetDocument().Timeline().Play(keyframe_effect);
 
   // This sets the baseComputedStyle on the animation exit frame.
   Compositor().BeginFrame(1);
   Compositor().BeginFrame(1);
 
   // target.style.setProperty('--x', '0%');
-  target->style()->setProperty(&GetDocument(), "--x", "0%", g_empty_string,
-                               exception_state);
+  target->style()->setProperty(GetDocument().GetExecutionContext(), "--x", "0%",
+                               g_empty_string, exception_state);
   EXPECT_FALSE(exception_state.HadException());
 
   // target.animate({'--x': '100%'}, 1000);
@@ -95,9 +91,11 @@ TEST_F(AnimationSimTest, CustomPropertyBaseComputedStyle) {
   keyframes.push_back(std::move(keyframe));
   timing = Timing();
   timing.iteration_duration = AnimationTimeDelta::FromSecondsD(1);
-  Animatable::animateInternal(
-      *target, MakeGarbageCollected<StringKeyframeEffectModel>(keyframes),
+
+  keyframe_effect = MakeGarbageCollected<KeyframeEffect>(
+      target, MakeGarbageCollected<StringKeyframeEffectModel>(keyframes),
       timing);
+  target->GetDocument().Timeline().Play(keyframe_effect);
 
   // This (previously) would not clear the existing baseComputedStyle and would
   // crash on the equality assertion in the exit frame when it tried to update

@@ -29,7 +29,8 @@
 #include "content/public/browser/android/compositor.h"
 #include "gpu/command_buffer/common/capabilities.h"
 #include "gpu/ipc/common/surface_handle.h"
-#include "services/viz/privileged/interfaces/compositing/display_private.mojom.h"
+#include "mojo/public/cpp/bindings/associated_remote.h"
+#include "services/viz/privileged/mojom/compositing/display_private.mojom.h"
 #include "services/viz/public/cpp/gpu/context_provider_command_buffer.h"
 #include "third_party/khronos/GLES2/gl2.h"
 #include "ui/android/resources/resource_manager_impl.h"
@@ -37,7 +38,6 @@
 #include "ui/android/window_android.h"
 #include "ui/android/window_android_compositor.h"
 #include "ui/compositor/compositor_lock.h"
-#include "ui/compositor/external_begin_frame_client.h"
 #include "ui/display/display_observer.h"
 
 struct ANativeWindow;
@@ -46,10 +46,6 @@ namespace cc {
 class AnimationHost;
 class Layer;
 class LayerTreeHost;
-}
-
-namespace ui {
-class ExternalBeginFrameControllerClientImpl;
 }
 
 namespace viz {
@@ -103,17 +99,22 @@ class CONTENT_EXPORT CompositorImpl
   void SetWindowBounds(const gfx::Size& size) override;
   void SetRequiresAlphaChannel(bool flag) override;
   void SetNeedsComposite() override;
+  void SetNeedsRedraw() override;
   ui::UIResourceProvider& GetUIResourceProvider() override;
   ui::ResourceManager& GetResourceManager() override;
   void CacheBackBufferForCurrentSurface() override;
   void EvictCachedBackBuffer() override;
+  void RequestPresentationTimeForNextFrame(
+      PresentationTimeCallback callback) override;
 
   // LayerTreeHostClient implementation.
   void WillBeginMainFrame() override {}
   void DidBeginMainFrame() override {}
   void WillUpdateLayers() override {}
   void DidUpdateLayers() override;
-  void BeginMainFrame(const viz::BeginFrameArgs& args) override {}
+  void BeginMainFrame(const viz::BeginFrameArgs& args) override;
+  void OnDeferMainFrameUpdatesChanged(bool) override {}
+  void OnDeferCommitsChanged(bool) override {}
   void BeginMainFrameNotExpectedSoon() override {}
   void BeginMainFrameNotExpectedUntil(base::TimeTicks time) override {}
   void UpdateLayerTreeHost() override;
@@ -129,7 +130,7 @@ class CONTENT_EXPORT CompositorImpl
   void DidInitializeLayerTreeFrameSink() override;
   void DidFailToInitializeLayerTreeFrameSink() override;
   void WillCommit() override {}
-  void DidCommit() override;
+  void DidCommit(base::TimeTicks) override;
   void DidCommitAndDrawFrame() override {}
   void DidReceiveCompositorFrameAck() override;
   void DidCompletePageScaleAnimation() override {}
@@ -137,7 +138,11 @@ class CONTENT_EXPORT CompositorImpl
       uint32_t frame_token,
       const gfx::PresentationFeedback& feedback) override {}
   void RecordStartOfFrameMetrics() override {}
-  void RecordEndOfFrameMetrics(base::TimeTicks frame_begin_time) override {}
+  void RecordEndOfFrameMetrics(
+      base::TimeTicks frame_begin_time,
+      cc::ActiveFrameSequenceTrackers trackers) override {}
+  std::unique_ptr<cc::BeginMainFrameMetrics> GetBeginMainFrameMetrics()
+      override;
 
   // LayerTreeHostSingleThreadClient implementation.
   void DidSubmitCompositorFrame() override;
@@ -220,7 +225,7 @@ class CONTENT_EXPORT CompositorImpl
   std::unique_ptr<cc::LayerTreeHost> host_;
   ui::ResourceManagerImpl resource_manager_;
 
-  gfx::ColorSpace display_color_space_;
+  gfx::DisplayColorSpaces display_color_spaces_;
   gfx::Size size_;
   bool requires_alpha_channel_ = false;
 
@@ -246,13 +251,12 @@ class CONTENT_EXPORT CompositorImpl
   bool layer_tree_frame_sink_request_pending_;
 
   gpu::Capabilities gpu_capabilities_;
-  bool has_layer_tree_frame_sink_ = false;
   std::unordered_set<viz::FrameSinkId, viz::FrameSinkIdHash>
       pending_child_frame_sink_ids_;
   bool has_submitted_frame_since_became_visible_ = false;
 
   // Viz-specific members for communicating with the display.
-  viz::mojom::DisplayPrivateAssociatedPtr display_private_;
+  mojo::AssociatedRemote<viz::mojom::DisplayPrivate> display_private_;
   std::unique_ptr<viz::HostDisplayClient> display_client_;
   bool vsync_paused_ = false;
 
@@ -264,7 +268,9 @@ class CONTENT_EXPORT CompositorImpl
 
   size_t num_of_consecutive_surface_failures_ = 0u;
 
-  base::WeakPtrFactory<CompositorImpl> weak_factory_;
+  base::TimeTicks latest_frame_time_;
+
+  base::WeakPtrFactory<CompositorImpl> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(CompositorImpl);
 };

@@ -9,11 +9,7 @@ namespace download {
 DownloadUrlParameters::DownloadUrlParameters(
     const GURL& url,
     const net::NetworkTrafficAnnotationTag& traffic_annotation)
-    : DownloadUrlParameters(url,
-                            -1,
-                            -1,
-                            -1,
-                            traffic_annotation) {}
+    : DownloadUrlParameters(url, -1, -1, -1, traffic_annotation) {}
 
 DownloadUrlParameters::DownloadUrlParameters(
     const GURL& url,
@@ -40,8 +36,7 @@ DownloadUrlParameters::DownloadUrlParameters(
       transient_(false),
       traffic_annotation_(traffic_annotation),
       download_source_(DownloadSource::UNKNOWN),
-      require_safety_checks_(true),
-      ignore_content_length_mismatch_(false) {}
+      require_safety_checks_(true) {}
 
 DownloadUrlParameters::~DownloadUrlParameters() = default;
 

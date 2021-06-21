@@ -24,18 +24,20 @@
 #include "perfetto/ext/tracing/core/trace_writer.h"
 #include "src/tracing/core/metatrace_writer.h"
 
-#include "perfetto/trace/trace_packet.pbzero.h"
+#include "protos/perfetto/trace/trace_packet.pbzero.h"
 
 namespace perfetto {
 
 // static
-const char* MetatraceDataSource::kDataSourceName =
-    MetatraceWriter::kDataSourceName;
+const ProbesDataSource::Descriptor MetatraceDataSource::descriptor = {
+    /*name*/ MetatraceWriter::kDataSourceName,
+    /*flags*/ Descriptor::kFlagsNone,
+};
 
 MetatraceDataSource::MetatraceDataSource(base::TaskRunner* task_runner,
                                          TracingSessionID session_id,
                                          std::unique_ptr<TraceWriter> writer)
-    : ProbesDataSource(session_id, kTypeId),
+    : ProbesDataSource(session_id, &descriptor),
       task_runner_(task_runner),
       trace_writer_(std::move(writer)) {}
 
@@ -49,6 +51,9 @@ void MetatraceDataSource::Start() {
                             metatrace::TAG_ANY);
 }
 
+// This method is also called from StopDataSource with a dummy FlushRequestID
+// (zero), to ensure that the metatrace commits the events recorded during the
+// final flush of the tracing session.
 void MetatraceDataSource::Flush(FlushRequestID,
                                 std::function<void()> callback) {
   metatrace_writer_->WriteAllAndFlushTraceWriter(std::move(callback));

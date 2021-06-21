@@ -7,7 +7,7 @@
 
 #include "base/single_thread_task_runner.h"
 #include "third_party/blink/renderer/modules/mediarecorder/video_track_recorder.h"
-#include "third_party/blink/renderer/platform/wtf/time.h"
+
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 #include "third_party/libvpx/source/libvpx/vpx/vp8cx.h"
 #include "third_party/libvpx/source/libvpx/vpx/vpx_encoder.h"
@@ -28,11 +28,10 @@ class VpxEncoder final : public VideoTrackRecorder::Encoder {
   static void ShutdownEncoder(std::unique_ptr<Thread> encoding_thread,
                               ScopedVpxCodecCtxPtr encoder);
 
-  VpxEncoder(
-      bool use_vp9,
-      const VideoTrackRecorder::OnEncodedVideoCB& on_encoded_video_callback,
-      int32_t bits_per_second,
-      scoped_refptr<base::SingleThreadTaskRunner> main_task_runner);
+  VpxEncoder(bool use_vp9,
+             const VideoTrackRecorder::OnEncodedVideoCB& on_encoded_video_cb,
+             int32_t bits_per_second,
+             scoped_refptr<base::SingleThreadTaskRunner> main_task_runner);
 
  private:
   // VideoTrackRecorder::Encoder implementation.

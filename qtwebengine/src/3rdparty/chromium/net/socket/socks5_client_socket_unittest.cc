@@ -11,6 +11,7 @@
 
 #include "base/containers/span.h"
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
 #include "base/stl_util.h"
 #include "base/sys_byteorder.h"
 #include "build/build_config.h"
@@ -24,7 +25,7 @@
 #include "net/socket/socket_test_util.h"
 #include "net/socket/tcp_client_socket.h"
 #include "net/test/gtest_util.h"
-#include "net/test/test_with_scoped_task_environment.h"
+#include "net/test/test_with_task_environment.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -42,8 +43,7 @@ class NetLog;
 namespace {
 
 // Base class to test SOCKS5ClientSocket
-class SOCKS5ClientSocketTest : public PlatformTest,
-                               public WithScopedTaskEnvironment {
+class SOCKS5ClientSocketTest : public PlatformTest, public WithTaskEnvironment {
  public:
   SOCKS5ClientSocketTest();
   // Create a SOCKSClientSocket on top of a MockSocket.
@@ -58,7 +58,7 @@ class SOCKS5ClientSocketTest : public PlatformTest,
 
  protected:
   const uint16_t kNwPort;
-  TestNetLog net_log_;
+  RecordingTestNetLog net_log_;
   std::unique_ptr<SOCKS5ClientSocket> user_sock_;
   AddressList address_list_;
   // Filled in by BuildMockSocket() and owned by its return value
@@ -360,7 +360,7 @@ TEST_F(SOCKS5ClientSocketTest, PartialReadWrites) {
 
 TEST_F(SOCKS5ClientSocketTest, Tag) {
   StaticSocketDataProvider data;
-  TestNetLog log;
+  RecordingTestNetLog log;
   MockTaggingStreamSocket* tagging_sock =
       new MockTaggingStreamSocket(std::unique_ptr<StreamSocket>(
           new MockTCPClientSocket(address_list_, &log, &data)));

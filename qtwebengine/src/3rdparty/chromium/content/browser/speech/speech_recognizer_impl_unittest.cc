@@ -15,13 +15,15 @@
 #include "base/stl_util.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/sys_byteorder.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "content/browser/speech/proto/google_streaming_api.pb.h"
 #include "content/browser/speech/speech_recognition_engine.h"
 #include "content/browser/speech/speech_recognizer_impl.h"
 #include "content/public/browser/speech_recognition_event_listener.h"
-#include "content/public/test/test_browser_thread_bundle.h"
+#include "content/public/common/content_features.h"
+#include "content/public/test/browser_task_environment.h"
 #include "media/audio/audio_device_description.h"
 #include "media/audio/audio_system_impl.h"
 #include "media/audio/fake_audio_input_stream.h"
@@ -30,14 +32,15 @@
 #include "media/audio/test_audio_thread.h"
 #include "media/base/audio_bus.h"
 #include "media/base/test_helpers.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "mojo/public/cpp/system/data_pipe.h"
 #include "mojo/public/cpp/system/data_pipe_utils.h"
 #include "net/base/net_errors.h"
 #include "net/http/http_response_headers.h"
 #include "net/http/http_util.h"
-#include "services/network/public/cpp/resource_response.h"
 #include "services/network/public/cpp/url_loader_completion_status.h"
 #include "services/network/public/cpp/weak_wrapper_shared_url_loader_factory.h"
+#include "services/network/public/mojom/url_response_head.mojom.h"
 #include "services/network/test/test_url_loader_factory.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -82,6 +85,11 @@ class SpeechRecognizerImplTest : public SpeechRecognitionEventListener,
         sound_ended_(false),
         error_(blink::mojom::SpeechRecognitionErrorCode::kNone),
         volume_(-1.0f) {
+    // This test environment is not set up to support out-of-process services.
+    feature_list_.InitWithFeatures(
+        /*enabled_features=*/{},
+        /*disabled_features=*/{features::kAudioServiceOutOfProcess});
+
     // SpeechRecognizer takes ownership of sr_engine.
     SpeechRecognitionEngine* sr_engine = new SpeechRecognitionEngine(
         base::MakeRefCounted<network::WeakWrapperSharedURLLoaderFactory>(
@@ -275,7 +283,8 @@ class SpeechRecognizerImplTest : public SpeechRecognitionEventListener,
   }
 
  protected:
-  TestBrowserThreadBundle thread_bundle_;
+  base::test::ScopedFeatureList feature_list_;
+  BrowserTaskEnvironment task_environment_;
   network::TestURLLoaderFactory url_loader_factory_;
   scoped_refptr<SpeechRecognizerImpl> recognizer_;
   std::unique_ptr<media::MockAudioManager> audio_manager_;
@@ -411,7 +420,7 @@ TEST_F(SpeechRecognizerImplTest, StopWithData) {
   // that we are streaming out encoded data as chunks without waiting for the
   // full recording to complete.
   const size_t kNumChunks = 5;
-  network::mojom::ChunkedDataPipeGetterPtr chunked_data_pipe_getter;
+  mojo::Remote<network::mojom::ChunkedDataPipeGetter> chunked_data_pipe_getter;
   mojo::DataPipe data_pipe;
   for (size_t i = 0; i < kNumChunks; ++i) {
     Capture(audio_bus_.get());
@@ -544,7 +553,7 @@ TEST_F(SpeechRecognizerImplTest, ConnectionError) {
   const network::TestURLLoaderFactory::PendingRequest* pending_request;
   ASSERT_TRUE(GetUpstreamRequest(&pending_request));
   url_loader_factory_.AddResponse(
-      pending_request->request.url, network::ResourceResponseHead(), "",
+      pending_request->request.url, network::mojom::URLResponseHead::New(), "",
       network::URLLoaderCompletionStatus(net::ERR_CONNECTION_REFUSED));
 
   base::RunLoop().RunUntilIdle();
@@ -577,11 +586,12 @@ TEST_F(SpeechRecognizerImplTest, ServerError) {
 
   const network::TestURLLoaderFactory::PendingRequest* pending_request;
   ASSERT_TRUE(GetUpstreamRequest(&pending_request));
-  network::ResourceResponseHead response;
+  auto response = network::mojom::URLResponseHead::New();
   const char kHeaders[] = "HTTP/1.0 500 Internal Server Error";
-  response.headers = base::MakeRefCounted<net::HttpResponseHeaders>(
+  response->headers = base::MakeRefCounted<net::HttpResponseHeaders>(
       net::HttpUtil::AssembleRawHeaders(kHeaders));
-  url_loader_factory_.AddResponse(pending_request->request.url, response, "",
+  url_loader_factory_.AddResponse(pending_request->request.url,
+                                  std::move(response), "",
                                   network::URLLoaderCompletionStatus());
 
   base::RunLoop().RunUntilIdle();

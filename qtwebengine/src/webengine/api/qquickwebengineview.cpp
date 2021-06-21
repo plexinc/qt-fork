@@ -129,6 +129,7 @@ QQuickWebEngineViewPrivate::QQuickWebEngineViewPrivate()
     , devicePixelRatio(QGuiApplication::primaryScreen()->devicePixelRatio())
     , m_webChannel(0)
     , m_webChannelWorld(0)
+    , m_defaultAudioMuted(false)
     , m_isBeingAdopted(false)
     , m_backgroundColor(Qt::white)
     , m_zoomFactor(1.0)
@@ -316,16 +317,25 @@ void QQuickWebEngineViewPrivate::selectClientCert(const QSharedPointer<ClientCer
 #endif
 }
 
-void QQuickWebEngineViewPrivate::runGeolocationPermissionRequest(const QUrl &url)
+static QQuickWebEngineView::Feature toFeature(QtWebEngineCore::ProfileAdapter::PermissionType type)
 {
-    Q_Q(QQuickWebEngineView);
-    Q_EMIT q->featurePermissionRequested(url, QQuickWebEngineView::Geolocation);
+    switch (type) {
+    case QtWebEngineCore::ProfileAdapter::NotificationPermission:
+        return QQuickWebEngineView::Notifications;
+    case QtWebEngineCore::ProfileAdapter::GeolocationPermission:
+        return QQuickWebEngineView::Geolocation;
+    default:
+        break;
+    }
+    Q_UNREACHABLE();
+    return QQuickWebEngineView::Feature(-1);
 }
 
-void QQuickWebEngineViewPrivate::runUserNotificationPermissionRequest(const QUrl &url)
+
+void QQuickWebEngineViewPrivate::runFeaturePermissionRequest(QtWebEngineCore::ProfileAdapter::PermissionType permission, const QUrl &url)
 {
     Q_Q(QQuickWebEngineView);
-    Q_EMIT q->featurePermissionRequested(url, QQuickWebEngineView::Notifications);
+    Q_EMIT q->featurePermissionRequested(url, toFeature(permission));
 }
 
 void QQuickWebEngineViewPrivate::showColorDialog(QSharedPointer<ColorChooserController> controller)
@@ -426,6 +436,12 @@ void QQuickWebEngineViewPrivate::recentlyAudibleChanged(bool recentlyAudible)
 {
     Q_Q(QQuickWebEngineView);
     Q_EMIT q->recentlyAudibleChanged(recentlyAudible);
+}
+
+void QQuickWebEngineViewPrivate::renderProcessPidChanged(qint64 pid)
+{
+    Q_Q(QQuickWebEngineView);
+    Q_EMIT q->renderProcessPidChanged(pid);
 }
 
 QRectF QQuickWebEngineViewPrivate::viewportRect() const
@@ -532,12 +548,14 @@ void QQuickWebEngineViewPrivate::unhandledKeyEvent(QKeyEvent *event)
         QCoreApplication::sendEvent(q->parentItem(), event);
 }
 
-void QQuickWebEngineViewPrivate::adoptNewWindow(QSharedPointer<WebContentsAdapter> newWebContents, WindowOpenDisposition disposition, bool userGesture, const QRect &, const QUrl &targetUrl)
+QSharedPointer<WebContentsAdapter>
+QQuickWebEngineViewPrivate::adoptNewWindow(QSharedPointer<WebContentsAdapter> newWebContents,
+                                           WindowOpenDisposition disposition, bool userGesture,
+                                           const QRect &, const QUrl &targetUrl)
 {
     Q_Q(QQuickWebEngineView);
+    Q_ASSERT(newWebContents);
     QQuickWebEngineNewViewRequest request;
-    // This increases the ref-count of newWebContents and will tell Chromium
-    // to start loading it and possibly return it to its parent page window.open().
     request.m_adapter = newWebContents;
     request.m_isUserInitiated = userGesture;
     request.m_requestedUrl = targetUrl;
@@ -560,6 +578,11 @@ void QQuickWebEngineViewPrivate::adoptNewWindow(QSharedPointer<WebContentsAdapte
     }
 
     Q_EMIT q->newViewRequested(&request);
+
+    if (!request.m_isRequestHandled)
+        return nullptr;
+
+    return newWebContents;
 }
 
 bool QQuickWebEngineViewPrivate::isBeingAdopted()
@@ -654,11 +677,8 @@ void QQuickWebEngineViewPrivate::runMediaAccessPermissionRequest(const QUrl &sec
 
 void QQuickWebEngineViewPrivate::runMouseLockPermissionRequest(const QUrl &securityOrigin)
 {
-
-    Q_UNUSED(securityOrigin);
-
     // TODO: Add mouse lock support
-    adapter->grantMouseLockPermission(false);
+    adapter->grantMouseLockPermission(securityOrigin, false);
 }
 
 void QQuickWebEngineViewPrivate::runQuotaRequest(QWebEngineQuotaRequest request)
@@ -890,6 +910,9 @@ void QQuickWebEngineViewPrivate::initializationFinished()
     if (m_webChannel)
         adapter->setWebChannel(m_webChannel, m_webChannelWorld);
 #endif
+
+    if (m_defaultAudioMuted != adapter->isAudioMuted())
+        adapter->setAudioMuted(m_defaultAudioMuted);
 
     if (devToolsView && devToolsView->d_ptr->adapter)
         adapter->openDevToolsFrontend(devToolsView->d_ptr->adapter);
@@ -1411,15 +1434,18 @@ void QQuickWebEngineView::setBackgroundColor(const QColor &color)
 bool QQuickWebEngineView::isAudioMuted() const
 {
     const Q_D(QQuickWebEngineView);
-    return d->adapter->isAudioMuted();
+    if (d->adapter->isInitialized())
+        return d->adapter->isAudioMuted();
+    return d->m_defaultAudioMuted;
 }
 
 void QQuickWebEngineView::setAudioMuted(bool muted)
 {
     Q_D(QQuickWebEngineView);
-    bool wasAudioMuted = d->adapter->isAudioMuted();
+    bool wasAudioMuted = isAudioMuted();
+    d->m_defaultAudioMuted = muted;
     d->adapter->setAudioMuted(muted);
-    if (wasAudioMuted != d->adapter->isAudioMuted())
+    if (wasAudioMuted != isAudioMuted())
         Q_EMIT audioMutedChanged(muted);
 }
 
@@ -1427,6 +1453,12 @@ bool QQuickWebEngineView::recentlyAudible() const
 {
     const Q_D(QQuickWebEngineView);
     return d->adapter->recentlyAudible();
+}
+
+qint64 QQuickWebEngineView::renderProcessPid() const
+{
+    const Q_D(QQuickWebEngineView);
+    return d->adapter->renderProcessPid();
 }
 
 void QQuickWebEngineView::printToPdf(const QString& filePath, PrintedPageSizeId pageSizeId, PrintedPageOrientation orientation)
@@ -1616,9 +1648,6 @@ void QQuickWebEngineView::grantFeaturePermission(const QUrl &securityOrigin, QQu
     case MediaAudioVideoCapture:
         d_ptr->adapter->grantMediaAccessPermission(securityOrigin, WebContentsAdapterClient::MediaRequestFlags(WebContentsAdapterClient::MediaAudioCapture                                                                                                               | WebContentsAdapterClient::MediaVideoCapture));
         break;
-    case Geolocation:
-        d_ptr->adapter->runGeolocationRequestCallback(securityOrigin, granted);
-        break;
     case DesktopVideoCapture:
         d_ptr->adapter->grantMediaAccessPermission(securityOrigin, WebContentsAdapterClient::MediaDesktopVideoCapture);
         break;
@@ -1629,8 +1658,13 @@ void QQuickWebEngineView::grantFeaturePermission(const QUrl &securityOrigin, QQu
                 WebContentsAdapterClient::MediaDesktopAudioCapture |
                 WebContentsAdapterClient::MediaDesktopVideoCapture));
         break;
+    case Geolocation:
+        d_ptr->adapter->grantFeaturePermission(securityOrigin, ProfileAdapter::GeolocationPermission,
+                                               granted ? ProfileAdapter::AllowedPermission : ProfileAdapter::DeniedPermission);
+        break;
     case Notifications:
-        d_ptr->adapter->runUserNotificationRequestCallback(securityOrigin, granted);
+        d_ptr->adapter->grantFeaturePermission(securityOrigin, ProfileAdapter::NotificationPermission,
+                                               granted ? ProfileAdapter::AllowedPermission : ProfileAdapter::DeniedPermission);
         break;
     default:
         Q_UNREACHABLE();

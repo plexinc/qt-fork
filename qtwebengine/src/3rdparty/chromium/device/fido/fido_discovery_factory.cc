@@ -25,19 +25,20 @@
 #include "device/fido/mac/discovery.h"
 #endif  // defined(OSMACOSX)
 
+#if defined(OS_CHROMEOS)
+#include "device/fido/cros/discovery.h"
+#endif  // defined(OS_CHROMEOS)
+
 namespace device {
 
 namespace {
 
-std::unique_ptr<FidoDiscoveryBase> CreateUsbFidoDiscovery(
-    service_manager::Connector* connector) {
+std::unique_ptr<FidoDiscoveryBase> CreateUsbFidoDiscovery() {
 #if defined(OS_ANDROID)
   NOTREACHED() << "USB HID not supported on Android.";
   return nullptr;
 #else
-
-  DCHECK(connector);
-  return std::make_unique<FidoHidDiscovery>(connector);
+  return std::make_unique<FidoHidDiscovery>();
 #endif  // !defined(OS_ANDROID)
 }
 
@@ -47,55 +48,86 @@ FidoDiscoveryFactory::FidoDiscoveryFactory() = default;
 FidoDiscoveryFactory::~FidoDiscoveryFactory() = default;
 
 std::unique_ptr<FidoDiscoveryBase> FidoDiscoveryFactory::Create(
-    FidoTransportProtocol transport,
-    service_manager::Connector* connector) {
+    FidoTransportProtocol transport) {
   switch (transport) {
     case FidoTransportProtocol::kUsbHumanInterfaceDevice:
-      return CreateUsbFidoDiscovery(connector);
+      return CreateUsbFidoDiscovery();
     case FidoTransportProtocol::kBluetoothLowEnergy:
       return std::make_unique<FidoBleDiscovery>();
     case FidoTransportProtocol::kCloudAssistedBluetoothLowEnergy:
-      NOTREACHED() << "Cable discovery is constructed using the dedicated "
-                      "factory method.";
+      if (cable_data_.has_value() || qr_generator_key_.has_value()) {
+        return std::make_unique<FidoCableDiscovery>(
+            cable_data_.value_or(std::vector<CableDiscoveryData>()),
+            qr_generator_key_, cable_pairing_callback_);
+      }
       return nullptr;
     case FidoTransportProtocol::kNearFieldCommunication:
       // TODO(https://crbug.com/825949): Add NFC support.
       return nullptr;
     case FidoTransportProtocol::kInternal:
-#if defined(OS_MACOSX)
-      return mac_touch_id_config_
-                 ? std::make_unique<fido::mac::FidoTouchIdDiscovery>(
-                       *mac_touch_id_config_)
-                 : nullptr;
+#if defined(OS_MACOSX) || defined(OS_CHROMEOS)
+      return MaybeCreatePlatformDiscovery();
 #else
       return nullptr;
-#endif  // defined(OS_MACOSX)
+#endif
   }
   NOTREACHED() << "Unhandled transport type";
   return nullptr;
 }
 
-std::unique_ptr<FidoDiscoveryBase> FidoDiscoveryFactory::CreateCable(
-    std::vector<CableDiscoveryData> cable_data) {
-  return std::make_unique<FidoCableDiscovery>(std::move(cable_data));
+void FidoDiscoveryFactory::set_cable_data(
+    std::vector<CableDiscoveryData> cable_data,
+    base::Optional<QRGeneratorKey> qr_generator_key) {
+  cable_data_ = std::move(cable_data);
+  qr_generator_key_ = std::move(qr_generator_key);
+}
+
+void FidoDiscoveryFactory::set_cable_pairing_callback(
+    base::RepeatingCallback<void(std::unique_ptr<CableDiscoveryData>)>
+        pairing_callback) {
+  cable_pairing_callback_.emplace(std::move(pairing_callback));
 }
 
 #if defined(OS_WIN)
+void FidoDiscoveryFactory::set_win_webauthn_api(WinWebAuthnApi* api) {
+  win_webauthn_api_ = api;
+}
+
+WinWebAuthnApi* FidoDiscoveryFactory::win_webauthn_api() const {
+  return win_webauthn_api_;
+}
+
 std::unique_ptr<FidoDiscoveryBase>
 FidoDiscoveryFactory::MaybeCreateWinWebAuthnApiDiscovery() {
-  if (!base::FeatureList::IsEnabled(device::kWebAuthUseNativeWinApi) ||
-      !WinWebAuthnApi::GetDefault()->IsAvailable()) {
-    return nullptr;
-  }
-  return std::make_unique<WinWebAuthnApiAuthenticatorDiscovery>(
-      // TODO(martinkr): Inject the window from which the request
-      // originated. Windows uses this parameter to center the
-      // dialog over the parent. The dialog should be centered
-      // over the originating Chrome Window; the foreground window
-      // may have changed to something else since the request was
-      // issued.
-      GetForegroundWindow());
+  // TODO(martinkr): Inject the window from which the request originated.
+  // Windows uses this parameter to center the dialog over the parent. The
+  // dialog should be centered over the originating Chrome Window; the
+  // foreground window may have changed to something else since the request
+  // was issued.
+  return win_webauthn_api_ && win_webauthn_api_->IsAvailable()
+             ? std::make_unique<WinWebAuthnApiAuthenticatorDiscovery>(
+                   GetForegroundWindow(), win_webauthn_api_)
+             : nullptr;
 }
 #endif  // defined(OS_WIN)
+
+#if defined(OS_MACOSX)
+std::unique_ptr<FidoDiscoveryBase>
+FidoDiscoveryFactory::MaybeCreatePlatformDiscovery() const {
+  return mac_touch_id_config_
+             ? std::make_unique<fido::mac::FidoTouchIdDiscovery>(
+                   *mac_touch_id_config_)
+             : nullptr;
+}
+#endif
+
+#if defined(OS_CHROMEOS)
+std::unique_ptr<FidoDiscoveryBase>
+FidoDiscoveryFactory::MaybeCreatePlatformDiscovery() const {
+  return base::FeatureList::IsEnabled(kWebAuthCrosPlatformAuthenticator)
+             ? std::make_unique<FidoChromeOSDiscovery>()
+             : nullptr;
+}
+#endif
 
 }  // namespace device

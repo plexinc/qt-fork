@@ -11,20 +11,18 @@
 #include "net/third_party/quiche/src/quic/core/qpack/qpack_stream_sender_delegate.h"
 #include "net/third_party/quiche/src/quic/core/quic_types.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_string_piece.h"
 
 namespace quic {
 
-// This class serializes (encodes) instructions for transmission on the decoder
-// stream.
+// This class serializes instructions for transmission on the decoder stream.
+// Serialized instructions are buffered until Flush() is called.
 class QUIC_EXPORT_PRIVATE QpackDecoderStreamSender {
  public:
-  explicit QpackDecoderStreamSender(QpackStreamSenderDelegate* delegate);
-  QpackDecoderStreamSender() = delete;
+  QpackDecoderStreamSender();
   QpackDecoderStreamSender(const QpackDecoderStreamSender&) = delete;
   QpackDecoderStreamSender& operator=(const QpackDecoderStreamSender&) = delete;
 
-  // Methods for sending instructions, see
+  // Methods for serializing and buffering instructions, see
   // https://quicwg.org/base-drafts/draft-ietf-quic-qpack.html#rfc.section.5.3
 
   // 5.3.1 Insert Count Increment
@@ -34,10 +32,18 @@ class QUIC_EXPORT_PRIVATE QpackDecoderStreamSender {
   // 5.3.3 Stream Cancellation
   void SendStreamCancellation(QuicStreamId stream_id);
 
+  // Writes all buffered instructions on the decoder stream.
+  void Flush();
+
+  // delegate must be set if dynamic table capacity is not zero.
+  void set_qpack_stream_sender_delegate(QpackStreamSenderDelegate* delegate) {
+    delegate_ = delegate;
+  }
+
  private:
-  QpackStreamSenderDelegate* const delegate_;
+  QpackStreamSenderDelegate* delegate_;
   QpackInstructionEncoder instruction_encoder_;
-  QpackInstructionEncoder::Values values_;
+  std::string buffer_;
 };
 
 }  // namespace quic

@@ -5,6 +5,7 @@
 #include "third_party/blink/renderer/core/layout/ng/layout_ng_table_cell.h"
 
 #include "third_party/blink/renderer/core/layout/layout_analyzer.h"
+#include "third_party/blink/renderer/core/layout/layout_view.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_block_node.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_constraint_space.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_layout_result.h"
@@ -21,16 +22,7 @@ void LayoutNGTableCell::UpdateBlockLayout(bool relayout_children) {
   LayoutAnalyzer::BlockScope analyzer(*this);
 
   SetOverrideLogicalWidth(LogicalWidth());
-
-  NGConstraintSpace constraint_space =
-      NGConstraintSpace::CreateFromLayoutObject(*this);
-
-  scoped_refptr<const NGLayoutResult> result =
-      NGBlockNode(this).Layout(constraint_space);
-
-  for (const auto& descendant :
-       result->PhysicalFragment().OutOfFlowPositionedDescendants())
-    descendant.node.UseLegacyOutOfFlowPositioning();
+  UpdateInFlowBlockLayout();
 }
 
 }  // namespace blink

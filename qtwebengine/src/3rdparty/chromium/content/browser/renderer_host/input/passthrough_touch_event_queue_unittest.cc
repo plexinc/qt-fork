@@ -16,14 +16,14 @@
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
 #include "base/test/scoped_feature_list.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "content/browser/renderer_host/input/timeout_monitor.h"
 #include "content/common/input/synthetic_web_input_event_builders.h"
 #include "content/common/input/web_touch_event_traits.h"
 #include "content/public/common/content_features.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/blink/public/platform/web_input_event.h"
+#include "third_party/blink/public/common/input/web_input_event.h"
 #include "ui/events/base_event_utils.h"
 
 using blink::WebGestureEvent;
@@ -47,8 +47,8 @@ class PassthroughTouchEventQueueTest : public testing::Test,
                                        public PassthroughTouchEventQueueClient {
  public:
   PassthroughTouchEventQueueTest()
-      : scoped_task_environment_(
-            base::test::ScopedTaskEnvironment::MainThreadType::UI),
+      : task_environment_(
+            base::test::SingleThreadTaskEnvironment::MainThreadType::UI),
         acked_event_count_(0),
         last_acked_event_state_(INPUT_EVENT_ACK_STATE_UNKNOWN),
         slop_length_dips_(0) {}
@@ -341,7 +341,7 @@ class PassthroughTouchEventQueueTest : public testing::Test,
     queue_->OnHasTouchEventHandlers(true);
   }
 
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::SingleThreadTaskEnvironment task_environment_;
   std::unique_ptr<PassthroughTouchEventQueue> queue_;
   size_t acked_event_count_;
   WebTouchEvent last_acked_event_;

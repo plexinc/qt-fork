@@ -6,6 +6,7 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/memory/ptr_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/task/post_task.h"
 #include "content/browser/devtools/devtools_renderer_channel.h"
@@ -27,7 +28,7 @@ namespace content {
 
 namespace {
 
-void TerminateServiceWorkerOnIO(
+void TerminateServiceWorkerOnCoreThread(
     base::WeakPtr<ServiceWorkerContextCore> context_weak,
     int64_t version_id) {
   if (ServiceWorkerContextCore* context = context_weak.get()) {
@@ -36,7 +37,7 @@ void TerminateServiceWorkerOnIO(
   }
 }
 
-void SetDevToolsAttachedOnIO(
+void SetDevToolsAttachedOnCoreThread(
     base::WeakPtr<ServiceWorkerContextCore> context_weak,
     int64_t version_id,
     bool attached) {
@@ -46,11 +47,11 @@ void SetDevToolsAttachedOnIO(
   }
 }
 
-void UpdateLoaderFactoriesOnIO(
+void UpdateLoaderFactoriesOnCoreThread(
     base::WeakPtr<ServiceWorkerContextCore> context_weak,
     int64_t version_id,
-    std::unique_ptr<blink::URLLoaderFactoryBundleInfo> script_bundle,
-    std::unique_ptr<blink::URLLoaderFactoryBundleInfo> subresource_bundle) {
+    std::unique_ptr<blink::PendingURLLoaderFactoryBundle> script_bundle,
+    std::unique_ptr<blink::PendingURLLoaderFactoryBundle> subresource_bundle) {
   auto* version =
       context_weak ? context_weak->GetLiveVersion(version_id) : nullptr;
   if (!version)
@@ -70,6 +71,10 @@ ServiceWorkerDevToolsAgentHost::ServiceWorkerDevToolsAgentHost(
     const GURL& url,
     const GURL& scope,
     bool is_installed_version,
+    base::Optional<network::CrossOriginEmbedderPolicy>
+        cross_origin_embedder_policy,
+    mojo::PendingRemote<network::mojom::CrossOriginEmbedderPolicyReporter>
+        coep_reporter,
     const base::UnguessableToken& devtools_worker_token)
     : DevToolsAgentHostImpl(devtools_worker_token.ToString()),
       state_(WORKER_NOT_READY),
@@ -82,7 +87,9 @@ ServiceWorkerDevToolsAgentHost::ServiceWorkerDevToolsAgentHost(
       url_(url),
       scope_(scope),
       version_installed_time_(is_installed_version ? base::Time::Now()
-                                                   : base::Time()) {
+                                                   : base::Time()),
+      cross_origin_embedder_policy_(std::move(cross_origin_embedder_policy)),
+      coep_reporter_(std::move(coep_reporter)) {
   NotifyCreated();
 }
 
@@ -111,9 +118,9 @@ void ServiceWorkerDevToolsAgentHost::Reload() {
 }
 
 bool ServiceWorkerDevToolsAgentHost::Close() {
-  base::PostTaskWithTraits(
-      FROM_HERE, {BrowserThread::IO},
-      base::BindOnce(&TerminateServiceWorkerOnIO, context_weak_, version_id_));
+  RunOrPostTaskOnThread(FROM_HERE, ServiceWorkerContext::GetCoreThreadId(),
+                        base::BindOnce(&TerminateServiceWorkerOnCoreThread,
+                                       context_weak_, version_id_));
   return true;
 }
 
@@ -160,17 +167,24 @@ void ServiceWorkerDevToolsAgentHost::DetachSession(DevToolsSession* session) {
 }
 
 void ServiceWorkerDevToolsAgentHost::WorkerReadyForInspection(
-    blink::mojom::DevToolsAgentHostAssociatedRequest host_request,
-    blink::mojom::DevToolsAgentAssociatedPtrInfo devtools_agent_ptr_info) {
+    mojo::PendingRemote<blink::mojom::DevToolsAgent> agent_remote,
+    mojo::PendingReceiver<blink::mojom::DevToolsAgentHost> host_receiver) {
   DCHECK_EQ(WORKER_NOT_READY, state_);
   state_ = WORKER_READY;
-  blink::mojom::DevToolsAgentAssociatedPtr agent_ptr;
-  agent_ptr.Bind(std::move(devtools_agent_ptr_info));
-  GetRendererChannel()->SetRendererAssociated(std::move(agent_ptr),
-                                              std::move(host_request),
-                                              worker_process_id_, nullptr);
+  GetRendererChannel()->SetRenderer(
+      std::move(agent_remote), std::move(host_receiver), worker_process_id_);
+  for (auto* inspector : protocol::InspectorHandler::ForAgentHost(this))
+    inspector->TargetReloadedAfterCrash();
   if (!sessions().empty())
     UpdateIsAttached(true);
+}
+
+void ServiceWorkerDevToolsAgentHost::UpdateCrossOriginEmbedderPolicy(
+    network::CrossOriginEmbedderPolicy cross_origin_embedder_policy,
+    mojo::PendingRemote<network::mojom::CrossOriginEmbedderPolicyReporter>
+        coep_reporter) {
+  cross_origin_embedder_policy_ = std::move(cross_origin_embedder_policy);
+  coep_reporter_.Bind(std::move(coep_reporter));
 }
 
 void ServiceWorkerDevToolsAgentHost::WorkerRestarted(int worker_process_id,
@@ -179,8 +193,6 @@ void ServiceWorkerDevToolsAgentHost::WorkerRestarted(int worker_process_id,
   state_ = WORKER_NOT_READY;
   worker_process_id_ = worker_process_id;
   worker_route_id_ = worker_route_id;
-  for (auto* inspector : protocol::InspectorHandler::ForAgentHost(this))
-    inspector->TargetReloadedAfterCrash();
 }
 
 void ServiceWorkerDevToolsAgentHost::WorkerDestroyed() {
@@ -188,17 +200,16 @@ void ServiceWorkerDevToolsAgentHost::WorkerDestroyed() {
   state_ = WORKER_TERMINATED;
   for (auto* inspector : protocol::InspectorHandler::ForAgentHost(this))
     inspector->TargetCrashed();
-  GetRendererChannel()->SetRendererAssociated(
-      nullptr, nullptr, ChildProcessHost::kInvalidUniqueID, nullptr);
+  GetRendererChannel()->SetRenderer(mojo::NullRemote(), mojo::NullReceiver(),
+                                    ChildProcessHost::kInvalidUniqueID);
   if (!sessions().empty())
     UpdateIsAttached(false);
 }
 
 void ServiceWorkerDevToolsAgentHost::UpdateIsAttached(bool attached) {
-  base::PostTaskWithTraits(
-      FROM_HERE, {BrowserThread::IO},
-      base::BindOnce(&SetDevToolsAttachedOnIO, context_weak_, version_id_,
-                     attached));
+  RunOrPostTaskOnThread(FROM_HERE, ServiceWorkerContext::GetCoreThreadId(),
+                        base::BindOnce(&SetDevToolsAttachedOnCoreThread,
+                                       context_weak_, version_id_, attached));
 }
 
 void ServiceWorkerDevToolsAgentHost::UpdateLoaderFactories(
@@ -209,15 +220,47 @@ void ServiceWorkerDevToolsAgentHost::UpdateLoaderFactories(
     return;
   }
   const url::Origin origin = url::Origin::Create(url_);
+
+  mojo::PendingRemote<network::mojom::CrossOriginEmbedderPolicyReporter>
+      coep_reporter_for_script_loader;
+  mojo::PendingRemote<network::mojom::CrossOriginEmbedderPolicyReporter>
+      coep_reporter_for_subresource_loader;
+  if (coep_reporter_) {
+    coep_reporter_->Clone(
+        coep_reporter_for_script_loader.InitWithNewPipeAndPassReceiver());
+    coep_reporter_->Clone(
+        coep_reporter_for_subresource_loader.InitWithNewPipeAndPassReceiver());
+  }
+  // Use the default CrossOriginEmbedderPolicy if
+  // |cross_origin_embedder_policy_| is nullopt. It's acceptable because the
+  // factory bundles are updated with correct COEP value before any subresource
+  // requests in that case.
   auto script_bundle = EmbeddedWorkerInstance::CreateFactoryBundleOnUI(
-      rph, worker_route_id_, origin);
+      rph, worker_route_id_, origin,
+      cross_origin_embedder_policy_ ? cross_origin_embedder_policy_.value()
+                                    : network::CrossOriginEmbedderPolicy(),
+      std::move(coep_reporter_for_script_loader),
+      ContentBrowserClient::URLLoaderFactoryType::kServiceWorkerScript);
   auto subresource_bundle = EmbeddedWorkerInstance::CreateFactoryBundleOnUI(
-      rph, worker_route_id_, origin);
-  base::PostTaskWithTraitsAndReply(
-      FROM_HERE, {BrowserThread::IO},
-      base::BindOnce(&UpdateLoaderFactoriesOnIO, context_weak_, version_id_,
-                     std::move(script_bundle), std::move(subresource_bundle)),
-      std::move(callback));
+      rph, worker_route_id_, origin,
+      cross_origin_embedder_policy_ ? cross_origin_embedder_policy_.value()
+                                    : network::CrossOriginEmbedderPolicy(),
+      std::move(coep_reporter_for_subresource_loader),
+      ContentBrowserClient::URLLoaderFactoryType::kServiceWorkerSubResource);
+
+  if (ServiceWorkerContext::IsServiceWorkerOnUIEnabled()) {
+    UpdateLoaderFactoriesOnCoreThread(context_weak_, version_id_,
+                                      std::move(script_bundle),
+                                      std::move(subresource_bundle));
+    std::move(callback).Run();
+  } else {
+    base::PostTaskAndReply(
+        FROM_HERE, {BrowserThread::IO},
+        base::BindOnce(&UpdateLoaderFactoriesOnCoreThread, context_weak_,
+                       version_id_, std::move(script_bundle),
+                       std::move(subresource_bundle)),
+        std::move(callback));
+  }
 }
 
 }  // namespace content

@@ -16,27 +16,16 @@
 #include "base/memory/ref_counted.h"
 #include "base/optional.h"
 #include "base/values.h"
-#include "extensions/browser/api/declarative_net_request/ruleset_manager.h"
+#include "content/public/browser/global_routing_id.h"
+#include "extensions/browser/api/declarative_net_request/request_action.h"
 #include "extensions/browser/api/web_request/web_request_resource_type.h"
 #include "extensions/browser/extension_api_frame_id_map.h"
 #include "ipc/ipc_message.h"
 #include "net/http/http_request_headers.h"
 #include "services/network/public/cpp/resource_request.h"
+#include "services/network/public/mojom/url_response_head.mojom-forward.h"
 #include "url/gurl.h"
 #include "url/origin.h"
-
-namespace content {
-class ResourceContext;
-}  // namespace content
-
-namespace net {
-class HttpResponseHeaders;
-class URLRequest;
-}  // namespace net
-
-namespace network {
-struct ResourceResponseHead;
-}
 
 namespace extensions {
 
@@ -48,10 +37,8 @@ struct WebRequestInfoInitParams {
   WebRequestInfoInitParams(WebRequestInfoInitParams&& other);
   WebRequestInfoInitParams& operator=(WebRequestInfoInitParams&& other);
 
-  explicit WebRequestInfoInitParams(net::URLRequest* url_request);
-
   // Initializes a WebRequestInfoInitParams from information provided over a
-  // URLLoaderFactory interface, for use with the Network Service.
+  // URLLoaderFactory interface.
   WebRequestInfoInitParams(
       uint64_t request_id,
       int render_process_id,
@@ -60,31 +47,34 @@ struct WebRequestInfoInitParams {
       int32_t routing_id,
       const network::ResourceRequest& request,
       bool is_download,
-      bool is_async);
+      bool is_async,
+      bool is_service_worker_script,
+      base::Optional<int64_t> navigation_id);
 
   ~WebRequestInfoInitParams();
 
   uint64_t id = 0;
   GURL url;
-  GURL site_for_cookies;
+  net::SiteForCookies site_for_cookies;
   int render_process_id = -1;
   int routing_id = MSG_ROUTING_NONE;
   int frame_id = -1;
   std::string method;
   bool is_navigation_request = false;
   base::Optional<url::Origin> initiator;
-  base::Optional<content::ResourceType> type;
+  blink::mojom::ResourceType type = blink::mojom::ResourceType::kSubResource;
   WebRequestResourceType web_request_type = WebRequestResourceType::OTHER;
   bool is_async = false;
   net::HttpRequestHeaders extra_request_headers;
-  bool is_pac_request = false;
   std::unique_ptr<base::DictionaryValue> request_body_data;
   bool is_web_view = false;
   int web_view_instance_id = -1;
   int web_view_rules_registry_id = -1;
   int web_view_embedder_process_id = -1;
-  content::ResourceContext* resource_context = nullptr;
-  base::Optional<ExtensionApiFrameIdMap::FrameData> frame_data;
+  ExtensionApiFrameIdMap::FrameData frame_data;
+  bool is_service_worker_script = false;
+  base::Optional<int64_t> navigation_id;
+  content::GlobalFrameRoutingId parent_routing_id;
 
  private:
   void InitializeWebViewAndFrameData(
@@ -96,32 +86,20 @@ struct WebRequestInfoInitParams {
 // A URL request representation used by WebRequest API internals. This structure
 // carries information about an in-progress request.
 struct WebRequestInfo {
-  // Initializes a WebRequestInfoInitParams from a net::URLRequest. Should be
-  // used sparingly, as we are moving away from direct URLRequest usage and
-  // toward using Network Service. Prefer passing and referencing
-  // WebRequestInfoInitParams in lieu of exposing any new direct references to
-  // net::URLRequest throughout extensions WebRequest-related code.
-  explicit WebRequestInfo(net::URLRequest* url_request);
-
   explicit WebRequestInfo(WebRequestInfoInitParams params);
 
   ~WebRequestInfo();
 
-  // Fill in response data for this request. Only used when the Network Service
-  // is disabled.
-  void AddResponseInfoFromURLRequest(net::URLRequest* url_request);
-
-  // Fill in response data for this request. Only used when the Network Service
-  // is enabled.
+  // Fill in response data for this request.
   void AddResponseInfoFromResourceResponse(
-      const network::ResourceResponseHead& response);
+      const network::mojom::URLResponseHead& response);
 
   // A unique identifier for this request.
   const uint64_t id;
 
   // The URL of the request.
   const GURL url;
-  const GURL site_for_cookies;
+  const net::SiteForCookies site_for_cookies;
 
   // The ID of the render process which initiated the request, or -1 of not
   // applicable (i.e. if initiated by the browser).
@@ -145,14 +123,11 @@ struct WebRequestInfo {
   const base::Optional<url::Origin> initiator;
 
   // Extension API frame data corresponding to details of the frame which
-  // initiate this request. May be null for renderer-initiated requests where
-  // some frame details are not known at WebRequestInfo construction time.
-  // Mutable since this is lazily computed.
-  mutable base::Optional<ExtensionApiFrameIdMap::FrameData> frame_data;
+  // initiate this request.
+  ExtensionApiFrameIdMap::FrameData frame_data;
 
-  // The type of the request (e.g. main frame, subresource, XHR, etc). May have
-  // no value if the request did not originate from a ResourceDispatcher.
-  const base::Optional<content::ResourceType> type;
+  // The type of the request (e.g. main frame, subresource, XHR, etc).
+  const blink::mojom::ResourceType type;
 
   // A partially mirrored copy of |type| which is slightly less granular and
   // which also identifies WebSocket requests separately from other types.
@@ -162,9 +137,6 @@ struct WebRequestInfo {
   const bool is_async;
 
   const net::HttpRequestHeaders extra_request_headers;
-
-  // Indicates if this request is for a PAC script.
-  const bool is_pac_request;
 
   // HTTP response code for this request if applicable. -1 if not.
   int response_code = -1;
@@ -195,10 +167,21 @@ struct WebRequestInfo {
   const int web_view_rules_registry_id;
   const int web_view_embedder_process_id;
 
-  // The Declarative Net Request action associated with this request. Mutable
+  // The Declarative Net Request actions associated with this request. Mutable
   // since this is lazily computed. Cached to avoid redundant computations.
-  mutable base::Optional<declarative_net_request::RulesetManager::Action>
-      dnr_action;
+  // Valid when not null. In case no actions are taken, populated with an empty
+  // vector.
+  mutable base::Optional<std::vector<declarative_net_request::RequestAction>>
+      dnr_actions;
+
+  const bool is_service_worker_script;
+
+  // Valid if this request corresponds to a navigation.
+  const base::Optional<int64_t> navigation_id;
+
+  // ID of the RenderFrameHost corresponding to the parent frame. Only valid for
+  // document subresource and sub-frame requests.
+  const content::GlobalFrameRoutingId parent_routing_id;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(WebRequestInfo);

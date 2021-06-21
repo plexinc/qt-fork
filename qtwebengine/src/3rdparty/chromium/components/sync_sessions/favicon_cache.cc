@@ -11,7 +11,6 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/stl_util.h"
 #include "components/favicon/core/favicon_service.h"
-#include "components/history/core/browser/history_service.h"
 #include "components/sync/model/sync_change_processor.h"
 #include "components/sync/model/time.h"
 #include "components/sync/protocol/favicon_image_specifics.pb.h"
@@ -227,8 +226,7 @@ FaviconCache::FaviconCache(favicon::FaviconService* favicon_service,
                            int max_sync_favicon_limit)
     : favicon_service_(favicon_service),
       history_service_(history_service),
-      max_sync_favicon_limit_(max_sync_favicon_limit),
-      history_service_observer_(this) {
+      max_sync_favicon_limit_(max_sync_favicon_limit) {
   if (history_service)
     history_service_observer_.Add(history_service);
   DVLOG(1) << "Setting favicon limit to " << max_sync_favicon_limit;
@@ -323,8 +321,8 @@ void FaviconCache::StopSyncing(syncer::ModelType type) {
   page_task_map_.clear();
 }
 
-syncer::SyncDataList FaviconCache::GetAllSyncData(syncer::ModelType type)
-    const {
+syncer::SyncDataList FaviconCache::GetAllSyncDataForTesting(
+    syncer::ModelType type) const {
   syncer::SyncDataList data_list;
   for (auto iter = synced_favicons_.begin(); iter != synced_favicons_.end();
        ++iter) {
@@ -448,8 +446,8 @@ void FaviconCache::OnPageFaviconUpdated(const GURL& page_url,
   base::CancelableTaskTracker::TaskId id =
       favicon_service_->GetFaviconForPageURL(
           page_url, SupportedFaviconTypes(), kMaxFaviconResolution,
-          base::Bind(&FaviconCache::OnFaviconDataAvailable,
-                     weak_ptr_factory_.GetWeakPtr(), page_url, mtime),
+          base::BindOnce(&FaviconCache::OnFaviconDataAvailable,
+                         weak_ptr_factory_.GetWeakPtr(), page_url, mtime),
           &cancelable_task_tracker_);
   page_task_map_[page_url] = id;
 }

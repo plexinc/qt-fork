@@ -44,6 +44,7 @@ class CC_EXPORT TextureLayerImpl : public LayerImpl {
   SimpleEnclosedRegion VisibleOpaqueRegion() const override;
   void ReleaseResources() override;
   void OnPurgeMemory() override;
+  gfx::ContentColorUsage GetContentColorUsage() const override;
 
   // These setter methods don't cause any implicit damage, so the texture client
   // must explicitly invalidate if they intend to cause a visible change in the
@@ -51,15 +52,11 @@ class CC_EXPORT TextureLayerImpl : public LayerImpl {
   void SetTextureId(unsigned id);
   void SetPremultipliedAlpha(bool premultiplied_alpha);
   void SetBlendBackgroundColor(bool blend);
+  void SetForceTextureToOpaque(bool opaque);
   void SetFlipped(bool flipped);
   void SetNearestNeighbor(bool nearest_neighbor);
   void SetUVTopLeft(const gfx::PointF& top_left);
   void SetUVBottomRight(const gfx::PointF& bottom_right);
-
-  // 1--2
-  // |  |
-  // 0--3
-  void SetVertexOpacity(const float vertex_opacity[4]);
 
   void SetTransferableResource(
       const viz::TransferableResource& resource,
@@ -87,11 +84,11 @@ class CC_EXPORT TextureLayerImpl : public LayerImpl {
 
   bool premultiplied_alpha_ = true;
   bool blend_background_color_ = false;
+  bool force_texture_to_opaque_ = false;
   bool flipped_ = true;
   bool nearest_neighbor_ = false;
   gfx::PointF uv_top_left_ = gfx::PointF();
   gfx::PointF uv_bottom_right_ = gfx::PointF(1.f, 1.f);
-  float vertex_opacity_[4] = {1.f, 1.f, 1.f, 1.f};
 
   // True while the |transferable_resource_| is owned by this layer, and
   // becomes false once it is passed to another layer or to the

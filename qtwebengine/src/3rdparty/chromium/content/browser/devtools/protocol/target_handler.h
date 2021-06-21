@@ -28,7 +28,8 @@ namespace protocol {
 
 class TargetHandler : public DevToolsDomainHandler,
                       public Target::Backend,
-                      public DevToolsAgentHostObserver {
+                      public DevToolsAgentHostObserver,
+                      public TargetAutoAttacher::Delegate {
  public:
   enum class AccessMode {
     // Only setAutoAttach is supported. Any non-related target are not
@@ -57,6 +58,7 @@ class TargetHandler : public DevToolsDomainHandler,
   std::unique_ptr<NavigationThrottle> CreateThrottleForNavigation(
       NavigationHandle* navigation_handle);
   void UpdatePortals();
+  bool ShouldThrottlePopups() const;
 
   // Domain implementation.
   Response SetDiscoverTargets(bool discover) override;
@@ -83,7 +85,8 @@ class TargetHandler : public DevToolsDomainHandler,
                        bool* out_success) override;
   Response ExposeDevToolsProtocol(const std::string& target_id,
                                   Maybe<std::string> binding_name) override;
-  Response CreateBrowserContext(std::string* out_context_id) override;
+  Response CreateBrowserContext(Maybe<bool> dispose_on_detach,
+                                std::string* out_context_id) override;
   void DisposeBrowserContext(
       const std::string& context_id,
       std::unique_ptr<DisposeBrowserContextCallback> callback) override;
@@ -104,9 +107,13 @@ class TargetHandler : public DevToolsDomainHandler,
  private:
   class Session;
   class Throttle;
+  class RequestThrottle;
+  class ResponseThrottle;
 
-  void AutoAttach(DevToolsAgentHost* host, bool waiting_for_debugger);
-  void AutoDetach(DevToolsAgentHost* host);
+  // TargetAutoAttacher::Delegate implementation.
+  void AutoAttach(DevToolsAgentHost* host, bool waiting_for_debugger) override;
+  void AutoDetach(DevToolsAgentHost* host) override;
+
   Response FindSession(Maybe<std::string> session_id,
                        Maybe<std::string> target_id,
                        Session** session);
@@ -115,6 +122,7 @@ class TargetHandler : public DevToolsDomainHandler,
                              bool wait_for_debugger_on_start,
                              bool flatten,
                              base::OnceClosure callback);
+  void UpdateAgentHostObserver();
 
   // DevToolsAgentHostObserver implementation.
   bool ShouldForceDevToolsAgentHostCreation() override;
@@ -130,9 +138,11 @@ class TargetHandler : public DevToolsDomainHandler,
   TargetAutoAttacher auto_attacher_;
   bool flatten_auto_attach_ = false;
   bool discover_;
+  bool observing_agent_hosts_ = false;
   std::map<std::string, std::unique_ptr<Session>> attached_sessions_;
   std::map<DevToolsAgentHost*, Session*> auto_attached_sessions_;
   std::set<DevToolsAgentHost*> reported_hosts_;
+  base::flat_set<std::string> dispose_on_detach_context_ids_;
   AccessMode access_mode_;
   std::string owner_target_id_;
   DevToolsSession* root_session_;

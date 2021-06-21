@@ -4,9 +4,11 @@
 
 #include "third_party/blink/renderer/core/fetch/blob_bytes_consumer.h"
 
-#include "mojo/public/cpp/bindings/strong_binding.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
+#include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/renderer/core/fetch/bytes_consumer_test_util.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/loader/threadable_loader.h"
 #include "third_party/blink/renderer/core/testing/page_test_base.h"
 #include "third_party/blink/renderer/platform/blob/blob_data.h"
@@ -26,7 +28,7 @@ using PublicState = BytesConsumer::PublicState;
 using Result = BytesConsumer::Result;
 
 class BlobBytesConsumerTestClient final
-    : public GarbageCollectedFinalized<BlobBytesConsumerTestClient>,
+    : public GarbageCollected<BlobBytesConsumerTestClient>,
       public BytesConsumer::Client {
   USING_GARBAGE_COLLECTED_MIXIN(BlobBytesConsumerTestClient);
 
@@ -43,10 +45,10 @@ class BlobBytesConsumerTest : public PageTestBase {
  public:
   void SetUp() override { PageTestBase::SetUp(IntSize(1, 1)); }
   scoped_refptr<BlobDataHandle> CreateBlob(const String& body) {
-    mojom::blink::BlobPtrInfo mojo_blob;
-    mojo::MakeStrongBinding(
+    mojo::PendingRemote<mojom::blink::Blob> mojo_blob;
+    mojo::MakeSelfOwnedReceiver(
         std::make_unique<FakeBlob>(kBlobUUID, body, &blob_state_),
-        MakeRequest(&mojo_blob));
+        mojo_blob.InitWithNewPipeAndPassReceiver());
     return BlobDataHandle::Create(kBlobUUID, "", body.length(),
                                   std::move(mojo_blob));
   }
@@ -65,8 +67,8 @@ TEST_F(BlobBytesConsumerTest, TwoPhaseRead) {
   String body = "hello, world";
   scoped_refptr<BlobDataHandle> blob_data_handle = CreateBlob(body);
 
-  BlobBytesConsumer* consumer =
-      MakeGarbageCollected<BlobBytesConsumer>(&GetDocument(), blob_data_handle);
+  BlobBytesConsumer* consumer = MakeGarbageCollected<BlobBytesConsumer>(
+      GetFrame().DomWindow(), blob_data_handle);
 
   EXPECT_EQ(PublicState::kReadableOrWaiting, consumer->GetPublicState());
   EXPECT_FALSE(DidStartLoading());
@@ -89,8 +91,8 @@ TEST_F(BlobBytesConsumerTest, TwoPhaseRead) {
 
 TEST_F(BlobBytesConsumerTest, CancelBeforeStarting) {
   scoped_refptr<BlobDataHandle> blob_data_handle = CreateBlob("foo bar");
-  BlobBytesConsumer* consumer =
-      MakeGarbageCollected<BlobBytesConsumer>(&GetDocument(), blob_data_handle);
+  BlobBytesConsumer* consumer = MakeGarbageCollected<BlobBytesConsumer>(
+      GetFrame().DomWindow(), blob_data_handle);
   BlobBytesConsumerTestClient* client =
       MakeGarbageCollected<BlobBytesConsumerTestClient>();
   consumer->SetClient(client);
@@ -107,8 +109,8 @@ TEST_F(BlobBytesConsumerTest, CancelBeforeStarting) {
 
 TEST_F(BlobBytesConsumerTest, CancelAfterStarting) {
   scoped_refptr<BlobDataHandle> blob_data_handle = CreateBlob("foo bar");
-  BlobBytesConsumer* consumer =
-      MakeGarbageCollected<BlobBytesConsumer>(&GetDocument(), blob_data_handle);
+  BlobBytesConsumer* consumer = MakeGarbageCollected<BlobBytesConsumer>(
+      GetFrame().DomWindow(), blob_data_handle);
   BlobBytesConsumerTestClient* client =
       MakeGarbageCollected<BlobBytesConsumerTestClient>();
   consumer->SetClient(client);
@@ -129,8 +131,8 @@ TEST_F(BlobBytesConsumerTest, CancelAfterStarting) {
 TEST_F(BlobBytesConsumerTest, DrainAsBlobDataHandle) {
   String body = "hello, world";
   scoped_refptr<BlobDataHandle> blob_data_handle = CreateBlob(body);
-  BlobBytesConsumer* consumer =
-      MakeGarbageCollected<BlobBytesConsumer>(&GetDocument(), blob_data_handle);
+  BlobBytesConsumer* consumer = MakeGarbageCollected<BlobBytesConsumer>(
+      GetFrame().DomWindow(), blob_data_handle);
 
   EXPECT_EQ(PublicState::kReadableOrWaiting, consumer->GetPublicState());
   EXPECT_FALSE(DidStartLoading());
@@ -146,12 +148,11 @@ TEST_F(BlobBytesConsumerTest, DrainAsBlobDataHandle) {
 }
 
 TEST_F(BlobBytesConsumerTest, DrainAsBlobDataHandle_2) {
-  scoped_refptr<BlobDataHandle> blob_data_handle = BlobDataHandle::Create(
-      "uuid", "", std::numeric_limits<uint64_t>::max(),
-      CreateBlob("foo bar")->CloneBlobPtr().PassInterface());
-  ;
-  BlobBytesConsumer* consumer =
-      MakeGarbageCollected<BlobBytesConsumer>(&GetDocument(), blob_data_handle);
+  scoped_refptr<BlobDataHandle> blob_data_handle =
+      BlobDataHandle::Create("uuid", "", std::numeric_limits<uint64_t>::max(),
+                             CreateBlob("foo bar")->CloneBlobRemote());
+  BlobBytesConsumer* consumer = MakeGarbageCollected<BlobBytesConsumer>(
+      GetFrame().DomWindow(), blob_data_handle);
 
   EXPECT_EQ(PublicState::kReadableOrWaiting, consumer->GetPublicState());
   EXPECT_FALSE(DidStartLoading());
@@ -167,12 +168,11 @@ TEST_F(BlobBytesConsumerTest, DrainAsBlobDataHandle_2) {
 }
 
 TEST_F(BlobBytesConsumerTest, DrainAsBlobDataHandle_3) {
-  scoped_refptr<BlobDataHandle> blob_data_handle = BlobDataHandle::Create(
-      "uuid", "", std::numeric_limits<uint64_t>::max(),
-      CreateBlob("foo bar")->CloneBlobPtr().PassInterface());
-  ;
-  BlobBytesConsumer* consumer =
-      MakeGarbageCollected<BlobBytesConsumer>(&GetDocument(), blob_data_handle);
+  scoped_refptr<BlobDataHandle> blob_data_handle =
+      BlobDataHandle::Create("uuid", "", std::numeric_limits<uint64_t>::max(),
+                             CreateBlob("foo bar")->CloneBlobRemote());
+  BlobBytesConsumer* consumer = MakeGarbageCollected<BlobBytesConsumer>(
+      GetFrame().DomWindow(), blob_data_handle);
 
   EXPECT_EQ(PublicState::kReadableOrWaiting, consumer->GetPublicState());
   EXPECT_FALSE(DidStartLoading());
@@ -186,8 +186,8 @@ TEST_F(BlobBytesConsumerTest, DrainAsBlobDataHandle_3) {
 TEST_F(BlobBytesConsumerTest, DrainAsFormData) {
   String body = "hello, world";
   scoped_refptr<BlobDataHandle> blob_data_handle = CreateBlob(body);
-  BlobBytesConsumer* consumer =
-      MakeGarbageCollected<BlobBytesConsumer>(&GetDocument(), blob_data_handle);
+  BlobBytesConsumer* consumer = MakeGarbageCollected<BlobBytesConsumer>(
+      GetFrame().DomWindow(), blob_data_handle);
 
   EXPECT_EQ(PublicState::kReadableOrWaiting, consumer->GetPublicState());
   EXPECT_FALSE(DidStartLoading());
@@ -206,7 +206,7 @@ TEST_F(BlobBytesConsumerTest, DrainAsFormData) {
 
 TEST_F(BlobBytesConsumerTest, ConstructedFromNullHandle) {
   BlobBytesConsumer* consumer =
-      MakeGarbageCollected<BlobBytesConsumer>(&GetDocument(), nullptr);
+      MakeGarbageCollected<BlobBytesConsumer>(GetFrame().DomWindow(), nullptr);
   const char* buffer = nullptr;
   size_t available;
   EXPECT_EQ(BytesConsumer::PublicState::kClosed, consumer->GetPublicState());

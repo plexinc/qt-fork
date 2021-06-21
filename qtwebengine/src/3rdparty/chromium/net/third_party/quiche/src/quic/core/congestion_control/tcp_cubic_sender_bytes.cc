@@ -105,15 +105,11 @@ void TcpCubicSenderBytes::SetFromConfig(const QuicConfig& config,
   }
 }
 
-void TcpCubicSenderBytes::AdjustNetworkParameters(
-    QuicBandwidth bandwidth,
-    QuicTime::Delta rtt,
-    bool /*allow_cwnd_to_decrease*/) {
-  if (bandwidth.IsZero() || rtt.IsZero()) {
+void TcpCubicSenderBytes::AdjustNetworkParameters(const NetworkParams& params) {
+  if (params.bandwidth.IsZero() || params.rtt.IsZero()) {
     return;
   }
-
-  SetCongestionWindowFromBandwidthAndRtt(bandwidth, rtt);
+  SetCongestionWindowFromBandwidthAndRtt(params.bandwidth, params.rtt);
 }
 
 float TcpCubicSenderBytes::RenoBeta() const {
@@ -140,7 +136,7 @@ void TcpCubicSenderBytes::OnCongestionEvent(
     OnPacketLost(lost_packet.packet_number, lost_packet.bytes_lost,
                  prior_in_flight);
   }
-  for (const AckedPacket acked_packet : acked_packets) {
+  for (const AckedPacket& acked_packet : acked_packets) {
     OnPacketAcked(acked_packet.packet_number, acked_packet.bytes_acked,
                   prior_in_flight, event_time);
   }

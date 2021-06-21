@@ -81,9 +81,6 @@ void ScopedStyleResolver::AddFontFaceRules(const RuleSet& rule_set) {
   }
   if (font_face_rules.size() && document.GetStyleResolver())
     document.GetStyleResolver()->InvalidateMatchedPropertiesCache();
-
-  for (const auto& rule : rule_set.FontFeatureValuesRules())
-    document.GetStyleEngine().AddDefaultFontDisplay(rule);
 }
 
 void ScopedStyleResolver::AppendActiveStyleSheets(
@@ -171,10 +168,11 @@ void ScopedStyleResolver::AddKeyframeStyle(StyleRuleKeyframes* rule) {
   }
 }
 
-ContainerNode& ScopedStyleResolver::InvalidationRootForTreeScope(
+Element& ScopedStyleResolver::InvalidationRootForTreeScope(
     const TreeScope& tree_scope) {
+  DCHECK(tree_scope.GetDocument().documentElement());
   if (tree_scope.RootNode() == tree_scope.GetDocument())
-    return tree_scope.GetDocument();
+    return *tree_scope.GetDocument().documentElement();
   return To<ShadowRoot>(tree_scope.RootNode()).host();
 }
 
@@ -183,6 +181,8 @@ void ScopedStyleResolver::KeyframesRulesAdded(const TreeScope& tree_scope) {
   // TreeScope. @keyframes rules may apply to animations on elements in the
   // same TreeScope as the stylesheet, or the host element in the parent
   // TreeScope if the TreeScope is a shadow tree.
+  if (!tree_scope.GetDocument().documentElement())
+    return;
 
   ScopedStyleResolver* resolver = tree_scope.GetScopedStyleResolver();
   ScopedStyleResolver* parent_resolver =
@@ -270,8 +270,6 @@ void ScopedStyleResolver::CollectMatchingPartPseudoRules(
     ElementRuleCollector& collector,
     PartNames& part_names,
     ShadowV0CascadeOrder cascade_order) {
-  if (!RuntimeEnabledFeatures::CSSPartPseudoElementEnabled())
-    return;
   wtf_size_t sheet_index = 0;
   for (auto sheet : author_style_sheets_) {
     DCHECK(sheet->ownerNode() || sheet->IsConstructed());
@@ -290,7 +288,7 @@ void ScopedStyleResolver::MatchPageRules(PageRuleCollector& collector) {
     collector.MatchPageRules(&sheet->Contents()->GetRuleSet());
 }
 
-void ScopedStyleResolver::Trace(blink::Visitor* visitor) {
+void ScopedStyleResolver::Trace(Visitor* visitor) {
   visitor->Trace(scope_);
   visitor->Trace(author_style_sheets_);
   visitor->Trace(keyframes_rule_map_);
@@ -388,7 +386,7 @@ void ScopedStyleResolver::AddSlottedRules(const RuleSet& author_rules,
       parent_style_sheet, sheet_index, slotted_rule_set));
 }
 
-void ScopedStyleResolver::RuleSubSet::Trace(blink::Visitor* visitor) {
+void ScopedStyleResolver::RuleSubSet::Trace(Visitor* visitor) {
   visitor->Trace(parent_style_sheet_);
   visitor->Trace(rule_set_);
 }

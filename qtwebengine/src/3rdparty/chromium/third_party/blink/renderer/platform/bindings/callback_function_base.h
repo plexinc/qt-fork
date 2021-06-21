@@ -23,12 +23,12 @@ namespace blink {
 // |Invoke| member function that performs "invoke" steps. Subclasses will
 // implement it.
 class PLATFORM_EXPORT CallbackFunctionBase
-    : public GarbageCollectedFinalized<CallbackFunctionBase>,
+    : public GarbageCollected<CallbackFunctionBase>,
       public NameClient {
  public:
   virtual ~CallbackFunctionBase() = default;
 
-  virtual void Trace(blink::Visitor* visitor);
+  virtual void Trace(Visitor* visitor);
 
   v8::Local<v8::Object> CallbackObject() {
     return callback_function_.NewLocal(GetIsolate());

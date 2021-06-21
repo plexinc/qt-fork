@@ -52,6 +52,7 @@ struct DownsampleBitmapGM : public skiagm::GM {
         if (!info.alphaType()) { info = info.makeAlphaType(kPremul_SkAlphaType); }
 
         SkBitmap bm = fMakeBitmap(info);
+        bm.setImmutable();
 
         int curY = 0;
         int curHeight;
@@ -79,7 +80,7 @@ struct DownsampleBitmapGM : public skiagm::GM {
 
 static SkBitmap convert_bitmap_format(SkBitmap src, SkImageInfo info) {
     SkBitmap dst;
-    dst.allocPixels(info.makeWH(src.width(), src.height()));
+    dst.allocPixels(info.makeDimensions(src.dimensions()));
 
     SkPixmap pm;
     SkAssertResult(dst.peekPixels(&pm));

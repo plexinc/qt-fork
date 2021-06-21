@@ -20,14 +20,19 @@
 #include "device/fido/fido_transport_protocol.h"
 #include "device/fido/pin.h"
 
-namespace service_manager {
-class Connector;
-}  // namespace service_manager
-
 namespace device {
 
 class FidoAuthenticator;
 class FidoDiscoveryFactory;
+
+enum class CredentialManagementStatus {
+  kSuccess,
+  kAuthenticatorResponseInvalid,
+  kSoftPINBlock,
+  kHardPINBlock,
+  kAuthenticatorMissingCredentialManagement,
+  kNoPINSet,
+};
 
 // CredentialManagementHandler implements the authenticatorCredentialManagement
 // protocol.
@@ -39,7 +44,7 @@ class COMPONENT_EXPORT(DEVICE_FIDO) CredentialManagementHandler
  public:
   using DeleteCredentialCallback =
       base::OnceCallback<void(CtapDeviceResponseCode)>;
-  using FinishedCallback = base::OnceCallback<void(FidoReturnCode)>;
+  using FinishedCallback = base::OnceCallback<void(CredentialManagementStatus)>;
   using GetCredentialsCallback = base::OnceCallback<void(
       CtapDeviceResponseCode,
       base::Optional<std::vector<AggregatedEnumerateCredentialsResponse>>,
@@ -50,7 +55,6 @@ class COMPONENT_EXPORT(DEVICE_FIDO) CredentialManagementHandler
   using ReadyCallback = base::OnceClosure;
 
   CredentialManagementHandler(
-      service_manager::Connector* connector,
       FidoDiscoveryFactory* fido_discovery_factory,
       const base::flat_set<FidoTransportProtocol>& supported_transports,
       ReadyCallback ready_callback,
@@ -86,7 +90,6 @@ class COMPONENT_EXPORT(DEVICE_FIDO) CredentialManagementHandler
     kWaitingForTouch,
     kGettingRetries,
     kWaitingForPIN,
-    kGettingEphemeralKey,
     kGettingPINToken,
     kReady,
     kGettingMetadata,
@@ -104,9 +107,6 @@ class COMPONENT_EXPORT(DEVICE_FIDO) CredentialManagementHandler
   void OnRetriesResponse(CtapDeviceResponseCode status,
                          base::Optional<pin::RetriesResponse> response);
   void OnHavePIN(std::string pin);
-  void OnHaveEphemeralKey(std::string pin,
-                          CtapDeviceResponseCode status,
-                          base::Optional<pin::KeyAgreementResponse> response);
   void OnHavePINToken(CtapDeviceResponseCode status,
                       base::Optional<pin::TokenResponse> response);
   void OnCredentialsMetadata(
@@ -134,7 +134,7 @@ class COMPONENT_EXPORT(DEVICE_FIDO) CredentialManagementHandler
   GetCredentialsCallback get_credentials_callback_;
   FinishedCallback finished_callback_;
 
-  base::WeakPtrFactory<CredentialManagementHandler> weak_factory_;
+  base::WeakPtrFactory<CredentialManagementHandler> weak_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(CredentialManagementHandler);
 };

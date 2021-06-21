@@ -12,8 +12,8 @@
 #include "core/fxge/cfx_fontmapper.h"
 #include "third_party/base/span.h"
 
-const uint32_t kTableNAME = FXDWORD_GET_MSBFIRST("name");
-const uint32_t kTableTTCF = FXDWORD_GET_MSBFIRST("ttcf");
+constexpr uint32_t kTableNAME = CFX_FontMapper::MakeTag('n', 'a', 'm', 'e');
+constexpr uint32_t kTableTTCF = CFX_FontMapper::MakeTag('t', 't', 'c', 'f');
 
 class SystemFontInfoIface {
  public:
@@ -28,14 +28,6 @@ class SystemFontInfoIface {
                         int charset,
                         int pitch_family,
                         const char* face) = 0;
-
-#ifdef PDF_ENABLE_XFA
-  virtual void* MapFontByUnicode(uint32_t dwUnicode,
-                                 int weight,
-                                 bool bItalic,
-                                 int pitch_family);
-#endif  // PDF_ENABLE_XFA
-
   virtual void* GetFont(const char* face) = 0;
   virtual uint32_t GetFontData(void* hFont,
                                uint32_t table,

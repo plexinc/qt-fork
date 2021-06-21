@@ -25,19 +25,24 @@ namespace dawn_native {
     class BufferBase;
     class ComputePipelineBase;
     class CommandBufferBase;
-    class CommandEncoderBase;
-    class ComputePassEncoderBase;
-    class FenceBase;
+    class CommandEncoder;
+    class ComputePassEncoder;
+    class Fence;
     class InstanceBase;
     class PipelineBase;
     class PipelineLayoutBase;
     class QueueBase;
-    class RenderPassEncoderBase;
+    class RenderBundleBase;
+    class RenderBundleEncoder;
+    class RenderPassEncoder;
     class RenderPipelineBase;
+    class ResourceHeapBase;
     class SamplerBase;
+    class Surface;
     class ShaderModuleBase;
     class StagingBufferBase;
     class SwapChainBase;
+    class NewSwapChainBase;
     class TextureBase;
     class TextureViewBase;
 

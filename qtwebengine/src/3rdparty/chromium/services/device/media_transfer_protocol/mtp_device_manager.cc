@@ -21,13 +21,12 @@ MtpDeviceManager* g_mtp_device_manager = nullptr;
 }  // namespace
 
 MtpDeviceManager::MtpDeviceManager()
-    : bus_(chromeos::DBusThreadManager::Get()->GetSystemBus()),
-      weak_ptr_factory_(this) {
+    : bus_(chromeos::DBusThreadManager::Get()->GetSystemBus()) {
   // Listen for future mtpd service owner changes, in case it is not
   // available right now. There is no guarantee that mtpd is running already.
-  dbus::Bus::GetServiceOwnerCallback mtpd_owner_changed_callback =
-      base::Bind(&MtpDeviceManager::FinishSetupOnOriginThread,
-                 weak_ptr_factory_.GetWeakPtr());
+  dbus::Bus::ServiceOwnerChangeCallback mtpd_owner_changed_callback =
+      base::BindRepeating(&MtpDeviceManager::FinishSetupOnOriginThread,
+                          weak_ptr_factory_.GetWeakPtr());
   if (bus_) {
     bus_->ListenForServiceOwnerChange(mtpd::kMtpdServiceName,
                                       mtpd_owner_changed_callback);
@@ -44,19 +43,20 @@ MtpDeviceManager::~MtpDeviceManager() {
   if (bus_) {
     bus_->UnlistenForServiceOwnerChange(
         mtpd::kMtpdServiceName,
-        base::Bind(&MtpDeviceManager::FinishSetupOnOriginThread,
-                   weak_ptr_factory_.GetWeakPtr()));
+        base::BindRepeating(&MtpDeviceManager::FinishSetupOnOriginThread,
+                            weak_ptr_factory_.GetWeakPtr()));
   }
 
   VLOG(1) << "MtpDeviceManager Shutdown completed";
 }
 
-void MtpDeviceManager::AddBinding(mojom::MtpManagerRequest request) {
-  bindings_.AddBinding(this, std::move(request));
+void MtpDeviceManager::AddReceiver(
+    mojo::PendingReceiver<mojom::MtpManager> receiver) {
+  receivers_.Add(this, std::move(receiver));
 }
 
 void MtpDeviceManager::EnumerateStoragesAndSetClient(
-    mojom::MtpManagerClientAssociatedPtrInfo client,
+    mojo::PendingAssociatedRemote<mojom::MtpManagerClient> client,
     EnumerateStoragesAndSetClientCallback callback) {
   DCHECK(thread_checker_.CalledOnValidThread());
 
@@ -507,8 +507,8 @@ void MtpDeviceManager::FinishSetupOnOriginThread(
   mtp_client_ = MediaTransferProtocolDaemonClient::Create(bus_.get());
 
   // Set up signals and start initializing |storage_info_map_|.
-  mtp_client_->ListenForChanges(base::Bind(&MtpDeviceManager::OnStorageChanged,
-                                           weak_ptr_factory_.GetWeakPtr()));
+  mtp_client_->ListenForChanges(base::BindRepeating(
+      &MtpDeviceManager::OnStorageChanged, weak_ptr_factory_.GetWeakPtr()));
   mtp_client_->EnumerateStorages(
       base::BindOnce(&MtpDeviceManager::OnEnumerateStorages,
                      weak_ptr_factory_.GetWeakPtr()),

@@ -41,7 +41,7 @@ namespace dawn_wire { namespace server {
     enum class BufferMapWriteState { Unmapped, Mapped, MapError };
 
     template <>
-    struct ObjectData<DawnBuffer> : public ObjectDataBase<DawnBuffer> {
+    struct ObjectData<WGPUBuffer> : public ObjectDataBase<WGPUBuffer> {
         // TODO(enga): Use a tagged pointer to save space.
         std::unique_ptr<MemoryTransferService::ReadHandle> readHandle;
         std::unique_ptr<MemoryTransferService::WriteHandle> writeHandle;
@@ -94,10 +94,10 @@ namespace dawn_wire { namespace server {
         }
 
         // Allocates the data for a given ID and returns it.
-        // Returns nullptr if the ID is already allocated, or too far ahead.
-        // Invalidates all the Data*
+        // Returns nullptr if the ID is already allocated, or too far ahead, or if ID is 0 (ID 0 is
+        // reserved for nullptr). Invalidates all the Data*
         Data* Allocate(uint32_t id) {
-            if (id > mKnown.size()) {
+            if (id == 0 || id > mKnown.size()) {
                 return nullptr;
             }
 

@@ -1072,6 +1072,7 @@ TEST_F(CFXJSE_FormCalcContextEmbedderTest, Decode) {
       {R"(Decode("abc&NoneSuchButVeryLongIndeed;", "html"))", "abc"},
       {R"(Decode("&#x0041;&AElig;&Aacute;", "html"))", "A\xC3\x86\xC3\x81"},
       {R"(Decode("xyz&#", "html"))", "xyz"},
+      {R"(Decode("|&zzzzzz;|", "html"))", "||"},
 
       // XML
       {R"(Decode("", "xml"))", ""},
@@ -1079,6 +1080,7 @@ TEST_F(CFXJSE_FormCalcContextEmbedderTest, Decode) {
       {R"(Decode("abc&nonesuchbutverylongindeed;", "xml"))", "abc"},
       {R"(Decode("&quot;&#x45;&lt;&gt;[].&apos;", "xml"))", "\"E<>[].'"},
       {R"(Decode("xyz&#", "xml"))", "xyz"},
+      {R"(Decode("|&zzzzzz;|", "xml"))", "||"},
 
       // URL
       {R"(Decode("", "url"))", ""},
@@ -1100,16 +1102,31 @@ TEST_F(CFXJSE_FormCalcContextEmbedderTest, Decode) {
   }
 }
 
-TEST_F(CFXJSE_FormCalcContextEmbedderTest, DISABLED_Encode) {
+TEST_F(CFXJSE_FormCalcContextEmbedderTest, Encode) {
   ASSERT_TRUE(OpenDocument("simple_xfa.pdf"));
 
   struct {
     const char* program;
     const char* result;
   } tests[] = {
-      {"Encode(\"\"\"hello, world!\"\"\", \"url\")",
-       "%%22hello,%%20world!%%22"},
-      {"Encode(\"ÁÂÃÄÅÆ\", \"html\")", "&#xc1;&#Xc2;&#Xc3;&#xc4;&#xc5;&#xc6;"}};
+    {"Encode(\"X/~&^*<=>?|\")", "X%2f%7e%26%5e*%3c%3d%3e%3f%7c"},
+    {"Encode(\"X/~&^*<=>?|\", \"mbogo\")", "X%2f%7e%26%5e*%3c%3d%3e%3f%7c"},
+    {"Encode(\"X/~&^*<=>?|\", \"url\")", "X%2f%7e%26%5e*%3c%3d%3e%3f%7c"},
+    {"Encode(\"X/~&^*<=>?|\", \"xml\")", "X/~&amp;^*&lt;=&gt;?|"},
+    {"Encode(\"X/~&^*<=>?|\", \"html\")", "X/~&amp;^*&lt;=&gt;?|"},
+
+    {"Encode(\"\\u0022\\u00f5\\ufed0\", \"url\")", "%22%f5%fe%d0"},
+    {"Encode(\"\\u0022\\u00f4\\ufed0\", \"xml\")", "&quot;&#xf4;&#xfed0;"},
+    {"Encode(\"\\u0022\\u00f5\\ufed0\", \"html\")", "&quot;&otilde;&#xfed0;"},
+
+#if !defined(OS_WIN)
+    // Windows wchar_t isn't wide enough to handle these anyways.
+    // TODO(tsepez): fix surrogate encodings.
+    {"Encode(\"\\uD83D\\uDCA9\", \"url\")", "%01%f4%a9"},
+    {"Encode(\"\\uD83D\\uDCA9\", \"xml\")", ""},
+    {"Encode(\"\\uD83D\\uDCA9\", \"html\")", ""},
+#endif  // !defined(OS_WIN)
+  };
 
   for (size_t i = 0; i < FX_ArraySize(tests); ++i) {
     EXPECT_TRUE(Execute(tests[i].program));
@@ -1500,7 +1517,10 @@ TEST_F(CFXJSE_FormCalcContextEmbedderTest, InvalidFunctions) {
   ASSERT_TRUE(OpenDocument("simple_xfa.pdf"));
 
   const char* const tests[] = {
-      "F()", "()", "()()()", "Round(2.0)()",
+      "F()",
+      "()",
+      "()()()",
+      "Round(2.0)()",
   };
 
   for (size_t i = 0; i < FX_ArraySize(tests); ++i) {

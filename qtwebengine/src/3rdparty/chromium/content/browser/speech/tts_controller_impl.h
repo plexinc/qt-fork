@@ -5,12 +5,12 @@
 #ifndef CONTENT_BROWSER_SPEECH_TTS_CONTROLLER_IMPL_H_
 #define CONTENT_BROWSER_SPEECH_TTS_CONTROLLER_IMPL_H_
 
+#include <deque>
 #include <memory>
 #include <set>
 #include <string>
 #include <vector>
 
-#include "base/containers/queue.h"
 #include "base/gtest_prod_util.h"
 #include "base/json/json_reader.h"
 #include "base/macros.h"
@@ -24,7 +24,7 @@
 #include "content/public/browser/tts_controller.h"
 #include "content/public/browser/tts_controller_delegate.h"
 #include "content/public/browser/tts_platform.h"
-#include "third_party/blink/public/platform/web_speech_synthesis_constants.h"
+#include "services/data_decoder/public/cpp/data_decoder.h"
 #include "url/gurl.h"
 
 namespace content {
@@ -40,7 +40,7 @@ class CONTENT_EXPORT TtsControllerImpl : public TtsController {
 
   // TtsController methods
   bool IsSpeaking() override;
-  void SpeakOrEnqueue(TtsUtterance* utterance) override;
+  void SpeakOrEnqueue(std::unique_ptr<TtsUtterance> utterance) override;
   void Stop() override;
   void Stop(const GURL& source_url) override;
   void Pause() override;
@@ -58,6 +58,10 @@ class CONTENT_EXPORT TtsControllerImpl : public TtsController {
   void RemoveUtteranceEventDelegate(UtteranceEventDelegate* delegate) override;
   void SetTtsEngineDelegate(TtsEngineDelegate* delegate) override;
   TtsEngineDelegate* GetTtsEngineDelegate() override;
+
+  // Called directly by ~BrowserContext, because a raw BrowserContext pointer
+  // is stored in an Utterance.
+  void OnBrowserContextDestroyed(BrowserContext* browser_context);
 
   // Testing methods
   void SetTtsPlatform(TtsPlatform* tts_platform) override;
@@ -77,6 +81,7 @@ class CONTENT_EXPORT TtsControllerImpl : public TtsController {
   FRIEND_TEST_ALL_PREFIXES(TtsControllerTest, TestGetMatchingVoice);
   FRIEND_TEST_ALL_PREFIXES(TtsControllerTest,
                            TestTtsControllerUtteranceDefaults);
+  FRIEND_TEST_ALL_PREFIXES(TtsControllerTest, TestBrowserContextRemoved);
 
   friend struct base::DefaultSingletonTraits<TtsControllerImpl>;
 
@@ -85,7 +90,9 @@ class CONTENT_EXPORT TtsControllerImpl : public TtsController {
 
   // Start speaking the given utterance. Will either take ownership of
   // |utterance| or delete it if there's an error. Returns true on success.
-  void SpeakNow(TtsUtterance* utterance);
+  void SpeakNow(std::unique_ptr<TtsUtterance> utterance);
+
+  void StopInternal(const GURL& source_url);
 
   // Clear the utterance queue. If send_events is true, will send
   // TTS_EVENT_CANCELLED events on each one.
@@ -103,14 +110,13 @@ class CONTENT_EXPORT TtsControllerImpl : public TtsController {
   void UpdateUtteranceDefaults(TtsUtterance* utterance);
 
   // Passed to Speak() as a callback.
-  void OnSpeakFinished(TtsUtterance* utterance, bool success);
+  void OnSpeakFinished(int utterance_id, bool success);
 
   // Static helper methods for StripSSML.
   static void StripSSMLHelper(
       const std::string& utterance,
       base::OnceCallback<void(const std::string&)> on_ssml_parsed,
-      std::unique_ptr<base::Value> value,
-      const base::Optional<std::string>& error_message);
+      data_decoder::DataDecoder::ValueOrError result);
   static void PopulateParsedText(std::string* parsed_text,
                                  const base::Value* element);
 
@@ -122,7 +128,7 @@ class CONTENT_EXPORT TtsControllerImpl : public TtsController {
   base::ObserverList<VoicesChangedDelegate> voices_changed_delegates_;
 
   // The current utterance being spoken.
-  TtsUtterance* current_utterance_;
+  std::unique_ptr<TtsUtterance> current_utterance_;
 
   // Whether the queue is paused or not.
   bool paused_;
@@ -132,7 +138,7 @@ class CONTENT_EXPORT TtsControllerImpl : public TtsController {
   TtsPlatform* tts_platform_;
 
   // A queue of utterances to speak after the current one finishes.
-  base::queue<TtsUtterance*> utterance_queue_;
+  std::deque<std::unique_ptr<TtsUtterance>> utterance_deque_;
 
   DISALLOW_COPY_AND_ASSIGN(TtsControllerImpl);
 };

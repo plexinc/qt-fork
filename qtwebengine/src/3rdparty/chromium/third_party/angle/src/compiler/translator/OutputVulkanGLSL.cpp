@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2016 The ANGLE Project Authors. All rights reserved.
+// Copyright 2016 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -13,6 +13,7 @@
 
 #include "compiler/translator/BaseTypes.h"
 #include "compiler/translator/Symbol.h"
+#include "compiler/translator/ValidateVaryingLocations.h"
 #include "compiler/translator/util.h"
 
 namespace sh
@@ -26,6 +27,8 @@ TOutputVulkanGLSL::TOutputVulkanGLSL(TInfoSinkBase &objSink,
                                      sh::GLenum shaderType,
                                      int shaderVersion,
                                      ShShaderOutput output,
+                                     bool forceHighp,
+                                     bool enablePrecision,
                                      ShCompileOptions compileOptions)
     : TOutputGLSL(objSink,
                   clampingStrategy,
@@ -35,20 +38,25 @@ TOutputVulkanGLSL::TOutputVulkanGLSL(TInfoSinkBase &objSink,
                   shaderType,
                   shaderVersion,
                   output,
-                  compileOptions)
+                  compileOptions),
+      mNextUnusedBinding(0),
+      mNextUnusedInputLocation(0),
+      mNextUnusedOutputLocation(0),
+      mForceHighp(forceHighp),
+      mEnablePrecision(enablePrecision)
 {}
 
-// TODO(jmadill): This is not complete.
 void TOutputVulkanGLSL::writeLayoutQualifier(TIntermTyped *variable)
 {
     const TType &type = variable->getType();
 
-    bool needsCustomLayout =
-        (type.getQualifier() == EvqAttribute || type.getQualifier() == EvqFragmentOut ||
-         type.getQualifier() == EvqVertexIn || IsVarying(type.getQualifier()) ||
-         IsSampler(type.getBasicType()) || type.isInterfaceBlock());
+    bool needsSetBinding =
+        IsSampler(type.getBasicType()) || type.isInterfaceBlock() || IsImage(type.getBasicType());
+    bool needsLocation = type.getQualifier() == EvqAttribute ||
+                         type.getQualifier() == EvqVertexIn ||
+                         type.getQualifier() == EvqFragmentOut || IsVarying(type.getQualifier());
 
-    if (!NeedsToWriteLayoutQualifier(type) && !needsCustomLayout)
+    if (!NeedsToWriteLayoutQualifier(type) && !needsSetBinding && !needsLocation)
     {
         return;
     }
@@ -57,7 +65,7 @@ void TOutputVulkanGLSL::writeLayoutQualifier(TIntermTyped *variable)
     const TLayoutQualifier &layoutQualifier = type.getLayoutQualifier();
 
     // This isn't super clean, but it gets the job done.
-    // See corresponding code in GlslangWrapper.cpp.
+    // See corresponding code in glslang_wrapper_utils.cpp.
     TIntermSymbol *symbol = variable->getAsSymbolNode();
     ASSERT(symbol);
 
@@ -96,20 +104,32 @@ void TOutputVulkanGLSL::writeLayoutQualifier(TIntermTyped *variable)
         matrixPacking = getMatrixPackingString(layoutQualifier.matrixPacking);
     }
 
-    if (needsCustomLayout)
+    const char *separator = "";
+    out << "layout(";
+
+    // If the resource declaration requires set & binding layout qualifiers, specify arbitrary
+    // ones.
+    if (needsSetBinding)
     {
-        out << "@@ LAYOUT-" << name << "(";
+        out << "set=0, binding=" << nextUnusedBinding();
+        separator = ", ";
     }
-    else
+
+    if (needsLocation)
     {
-        out << "layout(";
+        const unsigned int locationCount = CalculateVaryingLocationCount(symbol, getShaderType());
+        uint32_t location                = IsShaderIn(type.getQualifier())
+                                ? nextUnusedInputLocation(locationCount)
+                                : nextUnusedOutputLocation(locationCount);
+
+        out << "location=" << location;
+        separator = ", ";
     }
 
     // Output the list of qualifiers already known at this stage, i.e. everything other than
     // `location` and `set`/`binding`.
     std::string otherQualifiers = getCommonLayoutQualifiers(variable);
 
-    const char *separator = "";
     if (blockStorage)
     {
         out << separator << blockStorage;
@@ -126,42 +146,11 @@ void TOutputVulkanGLSL::writeLayoutQualifier(TIntermTyped *variable)
     }
 
     out << ") ";
-    if (needsCustomLayout)
-    {
-        out << "@@";
-    }
 }
 
-void TOutputVulkanGLSL::writeQualifier(TQualifier qualifier,
-                                       const TType &type,
-                                       const TSymbol *symbol)
-{
-    if (qualifier != EvqUniform && qualifier != EvqBuffer && qualifier != EvqAttribute &&
-        qualifier != EvqVertexIn && !sh::IsVarying(qualifier))
-    {
-        TOutputGLSLBase::writeQualifier(qualifier, type, symbol);
-        return;
-    }
-
-    if (symbol == nullptr)
-    {
-        return;
-    }
-
-    ImmutableString name = symbol->name();
-
-    // For interface blocks, use the block name instead.  When the qualifier is being replaced in
-    // the backend, that would be the name that's available.
-    if (type.isInterfaceBlock())
-    {
-        name = type.getInterfaceBlock()->name();
-    }
-
-    TInfoSinkBase &out = objSink();
-    out << "@@ QUALIFIER-" << name.data() << "(" << getMemoryQualifiers(type) << ") @@ ";
-}
-
-void TOutputVulkanGLSL::writeVariableType(const TType &type, const TSymbol *symbol)
+void TOutputVulkanGLSL::writeVariableType(const TType &type,
+                                          const TSymbol *symbol,
+                                          bool isFunctionArgument)
 {
     TType overrideType(type);
 
@@ -171,7 +160,7 @@ void TOutputVulkanGLSL::writeVariableType(const TType &type, const TSymbol *symb
         overrideType.setBasicType(EbtSampler2D);
     }
 
-    TOutputGLSL::writeVariableType(overrideType, symbol);
+    TOutputGLSL::writeVariableType(overrideType, symbol, isFunctionArgument);
 }
 
 void TOutputVulkanGLSL::writeStructType(const TStructure *structure)
@@ -183,35 +172,17 @@ void TOutputVulkanGLSL::writeStructType(const TStructure *structure)
     }
 }
 
-void TOutputVulkanGLSL::visitSymbol(TIntermSymbol *node)
+bool TOutputVulkanGLSL::writeVariablePrecision(TPrecision precision)
 {
+    if ((precision == EbpUndefined) || !mEnablePrecision)
+        return false;
+
     TInfoSinkBase &out = objSink();
-
-    // All the special cases are built-ins, so if it's not a built-in we can return early.
-    if (node->variable().symbolType() != SymbolType::BuiltIn)
-    {
-        TOutputGLSL::visitSymbol(node);
-        return;
-    }
-
-    // Some built-ins get a special translation.
-    const ImmutableString &name = node->getName();
-    if (name == "gl_VertexID")
-    {
-        // gl_VertexIndex in Vulkan GLSL has the same semantics as gl_VertexID.
-        out << "gl_VertexIndex";
-    }
-    else if (name == "gl_InstanceID")
-    {
-        // gl_InstanceIndex in Vulkan GLSL is equal to
-        // gl_InstanceID + baseInstance, but in OpenGL ES,
-        // baseInstance is always zero.
-        // (OpenGL ES 3.2 spec page 278 footnote 3)
-        out << "gl_InstanceIndex";
-    }
+    if (mForceHighp)
+        out << getPrecisionString(EbpHigh);
     else
-    {
-        TOutputGLSL::visitSymbol(node);
-    }
+        out << getPrecisionString(precision);
+    return true;
 }
+
 }  // namespace sh

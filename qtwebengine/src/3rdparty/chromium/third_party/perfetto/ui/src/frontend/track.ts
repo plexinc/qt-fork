@@ -12,15 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import * as m from 'mithril';
 import {TrackState} from '../common/state';
-import {LIMIT, TrackData} from '../common/track_data';
+import {TrackData} from '../common/track_data';
+import {checkerboard} from './checkerboard';
 
 import {globals} from './globals';
+import {TrackButtonAttrs} from './track_panel';
 
 /**
  * This interface forces track implementations to have some static properties.
  * Typescript does not have abstract static members, which is why this needs to
- * be in a seperate interface.
+ * be in a separate interface.
  */
 export interface TrackCreator {
   // Store the kind explicitly as a string as opposed to using class.kind in
@@ -37,7 +40,7 @@ export interface TrackCreator {
  */
 export abstract class Track<Config = {}, Data extends TrackData = TrackData> {
   constructor(protected trackState: TrackState) {}
-  abstract renderCanvas(ctx: CanvasRenderingContext2D): void;
+  protected abstract renderCanvas(ctx: CanvasRenderingContext2D): void;
 
   get config(): Config {
     return this.trackState.config as Config;
@@ -49,6 +52,10 @@ export abstract class Track<Config = {}, Data extends TrackData = TrackData> {
 
   getHeight(): number {
     return 40;
+  }
+
+  getTrackShellButtons(): Array<m.Vnode<TrackButtonAttrs>> {
+    return [];
   }
 
   onMouseMove(_position: {x: number, y: number}) {}
@@ -63,22 +70,50 @@ export abstract class Track<Config = {}, Data extends TrackData = TrackData> {
 
   onMouseOut() {}
 
-  shouldRequestData(
-      data: Data|undefined, windowStart: number, windowEnd: number): boolean {
-    if (data === undefined) return true;
+  render(ctx: CanvasRenderingContext2D) {
+    globals.frontendLocalState.addVisibleTrack(this.trackState.id);
+    if (this.data() === undefined) {
+      const {visibleWindowTime, timeScale} = globals.frontendLocalState;
+      const startPx = Math.floor(timeScale.timeToPx(visibleWindowTime.start));
+      const endPx = Math.ceil(timeScale.timeToPx(visibleWindowTime.end));
+      checkerboard(ctx, this.getHeight(), startPx, endPx);
+    } else {
+      this.renderCanvas(ctx);
+    }
+  }
 
-    // If at the limit only request more data if the view has moved.
-    const atLimit = data.length === LIMIT;
-    if (atLimit) {
-      // We request more data than the window, so add window duration to find
-      // the previous window.
-      const prevWindowStart = data.start + (windowEnd - windowStart);
-      return windowStart !== prevWindowStart;
+  drawTrackHoverTooltip(
+      ctx: CanvasRenderingContext2D, xPos: number, text: string,
+      text2?: string) {
+    ctx.font = '10px Roboto Condensed';
+    const textWidth = ctx.measureText(text).width;
+    let width = textWidth;
+    let textYPos = this.getHeight() / 2;
+
+    if (text2 !== undefined) {
+      const text2Width = ctx.measureText(text2).width;
+      width = Math.max(textWidth, text2Width);
+      textYPos = this.getHeight() / 2 - 6;
     }
 
-    // Otherwise request more data only when out of range of current data or
-    // resolution has changed.
-    const inRange = windowStart >= data.start && windowEnd <= data.end;
-    return !inRange || data.resolution !== globals.getCurResolution();
+    // Move tooltip over if it would go off the right edge of the viewport.
+    const rectWidth = width + 16;
+    const endPx = globals.frontendLocalState.timeScale.endPx;
+    if (xPos + rectWidth > endPx) {
+      xPos -= (xPos + rectWidth - endPx);
+    }
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+    const rectMargin = this.getHeight() / 12;
+    ctx.fillRect(
+        xPos, rectMargin, rectWidth, this.getHeight() - rectMargin * 2);
+    ctx.fillStyle = 'hsl(200, 50%, 40%)';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, xPos + 8, textYPos);
+
+    if (text2 !== undefined) {
+      ctx.fillText(text2, xPos + 8, this.getHeight() / 2 + 6);
+    }
   }
 }

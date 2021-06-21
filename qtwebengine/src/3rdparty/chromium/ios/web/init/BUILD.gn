@@ -21,7 +21,6 @@ source_set("init") {
     "//ios/web/net",
     "//ios/web/public",
     "//ios/web/public/init",
-    "//ios/web/service",
     "//ios/web/webui",
     "//mojo/core/embedder",
     "//net",
@@ -37,9 +36,7 @@ source_set("init") {
 }
 
 source_set("global_state") {
-  sources = [
-    "ios_global_state.mm",
-  ]
+  sources = [ "ios_global_state.mm" ]
 
   configs += [ "//build/config/compiler:enable_arc" ]
 

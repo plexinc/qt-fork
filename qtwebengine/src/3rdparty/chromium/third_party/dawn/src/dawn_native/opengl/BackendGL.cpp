@@ -14,13 +14,13 @@
 
 #include "dawn_native/opengl/BackendGL.h"
 
-#include "common/Constants.h"
+#include "common/GPUInfo.h"
+#include "common/Log.h"
 #include "dawn_native/Instance.h"
 #include "dawn_native/OpenGLBackend.h"
 #include "dawn_native/opengl/DeviceGL.h"
 
 #include <cstring>
-#include <iostream>
 
 namespace dawn_native { namespace opengl {
 
@@ -31,12 +31,12 @@ namespace dawn_native { namespace opengl {
             uint32_t vendorId;
         };
 
-        const Vendor kVendors[] = {{"ATI", kVendorID_AMD},
-                                   {"ARM", kVendorID_ARM},
-                                   {"Imagination", kVendorID_ImgTec},
-                                   {"Intel", kVendorID_Intel},
-                                   {"NVIDIA", kVendorID_Nvidia},
-                                   {"Qualcomm", kVendorID_Qualcomm}};
+        const Vendor kVendors[] = {{"ATI", gpu_info::kVendorID_AMD},
+                                   {"ARM", gpu_info::kVendorID_ARM},
+                                   {"Imagination", gpu_info::kVendorID_ImgTec},
+                                   {"Intel", gpu_info::kVendorID_Intel},
+                                   {"NVIDIA", gpu_info::kVendorID_Nvidia},
+                                   {"Qualcomm", gpu_info::kVendorID_Qualcomm}};
 
         uint32_t GetVendorIdFromVendors(const char* vendor) {
             uint32_t vendorId = 0;
@@ -102,11 +102,11 @@ namespace dawn_native { namespace opengl {
             }
 
             if (type == GL_DEBUG_TYPE_ERROR) {
-                std::cout << "OpenGL error:" << std::endl;
-                std::cout << "    Source: " << sourceText << std::endl;
-                std::cout << "    ID: " << id << std::endl;
-                std::cout << "    Severity: " << severityText << std::endl;
-                std::cout << "    Message: " << message << std::endl;
+                dawn::WarningLog() << "OpenGL error:"
+                                   << "\n    Source: " << sourceText      //
+                                   << "\n    ID: " << id                  //
+                                   << "\n    Severity: " << severityText  //
+                                   << "\n    Message: " << message;
 
                 // Abort on an error when in Debug mode.
                 UNREACHABLE();
@@ -119,7 +119,7 @@ namespace dawn_native { namespace opengl {
 
     class Adapter : public AdapterBase {
       public:
-        Adapter(InstanceBase* instance) : AdapterBase(instance, BackendType::OpenGL) {
+        Adapter(InstanceBase* instance) : AdapterBase(instance, wgpu::BackendType::OpenGL) {
         }
 
         MaybeError Initialize(const AdapterDiscoveryOptions* options) {
@@ -161,12 +161,15 @@ namespace dawn_native { namespace opengl {
             mFunctions.Enable(GL_SCISSOR_TEST);
             mFunctions.Enable(GL_PRIMITIVE_RESTART_FIXED_INDEX);
             mFunctions.Enable(GL_MULTISAMPLE);
+            mFunctions.Enable(GL_FRAMEBUFFER_SRGB);
 
             mPCIInfo.name = reinterpret_cast<const char*>(mFunctions.GetString(GL_RENDERER));
 
             // Workaroud to find vendor id from vendor name
             const char* vendor = reinterpret_cast<const char*>(mFunctions.GetString(GL_VENDOR));
             mPCIInfo.vendorId = GetVendorIdFromVendors(vendor);
+
+            InitializeSupportedExtensions();
 
             return {};
         }
@@ -181,11 +184,49 @@ namespace dawn_native { namespace opengl {
             // all share the same backing OpenGL context.
             return {new Device(this, descriptor, mFunctions)};
         }
+
+        void InitializeSupportedExtensions() {
+            // TextureCompressionBC
+            {
+                // BC1, BC2 and BC3 are not supported in OpenGL or OpenGL ES core features.
+                bool supportsS3TC =
+                    mFunctions.IsGLExtensionSupported("GL_EXT_texture_compression_s3tc");
+
+                // COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT, COMPRESSED_SRGB_ALPHA_S3TC_DXT3_EXT and
+                // COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT requires both GL_EXT_texture_sRGB and
+                // GL_EXT_texture_compression_s3tc on desktop OpenGL drivers.
+                // (https://www.khronos.org/registry/OpenGL/extensions/EXT/EXT_texture_sRGB.txt)
+                bool supportsTextureSRGB = mFunctions.IsGLExtensionSupported("GL_EXT_texture_sRGB");
+
+                // GL_EXT_texture_compression_s3tc_srgb is an extension in OpenGL ES.
+                bool supportsS3TCSRGB =
+                    mFunctions.IsGLExtensionSupported("GL_EXT_texture_compression_s3tc_srgb");
+
+                // BC4 and BC5
+                bool supportsRGTC =
+                    mFunctions.IsAtLeastGL(3, 0) ||
+                    mFunctions.IsGLExtensionSupported("GL_ARB_texture_compression_rgtc") ||
+                    mFunctions.IsGLExtensionSupported("GL_EXT_texture_compression_rgtc");
+
+                // BC6 and BC7
+                bool supportsBPTC =
+                    mFunctions.IsAtLeastGL(4, 2) ||
+                    mFunctions.IsGLExtensionSupported("GL_ARB_texture_compression_bptc") ||
+                    mFunctions.IsGLExtensionSupported("GL_EXT_texture_compression_bptc");
+
+                if (supportsS3TC && (supportsTextureSRGB || supportsS3TCSRGB) && supportsRGTC &&
+                    supportsBPTC) {
+                    mSupportedExtensions.EnableExtension(
+                        dawn_native::Extension::TextureCompressionBC);
+                }
+            }
+        }
     };
 
     // Implementation of the OpenGL backend's BackendConnection
 
-    Backend::Backend(InstanceBase* instance) : BackendConnection(instance, BackendType::OpenGL) {
+    Backend::Backend(InstanceBase* instance)
+        : BackendConnection(instance, wgpu::BackendType::OpenGL) {
     }
 
     std::vector<std::unique_ptr<AdapterBase>> Backend::DiscoverDefaultAdapters() {
@@ -201,7 +242,7 @@ namespace dawn_native { namespace opengl {
             return DAWN_VALIDATION_ERROR("The OpenGL backend can only create a single adapter");
         }
 
-        ASSERT(optionsBase->backendType == BackendType::OpenGL);
+        ASSERT(optionsBase->backendType == WGPUBackendType_OpenGL);
         const AdapterDiscoveryOptions* options =
             static_cast<const AdapterDiscoveryOptions*>(optionsBase);
 

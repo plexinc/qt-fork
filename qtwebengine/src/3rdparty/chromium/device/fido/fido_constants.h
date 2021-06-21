@@ -16,35 +16,6 @@
 
 namespace device {
 
-enum class FidoReturnCode : uint8_t {
-  kSuccess,
-  // Response received but didn't parse/serialize properly.
-  kAuthenticatorResponseInvalid,
-  // The user consented to the registration operation (e.g. by touching the
-  // authenticator), but the authenticator recognized one of the credentials
-  // that were already registered at the relying party.
-  kUserConsentButCredentialExcluded,
-  // The user consented to the assertion operation (e.g. by touching the
-  // authenticator), but none of the provided credentials were recognized by
-  // the authenticator.
-  kUserConsentButCredentialNotRecognized,
-  // The user explicitly refused to provide consent.
-  kUserConsentDenied,
-  kAuthenticatorRemovedDuringPINEntry,
-  kSoftPINBlock,
-  kHardPINBlock,
-  kAuthenticatorMissingResidentKeys,
-  kAuthenticatorMissingCredentialManagement,
-  // TODO(agl): kAuthenticatorMissingUserVerification can also be returned when
-  // the authenticator supports UV, but there's no UI support for collecting
-  // a PIN. This could be clearer.
-  kAuthenticatorMissingUserVerification,
-  // kStorageFull indicates that a resident credential could not be created
-  // because the authenticator has insufficient storage.
-  kStorageFull,
-  kAuthenticatorMissingBioEnrollment,
-};
-
 // Length of the U2F challenge parameter:
 // https://goo.gl/y75WrX#registration-request-message---u2f_register
 constexpr size_t kU2fChallengeParamLength = 32;
@@ -68,6 +39,10 @@ constexpr size_t kClientDataHashLength = 32;
 // Length of the SHA-256 hash of the RP ID asssociated with the credential:
 // https://www.w3.org/TR/webauthn/#sec-authenticator-data
 constexpr size_t kRpIdHashLength = 32;
+
+// Max length for the user handle:
+// https://www.w3.org/TR/webauthn/#user-handle
+constexpr size_t kUserHandleMaxLength = 64;
 
 static_assert(kU2fApplicationParamLength == kRpIdHashLength,
               "kU2fApplicationParamLength must be equal to kRpIdHashLength.");
@@ -133,6 +108,7 @@ enum class CtapDeviceResponseCode : uint8_t {
   kCtap2ErrPinPolicyViolation = 0x37,
   kCtap2ErrPinTokenExpired = 0x38,
   kCtap2ErrRequestTooLarge = 0x39,
+  kCtap2ErrUvBlocked = 0x3C,
   kCtap2ErrOther = 0x7F,
   kCtap2ErrSpecLast = 0xDF,
   kCtap2ErrExtensionFirst = 0xE0,
@@ -141,7 +117,7 @@ enum class CtapDeviceResponseCode : uint8_t {
   kCtap2ErrVendorLast = 0xFF
 };
 
-constexpr std::array<CtapDeviceResponseCode, 51> GetCtapResponseCodeList() {
+constexpr std::array<CtapDeviceResponseCode, 49> GetCtapResponseCodeList() {
   return {CtapDeviceResponseCode::kSuccess,
           CtapDeviceResponseCode::kCtap1ErrInvalidCommand,
           CtapDeviceResponseCode::kCtap1ErrInvalidParameter,
@@ -184,6 +160,7 @@ constexpr std::array<CtapDeviceResponseCode, 51> GetCtapResponseCodeList() {
           CtapDeviceResponseCode::kCtap2ErrPinPolicyViolation,
           CtapDeviceResponseCode::kCtap2ErrPinTokenExpired,
           CtapDeviceResponseCode::kCtap2ErrRequestTooLarge,
+          CtapDeviceResponseCode::kCtap2ErrUvBlocked,
           CtapDeviceResponseCode::kCtap2ErrOther,
           CtapDeviceResponseCode::kCtap2ErrSpecLast,
           CtapDeviceResponseCode::kCtap2ErrExtensionFirst,
@@ -284,6 +261,9 @@ extern const std::array<uint8_t, 32> kBogusAppParam;
 COMPONENT_EXPORT(DEVICE_FIDO)
 extern const std::array<uint8_t, 32> kBogusChallenge;
 
+// String used as Relying Party ID to check for user presence.
+constexpr char kDummyRpID[] = ".dummy";
+
 // String key values for CTAP request optional parameters and
 // AuthenticatorGetInfo response.
 COMPONENT_EXPORT(DEVICE_FIDO) extern const char kResidentKeyMapKey[];
@@ -302,6 +282,7 @@ COMPONENT_EXPORT(DEVICE_FIDO)
 extern const char kCredentialManagementPreviewMapKey[];
 COMPONENT_EXPORT(DEVICE_FIDO) extern const char kBioEnrollmentMapKey[];
 COMPONENT_EXPORT(DEVICE_FIDO) extern const char kBioEnrollmentPreviewMapKey[];
+COMPONENT_EXPORT(DEVICE_FIDO) extern const char kUvTokenMapKey[];
 
 // HID transport specific constants.
 constexpr uint32_t kHidBroadcastChannel = 0xffffffff;
@@ -357,7 +338,8 @@ const char* CredentialTypeToString(CredentialType type);
 // Values used to construct/validate handshake messages for Cable handshake
 // protocol.
 COMPONENT_EXPORT(DEVICE_FIDO) extern const char kCableHandshakeKeyInfo[];
-COMPONENT_EXPORT(DEVICE_FIDO) extern const char kCableDeviceEncryptionKeyInfo[];
+COMPONENT_EXPORT(DEVICE_FIDO)
+extern const std::array<uint8_t, 24> kCableDeviceEncryptionKeyInfo;
 COMPONENT_EXPORT(DEVICE_FIDO)
 extern const char kCableAuthenticatorHelloMessage[];
 COMPONENT_EXPORT(DEVICE_FIDO) extern const char kCableClientHelloMessage[];
@@ -368,6 +350,8 @@ COMPONENT_EXPORT(DEVICE_FIDO) extern const char kU2fVersion[];
 
 COMPONENT_EXPORT(DEVICE_FIDO) extern const char kExtensionHmacSecret[];
 COMPONENT_EXPORT(DEVICE_FIDO) extern const char kExtensionCredProtect[];
+COMPONENT_EXPORT(DEVICE_FIDO)
+extern const char kExtensionAndroidClientData[];
 
 // Maximum number of seconds the browser waits for Bluetooth authenticator to
 // send packets that advertises that the device is in pairing mode before
@@ -384,6 +368,10 @@ enum class CredProtect : uint8_t {
   kUVOrCredIDRequired = 2,
   kUVRequired = 3,
 };
+
+// The map key for inserting the googleAndroidClientDataExtension output into a
+// CTAP2 makeCredential or getAssertion response.
+constexpr int kAndroidClientDataExtOutputKey = 0xf0;
 
 }  // namespace device
 

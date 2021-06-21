@@ -21,16 +21,16 @@ class EmptyModuleRecordResolver final : public ModuleRecordResolver {
   void UnregisterModuleScript(const ModuleScript*) override {}
 
   const ModuleScript* GetModuleScriptFromModuleRecord(
-      const ModuleRecord&) const override {
+      v8::Local<v8::Module>) const override {
     NOTREACHED();
     return nullptr;
   }
 
-  ModuleRecord Resolve(const String& specifier,
-                       const ModuleRecord& referrer,
-                       ExceptionState&) override {
+  v8::Local<v8::Module> Resolve(const String& specifier,
+                                v8::Local<v8::Module> referrer,
+                                ExceptionState&) override {
     NOTREACHED();
-    return ModuleRecord();
+    return v8::Local<v8::Module>();
   }
 };
 
@@ -41,7 +41,7 @@ DummyModulator::DummyModulator()
 
 DummyModulator::~DummyModulator() = default;
 
-void DummyModulator::Trace(blink::Visitor* visitor) {
+void DummyModulator::Trace(Visitor* visitor) {
   visitor->Trace(resolver_);
   Modulator::Trace(visitor);
 }
@@ -59,15 +59,9 @@ bool DummyModulator::IsScriptingDisabled() const {
   return false;
 }
 
-bool DummyModulator::BuiltInModuleInfraEnabled() const {
+bool DummyModulator::ImportMapsEnabled() const {
   return false;
 }
-
-bool DummyModulator::BuiltInModuleEnabled(blink::layered_api::Module) const {
-  return false;
-}
-
-void DummyModulator::BuiltInModuleUseCount(blink::layered_api::Module) const {}
 
 ModuleRecordResolver* DummyModulator::GetModuleRecordResolver() {
   return resolver_.Get();
@@ -81,6 +75,7 @@ base::SingleThreadTaskRunner* DummyModulator::TaskRunner() {
 void DummyModulator::FetchTree(const KURL&,
                                ResourceFetcher*,
                                mojom::RequestContextType,
+                               network::mojom::RequestDestination,
                                const ScriptFetchOptions&,
                                ModuleScriptCustomFetchType,
                                ModuleTreeClient*) {
@@ -95,10 +90,12 @@ void DummyModulator::FetchSingle(const ModuleScriptFetchRequest&,
   NOTREACHED();
 }
 
-void DummyModulator::FetchDescendantsForInlineScript(ModuleScript*,
-                                                     ResourceFetcher*,
-                                                     mojom::RequestContextType,
-                                                     ModuleTreeClient*) {
+void DummyModulator::FetchDescendantsForInlineScript(
+    ModuleScript*,
+    ResourceFetcher*,
+    mojom::RequestContextType,
+    network::mojom::RequestDestination,
+    ModuleTreeClient*) {
   NOTREACHED();
 }
 
@@ -125,7 +122,17 @@ void DummyModulator::ResolveDynamically(const String&,
   NOTREACHED();
 }
 
-void DummyModulator::RegisterImportMap(const ImportMap*) {
+ScriptValue DummyModulator::CreateTypeError(const String& message) const {
+  NOTREACHED();
+  return ScriptValue();
+}
+ScriptValue DummyModulator::CreateSyntaxError(const String& message) const {
+  NOTREACHED();
+  return ScriptValue();
+}
+
+void DummyModulator::RegisterImportMap(const ImportMap*,
+                                       ScriptValue error_to_rethrow) {
   NOTREACHED();
 }
 
@@ -138,19 +145,25 @@ void DummyModulator::ClearIsAcquiringImportMaps() {
   NOTREACHED();
 }
 
+const ImportMap* DummyModulator::GetImportMapForTest() const {
+  NOTREACHED();
+  return nullptr;
+}
+
 ModuleImportMeta DummyModulator::HostGetImportMetaProperties(
-    ModuleRecord) const {
+    v8::Local<v8::Module>) const {
   NOTREACHED();
   return ModuleImportMeta(String());
 }
 
-ScriptValue DummyModulator::InstantiateModule(ModuleRecord) {
+ScriptValue DummyModulator::InstantiateModule(v8::Local<v8::Module>,
+                                              const KURL&) {
   NOTREACHED();
   return ScriptValue();
 }
 
 Vector<Modulator::ModuleRequest> DummyModulator::ModuleRequestsFromModuleRecord(
-    ModuleRecord) {
+    v8::Local<v8::Module>) {
   NOTREACHED();
   return Vector<ModuleRequest>();
 }
@@ -161,7 +174,8 @@ ScriptValue DummyModulator::ExecuteModule(ModuleScript*, CaptureEvalErrorFlag) {
 }
 
 ModuleScriptFetcher* DummyModulator::CreateModuleScriptFetcher(
-    ModuleScriptCustomFetchType) {
+    ModuleScriptCustomFetchType,
+    util::PassKey<ModuleScriptLoader> pass_key) {
   NOTREACHED();
   return nullptr;
 }

@@ -15,9 +15,9 @@ namespace blink {
 
 namespace worker_pool {
 
-// These are a thin wrapper around base::ThreadPoolInstance to ensure that all
-// callers use CrossThreadBindOnce instead of base::Bind to ensure that
-// all non-thread-safe objects are copied properly.
+// These are a thin wrapper around base::ThreadPool to ensure that all callers
+// use CrossThreadBindOnce instead of base::Bind to ensure that all
+// non-thread-safe objects are copied properly.
 //
 // All tasks that do not care about which thread they are running on
 // (e.g. compressing/uncompressing tasks) use this API.
@@ -27,11 +27,11 @@ namespace worker_pool {
 // (e.g. FrameScheduler for main thread tasks).
 PLATFORM_EXPORT void PostTask(const base::Location&, CrossThreadOnceClosure);
 
-PLATFORM_EXPORT void PostTaskWithTraits(const base::Location&,
-                                        const base::TaskTraits&,
-                                        CrossThreadOnceClosure);
+PLATFORM_EXPORT void PostTask(const base::Location&,
+                              const base::TaskTraits&,
+                              CrossThreadOnceClosure);
 
-// TODO(altimin): Expose CreateSequencedTaskRunnerWithTraits when the
+// TODO(altimin): Expose CreateSequencedTaskRunner when the
 // need arises.
 
 }  // namespace worker_pool

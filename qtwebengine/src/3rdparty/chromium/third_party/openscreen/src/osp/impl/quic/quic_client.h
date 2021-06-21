@@ -13,9 +13,13 @@
 #include "osp/impl/quic/quic_connection_factory.h"
 #include "osp/impl/quic/quic_service_common.h"
 #include "osp/public/protocol_connection_client.h"
+#include "platform/api/task_runner.h"
+#include "platform/api/time.h"
 #include "platform/base/ip_address.h"
+#include "util/alarm.h"
 
 namespace openscreen {
+namespace osp {
 
 // This class is the default implementation of ProtocolConnectionClient for the
 // library.  It manages connections to other endpoints as well as the lifetime
@@ -38,13 +42,14 @@ class QuicClient final : public ProtocolConnectionClient,
  public:
   QuicClient(MessageDemuxer* demuxer,
              std::unique_ptr<QuicConnectionFactory> connection_factory,
-             ProtocolConnectionServiceObserver* observer);
+             ProtocolConnectionServiceObserver* observer,
+             ClockNowFunctionPtr now_function,
+             TaskRunner* task_runner);
   ~QuicClient() override;
 
   // ProtocolConnectionClient overrides.
   bool Start() override;
   bool Stop() override;
-  void RunTasks() override;
   ConnectRequest Connect(const IPEndpoint& endpoint,
                          ConnectionRequestCallback* request) override;
   std::unique_ptr<ProtocolConnection> CreateProtocolConnection(
@@ -68,9 +73,9 @@ class QuicClient final : public ProtocolConnectionClient,
  private:
   struct PendingConnectionData {
     explicit PendingConnectionData(ServiceConnectionData&& data);
-    PendingConnectionData(PendingConnectionData&&);
+    PendingConnectionData(PendingConnectionData&&) noexcept;
     ~PendingConnectionData();
-    PendingConnectionData& operator=(PendingConnectionData&&);
+    PendingConnectionData& operator=(PendingConnectionData&&) noexcept;
 
     ServiceConnectionData data;
 
@@ -90,11 +95,15 @@ class QuicClient final : public ProtocolConnectionClient,
 
   void CancelConnectRequest(uint64_t request_id) override;
 
+  // Deletes dead QUIC connections then returns the time interval before this
+  // method should be run again.
+  void Cleanup();
+
   std::unique_ptr<QuicConnectionFactory> connection_factory_;
 
   // Maps an IPEndpoint to a generated endpoint ID.  This is used to insulate
   // callers from post-handshake changes to a connections actual peer endpoint.
-  std::map<IPEndpoint, uint64_t, IPEndpointComparator> endpoint_map_;
+  std::map<IPEndpoint, uint64_t> endpoint_map_;
 
   // Value that will be used for the next new endpoint in a Connect call.
   uint64_t next_endpoint_id_ = 0;
@@ -110,18 +119,21 @@ class QuicClient final : public ProtocolConnectionClient,
 
   // Maps endpoint addresses to data about connections that haven't successfully
   // completed the QUIC handshake.
-  std::map<IPEndpoint, PendingConnectionData, IPEndpointComparator>
-      pending_connections_;
+  std::map<IPEndpoint, PendingConnectionData> pending_connections_;
 
   // Maps endpoint IDs to data about connections that have successfully
   // completed the QUIC handshake.
   std::map<uint64_t, ServiceConnectionData> connections_;
 
-  // Connections that need to be destroyed, but have to wait for the next event
-  // loop due to the underlying QUIC implementation's way of referencing them.
-  std::vector<decltype(connections_)::iterator> delete_connections_;
+  // Connections (endpoint IDs) that need to be destroyed, but have to wait for
+  // the next event loop due to the underlying QUIC implementation's way of
+  // referencing them.
+  std::vector<uint64_t> delete_connections_;
+
+  Alarm cleanup_alarm_;
 };
 
+}  // namespace osp
 }  // namespace openscreen
 
 #endif  // OSP_IMPL_QUIC_QUIC_CLIENT_H_

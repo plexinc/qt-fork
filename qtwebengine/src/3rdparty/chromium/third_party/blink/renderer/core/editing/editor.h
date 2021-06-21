@@ -61,7 +61,7 @@ enum class EditorParagraphSeparator { kIsDiv, kIsP };
 enum class EditorCommandSource { kMenuOrKeyBinding, kDOM };
 enum class WritingDirection;
 
-class CORE_EXPORT Editor final : public GarbageCollectedFinalized<Editor> {
+class CORE_EXPORT Editor final : public GarbageCollected<Editor> {
  public:
   explicit Editor(LocalFrame&);
   ~Editor();
@@ -224,7 +224,7 @@ class CORE_EXPORT Editor final : public GarbageCollectedFinalized<Editor> {
   void Trace(Visitor*);
 
   void RevealSelectionAfterEditingOperation(
-      const ScrollAlignment& = ScrollAlignment::kAlignToEdgeIfNeeded);
+      const mojom::blink::ScrollAlignment& = ScrollAlignment::ToEdgeIfNeeded());
 
  private:
   Member<LocalFrame> frame_;

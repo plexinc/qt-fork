@@ -155,6 +155,16 @@ struct COMPONENT_EXPORT(NETWORK_CPP_BASE) ParamTraits<net::OCSPVerifyResult> {
 };
 
 template <>
+struct COMPONENT_EXPORT(NETWORK_CPP_BASE) ParamTraits<net::ResolveErrorInfo> {
+  typedef net::ResolveErrorInfo param_type;
+  static void Write(base::Pickle* m, const param_type& p);
+  static bool Read(const base::Pickle* m,
+                   base::PickleIterator* iter,
+                   param_type* r);
+  static void Log(const param_type& p, std::string* l);
+};
+
+template <>
 struct COMPONENT_EXPORT(NETWORK_CPP_BASE)
     ParamTraits<scoped_refptr<net::SSLCertRequestInfo>> {
   typedef scoped_refptr<net::SSLCertRequestInfo> param_type;
@@ -219,6 +229,16 @@ struct COMPONENT_EXPORT(NETWORK_CPP_BASE) ParamTraits<net::LoadTimingInfo> {
 };
 
 template <>
+struct COMPONENT_EXPORT(NETWORK_CPP_BASE) ParamTraits<net::SiteForCookies> {
+  typedef net::SiteForCookies param_type;
+  static void Write(base::Pickle* m, const param_type& p);
+  static bool Read(const base::Pickle* m,
+                   base::PickleIterator* iter,
+                   param_type* r);
+  static void Log(const param_type& p, std::string* l);
+};
+
+template <>
 struct COMPONENT_EXPORT(NETWORK_CPP_BASE) ParamTraits<url::Origin> {
   typedef url::Origin param_type;
   static void Write(base::Pickle* m, const param_type& p);
@@ -274,7 +294,6 @@ IPC_STRUCT_TRAITS_BEGIN(net::RedirectInfo)
   IPC_STRUCT_TRAITS_MEMBER(new_method)
   IPC_STRUCT_TRAITS_MEMBER(new_url)
   IPC_STRUCT_TRAITS_MEMBER(new_site_for_cookies)
-  IPC_STRUCT_TRAITS_MEMBER(new_top_frame_origin)
   IPC_STRUCT_TRAITS_MEMBER(new_referrer)
   IPC_STRUCT_TRAITS_MEMBER(insecure_scheme_was_upgraded)
   IPC_STRUCT_TRAITS_MEMBER(is_signed_exchange_fallback_redirect)

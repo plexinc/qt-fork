@@ -12,12 +12,12 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "components/autofill_assistant/browser/script_executor_delegate.h"
-#include "components/autofill_assistant/browser/web_controller.h"
+#include "components/autofill_assistant/browser/web/web_controller.h"
 
 namespace autofill_assistant {
 
 ElementArea::ElementArea(ScriptExecutorDelegate* delegate)
-    : delegate_(delegate), weak_ptr_factory_(this) {
+    : delegate_(delegate) {
   DCHECK(delegate_);
 }
 
@@ -58,9 +58,9 @@ void ElementArea::AddRectangles(
     Rectangle& rectangle = rectangles_.back();
     rectangle.full_width = rectangle_proto.full_width();
     rectangle.restricted = restricted;
-    DVLOG(3) << "Rectangle (full_width="
-             << (rectangle.full_width ? "true" : "false")
-             << ", restricted=" << (restricted ? "true" : "false") << "):";
+    VLOG(3) << "Rectangle (full_width="
+            << (rectangle.full_width ? "true" : "false")
+            << ", restricted=" << (restricted ? "true" : "false") << "):";
     for (const auto& element_proto : rectangle_proto.elements()) {
       rectangle.positions.emplace_back();
       ElementPosition& position = rectangle.positions.back();

@@ -17,7 +17,6 @@ namespace style_change_reason {
 extern const char kActiveStylesheetsUpdate[];
 extern const char kAnimation[];
 extern const char kAttribute[];
-extern const char kCleanupPlaceholderStyles[];
 extern const char kControlValue[];
 extern const char kControl[];
 extern const char kDeclarativeContent[];
@@ -30,7 +29,6 @@ extern const char kFonts[];
 extern const char kFullscreen[];
 extern const char kFindInvisible[];
 extern const char kInheritedStyleChangeFromParentFrame[];
-extern const char kInline[];
 extern const char kInlineCSSStyleMutated[];
 extern const char kInspector[];
 extern const char kInvisibleChange[];

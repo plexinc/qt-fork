@@ -313,6 +313,9 @@ QQuickDial::QQuickDial(QQuickItem *parent)
 {
     setActiveFocusOnTab(true);
     setAcceptedMouseButtons(Qt::LeftButton);
+#if QT_CONFIG(quicktemplates2_multitouch)
+    setAcceptTouchEvents(true);
+#endif
 #if QT_CONFIG(cursor)
     setCursor(Qt::ArrowCursor);
 #endif
@@ -620,7 +623,7 @@ void QQuickDial::setHandle(QQuickItem *handle)
     if (!d->handle.isExecuting())
         d->cancelHandle();
 
-    delete d->handle;
+    QQuickControlPrivate::hideOldItem(d->handle);
     d->handle = handle;
     if (d->handle && !d->handle->parentItem())
         d->handle->setParentItem(this);

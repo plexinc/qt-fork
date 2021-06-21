@@ -208,16 +208,6 @@ Affects:
     libavutil/x86/x86inc.asm
 
 ------------------------------------------------------------------
-commit bd4eee53ada8fab27217d37c2ca881dae3bb3ba4
-Author: Dale Curtis <dalecurtis@chromium.org>
-Date:   Tue Sep 15 18:37:44 2015 -0700
-
-    Restore removal of const EbmlSyntax to fix Windows compile error.
-
-Affects:
-    libavformat/matroskadec.c
-
-------------------------------------------------------------------
 commit 703d465a5e4ffd326abb7b68e8541df370a26d55
 Author: Dale Curtis <dalecurtis@chromium.org>
 Date:   Wed Sep 16 15:08:49 2015 -0700
@@ -320,7 +310,6 @@ Date:   Tue Oct 25 16:38:27 2016 -0700
 
 Affects:
     libavcodec/dnxhddec.c
-    libavcodec/h264dec.c
 
 ------------------------------------------------------------------
 commit b281073a7b1ccff67b2cd8ec636facceeeb82327
@@ -381,7 +370,6 @@ Date:   Tue Jan 17 17:44:18 2017 -0800
 
 Affects:
     compat/atomics/win32/stdatomic.h
-    libavformat/matroskadec.c
 
 ------------------------------------------------------------------
 commit f058fa86bb0e7e43d4208eb05a71c8ce46487611
@@ -631,25 +619,6 @@ Affects:
     libavcodec/mpegaudio_parser.c
 
 ------------------------------------------------------------------
-commit 4468d4967f5dd6a733860af355ef61095b5cd5b1
-Author: Matt Wolenetz <wolenetz@chromium.org>
-Date:   Mon Mar 5 12:36:28 2018 -0800
-
-    lavf/oggparseflac: Free flac extradata before reallocating.
-
-    Otherwise ff_alloc_extradata() just leaks any existing allocated
-    memory.
-
-    BUG=789835
-
-    Change-Id: I8e1c21a16749d28c7f050f5f5d8bffda3b419638
-    Reviewed-on: https://chromium-review.googlesource.com/949415
-    Reviewed-by: Xiaohan Wang <xhwang@chromium.org>
-
-Affects:
-    libavformat/oggparseflac.c
-
-------------------------------------------------------------------
 commit 24bf13b3c13a22c5d1ae4295badc9b79f94e6398
 Author: Dale Curtis <dalecurtis@chromium.org>
 Date:   Tue Apr 17 11:14:57 2018 -0700
@@ -677,27 +646,6 @@ Date:   Tue Apr 17 11:14:57 2018 -0700
     Change-Id: Ia6951b66ae7ecf1e6c700d6cf8bc92f4ea2ef985
     Reviewed-on: https://chromium-review.googlesource.com/1013323
     Reviewed-by: Frank Liberato <liberato@chromium.org>
-
-Affects:
-    configure
-
-------------------------------------------------------------------
-commit a5ef4a7a43af84dda13a34db34d709bad59f004c
-Author: liberato@chromium.org <liberato@chromium.org>
-Date:   Wed May 9 10:50:32 2018 -0700
-
-    Explicitly turn off v4l2 in configure.
-
-    configure seems to enable v4l2-m2m even if we explicitly turn it
-    off with arguments.
-
-    This CL makes configure check the command-line arguments, and skip
-    v4l2 (and v4l2-m2m) if they're turned off.
-
-    Bug: 841360
-    Change-Id: I3c597c12e91631ecd9b526cdea056e064901e008
-    Reviewed-on: https://chromium-review.googlesource.com/1052372
-    Reviewed-by: Matthew Wolenetz <wolenetz@chromium.org>
 
 Affects:
     configure
@@ -829,40 +777,90 @@ Affects:
     libavcodec/libopusdec.c
 
 ------------------------------------------------------------------
-commit feb5456cf973a819ace9a5001256f168631b6788
-Merge: 464c195d8b 81d3d7dd44
-Author: Matt Wolenetz <wolenetz@chromium.org>
-Date:   Fri Jul 12 15:20:19 2019 -0700
+commit d7ba23c23434eb938c6fcae4fe77ca1e2a2fbeff
+Author: liberato@chromium.org <liberato@chromium.org>
+Date:   Thu Aug 22 10:52:09 2019 -0700
 
-    Merge remote-tracking branch 'upstream/master' into sushi-2019-07-12-14-09-15
+    Fail matroska parsing with an error rather than assert.
 
-    Manually resolved conflicts:
-            .gitignore
-            configure
-            libavformat/matroskadec.c
+    Bug: 995706
+    Change-Id: I6f9865e0fdf44def6cc40e369954e66a7e0ad1d1
+    Reviewed-on: https://chromium-review.googlesource.com/c/chromium/third_party/ffmpeg/+/1765951
+    Reviewed-by: Matthew Wolenetz <wolenetz@chromium.org>
 
 Affects:
     libavformat/matroskadec.c
 
 ------------------------------------------------------------------
-commit dfc85c1198d09a2e3c3e3aa6cba330894d8a94c4
-Author: Matt Wolenetz <wolenetz@chromium.org>
-Date:   Wed Jul 24 16:28:05 2019 -0700
+commit e30ef377648b2f6bb9a96353b42cfe9d9fdec09d
+Author: Thomas Guilbert <tguilbert@chromium.org>
+Date:   Fri Dec 6 17:25:16 2019 -0800
 
-    wavdec: Fail bext parsing on incomplete reads
+    Fix null pointer arithmetic
 
-    avio_read can successfully return even when less than the requested
-    amount of input was read. wavdec's bext parsing mistakenly assumed a
-    successful avio_read always read the full amount that was requested.
-    The result could be dictionary tags populated with partially
-    uninitialized values.
+    Clusterfuzz has uncovered scenarios where we add 0 to a null pointer,
+    which is undefined behavior. It doesn't seem like anything else is
+    inherently wrong with the code, so this CL applies the simplest fix
+    to avoid the issue.
 
-    This change also fixes a broken assertion in wav_parse_bext_string that
-    was off-by-one, though no known current usage of that method hits that
-    broken case.
+    This will be reported upstream, and a better fix might come out.
 
-    BUG=987270
+    Bug: 1027044, 1028506, 1028511
+    Change-Id: I838282097e69f08bb14d8da1d931f01add438066
+    Reviewed-on: https://chromium-review.googlesource.com/c/chromium/third_party/ffmpeg/+/1956356
+    Reviewed-by: Ted Meyer <tmathmeyer@chromium.org>
 
 Affects:
-    libavformat/wavdec.c
+    libavcodec/h264dec.c
 
+------------------------------------------------------------------
+commit 252792a1ff65deadc4e627e59ce80b8811c5a5de
+Author: Thomas Guilbert <tguilbert@chromium.org>
+Date:   Mon Dec 9 17:09:54 2019 -0800
+
+    Fix null pointer addition error
+
+    Clusterfuzz uncovered a scenario in which 0 is added to a null pointer,
+    which is undefined behavior. This CL fixes the issue by checking the
+    pointer is null before incrementing it.
+
+    BUG= 1027047, 1028812
+
+    Change-Id: I160c7e36134687a7d2ef4099078d89a714c8cfe4
+    Reviewed-on: https://chromium-review.googlesource.com/c/chromium/third_party/ffmpeg/+/1958714
+    Reviewed-by: Ted Meyer <tmathmeyer@chromium.org>
+
+Affects:
+    libavformat/utils.c
+
+------------------------------------------------------------------
+commit 6a44f89787a6103bf85825aac5b7bcfdba0dde5f
+Merge: c5003c8e13 acbd950ed2
+Author: John Rummell <jrummell@chromium.org>
+Date:   Wed Feb 19 15:20:41 2020 -0800
+
+    Merge remote-tracking branch 'upstream/master' into sushi-2020-02-19-14-22-27
+
+    Conflicts:
+      libavcodec/codec_desc.c
+      libavcodec/version.h
+      libavformat/mov.c
+      libavformat/movenc.c
+      libavformat/oggparseflac.c
+      libavformat/utils.c
+      libavutil/log.c
+      libavutil/log.h
+
+Affects:
+    libavutil/log.c
+    libavutil/log.h
+
+------------------------------------------------------------------
+Basically reapplying commit 7262141e8c14462f47e79ed6ba457321dea9cc5d
+
+    Don't trigger errors for multiple id3 tags.
+    Fixes loading of the following wave when using -err_detect explode:
+    https://cs.chromium.org/chromium/src/third_party/blink/web_tests/external/wpt/webaudio/resources/4ch-440.wav
+
+Affects:
+    libavformat/utils.c

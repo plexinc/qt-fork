@@ -71,7 +71,7 @@ const URL_EMPTY = 'missing';
  *     value is smaller than 32bit.
  */
 function as64Bit(num) {
-  if (num.length != 2) {
+  if (num.length !== 2) {
     return '0';
   }
   if (!num[0]) {
@@ -86,7 +86,7 @@ function as64Bit(num) {
 /**
  * Sets the display option of all the elements in HtmlCollection to the value
  * passed.
- * @param {!NodeList<!Element>} collection Collection of Elements.
+ * @param {!HTMLCollection<!Element>} collection Collection of Elements.
  */
 function setDisplayStyle(collection, display_value) {
   for (const el of collection) {
@@ -249,7 +249,7 @@ function addExpandToggleButton() {
   const toggleExpand = $('toggle_expand');
   toggleExpand.textContent = 'Expand';
   toggleExpand.addEventListener('click', () => {
-    if (toggleExpand.textContent == 'Expand') {
+    if (toggleExpand.textContent === 'Expand') {
       toggleExpand.textContent = 'Collapse';
       setDisplayStyle(document.getElementsByClassName('entries'), 'block');
     } else {

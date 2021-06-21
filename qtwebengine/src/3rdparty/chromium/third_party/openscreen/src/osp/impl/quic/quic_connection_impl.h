@@ -20,12 +20,13 @@
 #include "third_party/chromium_quic/src/net/third_party/quic/quartc/quartc_stream.h"
 
 namespace openscreen {
+namespace osp {
 
 class QuicConnectionFactoryImpl;
 
 class UdpTransport final : public ::quic::QuartcPacketTransport {
  public:
-  UdpTransport(platform::UdpSocket* socket, const IPEndpoint& destination);
+  UdpTransport(UdpSocket* socket, const IPEndpoint& destination);
   UdpTransport(UdpTransport&&) noexcept;
   ~UdpTransport() override;
 
@@ -36,10 +37,10 @@ class UdpTransport final : public ::quic::QuartcPacketTransport {
             size_t buffer_length,
             const PacketInfo& info) override;
 
-  platform::UdpSocket* socket() const { return socket_; }
+  UdpSocket* socket() const { return socket_; }
 
  private:
-  platform::UdpSocket* socket_;
+  UdpSocket* socket_;
   IPEndpoint destination_;
 };
 
@@ -74,8 +75,12 @@ class QuicConnectionImpl final : public QuicConnection,
 
   ~QuicConnectionImpl() override;
 
+  // UdpSocket::Client overrides.
+  void OnRead(UdpSocket* socket, ErrorOr<UdpPacket> data) override;
+  void OnError(UdpSocket* socket, Error error) override;
+  void OnSendError(UdpSocket* socket, Error error) override;
+
   // QuicConnection overrides.
-  void OnDataReceived(const platform::UdpPacket& packet) override;
   std::unique_ptr<QuicStream> MakeOutgoingStream(
       QuicStream::Delegate* delegate) override;
   void Close() override;
@@ -94,6 +99,7 @@ class QuicConnectionImpl final : public QuicConnection,
   std::vector<QuicStream*> streams_;
 };
 
+}  // namespace osp
 }  // namespace openscreen
 
 #endif  // OSP_IMPL_QUIC_QUIC_CONNECTION_IMPL_H_

@@ -69,6 +69,7 @@ const StringToCodecMap& GetStringToCodecMap() {
       {"mp4a.40.5", MimeUtil::MPEG4_AAC},
       {"mp4a.40.05", MimeUtil::MPEG4_AAC},
       {"mp4a.40.29", MimeUtil::MPEG4_AAC},
+      {"mp4a.40.42", MimeUtil::MPEG4_XHE_AAC},
       // TODO(servolk): Strictly speaking only mp4a.A5 and mp4a.A6
       // codec ids are valid according to RFC 6381 section 3.3, 3.4.
       // Lower-case oti (mp4a.a5 and mp4a.a6) should be rejected. But
@@ -145,11 +146,7 @@ MimeUtil::MimeUtil() {
       MediaCodecUtil::IsVp8DecoderAvailable();
   platform_info_.has_platform_vp9_decoder =
       MediaCodecUtil::IsVp9DecoderAvailable();
-  platform_info_.has_platform_vp9_2_decoder =
-      MediaCodecUtil::IsVp9Profile2DecoderAvailable();
-  platform_info_.has_platform_vp9_3_decoder =
-      MediaCodecUtil::IsVp9Profile3DecoderAvailable();
-#if BUILDFLAG(ENABLE_HEVC_DEMUXING)
+#if BUILDFLAG(ENABLE_PLATFORM_HEVC)
   platform_info_.has_platform_hevc_decoder =
       MediaCodecUtil::IsHEVCDecoderAvailable();
 #endif
@@ -174,6 +171,7 @@ AudioCodec MimeUtilToAudioCodec(MimeUtil::Codec codec) {
       return kCodecEAC3;
     case MimeUtil::MPEG2_AAC:
     case MimeUtil::MPEG4_AAC:
+    case MimeUtil::MPEG4_XHE_AAC:
       return kCodecAAC;
     case MimeUtil::MPEG_H_AUDIO:
       return kCodecMpegHAudio;
@@ -314,29 +312,29 @@ void MimeUtil::AddSupportedMediaFormats() {
   mp4_video_codecs.emplace(VP9);
 
 #if BUILDFLAG(USE_PROPRIETARY_CODECS)
-  const CodecSet aac{MPEG2_AAC, MPEG4_AAC};
+  const CodecSet aac{MPEG2_AAC, MPEG4_AAC, MPEG4_XHE_AAC};
   mp4_audio_codecs.insert(aac.begin(), aac.end());
 
   CodecSet avc_and_aac(aac);
   avc_and_aac.emplace(H264);
 
-#if BUILDFLAG(ENABLE_AC3_EAC3_AUDIO_DEMUXING)
+#if BUILDFLAG(ENABLE_PLATFORM_AC3_EAC3_AUDIO)
   mp4_audio_codecs.emplace(AC3);
   mp4_audio_codecs.emplace(EAC3);
-#endif  // BUILDFLAG(ENABLE_AC3_EAC3_AUDIO_DEMUXING)
+#endif  // BUILDFLAG(ENABLE_PLATFORM_AC3_EAC3_AUDIO)
 
-#if BUILDFLAG(ENABLE_MPEG_H_AUDIO_DEMUXING)
+#if BUILDFLAG(ENABLE_PLATFORM_MPEG_H_AUDIO)
   mp4_audio_codecs.emplace(MPEG_H_AUDIO);
-#endif  // BUILDFLAG(ENABLE_MPEG_H_AUDIO_DEMUXING)
+#endif  // BUILDFLAG(ENABLE_PLATFORM_MPEG_H_AUDIO)
 
   mp4_video_codecs.emplace(H264);
-#if BUILDFLAG(ENABLE_HEVC_DEMUXING)
+#if BUILDFLAG(ENABLE_PLATFORM_HEVC)
   mp4_video_codecs.emplace(HEVC);
-#endif  // BUILDFLAG(ENABLE_HEVC_DEMUXING)
+#endif  // BUILDFLAG(ENABLE_PLATFORM_HEVC)
 
-#if BUILDFLAG(ENABLE_DOLBY_VISION_DEMUXING)
+#if BUILDFLAG(ENABLE_PLATFORM_DOLBY_VISION)
   mp4_video_codecs.emplace(DOLBY_VISION);
-#endif  // BUILDFLAG(ENABLE_DOLBY_VISION_DEMUXING)
+#endif  // BUILDFLAG(ENABLE_PLATFORM_DOLBY_VISION)
 #endif  // BUILDFLAG(USE_PROPRIETARY_CODECS)
 #if BUILDFLAG(ENABLE_AV1_DECODER)
   mp4_video_codecs.emplace(AV1);
@@ -589,6 +587,10 @@ bool MimeUtil::IsCodecSupportedOnAndroid(
       DCHECK(!is_encrypted || platform_info.has_platform_decoders);
       return true;
 
+    case MPEG4_XHE_AAC:
+      // xHE-AAC is only supported via MediaCodec.
+      return platform_info.has_platform_decoders;
+
     case MPEG_H_AUDIO:
       return false;
 
@@ -612,12 +614,12 @@ bool MimeUtil::IsCodecSupportedOnAndroid(
       return !is_encrypted || platform_info.has_platform_decoders;
 
     case HEVC:
-#if BUILDFLAG(ENABLE_HEVC_DEMUXING)
+#if BUILDFLAG(ENABLE_PLATFORM_HEVC)
       return platform_info.has_platform_decoders &&
              platform_info.has_platform_hevc_decoder;
 #else
       return false;
-#endif  // BUILDFLAG(ENABLE_HEVC_DEMUXING)
+#endif  // BUILDFLAG(ENABLE_PLATFORM_HEVC)
 
     case VP8:
       // If clear, the unified pipeline can always decode VP8 in software.
@@ -641,16 +643,6 @@ bool MimeUtil::IsCodecSupportedOnAndroid(
       if (!platform_info.has_platform_vp9_decoder)
         return false;
 
-      if (video_profile == VP9PROFILE_PROFILE2 &&
-          !platform_info.has_platform_vp9_2_decoder) {
-        return false;
-      }
-
-      if (video_profile == VP9PROFILE_PROFILE3 &&
-          !platform_info.has_platform_vp9_3_decoder) {
-        return false;
-      }
-
       return true;
     }
 
@@ -661,7 +653,7 @@ bool MimeUtil::IsCodecSupportedOnAndroid(
 
     case AC3:
     case EAC3:
-#if BUILDFLAG(ENABLE_AC3_EAC3_AUDIO_DEMUXING)
+#if BUILDFLAG(ENABLE_PLATFORM_AC3_EAC3_AUDIO)
       return true;
 #else
       return false;
@@ -824,21 +816,21 @@ bool MimeUtil::ParseCodecHelper(const std::string& mime_type_lower_case,
     return true;
   }
 
-#if BUILDFLAG(ENABLE_HEVC_DEMUXING)
+#if BUILDFLAG(ENABLE_PLATFORM_HEVC)
   if (ParseHEVCCodecId(codec_id, out_profile, out_level)) {
     out_result->codec = MimeUtil::HEVC;
     return true;
   }
 #endif
 
-#if BUILDFLAG(ENABLE_DOLBY_VISION_DEMUXING)
+#if BUILDFLAG(ENABLE_PLATFORM_DOLBY_VISION)
   if (ParseDolbyVisionCodecId(codec_id, out_profile, out_level)) {
     out_result->codec = MimeUtil::DOLBY_VISION;
     return true;
   }
 #endif
 
-#if BUILDFLAG(ENABLE_MPEG_H_AUDIO_DEMUXING)
+#if BUILDFLAG(ENABLE_PLATFORM_MPEG_H_AUDIO)
   if (base::StartsWith(codec_id, "mhm1.", base::CompareCase::SENSITIVE) ||
       base::StartsWith(codec_id, "mha1.", base::CompareCase::SENSITIVE)) {
     out_result->codec = MimeUtil::MPEG_H_AUDIO;
@@ -899,7 +891,11 @@ SupportsType MimeUtil::IsCodecSupported(const std::string& mime_type_lower_case,
 
   AudioCodec audio_codec = MimeUtilToAudioCodec(codec);
   if (audio_codec != kUnknownAudioCodec) {
-    if (!IsSupportedAudioType({audio_codec}))
+    AudioCodecProfile audio_profile = AudioCodecProfile::kUnknown;
+    if (codec == MPEG4_XHE_AAC)
+      audio_profile = AudioCodecProfile::kXHE_AAC;
+
+    if (!IsSupportedAudioType({audio_codec, audio_profile, false}))
       return IsNotSupported;
   }
 

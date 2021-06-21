@@ -8,11 +8,12 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "third_party/blink/public/mojom/payments/payment_request.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_function.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_testing.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_dom_exception.h"
-#include "third_party/blink/renderer/modules/payments/payment_details_init.h"
-#include "third_party/blink/renderer/modules/payments/payment_details_update.h"
-#include "third_party/blink/renderer/modules/payments/payment_item.h"
-#include "third_party/blink/renderer/modules/payments/payment_shipping_option.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_payment_details_init.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_payment_details_update.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_payment_item.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_payment_shipping_option.h"
 #include "third_party/blink/renderer/platform/heap/heap_allocator.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
@@ -115,7 +116,7 @@ class PaymentRequestMockFunctionScope {
     String* value_;
   };
 
-  Member<ScriptState> script_state_;
+  ScriptState* script_state_;
   Vector<Persistent<MockFunction>> mock_functions_;
 };
 

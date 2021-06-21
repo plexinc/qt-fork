@@ -1625,7 +1625,13 @@ bool VCLinkerTool::parseOption(const char* option)
             MapLines = _True;
         break;
     case 0x341a6b5: // /MERGE:from=to
-        MergeSections = option+7;
+        if (MergeSections.isEmpty()) {
+            MergeSections = option+7;
+        } else {
+            // vcxproj files / the VS property editor do not support multiple MergeSections entries.
+            // Add them as additional options.
+            AdditionalOptions += option;
+        }
         break;
     case 0x0341d8c: // /MIDL:@file
         MidlCommandFile = option+7;
@@ -2351,10 +2357,7 @@ bool VCFilter::addExtraCompiler(const VCFilterFile &info)
         if (!tmp_dep.isEmpty())
             deps = tmp_dep;
         if (!tmp_dep_cmd.isEmpty()) {
-            const QString dep_cd_cmd = QLatin1String("cd ")
-                    + IoUtils::shellQuote(Option::fixPathToLocalOS(Option::output_dir, false))
-                    + QLatin1String(" && ");
-            Project->callExtraCompilerDependCommand(extraCompilerName, dep_cd_cmd, tmp_dep_cmd,
+            Project->callExtraCompilerDependCommand(extraCompilerName, tmp_dep_cmd,
                                                     inFile, out,
                                                     true, // dep_lines
                                                     &deps,

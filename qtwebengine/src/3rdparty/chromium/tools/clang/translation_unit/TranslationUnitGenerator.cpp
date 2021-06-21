@@ -130,9 +130,9 @@ void IncludeFinderPPCallbacks::FileChanged(
     if (!last_inclusion_directive_.empty()) {
       current_files_.push(last_inclusion_directive_);
     } else {
-      current_files_.push(
+      current_files_.push(std::string(
           source_manager_->getFileEntryForID(source_manager_->getMainFileID())
-              ->getName());
+              ->getName()));
     }
   } else if (reason == ExitFile) {
     current_files_.pop();
@@ -142,6 +142,14 @@ void IncludeFinderPPCallbacks::FileChanged(
 
 void IncludeFinderPPCallbacks::AddFile(const string& path) {
   source_file_paths_->insert(path);
+}
+
+template <typename T>
+static T* getValueOrNull(llvm::ErrorOr<T*> maybe_val) {
+  if (maybe_val) {
+    return *maybe_val;
+  }
+  return nullptr;
 }
 
 void IncludeFinderPPCallbacks::InclusionDirective(
@@ -160,11 +168,10 @@ void IncludeFinderPPCallbacks::InclusionDirective(
     return;
 
   assert(!current_files_.top().empty());
-  const clang::DirectoryEntry* const search_path_entry =
-      source_manager_->getFileManager().getDirectory(search_path);
+  const clang::DirectoryEntry* const search_path_entry = getValueOrNull(
+      source_manager_->getFileManager().getDirectory(search_path));
   const clang::DirectoryEntry* const current_file_parent_entry =
-      source_manager_->getFileManager()
-          .getFile(current_files_.top().c_str())
+      (*source_manager_->getFileManager().getFile(current_files_.top().c_str()))
           ->getDir();
 
   // If the include file was found relatively to the current file's parent
@@ -218,7 +225,7 @@ void IncludeFinderPPCallbacks::EndOfMainFile() {
   assert(!real_path(main_file->getName(), main_file_name_real_path));
   assert(main_source_file_real_path == main_file_name_real_path);
 
-  AddFile(main_file->getName());
+  AddFile(std::string(main_file->getName()));
 }
 
 class CompilationIndexerAction : public clang::PreprocessorFrontendAction {
@@ -241,21 +248,18 @@ class CompilationIndexerAction : public clang::PreprocessorFrontendAction {
 };
 
 void CompilationIndexerAction::ExecuteAction() {
-  vector<clang::FrontendInputFile> inputs =
-      getCompilerInstance().getFrontendOpts().Inputs;
+  auto inputs = getCompilerInstance().getFrontendOpts().Inputs;
   assert(inputs.size() == 1);
-  main_source_file_ = inputs[0].getFile();
+  main_source_file_ = std::string(inputs[0].getFile());
 
   Preprocess();
 }
 
 void CompilationIndexerAction::Preprocess() {
   clang::Preprocessor& preprocessor = getCompilerInstance().getPreprocessor();
-  preprocessor.addPPCallbacks(llvm::make_unique<IncludeFinderPPCallbacks>(
-      &getCompilerInstance().getSourceManager(),
-      &main_source_file_,
-      &source_file_paths_,
-      &getCompilerInstance().getHeaderSearchOpts()));
+  preprocessor.addPPCallbacks(std::make_unique<IncludeFinderPPCallbacks>(
+      &getCompilerInstance().getSourceManager(), &main_source_file_,
+      &source_file_paths_, &getCompilerInstance().getHeaderSearchOpts()));
   preprocessor.getDiagnostics().setIgnoreAllWarnings(true);
   preprocessor.SetSuppressIncludeNotFoundError(true);
   preprocessor.EnterMainSourceFile();

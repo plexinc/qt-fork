@@ -6,14 +6,16 @@ provided by Clang and LLVM (ASan, CFI, coverage, etc). In order to [update the
 compiler](updating_clang.md) (roll clang), it has to be tested so that we can be
 confident that it works in the configurations that Chromium cares about.
 
-Fortunately, Chromium happens to be a pretty decent stress test for a C++
-compiler, so we maintain a [waterfall of
+We maintain a [waterfall of
 builders](https://ci.chromium.org/p/chromium/g/chromium.clang/console) that
 continuously build fresh versions of Clang and use them to build and test
 Chromium. "Clang sheriffing" is the process of monitoring that waterfall,
 determining if any compile or test failures are due to an upstream compiler
 change, filing bugs upstream, and often reverting bad changes in LLVM. This
 document describes some of the processes and techniques for doing that.
+
+https://sheriff-o-matic.appspot.com/chromium.clang is the sheriff-o-matic
+view of that waterfall, which can be easier to work with.
 
 [TOC]
 
@@ -61,15 +63,23 @@ things:
    upstream regression range
 1. File a crbug documenting the crash. Include the range, and any other bots
    displaying the same symptoms.
-1. Collect the crash reproduction files and reproduce the crash locally. When
-   clang crashes, it prints something like this:
-   ```
-   PLEASE ATTACH THE FOLLOWING FILES TO THE BUG REPORT:
-   Preprocessed source(s) and associated run script(s) are located at:
-   clang: note: diagnostic msg: C:\src\tmp\t-8f292b.cpp
-   clang: note: diagnostic msg: C:\src\tmp\t-8f292b.sh
-   ```
-   If you re-run the shell script, it should reproduce the crash.
+1. All clang crashes on the Chromium bots are automatically uploaded to
+   Cloud Storage. On the failing build, click the "stdout" link of the
+   "process clang crashes" step right after the red compile step. It will
+   print something like
+
+       processing heap_page-65b34d... compressing... uploading... done
+           gs://chrome-clang-crash-reports/v1/2019/08/27/chromium.clang-ToTMac-20955-heap_page-65b34d.tgz
+       removing heap_page-65b34d.sh
+       removing heap_page-65b34d.cpp
+
+   Use
+   `gsutil.py cp gs://chrome-clang-crash-reports/v1/2019/08/27/chromium.clang-ToTMac-20955-heap_page-65b34d.tgz .`
+   to copy it to your local machine. Untar with
+   `tar xzf chromium.clang-ToTMac-20955-heap_page-65b34d.tgz` and change the
+   included shell script to point to a locally-built clang. Remove the
+   `-Xclang -plugin` flags.  If you re-run the shell script, it should
+   reproduce the crash.
 1. Identify the revision that introduced the crash. First, look at the commit
    messages in the LLVM revision range to see if one modifies the code near the
    point of the crash. If so, try reverting it locally, rebuild, and run the
@@ -81,18 +91,23 @@ things:
    #!/bin/bash
    cd $(dirname $0)  # get into llvm build dir
    ninja -j900 clang || exit 125 # skip revisions that don't compile
-   ./t-8f292b.sh   # exit 0 if good, 0 if bad
+   ./t-8f292b.sh || exit 1  # exit 0 if good, 1 if bad
    ```
-1. Reply to the commit on `llvm-commits` or on the code review on
-   [Phabricator](https://reviews.llvm.org/) letting the author know that you
-   believe they introduced a regression, and that you will revert the patch and
-   provide a reduced reproducer.
-1. Revert the upstream LLVM change once you are confident that you have the
-   right culprit. Tell the patch author that you will provide a reproduction.
-1. Start a reduction using [CReduce](https://embed.cs.utah.edu/creduce/using/).
-   Follow the docs there for writing an interestingness test and use it to
-   reduce the input to something that can be provided upstream. Send the reduced
-   reproducer to the patch author.
+1. File an upstream bug like http://llvm.org/PR43016. Usually the unminimized repro
+   is too large for LLVM's bugzilla, so attach it to a (public) crbug and link
+   to that from the LLVM bug. Then revert with a commit message like
+   "Revert r368987, it caused PR43016."
+1. If you want, make a reduced repro using CReduce.  Clang contains a handy wrapper around
+   CReduce that you can invoke like so:
+
+       clang/utils/creduce-clang-crash.py --llvm-bin bin \
+           angle_deqp_gtest-d421b0.sh angle_deqp_gtest-d421b0.cpp
+
+   Attach the reproducer to the llvm bug you filed in the previous step.
+
+   If you need to do something the wrapper doesn't support,
+   follow the [official CReduce docs](https://embed.cs.utah.edu/creduce/using/)
+   for writing an interestingness test and use creduce directly.
 
 ## Compiler warning change
 
@@ -139,5 +154,206 @@ status, this is probably what you want to do.
 
 ## Linker error
 
+`ld.lld`'s `--reproduce` flag makes LLD write a tar archive of all its inputs
+and a file `response.txt` that contains the link command. This allows people to
+work on linker bugs without having to have a Chromium build environment.
+
+To use `ld.lld`'s `--reproduce` flag, follow these steps:
+
+1. Locally (build Chromium with a locally-built
+   clang)[https://chromium.googlesource.com/chromium/src.git/+/master/docs/clang.md#Using-a-custom-clang-binary]
+
+1. After reproducing the link error, build just the failing target with
+   ninja's `-v -d keeprsp` flags added:
+  `ninja -C out/gn base_unittests -v -d keeprsp`.
+
+1. Copy the link command that ninja prints, `cd out/gn`, paste it, and manually
+   append `-Wl,--reproduce,repro.tar`. With `lld-link`, instead append
+   `/linkrepro:repro.tar`. (`ld.lld` is invoked through the `clang` driver, so
+   it needs `-Wl` to pass the flag through to the linker. `lld-link` is called
+   directly, so the flag needs no prefix.)
+
+1. Zip up the tar file: `gzip repro.tar`. This will take a few minutes and
+   produce a .tar.gz file that's 0.5-1 GB.
+
+1. Upload the .tar.gz to Google Drive. If you're signed in with your @google
+   address, you won't be able to make a world-shareable link to it, so upload
+   it in a Window where you're signed in with your @chromium account.
+
+1. File an LLVM bug linking to the file. Example: http://llvm.org/PR43241
+
 TODO: Describe object file bisection, identify obj with symbol that no longer
 has the section.
+
+## ThinLTO Trouble
+
+Sometimes, problems occur in ThinLTO builds that do not occur in non-LTO builds.
+These steps can be used to debug such problems.
+
+Notes:
+
+ - All steps assume they are run from the output directory (the same directory args.gn is in).
+
+ - Commands have been shortened for clarity. In particular, Chromium build commands are
+   generally long, with many parts that you just copy-paste when debugging. These have
+   largely been omitted.
+
+ - The commands below use "clang++", where in practice there would be some path prefix
+   in front of this. Make sure you are invoking the right clang++. In particular, there
+   may be one in the PATH which behaves very differently.
+
+### Get the full command that is used for linking
+
+To get the command that is used to link base_unittests:
+
+```sh
+$ rm base_unittests
+$ ninja -n -d keeprsp -v base_unittests
+```
+
+This will print a command line. It will also write a file called `base_unittests.rsp`, which
+contains additional parameters to be passed.
+
+### Expand Thin Archives on Command Line
+
+Expand thin archives mentioned in the command line to their individual object files.
+The script `tools/clang/scripts/expand_thin_archives.py` can be used for this purpose.
+For example:
+
+```sh
+$ ../../tools/clang/scripts/expand_thin_archives.py -p=-Wl, -- @base_unittests.rsp > base_unittests.expanded.rsp
+```
+
+The `-p` parameter here specifies the prefix for parameters to be passed to the linker.
+If you are invoking the linker directly (as opposed to through clang++), the prefix should
+be empty.
+
+```sh
+$ ../../tools/clang/scripts/expand_thin_archives.py -p='', -- @base_unittests.rsp > base_unittests.expanded.rsp
+```
+
+### Remove -Wl,--start-group and -Wl,--end-group
+
+Edit the link command to use the expanded command line, and remove any mention of `-Wl,--start-group`
+and `-Wl,--end-group` that surround the expanded command line. For example, if the original command was:
+
+    clang++ -fuse-ld=lld -o ./base_unittests -Wl,--start-group @base_unittests.rsp -Wl,--end-group
+
+the new command should be:
+
+    clang++ -fuse-ld=lld -o ./base_unittests @base_unittests.expanded.rsp
+
+The reason for this is that the `-start-lib` and `-end-lib` flags that expanding the command
+line produces cannot be nested inside `--start-group` and `--end-group`.
+
+### Producing ThinLTO Bitcode Files
+
+In a ThinLTO build, what is normally the compile step that produces native object files
+instead produces LLVM bitcode files. A simple example would be:
+
+```sh
+$ clang++ -c -flto=thin foo.cpp -o foo.o
+```
+
+In a Chromium build, these files reside under `obj/`, and you can generate them using ninja.
+For example:
+
+```sh
+$ ninja obj/base/base/lock.o
+```
+
+These can be fed to `llvm-dis` to produce textual LLVM IR:
+   
+```
+$ llvm-dis -o - obj/base/base/lock.o | less
+```
+
+When using split LTO unit (`-fsplit-lto-unit`, which is required for
+some features, CFI among them), this may produce a message like:
+
+    llvm-dis: error: Expected a single module
+
+   In that case, you can use `llvm-modextract`:
+   
+```sh
+$ llvm-modextract -n 0 -o - obj/base/base/lock.o | llvm-dis -o - | less
+```
+
+### Saving Intermediate Bitcode
+
+The ThinLTO linking process proceeds in a number of stages. The bitcode that is
+generated during these stages can be saved by passing `-save-temps` to the linker:
+
+```
+$ clang++ -fuse-ld=lld -Wl,-save-temps -o ./base_unittests @base_unittests.expanded.rsp
+```
+
+This generates files such as:
+ - lock.o.0.preopt.bc
+ - lock.o.3.import.bc
+ - lock.o.5.precodegen.bc
+
+in the directory where lock.o is (obj/base/base).
+
+These can be fed to `llvm-dis` to produce textual LLVM IR. They show
+how the code is transformed as it progresses through ThinLTO stages.
+Of particular interest are:
+ - .3.import.bc, which shows the IR after definitions have been imported from other
+   modules, but before optimizations.
+ - .5.precodegen.bc, which shows the IR just before it is transformed to native code.
+
+The same `-save-temps` command also produces `base_unittests.resolution.txt`, which
+shows symbol resolutions. These look like:
+
+    -r=obj/base/test/run_all_base_unittests/run_all_base_unittests.o,main,plx
+
+In this example, run_all_base_unittests.o contains a symbol named
+main, with flags plx.
+   
+The possible flags are:
+ - p: prevailing: of symbols with this name, this one has been chosen.
+ - l: final definition in this linkage unit.
+ - r: redefined by the linker.
+ - x: visible to regular (that is, non-LTO) objects.
+
+### Code Generation for a Single File
+
+In other cases, it may be interesting to take a closer look at the
+code generation for a single file. This can be done using LLD's
+support for distributed ThinLTO. The linker takes a `-thinlto-index-only`
+option that does whole program analysis and writes index files:
+
+```sh
+$ clang++ -fuse-ld=lld -Wl,-thinlto-index-only -o ./base_unittests @base_unittests.expanded.rsp
+```
+
+This creates `.thinlto.bc` files next to object files used by the link (e.g.
+`obj/base/base/lock.o.thinlto.bc`).
+
+Using the index files, you can perform code generation for individual object files:
+
+```sh
+$ clang++ -c -fthinlto-index=obj/base/base/lock.o.thinlto.bc -x ir obj/base/base/lock.o -o obj/base/base/lock.o.native
+```
+
+The result of individual passes can be seen by adding `-mllvm -print-after-all`:
+   
+```
+$ clang++ -c -mllvm -print-after-all -fthinlto-index=obj/base/base/lock.o.thinlto.bc -x ir obj/base/base/lock.o -o obj/base/base/lock.o.native
+```
+
+
+## Tips and tricks
+
+Finding what object files differ between two directories:
+
+```
+$ diff -u <(cd out.good && find . -name "*.o" -exec sha1sum {} \; | sort -k2) \
+          <(cd out.bad  && find . -name "*.o" -exec sha1sum {} \; | sort -k2)
+```
+
+Or with cmp:
+
+```
+$ find good -name "*.o" -exec bash -c 'cmp -s $0 ${0/good/bad} || echo $0' {} \;
+```

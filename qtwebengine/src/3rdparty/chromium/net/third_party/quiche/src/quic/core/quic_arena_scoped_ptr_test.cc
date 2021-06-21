@@ -13,13 +13,25 @@ namespace {
 enum class TestParam { kFromHeap, kFromArena };
 
 struct TestObject {
-  explicit TestObject(uintptr_t value) : value(value) { buffer.resize(1024); }
+  explicit TestObject(uintptr_t value) : value(value) { buffer.resize(1200); }
   uintptr_t value;
 
   // Ensure that we have a non-trivial destructor that will leak memory if it's
   // not called.
   std::vector<char> buffer;
 };
+
+// Used by ::testing::PrintToStringParamName().
+std::string PrintToString(const TestParam& p) {
+  switch (p) {
+    case TestParam::kFromHeap:
+      return "heap";
+    case TestParam::kFromArena:
+      return "arena";
+  }
+  DCHECK(false);
+  return "?";
+}
 
 class QuicArenaScopedPtrParamTest : public QuicTestWithParam<TestParam> {
  protected:
@@ -39,13 +51,14 @@ class QuicArenaScopedPtrParamTest : public QuicTestWithParam<TestParam> {
   }
 
  private:
-  QuicOneBlockArena<1024> arena_;
+  QuicOneBlockArena<1200> arena_;
 };
 
 INSTANTIATE_TEST_SUITE_P(QuicArenaScopedPtrParamTest,
                          QuicArenaScopedPtrParamTest,
                          testing::Values(TestParam::kFromHeap,
-                                         TestParam::kFromArena));
+                                         TestParam::kFromArena),
+                         ::testing::PrintToStringParamName());
 
 TEST_P(QuicArenaScopedPtrParamTest, NullObjects) {
   QuicArenaScopedPtr<TestObject> def;
@@ -56,7 +69,7 @@ TEST_P(QuicArenaScopedPtrParamTest, NullObjects) {
 }
 
 TEST_P(QuicArenaScopedPtrParamTest, FromArena) {
-  QuicOneBlockArena<1024> arena_;
+  QuicOneBlockArena<1200> arena_;
   EXPECT_TRUE(arena_.New<TestObject>(0).is_from_arena());
   EXPECT_FALSE(
       QuicArenaScopedPtr<TestObject>(new TestObject(0)).is_from_arena());

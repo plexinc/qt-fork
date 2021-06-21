@@ -71,7 +71,7 @@ class QGssApiHandles;
 class Q_AUTOTEST_EXPORT QAuthenticatorPrivate
 {
 public:
-    enum Method { None, Basic, Ntlm, DigestMd5, Negotiate };
+    enum Method { None, Basic, Negotiate, Ntlm, DigestMd5, };
     QAuthenticatorPrivate();
     ~QAuthenticatorPrivate();
 
@@ -113,7 +113,7 @@ public:
     QByteArray digestMd5Response(const QByteArray &challenge, const QByteArray &method, const QByteArray &path);
     static QHash<QByteArray, QByteArray> parseDigestAuthenticationChallenge(const QByteArray &challenge);
 
-    void parseHttpResponse(const QList<QPair<QByteArray, QByteArray> >&, bool isProxy);
+    void parseHttpResponse(const QList<QPair<QByteArray, QByteArray> >&, bool isProxy, const QString &host);
     void updateCredentials();
 };
 

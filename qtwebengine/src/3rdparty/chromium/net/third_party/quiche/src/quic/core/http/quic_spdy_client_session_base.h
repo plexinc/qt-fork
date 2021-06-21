@@ -50,9 +50,6 @@ class QUIC_EXPORT_PRIVATE QuicSpdyClientSessionBase
 
   void OnConfigNegotiated() override;
 
-  // Override base class to set FEC policy before any data is sent by client.
-  void OnCryptoHandshakeEvent(CryptoHandshakeEvent event) override;
-
   // Called by |headers_stream_| when push promise headers have been
   // completely received.
   void OnPromiseHeaderList(QuicStreamId stream_id,
@@ -106,14 +103,10 @@ class QUIC_EXPORT_PRIVATE QuicSpdyClientSessionBase
   void ResetPromised(QuicStreamId id, QuicRstStreamErrorCode error_code);
 
   // Release headers stream's sequencer buffer if it's empty.
-  void CloseStreamInner(QuicStreamId stream_id, bool locally_reset) override;
+  void CloseStreamInner(QuicStreamId stream_id, bool rst_sent) override;
 
   // Returns true if there are no active requests and no promised streams.
   bool ShouldReleaseHeadersStreamSequencerBuffer() override;
-
-  void set_max_allowed_push_id(QuicStreamId max_allowed_push_id);
-
-  QuicStreamId max_allowed_push_id() { return max_allowed_push_id_; }
 
   size_t get_max_promises() const {
     return max_open_incoming_unidirectional_streams() *
@@ -138,7 +131,6 @@ class QUIC_EXPORT_PRIVATE QuicSpdyClientSessionBase
   QuicClientPushPromiseIndex* push_promise_index_;
   QuicPromisedByIdMap promised_by_id_;
   QuicStreamId largest_promised_stream_id_;
-  QuicStreamId max_allowed_push_id_;
 };
 
 }  // namespace quic

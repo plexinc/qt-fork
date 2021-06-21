@@ -4,25 +4,25 @@
 
 #include "net/third_party/quiche/src/quic/core/quic_packets.h"
 
+#include <utility>
+
 #include "net/third_party/quiche/src/quic/core/quic_connection_id.h"
 #include "net/third_party/quiche/src/quic/core/quic_types.h"
 #include "net/third_party/quiche/src/quic/core/quic_utils.h"
 #include "net/third_party/quiche/src/quic/core/quic_versions.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_flag_utils.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_flags.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_ptr_util.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_str_cat.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_string_piece.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_string_utils.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_text_utils.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_str_cat.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_text_utils.h"
 
 namespace quic {
 
 QuicConnectionId GetServerConnectionIdAsRecipient(
     const QuicPacketHeader& header,
     Perspective perspective) {
-  if (perspective == Perspective::IS_SERVER ||
-      !GetQuicRestartFlag(quic_do_not_override_connection_id)) {
+  if (perspective == Perspective::IS_SERVER) {
     return header.destination_connection_id;
   }
   return header.source_connection_id;
@@ -31,7 +31,6 @@ QuicConnectionId GetServerConnectionIdAsRecipient(
 QuicConnectionId GetClientConnectionIdAsRecipient(
     const QuicPacketHeader& header,
     Perspective perspective) {
-  DCHECK(GetQuicRestartFlag(quic_do_not_override_connection_id));
   if (perspective == Perspective::IS_CLIENT) {
     return header.destination_connection_id;
   }
@@ -40,40 +39,33 @@ QuicConnectionId GetClientConnectionIdAsRecipient(
 
 QuicConnectionId GetServerConnectionIdAsSender(const QuicPacketHeader& header,
                                                Perspective perspective) {
-  if (perspective == Perspective::IS_CLIENT ||
-      !GetQuicRestartFlag(quic_do_not_override_connection_id)) {
+  if (perspective == Perspective::IS_CLIENT) {
     return header.destination_connection_id;
   }
-  QUIC_RESTART_FLAG_COUNT_N(quic_do_not_override_connection_id, 3, 7);
   return header.source_connection_id;
 }
 
 QuicConnectionIdIncluded GetServerConnectionIdIncludedAsSender(
     const QuicPacketHeader& header,
     Perspective perspective) {
-  if (perspective == Perspective::IS_CLIENT ||
-      !GetQuicRestartFlag(quic_do_not_override_connection_id)) {
+  if (perspective == Perspective::IS_CLIENT) {
     return header.destination_connection_id_included;
   }
-  QUIC_RESTART_FLAG_COUNT_N(quic_do_not_override_connection_id, 4, 7);
   return header.source_connection_id_included;
 }
 
 QuicConnectionId GetClientConnectionIdAsSender(const QuicPacketHeader& header,
                                                Perspective perspective) {
-  if (perspective == Perspective::IS_CLIENT ||
-      !GetQuicRestartFlag(quic_do_not_override_connection_id)) {
+  if (perspective == Perspective::IS_CLIENT) {
     return header.source_connection_id;
   }
-  QUIC_RESTART_FLAG_COUNT_N(quic_do_not_override_connection_id, 7, 7);
   return header.destination_connection_id;
 }
 
 QuicConnectionIdIncluded GetClientConnectionIdIncludedAsSender(
     const QuicPacketHeader& header,
     Perspective perspective) {
-  if (perspective == Perspective::IS_CLIENT ||
-      !GetQuicRestartFlag(quic_do_not_override_connection_id)) {
+  if (perspective == Perspective::IS_CLIENT) {
     return header.source_connection_id_included;
   }
   return header.destination_connection_id_included;
@@ -127,20 +119,18 @@ size_t GetPacketHeaderSize(
       // Long header.
       size_t size = kPacketHeaderTypeSize + kConnectionIdLengthSize +
                     destination_connection_id_length +
-                    source_connection_id_length +
-                    (version > QUIC_VERSION_44 ? packet_number_length
-                                               : PACKET_4BYTE_PACKET_NUMBER) +
+                    source_connection_id_length + packet_number_length +
                     kQuicVersionSize;
       if (include_diversification_nonce) {
         size += kDiversificationNonceSize;
       }
+      if (VersionHasLengthPrefixedConnectionIds(version)) {
+        size += kConnectionIdLengthSize;
+      }
       DCHECK(QuicVersionHasLongHeaderLengths(version) ||
-             !GetQuicReloadableFlag(quic_fix_get_packet_header_size) ||
              retry_token_length_length + retry_token_length + length_length ==
                  0);
-      if (QuicVersionHasLongHeaderLengths(version) ||
-          !GetQuicReloadableFlag(quic_fix_get_packet_header_size)) {
-        QUIC_RELOADABLE_FLAG_COUNT_N(quic_fix_get_packet_header_size, 1, 3);
+      if (QuicVersionHasLongHeaderLengths(version)) {
         size += retry_token_length_length + retry_token_length + length_length;
       }
       return size;
@@ -152,8 +142,6 @@ size_t GetPacketHeaderSize(
   // Google QUIC versions <= 43 can only carry one connection ID.
   DCHECK(destination_connection_id_length == 0 ||
          source_connection_id_length == 0);
-  DCHECK(source_connection_id_length == 0 ||
-         GetQuicRestartFlag(quic_do_not_override_connection_id));
   return kPublicFlagsSize + destination_connection_id_length +
          source_connection_id_length +
          (include_version ? kQuicVersionSize : 0) + packet_number_length +
@@ -197,13 +185,16 @@ QuicPacketHeader::QuicPacketHeader()
       long_packet_type(INITIAL),
       possible_stateless_reset_token(0),
       retry_token_length_length(VARIABLE_LENGTH_INTEGER_LENGTH_0),
-      retry_token(QuicStringPiece()),
+      retry_token(quiche::QuicheStringPiece()),
       length_length(VARIABLE_LENGTH_INTEGER_LENGTH_0),
       remaining_packet_length(0) {}
 
 QuicPacketHeader::QuicPacketHeader(const QuicPacketHeader& other) = default;
 
 QuicPacketHeader::~QuicPacketHeader() {}
+
+QuicPacketHeader& QuicPacketHeader::operator=(const QuicPacketHeader& other) =
+    default;
 
 QuicPublicResetPacket::QuicPublicResetPacket()
     : connection_id(EmptyQuicConnectionId()), nonce_proof(0) {}
@@ -246,7 +237,8 @@ std::ostream& operator<<(std::ostream& os, const QuicPacketHeader& header) {
      << (header.source_connection_id_included == CONNECTION_ID_PRESENT
              ? "present"
              : "absent")
-     << "), packet_number_length: " << header.packet_number_length
+     << "), packet_number_length: "
+     << static_cast<int>(header.packet_number_length)
      << ", reset_flag: " << header.reset_flag
      << ", version_flag: " << header.version_flag;
   if (header.version_flag) {
@@ -271,8 +263,8 @@ std::ostream& operator<<(std::ostream& os, const QuicPacketHeader& header) {
   }
   if (header.nonce != nullptr) {
     os << ", diversification_nonce: "
-       << QuicTextUtils::HexEncode(
-              QuicStringPiece(header.nonce->data(), header.nonce->size()));
+       << quiche::QuicheTextUtils::HexEncode(quiche::QuicheStringPiece(
+              header.nonce->data(), header.nonce->size()));
   }
   os << ", packet_number: " << header.packet_number << " }\n";
   return os;
@@ -283,6 +275,11 @@ QuicData::QuicData(const char* buffer, size_t length)
 
 QuicData::QuicData(const char* buffer, size_t length, bool owns_buffer)
     : buffer_(buffer), length_(length), owns_buffer_(owns_buffer) {}
+
+QuicData::QuicData(quiche::QuicheStringPiece packet_data)
+    : buffer_(packet_data.data()),
+      length_(packet_data.length()),
+      owns_buffer_(false) {}
 
 QuicData::~QuicData() {
   if (owns_buffer_) {
@@ -338,10 +335,13 @@ QuicEncryptedPacket::QuicEncryptedPacket(const char* buffer,
                                          bool owns_buffer)
     : QuicData(buffer, length, owns_buffer) {}
 
+QuicEncryptedPacket::QuicEncryptedPacket(quiche::QuicheStringPiece data)
+    : QuicData(data) {}
+
 std::unique_ptr<QuicEncryptedPacket> QuicEncryptedPacket::Clone() const {
   char* buffer = new char[this->length()];
   memcpy(buffer, this->data(), this->length());
-  return QuicMakeUnique<QuicEncryptedPacket>(buffer, this->length(), true);
+  return std::make_unique<QuicEncryptedPacket>(buffer, this->length(), true);
 }
 
 std::ostream& operator<<(std::ostream& os, const QuicEncryptedPacket& s) {
@@ -412,12 +412,12 @@ std::unique_ptr<QuicReceivedPacket> QuicReceivedPacket::Clone() const {
   if (this->packet_headers()) {
     char* headers_buffer = new char[this->headers_length()];
     memcpy(headers_buffer, this->packet_headers(), this->headers_length());
-    return QuicMakeUnique<QuicReceivedPacket>(
+    return std::make_unique<QuicReceivedPacket>(
         buffer, this->length(), receipt_time(), true, ttl(), ttl() >= 0,
         headers_buffer, this->headers_length(), true);
   }
 
-  return QuicMakeUnique<QuicReceivedPacket>(
+  return std::make_unique<QuicReceivedPacket>(
       buffer, this->length(), receipt_time(), true, ttl(), ttl() >= 0);
 }
 
@@ -426,8 +426,9 @@ std::ostream& operator<<(std::ostream& os, const QuicReceivedPacket& s) {
   return os;
 }
 
-QuicStringPiece QuicPacket::AssociatedData(QuicTransportVersion version) const {
-  return QuicStringPiece(
+quiche::QuicheStringPiece QuicPacket::AssociatedData(
+    QuicTransportVersion version) const {
+  return quiche::QuicheStringPiece(
       data(),
       GetStartOfEncryptedData(version, destination_connection_id_length_,
                               source_connection_id_length_, includes_version_,
@@ -436,13 +437,14 @@ QuicStringPiece QuicPacket::AssociatedData(QuicTransportVersion version) const {
                               retry_token_length_, length_length_));
 }
 
-QuicStringPiece QuicPacket::Plaintext(QuicTransportVersion version) const {
+quiche::QuicheStringPiece QuicPacket::Plaintext(
+    QuicTransportVersion version) const {
   const size_t start_of_encrypted_data = GetStartOfEncryptedData(
       version, destination_connection_id_length_, source_connection_id_length_,
       includes_version_, includes_diversification_nonce_, packet_number_length_,
       retry_token_length_length_, retry_token_length_, length_length_);
-  return QuicStringPiece(data() + start_of_encrypted_data,
-                         length() - start_of_encrypted_data);
+  return quiche::QuicheStringPiece(data() + start_of_encrypted_data,
+                                   length() - start_of_encrypted_data);
 }
 
 SerializedPacket::SerializedPacket(QuicPacketNumber packet_number,
@@ -460,7 +462,8 @@ SerializedPacket::SerializedPacket(QuicPacketNumber packet_number,
       encryption_level(ENCRYPTION_INITIAL),
       has_ack(has_ack),
       has_stop_waiting(has_stop_waiting),
-      transmission_type(NOT_RETRANSMISSION) {}
+      transmission_type(NOT_RETRANSMISSION),
+      has_ack_frame_copy(false) {}
 
 SerializedPacket::SerializedPacket(const SerializedPacket& other) = default;
 
@@ -478,17 +481,46 @@ SerializedPacket::SerializedPacket(SerializedPacket&& other)
       has_ack(other.has_ack),
       has_stop_waiting(other.has_stop_waiting),
       transmission_type(other.transmission_type),
-      original_packet_number(other.original_packet_number),
-      largest_acked(other.largest_acked) {
+      largest_acked(other.largest_acked),
+      has_ack_frame_copy(other.has_ack_frame_copy) {
   retransmittable_frames.swap(other.retransmittable_frames);
+  nonretransmittable_frames.swap(other.nonretransmittable_frames);
 }
 
 SerializedPacket::~SerializedPacket() {}
+
+SerializedPacket* CopySerializedPacket(const SerializedPacket& serialized,
+                                       QuicBufferAllocator* allocator,
+                                       bool copy_buffer) {
+  SerializedPacket* copy = new SerializedPacket(serialized);
+  if (copy_buffer) {
+    copy->encrypted_buffer = CopyBuffer(serialized);
+  }
+  // Copy underlying frames.
+  copy->retransmittable_frames =
+      CopyQuicFrames(allocator, serialized.retransmittable_frames);
+  copy->nonretransmittable_frames.clear();
+  for (const auto& frame : serialized.nonretransmittable_frames) {
+    if (frame.type == ACK_FRAME) {
+      copy->has_ack_frame_copy = true;
+    }
+    copy->nonretransmittable_frames.push_back(CopyQuicFrame(allocator, frame));
+  }
+  return copy;
+}
 
 void ClearSerializedPacket(SerializedPacket* serialized_packet) {
   if (!serialized_packet->retransmittable_frames.empty()) {
     DeleteFrames(&serialized_packet->retransmittable_frames);
   }
+  for (auto& frame : serialized_packet->nonretransmittable_frames) {
+    if (!serialized_packet->has_ack_frame_copy && frame.type == ACK_FRAME) {
+      // Do not delete ack frame if the packet does not own a copy of it.
+      continue;
+    }
+    DeleteFrame(&frame);
+  }
+  serialized_packet->nonretransmittable_frames.clear();
   serialized_packet->encrypted_buffer = nullptr;
   serialized_packet->encrypted_length = 0;
   serialized_packet->largest_acked.Clear();
@@ -500,6 +532,13 @@ char* CopyBuffer(const SerializedPacket& packet) {
   return dst_buffer;
 }
 
+char* CopyBuffer(const char* encrypted_buffer,
+                 QuicPacketLength encrypted_length) {
+  char* dst_buffer = new char[encrypted_length];
+  memcpy(dst_buffer, encrypted_buffer, encrypted_length);
+  return dst_buffer;
+}
+
 ReceivedPacketInfo::ReceivedPacketInfo(const QuicSocketAddress& self_address,
                                        const QuicSocketAddress& peer_address,
                                        const QuicReceivedPacket& packet)
@@ -507,7 +546,9 @@ ReceivedPacketInfo::ReceivedPacketInfo(const QuicSocketAddress& self_address,
       peer_address(peer_address),
       packet(packet),
       form(GOOGLE_QUIC_PACKET),
+      long_packet_type(INVALID_PACKET_TYPE),
       version_flag(false),
+      use_length_prefix(false),
       version_label(0),
       version(PROTOCOL_UNSUPPORTED, QUIC_VERSION_UNSUPPORTED),
       destination_connection_id(EmptyQuicConnectionId()),
@@ -516,11 +557,11 @@ ReceivedPacketInfo::ReceivedPacketInfo(const QuicSocketAddress& self_address,
 ReceivedPacketInfo::~ReceivedPacketInfo() {}
 
 std::string ReceivedPacketInfo::ToString() const {
-  std::string output =
-      QuicStrCat("{ self_address: ", self_address.ToString(),
-                 ", peer_address: ", peer_address.ToString(),
-                 ", packet_length: ", packet.length(),
-                 ", header_format: ", form, ", version_flag: ", version_flag);
+  std::string output = quiche::QuicheStrCat(
+      "{ self_address: ", self_address.ToString(),
+      ", peer_address: ", peer_address.ToString(),
+      ", packet_length: ", packet.length(), ", header_format: ", form,
+      ", version_flag: ", version_flag);
   if (version_flag) {
     QuicStrAppend(&output, ", version: ", ParsedQuicVersionToString(version));
   }

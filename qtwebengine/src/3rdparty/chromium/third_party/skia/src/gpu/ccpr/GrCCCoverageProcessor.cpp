@@ -7,9 +7,9 @@
 
 #include "src/gpu/ccpr/GrCCCoverageProcessor.h"
 
-#include "src/core/SkMakeUnique.h"
-#include "src/gpu/GrGpuCommandBuffer.h"
 #include "src/gpu/GrOpFlushState.h"
+#include "src/gpu/GrOpsRenderPass.h"
+#include "src/gpu/GrProgramInfo.h"
 #include "src/gpu/ccpr/GrCCConicShader.h"
 #include "src/gpu/ccpr/GrCCCubicShader.h"
 #include "src/gpu/ccpr/GrCCQuadraticShader.h"
@@ -180,26 +180,27 @@ GrGLSLPrimitiveProcessor* GrCCCoverageProcessor::createGLSLInstance(const GrShad
     switch (fPrimitiveType) {
         case PrimitiveType::kTriangles:
         case PrimitiveType::kWeightedTriangles:
-            shader = skstd::make_unique<TriangleShader>();
+            shader = std::make_unique<TriangleShader>();
             break;
         case PrimitiveType::kQuadratics:
-            shader = skstd::make_unique<GrCCQuadraticShader>();
+            shader = std::make_unique<GrCCQuadraticShader>();
             break;
         case PrimitiveType::kCubics:
-            shader = skstd::make_unique<GrCCCubicShader>();
+            shader = std::make_unique<GrCCCubicShader>();
             break;
         case PrimitiveType::kConics:
-            shader = skstd::make_unique<GrCCConicShader>();
+            shader = std::make_unique<GrCCConicShader>();
             break;
     }
     return this->onCreateGLSLInstance(std::move(shader));
 }
 
-void GrCCCoverageProcessor::draw(
-        GrOpFlushState* flushState, const GrPipeline& pipeline, const SkIRect scissorRects[],
-        const GrMesh meshes[], int meshCount, const SkRect& drawBounds) const {
-    GrPipeline::DynamicStateArrays dynamicStateArrays;
-    dynamicStateArrays.fScissorRects = scissorRects;
-    GrGpuRTCommandBuffer* cmdBuff = flushState->rtCommandBuffer();
-    cmdBuff->draw(*this, pipeline, nullptr, &dynamicStateArrays, meshes, meshCount, drawBounds);
+void GrCCCoverageProcessor::bindPipeline(GrOpFlushState* flushState, const GrPipeline& pipeline,
+                                         const SkRect& drawBounds) const {
+    GrProgramInfo programInfo(flushState->proxy()->numSamples(),
+                              flushState->proxy()->numStencilSamples(),
+                              flushState->proxy()->backendFormat(),
+                              flushState->outputView()->origin(), &pipeline, this,
+                              this->primType());
+    flushState->bindPipeline(programInfo, drawBounds);
 }

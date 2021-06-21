@@ -328,7 +328,7 @@ void tst_QLockFile::staleShortLockFromBusyProcess()
     QString hostname, appname;
     QTRY_VERIFY(secondLock.getLockInfo(&pid, &hostname, &appname));
 #ifdef Q_OS_UNIX
-    QCOMPARE(pid, proc.pid());
+    QCOMPARE(pid, proc.processId());
 #endif
 
     secondLock.setStaleLockTime(100);
@@ -444,7 +444,7 @@ void tst_QLockFile::noPermissions()
 
     const QString fileName = dir.path() + "/staleLock";
     QFile dirAsFile(dir.path()); // I have to use QFile to change a dir's permissions...
-    QVERIFY2(dirAsFile.setPermissions(QFile::Permissions(0)), qPrintable(dir.path())); // no permissions
+    QVERIFY2(dirAsFile.setPermissions(QFile::Permissions{}), qPrintable(dir.path())); // no permissions
     PermissionRestorer permissionRestorer(dir.path());
 
     QLockFile lockFile(fileName);

@@ -7,6 +7,7 @@
 
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -107,7 +108,7 @@ class AutofillManager : public AutofillHandler,
   virtual bool ShouldShowCreditCardSigninPromo(const FormData& form,
                                                const FormFieldData& field);
 
-  // Handlers for the "Set Cards From Account" row. This row should be shown to
+  // Handlers for the "Show Cards From Account" row. This row should be shown to
   // users who have cards in their account and can use Sync Transport. Clicking
   // the row records the user's consent to see these cards on this device, and
   // refreshes the popup.
@@ -117,6 +118,20 @@ class AutofillManager : public AutofillHandler,
   virtual void RefetchCardsAndUpdatePopup(int query_id,
                                           const FormData& form,
                                           const FormFieldData& field_data);
+
+#if !defined(OS_ANDROID) && !defined(OS_IOS)
+  // Returns the list of credit cards that have associated cloud token data.
+  virtual void FetchVirtualCardCandidates();
+
+  // Callback invoked when an actual card is selected. |selected_card_id| will
+  // be used to identify the card. The selected card's cloud token data will be
+  // fetched from the server.
+  // TODO(crbug.com/1020740): Passes card server id for now. In the future when
+  // one actual credit card can have multiple virtual cards, passes instrument
+  // token instead. Design TBD.
+  virtual void OnVirtualCardCandidateSelected(
+      const std::string& selected_card_id);
+#endif
 
   // Called from our external delegate so they cannot be private.
   virtual void FillOrPreviewForm(AutofillDriver::RendererFormDataAction action,
@@ -156,6 +171,11 @@ class AutofillManager : public AutofillHandler,
   // Invoked when the user selected |value| in the Autocomplete drop-down.
   void OnAutocompleteEntrySelected(const base::string16& value);
 
+  // Invoked when the user selects the "Hide Suggestions" item in the
+  // Autocomplete drop-down.
+  virtual void OnUserHideSuggestions(const FormData& form,
+                                     const FormFieldData& field);
+
   // Returns true only if the previewed form should be cleared.
   bool ShouldClearPreviewedForm();
 
@@ -163,6 +183,10 @@ class AutofillManager : public AutofillHandler,
 
   AutofillDownloadManager* download_manager() {
     return download_manager_.get();
+  }
+
+  CreditCardAccessManager* credit_card_access_manager() {
+    return credit_card_access_manager_.get();
   }
 
   payments::FullCardRequest* GetOrCreateFullCardRequest();
@@ -215,16 +239,16 @@ class AutofillManager : public AutofillHandler,
       bool autoselect_first_suggestion,
       const std::vector<Suggestion>& suggestions) override;
 
-  // Returns the value of AutofillEnabled pref.
+  // Returns true if either Profile or CreditCard Autofill is enabled.
   virtual bool IsAutofillEnabled() const;
 
   // Returns true if the value of the AutofillProfileEnabled pref is true and
   // the client supports Autofill.
-  virtual bool IsProfileAutofillEnabled() const;
+  virtual bool IsAutofillProfileEnabled() const;
 
   // Returns true if the value of the AutofillCreditCardEnabled pref is true and
   // the client supports Autofill.
-  virtual bool IsCreditCardAutofillEnabled() const;
+  virtual bool IsAutofillCreditCardEnabled() const;
 
   // Shared code to determine if |form| should be uploaded to the Autofill
   // server. It verifies that uploading is allowed and |form| meets conditions
@@ -235,15 +259,65 @@ class AutofillManager : public AutofillHandler,
   // neither on the STABLE nor BETA release channel.
   static bool IsRichQueryEnabled(version_info::Channel channel);
 
+  // Returns the last form the autofill manager considered in this frame.
+  virtual const FormData& last_query_form() const;
+
+#if defined(UNIT_TEST)
+  // A public wrapper that calls |DeterminePossibleFieldTypesForUpload| for
+  // testing purposes only.
+  static void DeterminePossibleFieldTypesForUploadForTest(
+      const std::vector<AutofillProfile>& profiles,
+      const std::vector<CreditCard>& credit_cards,
+      const base::string16& last_unlocked_credit_card_cvc,
+      const std::string& app_locale,
+      FormStructure* submitted_form) {
+    DeterminePossibleFieldTypesForUpload(profiles, credit_cards,
+                                         last_unlocked_credit_card_cvc,
+                                         app_locale, submitted_form);
+  }
+
+  // A public wrapper that calls |OnLoadedServerPredictions| for testing
+  // purposes only.
+  void OnLoadedServerPredictionsForTest(
+      std::string response,
+      const std::vector<std::string>& form_signatures) {
+    OnLoadedServerPredictions(response, form_signatures);
+  }
+
+  // A public wrapper that calls |MakeFrontendID| for testing purposes only.
+  int MakeFrontendIDForTest(const std::string& cc_backend_id,
+                            const std::string& profile_backend_id) const {
+    return MakeFrontendID(cc_backend_id, profile_backend_id);
+  }
+
+  // A public wrapper that calls |form_interactions_ukm_logger| for testing
+  // purposes only.
+  AutofillMetrics::FormInteractionsUkmLogger*
+  form_interactions_ukm_logger_for_test() {
+    return form_interactions_ukm_logger();
+  }
+
+  // A public wrapper that calls |ShouldTriggerRefill| for testing purposes
+  // only.
+  bool ShouldTriggerRefillForTest(const FormStructure& form_structure) {
+    return ShouldTriggerRefill(form_structure);
+  }
+
+  // A public wrapper that calls |TriggerRefill| for testing purposes only.
+  void TriggerRefillForTest(const FormData& form) { TriggerRefill(form); }
+#endif
+
  protected:
   // Test code should prefer to use this constructor.
-  AutofillManager(AutofillDriver* driver,
-                  AutofillClient* client,
-                  PersonalDataManager* personal_data,
-                  AutocompleteHistoryManager* autocomplete_history_manager,
-                  const std::string app_locale = "en-US",
-                  AutofillDownloadManagerState enable_download_manager =
-                      DISABLE_AUTOFILL_DOWNLOAD_MANAGER);
+  AutofillManager(
+      AutofillDriver* driver,
+      AutofillClient* client,
+      PersonalDataManager* personal_data,
+      AutocompleteHistoryManager* autocomplete_history_manager,
+      const std::string app_locale = "en-US",
+      AutofillDownloadManagerState enable_download_manager =
+          DISABLE_AUTOFILL_DOWNLOAD_MANAGER,
+      std::unique_ptr<CreditCardAccessManager> cc_access_manager = nullptr);
 
   // Uploads the form data to the Autofill server. |observed_submission|
   // indicates that upload is the result of a submission event.
@@ -300,9 +374,6 @@ class AutofillManager : public AutofillHandler,
   AutofillMetrics::FormInteractionsUkmLogger* form_interactions_ukm_logger() {
     return form_interactions_ukm_logger_.get();
   }
-
-  // Exposed for testing.
-  AutofillExternalDelegate* external_delegate() { return external_delegate_; }
 
   // Exposed for testing.
   void set_download_manager(AutofillDownloadManager* manager) {
@@ -464,6 +535,7 @@ class AutofillManager : public AutofillHandler,
   static void DeterminePossibleFieldTypesForUpload(
       const std::vector<AutofillProfile>& profiles,
       const std::vector<CreditCard>& credit_cards,
+      const base::string16& last_unlocked_credit_card_cvc,
       const std::string& app_locale,
       FormStructure* submitted_form);
 
@@ -512,6 +584,11 @@ class AutofillManager : public AutofillHandler,
                                const FormFieldData& field,
                                std::vector<Suggestion>* suggestions,
                                SuggestionsContext* context);
+
+#if !defined(OS_ANDROID) && !defined(OS_IOS)
+  // Whether to show the option to use virtual card in the autofill popup.
+  bool ShouldShowVirtualCardOption(FormStructure* form_structure);
+#endif
 
   // Returns an appropriate EventFormLogger for the given |field_type_group|.
   // May return nullptr.
@@ -582,6 +659,7 @@ class AutofillManager : public AutofillHandler,
   FormData credit_card_form_;
   FormFieldData credit_card_field_;
   CreditCard credit_card_;
+  base::string16 last_unlocked_credit_card_cvc_;
 
   // Ablation experiment turns off autofill, but logging still has to be kept
   // for metrics analysis.
@@ -623,98 +701,7 @@ class AutofillManager : public AutofillHandler,
   friend class AutofillMetricsTest;
   friend class FormStructureBrowserTest;
   friend class GetMatchingTypesTest;
-  FRIEND_TEST_ALL_PREFIXES(ProfileMatchingTypesTest,
-                           DeterminePossibleFieldTypesForUpload);
-  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest,
-                           DeterminePossibleFieldTypesForUpload);
-  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest,
-                           DeterminePossibleFieldTypesForUploadStressTest);
-  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest, DisambiguateUploadTypes);
-  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest, CrowdsourceUPIVPA);
-  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest,
-                           DisabledAutofillDispatchesError);
-  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest,
-                           DetermineHeuristicsWithOverallPrediction);
-  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest,
-                           DeterminePossibleFieldTypesWithMultipleValidities);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest, AddressFilledFormEvents);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest, AddressSubmittedFormEvents);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest, AddressWillSubmitFormEvents);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest, AddressSuggestionsCount);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest, AutofillFormSubmittedState);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest, AutofillIsEnabledAtPageLoad);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsIFrameTest,
-                           CreditCardSelectedFormEvents);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsIFrameTest,
-                           CreditCardFilledFormEvents);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest, CreditCardGetRealPanDuration);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsIFrameTest,
-                           CreditCardWillSubmitFormEvents);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsIFrameTest,
-                           CreditCardSubmittedFormEvents);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest,
-                           CreditCardCheckoutFlowUserActions);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest,
-                           LogHiddenRepresentationalFieldSkipDecision);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest,
-                           LogRepeatedAddressTypeRationalized);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest,
-                           LogRepeatedStateCountryTypeRationalized);
-
-  FRIEND_TEST_ALL_PREFIXES(
-      AutofillMetricsTest,
-      CreditCardSubmittedWithoutSelectingSuggestionsNoCard);
-  FRIEND_TEST_ALL_PREFIXES(
-      AutofillMetricsTest,
-      CreditCardSubmittedWithoutSelectingSuggestionsUnknownCard);
-  FRIEND_TEST_ALL_PREFIXES(
-      AutofillMetricsTest,
-      CreditCardSubmittedWithoutSelectingSuggestionsKnownCard);
-  FRIEND_TEST_ALL_PREFIXES(
-      AutofillMetricsIFrameTest,
-      ShouldNotLogSubmitWithoutSelectingSuggestionsIfSuggestionFilled);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest, ProfileCheckoutFlowUserActions);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest, DeveloperEngagement);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest, FormFillDuration);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest,
-                           NoQualityMetricsForNonAutofillableForms);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest, QualityMetrics);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest,
-                           QualityMetrics_BasedOnAutocomplete);
-  FRIEND_TEST_ALL_PREFIXES(
-      AutofillMetricsTest,
-      QualityMetrics_LoggedCorrecltyForOnlyFillWhenFocusedField);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest,
-                           QualityMetrics_LoggedCorrecltyForRationalizationOk);
-  FRIEND_TEST_ALL_PREFIXES(
-      AutofillMetricsTest,
-      QualityMetrics_LoggedCorrecltyForRationalizationGood);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest,
-                           QualityMetrics_LoggedCorrecltyForRationalizationBad);
-
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest, SaneMetricsWithCacheMismatch);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest, DynamicFormMetrics);
-  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest, TestExternalDelegate);
-  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest,
-                           TestTabContentsWithExternalDelegate);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest,
-                           UserHappinessFormLoadAndSubmission);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest,
-                           UserHappinessFormInteraction_AddressForm);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest,
-                           UserHappinessFormInteraction_CreditCardForm);
-  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest, OnLoadedServerPredictions);
-  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest,
-                           OnLoadedServerPredictionsFromApi);
-  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest,
-                           OnLoadedServerPredictions_ResetManager);
-  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest, DontOfferToSavePaymentsCard);
-  FRIEND_TEST_ALL_PREFIXES(AutofillManagerTest, FillInUpdatedExpirationDate);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsFunnelTest, LogFunnelMetrics);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsKeyMetricsTest,
-                           LogUserFixesFilledData);
-  FRIEND_TEST_ALL_PREFIXES(AutofillMetricsKeyMetricsTest,
-                           LogUserFixesFilledDataButDoesNotSubmit);
+  friend class CreditCardAccessoryControllerTest;
   DISALLOW_COPY_AND_ASSIGN(AutofillManager);
 };
 

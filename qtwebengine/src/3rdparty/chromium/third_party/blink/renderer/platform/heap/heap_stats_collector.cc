@@ -14,11 +14,13 @@ namespace blink {
 void ThreadHeapStatsCollector::IncreaseCompactionFreedSize(size_t bytes) {
   DCHECK(is_started_);
   current_.compaction_freed_bytes += bytes;
+  current_.compaction_recorded_events = true;
 }
 
 void ThreadHeapStatsCollector::IncreaseCompactionFreedPages(size_t pages) {
   DCHECK(is_started_);
   current_.compaction_freed_pages += pages;
+  current_.compaction_recorded_events = true;
 }
 
 void ThreadHeapStatsCollector::IncreaseAllocatedObjectSize(size_t bytes) {
@@ -100,11 +102,14 @@ void ThreadHeapStatsCollector::IncreaseCollectedWrapperCount(size_t count) {
   collected_wrapper_count_ += count;
 }
 
-void ThreadHeapStatsCollector::NotifyMarkingStarted(BlinkGC::GCReason reason) {
+void ThreadHeapStatsCollector::NotifyMarkingStarted(
+    BlinkGC::CollectionType collection_type,
+    BlinkGC::GCReason reason) {
   DCHECK(!is_started_);
   DCHECK(current_.marking_time().is_zero());
   is_started_ = true;
   current_.reason = reason;
+  current_.collection_type = collection_type;
 }
 
 void ThreadHeapStatsCollector::NotifyMarkingCompleted(size_t marked_bytes) {
@@ -134,7 +139,7 @@ void ThreadHeapStatsCollector::NotifySweepingCompleted() {
           ? static_cast<double>(current().marked_bytes) /
                 current_.object_size_in_bytes_before_sweeping
           : 0.0;
-  current_.gc_nested_in_v8_ = gc_nested_in_v8_;
+  current_.gc_nested_in_v8 = gc_nested_in_v8_;
   gc_nested_in_v8_ = base::TimeDelta();
   // Reset the current state.
   static_assert(std::is_trivially_copyable<Event>::value,
@@ -170,6 +175,10 @@ base::TimeDelta ThreadHeapStatsCollector::estimated_marking_time() const {
   return base::TimeDelta::FromSecondsD(estimated_marking_time_in_seconds());
 }
 
+base::TimeDelta ThreadHeapStatsCollector::Event::roots_marking_time() const {
+  return scope_data[kVisitRoots];
+}
+
 base::TimeDelta ThreadHeapStatsCollector::Event::incremental_marking_time()
     const {
   return scope_data[kIncrementalMarkingStartMarking] +
@@ -188,8 +197,19 @@ base::TimeDelta ThreadHeapStatsCollector::Event::atomic_sweep_and_compact_time()
   return scope_data[ThreadHeapStatsCollector::kAtomicPauseSweepAndCompact];
 }
 
-base::TimeDelta ThreadHeapStatsCollector::Event::marking_time() const {
+base::TimeDelta ThreadHeapStatsCollector::Event::foreground_marking_time()
+    const {
   return incremental_marking_time() + atomic_marking_time();
+}
+
+base::TimeDelta ThreadHeapStatsCollector::Event::background_marking_time()
+    const {
+  return base::TimeDelta::FromMicroseconds(base::subtle::NoBarrier_Load(
+      &concurrent_scope_data[kConcurrentMarkingStep]));
+}
+
+base::TimeDelta ThreadHeapStatsCollector::Event::marking_time() const {
+  return foreground_marking_time() + background_marking_time();
 }
 
 double ThreadHeapStatsCollector::Event::marking_time_in_bytes_per_second()
@@ -218,7 +238,7 @@ base::TimeDelta ThreadHeapStatsCollector::Event::foreground_sweeping_time()
 base::TimeDelta ThreadHeapStatsCollector::Event::background_sweeping_time()
     const {
   return base::TimeDelta::FromMicroseconds(
-      concurrent_scope_data[kConcurrentSweep]);
+      concurrent_scope_data[kConcurrentSweepingStep]);
 }
 
 base::TimeDelta ThreadHeapStatsCollector::Event::sweeping_time() const {

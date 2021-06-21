@@ -3,7 +3,10 @@
 // found in the LICENSE file.
 
 #include "net/third_party/quiche/src/quic/quartc/simulated_packet_transport.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_str_cat.h"
+
+#include <utility>
+
+#include "net/third_party/quiche/src/common/platform/api/quiche_str_cat.h"
 
 namespace quic {
 namespace simulator {
@@ -16,7 +19,7 @@ SimulatedQuartcPacketTransport::SimulatedQuartcPacketTransport(
     : Endpoint(simulator, name),
       peer_name_(peer_name),
       egress_queue_(simulator,
-                    QuicStringPrintf("%s (TX Queue)", name.c_str()),
+                    quiche::QuicheStringPrintf("%s (TX Queue)", name.c_str()),
                     queue_capacity) {
   egress_queue_.set_listener_interface(this);
 }
@@ -33,7 +36,7 @@ int SimulatedQuartcPacketTransport::Write(const char* buffer,
 
   last_packet_number_ = info.packet_number;
 
-  auto packet = QuicMakeUnique<Packet>();
+  auto packet = std::make_unique<Packet>();
   packet->contents = std::string(buffer, buf_len);
   packet->size = buf_len;
   packet->tx_timestamp = clock_->Now();

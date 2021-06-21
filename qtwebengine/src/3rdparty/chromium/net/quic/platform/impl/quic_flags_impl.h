@@ -15,8 +15,8 @@
 #include "base/export_template.h"
 #include "base/no_destructor.h"
 #include "base/optional.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_string_piece.h"
 
 #define QUIC_FLAG(type, flag, value) QUIC_EXPORT_PRIVATE extern type flag;
 #include "net/quic/quic_flags_list.h"
@@ -47,6 +47,12 @@ inline std::string GetQuicFlagImpl(const std::string& flag) {
 }
 
 #define SetQuicFlagImpl(flag, value) ((flag) = (value))
+
+// Sets the flag named |flag_name| to the value of |value| after converting
+// it from a string to the appropriate type. If |value| is invalid or out of
+// range, the flag will be unchanged.
+QUIC_EXPORT_PRIVATE void SetQuicFlagByName(const std::string& flag_name,
+                                           const std::string& value);
 
 namespace quic {
 

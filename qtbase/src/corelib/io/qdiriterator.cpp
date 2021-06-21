@@ -181,7 +181,7 @@ QDirIteratorPrivate::QDirIteratorPrivate(const QFileSystemEntry &entry, const QS
 #elif QT_CONFIG(regularexpression)
     nameRegExps.reserve(nameFilters.size());
     for (const auto &filter : nameFilters) {
-        QString re = QRegularExpression::anchoredPattern(QRegularExpression::wildcardToRegularExpression(filter));
+        QString re = QRegularExpression::wildcardToRegularExpression(filter);
         nameRegExps.append(
             QRegularExpression(re, (filters & QDir::CaseSensitive) ? QRegularExpression::NoPatternOption : QRegularExpression::CaseInsensitiveOption));
     }
@@ -483,10 +483,15 @@ QDirIterator::QDirIterator(const QString &path, IteratorFlags flags)
     By default, \a flags is NoIteratorFlags, which provides the same behavior
     as QDir::entryList().
 
+    For example, the following iterator could be used to iterate over audio
+    files:
+
+    \snippet code/src_corelib_io_qdiriterator.cpp 2
+
     \note To list symlinks that point to non existing files, QDir::System must be
      passed to the flags.
 
-    \sa hasNext(), next(), IteratorFlags
+    \sa hasNext(), next(), IteratorFlags, QDir::setNameFilters()
 */
 QDirIterator::QDirIterator(const QString &path, const QStringList &nameFilters,
                            QDir::Filters filters, IteratorFlags flags)

@@ -6,85 +6,58 @@
 
 #include <fuchsia/sys/cpp/fidl.h>
 #include <lib/fidl/cpp/binding_set.h>
+#include <lib/sys/cpp/component_context.h>
 #include <utility>
 
 #include "base/bind.h"
 #include "base/files/file.h"
 #include "base/files/file_util.h"
+#include "base/fuchsia/default_context.h"
 #include "base/fuchsia/file_utils.h"
 #include "base/fuchsia/fuchsia_logging.h"
 #include "base/fuchsia/scoped_service_binding.h"
-#include "base/fuchsia/service_directory.h"
-#include "base/fuchsia/service_directory_client.h"
 #include "base/fuchsia/startup_context.h"
 #include "base/logging.h"
 #include "fuchsia/runners/buildflags.h"
 #include "fuchsia/runners/common/web_component.h"
 #include "url/gurl.h"
 
-namespace {
-
-fidl::InterfaceHandle<fuchsia::io::Directory> OpenDirectoryOrFail(
-    const base::FilePath& path) {
-  auto directory = base::fuchsia::OpenDirectory(path);
-  CHECK(directory) << "Failed to open " << path;
-  return directory;
+WebContentRunner::WebContentRunner(
+    fuchsia::web::CreateContextParams create_params,
+    sys::OutgoingDirectory* outgoing_directory)
+    : create_params_(std::move(create_params)),
+      is_headless_((create_params_.features() &
+                    fuchsia::web::ContextFeatureFlags::HEADLESS) ==
+                   fuchsia::web::ContextFeatureFlags::HEADLESS) {
+  service_binding_.emplace(outgoing_directory, this);
 }
 
-fuchsia::web::ContextPtr CreateWebContextWithDataDirectory(
-    fidl::InterfaceHandle<fuchsia::io::Directory> data_directory) {
-  auto web_context_provider =
-      base::fuchsia::ServiceDirectoryClient::ForCurrentProcess()
-          ->ConnectToService<fuchsia::web::ContextProvider>();
+WebContentRunner::WebContentRunner(fuchsia::web::ContextPtr context,
+                                   bool is_headless)
+    : context_(std::move(context)), is_headless_(is_headless) {}
 
-  fuchsia::web::CreateContextParams create_params;
+WebContentRunner::~WebContentRunner() = default;
 
-  // Pass /svc and /data to the context.
-  create_params.set_service_directory(OpenDirectoryOrFail(
-      base::FilePath(base::fuchsia::kServiceDirectoryPath)));
-  if (data_directory)
-    create_params.set_data_directory(std::move(data_directory));
-
-  // Set |remote_debugging_port| on the context, if set.
-  if (BUILDFLAG(ENABLE_REMOTE_DEBUGGING_ON_PORT) != 0) {
-    create_params.set_remote_debugging_port(
-        BUILDFLAG(ENABLE_REMOTE_DEBUGGING_ON_PORT));
-  }
-
+fuchsia::web::ContextPtr WebContentRunner::CreateWebContext(
+    fuchsia::web::CreateContextParams create_params) {
   fuchsia::web::ContextPtr web_context;
-  web_context_provider->Create(std::move(create_params),
+  GetContextProvider()->Create(std::move(create_params),
                                web_context.NewRequest());
   web_context.set_error_handler([](zx_status_t status) {
-    // If the browser instance died, then exit everything and do not attempt
-    // to recover. appmgr will relaunch the runner when it is needed again.
+    // If the browser instance died, then exit everything and do not attempt to
+    // recover. appmgr will relaunch the runner when it is needed again.
     ZX_LOG(ERROR, status) << "Connection to Context lost.";
-    exit(1);
   });
+
   return web_context;
 }
 
-}  // namespace
+fuchsia::web::Context* WebContentRunner::GetContext() {
+  if (!context_)
+    context_ = CreateWebContext(std::move(create_params_));
 
-// static
-fuchsia::web::ContextPtr WebContentRunner::CreateDefaultWebContext() {
-  return CreateWebContextWithDataDirectory(OpenDirectoryOrFail(
-      base::FilePath(base::fuchsia::kPersistedDataDirectoryPath)));
+  return context_.get();
 }
-
-// static
-fuchsia::web::ContextPtr WebContentRunner::CreateIncognitoWebContext() {
-  return CreateWebContextWithDataDirectory(
-      fidl::InterfaceHandle<fuchsia::io::Directory>());
-}
-
-WebContentRunner::WebContentRunner(
-    base::fuchsia::ServiceDirectory* service_directory,
-    fuchsia::web::ContextPtr context)
-    : context_(std::move(context)), service_binding_(service_directory, this) {
-  DCHECK(context_);
-}
-
-WebContentRunner::~WebContentRunner() = default;
 
 void WebContentRunner::StartComponent(
     fuchsia::sys::Package package,
@@ -101,17 +74,18 @@ void WebContentRunner::StartComponent(
       this,
       std::make_unique<base::fuchsia::StartupContext>(std::move(startup_info)),
       std::move(controller_request));
+#if BUILDFLAG(WEB_RUNNER_REMOTE_DEBUGGING_PORT) != 0
+  component->EnableRemoteDebugging();
+#endif
+  component->StartComponent();
   component->LoadUrl(url, std::vector<fuchsia::net::http::Header>());
   RegisterComponent(std::move(component));
 }
 
-void WebContentRunner::GetWebComponentForTest(
-    base::OnceCallback<void(WebComponent*)> callback) {
-  if (!components_.empty()) {
-    std::move(callback).Run(components_.begin()->get());
-    return;
-  }
-  web_component_test_callback_ = std::move(callback);
+void WebContentRunner::SetWebComponentCreatedCallbackForTest(
+    base::RepeatingCallback<void(WebComponent*)> callback) {
+  DCHECK(components_.empty());
+  web_component_created_callback_for_test_ = std::move(callback);
 }
 
 void WebContentRunner::DestroyComponent(WebComponent* component) {
@@ -120,8 +94,23 @@ void WebContentRunner::DestroyComponent(WebComponent* component) {
 
 void WebContentRunner::RegisterComponent(
     std::unique_ptr<WebComponent> component) {
-  if (web_component_test_callback_) {
-    std::move(web_component_test_callback_).Run(component.get());
-  }
+  if (web_component_created_callback_for_test_)
+    web_component_created_callback_for_test_.Run(component.get());
+
   components_.insert(std::move(component));
+}
+
+void WebContentRunner::SetContextProviderForTest(
+    fuchsia::web::ContextProviderPtr context_provider) {
+  DCHECK(context_provider);
+  context_provider_ = std::move(context_provider);
+}
+
+fuchsia::web::ContextProvider* WebContentRunner::GetContextProvider() {
+  if (!context_provider_) {
+    context_provider_ = base::fuchsia::ComponentContextForCurrentProcess()
+                            ->svc()
+                            ->Connect<fuchsia::web::ContextProvider>();
+  }
+  return context_provider_.get();
 }

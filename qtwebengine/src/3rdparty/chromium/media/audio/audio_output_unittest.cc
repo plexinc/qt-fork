@@ -6,32 +6,47 @@
 
 #include <memory>
 
+#include "base/command_line.h"
 #include "base/memory/aligned_memory.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/test/bind_test_util.h"
+#include "base/test/scoped_feature_list.h"
+#include "base/test/task_environment.h"
 #include "base/test/test_timeouts.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "media/audio/audio_device_info_accessor_for_tests.h"
+#include "media/audio/audio_features.h"
 #include "media/audio/audio_io.h"
 #include "media/audio/audio_manager.h"
 #include "media/audio/audio_unittest_util.h"
 #include "media/audio/simple_sources.h"
 #include "media/audio/test_audio_thread.h"
 #include "media/base/limits.h"
+#include "media/base/media_switches.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace media {
 
-class AudioOutputTest : public ::testing::Test {
+class AudioOutputTest : public testing::TestWithParam<bool> {
  public:
   AudioOutputTest() {
     audio_manager_ =
         AudioManager::CreateForTesting(std::make_unique<TestAudioThread>());
     audio_manager_device_info_ =
         std::make_unique<AudioDeviceInfoAccessorForTests>(audio_manager_.get());
+#if defined(OS_ANDROID)
+    // The only parameter is used to enable/disable AAudio.
+    if (GetParam())
+      features_.InitAndEnableFeature(features::kUseAAudioDriver);
+#endif
+#if defined(OS_LINUX)
+    // Due to problems with PulseAudio failing to start, use a fake audio
+    // stream. https://crbug.com/1047655#c70
+    base::CommandLine::ForCurrentProcess()->AppendSwitch(
+        switches::kDisableAudioOutput);
+#endif
     base::RunLoop().RunUntilIdle();
   }
   ~AudioOutputTest() override {
@@ -56,22 +71,26 @@ class AudioOutputTest : public ::testing::Test {
   }
 
  protected:
-  base::MessageLoopForIO message_loop_;
+  base::test::SingleThreadTaskEnvironment task_environment_{
+      base::test::SingleThreadTaskEnvironment::MainThreadType::IO};
   std::unique_ptr<AudioManager> audio_manager_;
   std::unique_ptr<AudioDeviceInfoAccessorForTests> audio_manager_device_info_;
   AudioParameters stream_params_;
   AudioOutputStream* stream_ = nullptr;
+#if defined(OS_ANDROID)
+  base::test::ScopedFeatureList features_;
+#endif
 };
 
 // Test that can it be created and closed.
-TEST_F(AudioOutputTest, GetAndClose) {
+TEST_P(AudioOutputTest, GetAndClose) {
   ABORT_AUDIO_TEST_IF_NOT(audio_manager_device_info_->HasAudioOutputDevices());
   CreateWithDefaultParameters();
   ASSERT_TRUE(stream_);
 }
 
 // Test that it can be opened and closed.
-TEST_F(AudioOutputTest, OpenAndClose) {
+TEST_P(AudioOutputTest, OpenAndClose) {
   ABORT_AUDIO_TEST_IF_NOT(audio_manager_device_info_->HasAudioOutputDevices());
 
   CreateWithDefaultParameters();
@@ -80,7 +99,7 @@ TEST_F(AudioOutputTest, OpenAndClose) {
 }
 
 // Verify that Stop() can be called before Start().
-TEST_F(AudioOutputTest, StopBeforeStart) {
+TEST_P(AudioOutputTest, StopBeforeStart) {
   ABORT_AUDIO_TEST_IF_NOT(audio_manager_device_info_->HasAudioOutputDevices());
   CreateWithDefaultParameters();
   EXPECT_TRUE(stream_->Open());
@@ -88,7 +107,7 @@ TEST_F(AudioOutputTest, StopBeforeStart) {
 }
 
 // Verify that Stop() can be called more than once.
-TEST_F(AudioOutputTest, StopTwice) {
+TEST_P(AudioOutputTest, StopTwice) {
   ABORT_AUDIO_TEST_IF_NOT(audio_manager_device_info_->HasAudioOutputDevices());
   CreateWithDefaultParameters();
   EXPECT_TRUE(stream_->Open());
@@ -100,7 +119,7 @@ TEST_F(AudioOutputTest, StopTwice) {
 }
 
 // This test produces actual audio for .25 seconds on the default device.
-TEST_F(AudioOutputTest, Play200HzTone) {
+TEST_P(AudioOutputTest, Play200HzTone) {
   ABORT_AUDIO_TEST_IF_NOT(audio_manager_device_info_->HasAudioOutputDevices());
 
   stream_params_ =
@@ -138,7 +157,7 @@ TEST_F(AudioOutputTest, Play200HzTone) {
 }
 
 // Test that SetVolume() and GetVolume() work as expected.
-TEST_F(AudioOutputTest, VolumeControl) {
+TEST_P(AudioOutputTest, VolumeControl) {
   ABORT_AUDIO_TEST_IF_NOT(audio_manager_device_info_->HasAudioOutputDevices());
 
   CreateWithDefaultParameters();
@@ -157,5 +176,15 @@ TEST_F(AudioOutputTest, VolumeControl) {
   EXPECT_GT(volume, 0.49);
   stream_->Stop();
 }
+
+// The test parameter is only relevant on Android. It controls whether or not we
+// allow the use of AAudio.
+INSTANTIATE_TEST_SUITE_P(Base, AudioOutputTest, testing::Values(false));
+
+#if defined(OS_ANDROID)
+// Run tests with AAudio enabled. On Android O and below, this is the same as
+// the Base test above, as we only use AAudio on P+.
+INSTANTIATE_TEST_SUITE_P(AAudio, AudioOutputTest, testing::Values(true));
+#endif
 
 }  // namespace media

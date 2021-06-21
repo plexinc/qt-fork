@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2002-2010 The ANGLE Project Authors. All rights reserved.
+// Copyright 2002 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -21,6 +21,11 @@
 #    include <android/log.h>
 #endif
 
+#if defined(ANGLE_PLATFORM_APPLE)
+#    include <os/log.h>
+#endif
+
+#include "anglebase/no_destructor.h"
 #include "common/Optional.h"
 #include "common/angleutils.h"
 #include "common/system_utils.h"
@@ -49,7 +54,7 @@ bool ShouldCreateLogMessage(LogSeverity severity)
 #if defined(ANGLE_TRACE_ENABLED)
     return true;
 #elif defined(ANGLE_ENABLE_ASSERTS)
-    return severity != LOG_EVENT;
+    return severity == LOG_FATAL || severity == LOG_ERR || severity == LOG_WARN;
 #else
     return false;
 #endif
@@ -227,6 +232,31 @@ void Trace(LogSeverity severity, const char *message)
         }
         __android_log_print(android_priority, "ANGLE", "%s: %s\n", LogSeverityName(severity),
                             str.c_str());
+#elif defined(ANGLE_PLATFORM_APPLE)
+        if (__builtin_available(macOS 10.12, iOS 10.0, *))
+        {
+            os_log_type_t apple_log_type = OS_LOG_TYPE_DEFAULT;
+            switch (severity)
+            {
+                case LOG_INFO:
+                    apple_log_type = OS_LOG_TYPE_INFO;
+                    break;
+                case LOG_WARN:
+                    apple_log_type = OS_LOG_TYPE_DEFAULT;
+                    break;
+                case LOG_ERR:
+                    apple_log_type = OS_LOG_TYPE_ERROR;
+                    break;
+                case LOG_FATAL:
+                    // OS_LOG_TYPE_FAULT is too severe - grabs the entire process tree.
+                    apple_log_type = OS_LOG_TYPE_ERROR;
+                    break;
+                default:
+                    UNREACHABLE();
+            }
+            os_log_with_type(OS_LOG_DEFAULT, apple_log_type, "ANGLE: %s: %s\n",
+                             LogSeverityName(severity), str.c_str());
+        }
 #else
         // Note: we use fprintf because <iostream> includes static initializers.
         fprintf((severity >= LOG_ERR) ? stderr : stdout, "%s: %s\n", LogSeverityName(severity),
@@ -251,11 +281,15 @@ void Trace(LogSeverity severity, const char *message)
         return;
     }
 #    endif  // defined(NDEBUG)
-    static std::ofstream file(TRACE_OUTPUT_FILE, std::ofstream::app);
-    if (file)
+    static angle::base::NoDestructor<std::ofstream> file(TRACE_OUTPUT_FILE, std::ofstream::app);
+    if (file->good())
     {
-        file << LogSeverityName(severity) << ": " << str << std::endl;
-        file.flush();
+        if (severity > LOG_EVENT)
+        {
+            *file << LogSeverityName(severity) << ": ";
+        }
+        *file << str << "\n";
+        file->flush();
     }
 #endif  // defined(ANGLE_ENABLE_DEBUG_TRACE)
 }

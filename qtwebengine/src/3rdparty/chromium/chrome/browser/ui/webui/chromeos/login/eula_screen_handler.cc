@@ -29,11 +29,12 @@ namespace chromeos {
 
 constexpr StaticOobeScreenId EulaView::kScreenId;
 
+const char* EulaScreenHandler::eula_url_for_testing_ = nullptr;
+
 EulaScreenHandler::EulaScreenHandler(JSCallsContainer* js_calls_container,
                                      CoreOobeView* core_oobe_view)
     : BaseScreenHandler(kScreenId, js_calls_container),
-      core_oobe_view_(core_oobe_view),
-      weak_factory_(this) {
+      core_oobe_view_(core_oobe_view) {
   set_user_acted_method_path("login.EulaScreen.userActed");
 }
 
@@ -63,6 +64,20 @@ void EulaScreenHandler::Bind(EulaScreen* screen) {
 void EulaScreenHandler::Unbind() {
   screen_ = nullptr;
   BaseScreenHandler::SetBaseScreen(nullptr);
+}
+
+std::string EulaScreenHandler::GetEulaOnlineUrl() {
+  if (EulaScreenHandler::eula_url_for_testing_) {
+    return std::string(EulaScreenHandler::eula_url_for_testing_);
+  }
+
+  return base::StringPrintf(chrome::kOnlineEulaURLPath,
+                            g_browser_process->GetApplicationLocale().c_str());
+}
+
+std::string EulaScreenHandler::GetAdditionalToSUrl() {
+  return base::StringPrintf(chrome::kAdditionalToSOnlineURLPath,
+                            g_browser_process->GetApplicationLocale().c_str());
 }
 
 void EulaScreenHandler::DeclareLocalizedValues(
@@ -95,13 +110,13 @@ void EulaScreenHandler::DeclareLocalizedValues(
                 IDS_SHORT_PRODUCT_OS_NAME);
 #endif
 
-  builder->Add(
-      "eulaOnlineUrl",
-      base::StringPrintf(chrome::kOnlineEulaURLPath,
-                         g_browser_process->GetApplicationLocale().c_str()));
+  // Online URL to use. May be overridden by tests.
+  builder->Add("eulaOnlineUrl", GetEulaOnlineUrl());
+  builder->Add("eulaAdditionalToSOnlineUrl", GetAdditionalToSUrl());
 
   /* MD-OOBE */
   builder->Add("oobeEulaSectionTitle", IDS_OOBE_EULA_SECTION_TITLE);
+  builder->Add("oobeEulaAditionalTerms", IDS_OOBE_EULA_ADDITIONAL_TERMS);
   builder->Add("oobeEulaIframeLabel", IDS_OOBE_EULA_IFRAME_LABEL);
   builder->Add("oobeEulaAcceptAndContinueButtonText",
                IDS_OOBE_EULA_ACCEPT_AND_CONTINUE_BUTTON_TEXT);

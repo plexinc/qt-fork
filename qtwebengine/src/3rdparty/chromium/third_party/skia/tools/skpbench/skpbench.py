@@ -51,6 +51,9 @@ __argparse.add_argument('-d', '--duration',
   type=int, help="number of milliseconds to run each benchmark")
 __argparse.add_argument('-l', '--sample-ms',
   type=int, help="duration of a sample (minimum)")
+__argparse.add_argument('--force',
+  action='store_true',
+  help="perform benchmarking on unrecognized Android devices")
 __argparse.add_argument('--gpu',
   action='store_true',
   help="perform timing on the gpu clock instead of cpu (gpu work only)")
@@ -75,8 +78,6 @@ __argparse.add_argument('--ddlNumAdditionalThreads',
   help="number of DDL recording threads in addition to main one")
 __argparse.add_argument('--ddlTilingWidthHeight',
   type=int, default=0, help="number of tiles along one edge when in DDL mode")
-__argparse.add_argument('--ddlRecordTime',
-  action='store_true', help="report just the cpu time spent recording DDLs")
 __argparse.add_argument('--gpuThreads',
   type=int, default=-1,
   help="Create this many extra threads to assist with GPU work, including"
@@ -148,8 +149,6 @@ class SKPBench:
                  str(FLAGS.ddlNumAdditionalThreads)])
   if FLAGS.ddlTilingWidthHeight:
     ARGV.extend(['--ddlTilingWidthHeight', str(FLAGS.ddlTilingWidthHeight)])
-  if FLAGS.ddlRecordTime:
-    ARGV.extend(['--ddlRecordTime', 'true'])
 
   if FLAGS.adb:
     if FLAGS.device_serial is None:
@@ -327,6 +326,7 @@ def main():
   DELIMITER = r'[, ](?!(?:[^(]*\([^)]*\))*[^()]*\))'
   configs = re.split(DELIMITER, FLAGS.config)
   srcs = _path.find_skps(FLAGS.srcs)
+  assert srcs
 
   if FLAGS.adb:
     adb = Adb(FLAGS.device_serial, FLAGS.adb_binary,
@@ -344,11 +344,14 @@ def main():
     elif model == 'Nexus 6P':
       from _hardware_nexus_6p import HardwareNexus6P
       hardware = HardwareNexus6P(adb)
-    else:
+    elif FLAGS.force:
       from _hardware_android import HardwareAndroid
       print("WARNING: %s: don't know how to monitor this hardware; results "
             "may be unreliable." % model, file=sys.stderr)
       hardware = HardwareAndroid(adb)
+    else:
+      raise Exception("%s: don't know how to monitor this hardware. "
+                      "Use --force to bypass this warning." % model)
   else:
     hardware = Hardware()
 

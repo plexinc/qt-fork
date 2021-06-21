@@ -226,21 +226,26 @@ VideoCaptureController::BufferContext::CloneBufferHandle() {
   media::mojom::VideoBufferHandlePtr result =
       media::mojom::VideoBufferHandle::New();
   if (buffer_handle_->is_shared_buffer_handle()) {
-    // Special behavior here: If the handle was already read-only, the Clone()
-    // call here will maintain that read-only permission. If it was read-write,
-    // the cloned handle will have read-write permission.
+    // Buffer handles are always writable as they come from
+    // VideoCaptureBufferPool which, among other use cases, provides decoder
+    // output buffers.
     //
-    // TODO(crbug.com/797470): We should be able to demote read-write to
-    // read-only permissions when Clone()'ing handles. Currently, this causes a
-    // crash.
+    // TODO(crbug.com/793446): BroadcastingReceiver::BufferContext also defines
+    // CloneBufferHandle and independently decides on handle permissions. The
+    // permissions should be coordinated between these two classes.
     result->set_shared_buffer_handle(
         buffer_handle_->get_shared_buffer_handle()->Clone(
             mojo::SharedBufferHandle::AccessMode::READ_WRITE));
+    DCHECK(result->get_shared_buffer_handle()->is_valid());
   } else if (buffer_handle_->is_read_only_shmem_region()) {
     result->set_read_only_shmem_region(
         buffer_handle_->get_read_only_shmem_region().Duplicate());
+    DCHECK(result->get_read_only_shmem_region().IsValid());
   } else if (buffer_handle_->is_mailbox_handles()) {
     result->set_mailbox_handles(buffer_handle_->get_mailbox_handles()->Clone());
+  } else if (buffer_handle_->is_gpu_memory_buffer_handle()) {
+    result->set_gpu_memory_buffer_handle(
+        buffer_handle_->get_gpu_memory_buffer_handle().Clone());
   } else {
     NOTREACHED() << "Unexpected video buffer handle type";
   }
@@ -582,6 +587,9 @@ void VideoCaptureController::OnFrameDropped(
     media::VideoCaptureFrameDropReason reason) {
   TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("video_and_image_capture"),
                "VideoCaptureController::OnFrameDropped");
+
+  MaybeEmitFrameDropLogMessage(reason);
+
   if (reason == frame_drop_log_state_.drop_reason) {
     if (frame_drop_log_state_.max_log_count_exceeded)
       return;
@@ -590,12 +598,6 @@ void VideoCaptureController::OnFrameDropped(
         kMaxConsecutiveFrameDropForSameReasonCount) {
       frame_drop_log_state_.max_log_count_exceeded = true;
       LogMaxConsecutiveVideoFrameDropCountExceeded(reason, stream_type_);
-      std::ostringstream string_stream;
-      string_stream << "Too many consecutive frames dropped with reason code "
-                    << static_cast<int>(reason)
-                    << ". Stopping to log dropped frames for this reason in "
-                       "order to avoid log spam.";
-      EmitLogMessage(string_stream.str(), 1);
       return;
     }
   } else {
@@ -603,10 +605,6 @@ void VideoCaptureController::OnFrameDropped(
   }
 
   LogVideoFrameDrop(reason, stream_type_);
-  std::ostringstream string_stream;
-  string_stream << "Frame dropped with reason code "
-                << static_cast<int>(reason);
-  EmitLogMessage(string_stream.str(), 1);
 }
 
 void VideoCaptureController::OnLog(const std::string& message) {
@@ -711,6 +709,10 @@ void VideoCaptureController::ReleaseDeviceAsync(base::OnceClosure done_cb) {
     device_launcher_->AbortLaunch();
     return;
   }
+  // |buffer_contexts_| contain references to |launched_device_| as observers.
+  // Clear those observer references prior to resetting |launced_device_|.
+  for (auto& entry : buffer_contexts_)
+    entry.set_consumer_feedback_observer(nullptr);
   launched_device_.reset();
 }
 
@@ -859,6 +861,36 @@ void VideoCaptureController::EmitLogMessage(const std::string& message,
                                             int verbose_log_level) {
   DVLOG(verbose_log_level) << message;
   emit_log_message_cb_.Run(message);
+}
+
+void VideoCaptureController::MaybeEmitFrameDropLogMessage(
+    media::VideoCaptureFrameDropReason reason) {
+  using Type = std::underlying_type<media::VideoCaptureFrameDropReason>::type;
+  static_assert(
+      static_cast<Type>(media::VideoCaptureFrameDropReason::kMaxValue) <= 100,
+      "Risk of memory overuse.");
+
+  static_assert(kMaxEmittedLogsForDroppedFramesBeforeSuppressing <
+                    kFrequencyForSuppressedLogs,
+                "");
+
+  DCHECK_GE(static_cast<Type>(reason), 0);
+  DCHECK_LE(reason, media::VideoCaptureFrameDropReason::kMaxValue);
+
+  int& occurrences = frame_drop_log_counters_[reason];
+  if (++occurrences > kMaxEmittedLogsForDroppedFramesBeforeSuppressing &&
+      occurrences % kFrequencyForSuppressedLogs != 0) {
+    return;
+  }
+
+  std::ostringstream string_stream;
+  string_stream << "Frame dropped with reason code "
+                << static_cast<Type>(reason) << ".";
+  if (occurrences == kMaxEmittedLogsForDroppedFramesBeforeSuppressing) {
+    string_stream << " Additional logs will be partially suppressed.";
+  }
+
+  EmitLogMessage(string_stream.str(), 1);
 }
 
 }  // namespace content

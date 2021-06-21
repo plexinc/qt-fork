@@ -22,7 +22,6 @@
 #include "third_party/blink/renderer/core/css/style_rule.h"
 
 #include "third_party/blink/renderer/core/css/css_font_face_rule.h"
-#include "third_party/blink/renderer/core/css/css_font_feature_values_rule.h"
 #include "third_party/blink/renderer/core/css/css_identifier_value.h"
 #include "third_party/blink/renderer/core/css/css_import_rule.h"
 #include "third_party/blink/renderer/core/css/css_keyframes_rule.h"
@@ -40,8 +39,8 @@
 
 namespace blink {
 
-struct SameSizeAsStyleRuleBase
-    : public GarbageCollectedFinalized<SameSizeAsStyleRuleBase> {
+struct SameSizeAsStyleRuleBase final
+    : public GarbageCollected<SameSizeAsStyleRuleBase> {
   unsigned bitfields;
 };
 
@@ -56,7 +55,7 @@ CSSRule* StyleRuleBase::CreateCSSOMWrapper(CSSRule* parent_rule) const {
   return CreateCSSOMWrapper(nullptr, parent_rule);
 }
 
-void StyleRuleBase::Trace(blink::Visitor* visitor) {
+void StyleRuleBase::Trace(Visitor* visitor) {
   switch (GetType()) {
     case kCharset:
       To<StyleRuleCharset>(this)->TraceAfterDispatch(visitor);
@@ -93,9 +92,6 @@ void StyleRuleBase::Trace(blink::Visitor* visitor) {
       return;
     case kViewport:
       To<StyleRuleViewport>(this)->TraceAfterDispatch(visitor);
-      return;
-    case kFontFeatureValues:
-      To<StyleRuleFontFeatureValues>(this)->TraceAfterDispatch(visitor);
       return;
   }
   NOTREACHED();
@@ -139,9 +135,6 @@ void StyleRuleBase::FinalizeGarbageCollectedObject() {
     case kViewport:
       To<StyleRuleViewport>(this)->~StyleRuleViewport();
       return;
-    case kFontFeatureValues:
-      To<StyleRuleFontFeatureValues>(this)->~StyleRuleFontFeatureValues();
-      return;
   }
   NOTREACHED();
 }
@@ -170,8 +163,6 @@ StyleRuleBase* StyleRuleBase::Copy() const {
       return To<StyleRuleViewport>(this)->Copy();
     case kNamespace:
       return To<StyleRuleNamespace>(this)->Copy();
-    case kFontFeatureValues:
-      return To<StyleRuleFontFeatureValues>(this)->Copy();
     case kCharset:
     case kKeyframe:
       NOTREACHED();
@@ -225,10 +216,6 @@ CSSRule* StyleRuleBase::CreateCSSOMWrapper(CSSStyleSheet* parent_sheet,
     case kViewport:
       rule = MakeGarbageCollected<CSSViewportRule>(To<StyleRuleViewport>(self),
                                                    parent_sheet);
-      break;
-    case kFontFeatureValues:
-      rule = MakeGarbageCollected<CSSFontFeatureValuesRule>(
-          To<StyleRuleFontFeatureValues>(self), parent_sheet);
       break;
     case kKeyframe:
     case kCharset:
@@ -300,7 +287,7 @@ bool StyleRule::HasParsedProperties() const {
   return !lazy_property_parser_;
 }
 
-void StyleRule::TraceAfterDispatch(blink::Visitor* visitor) {
+void StyleRule::TraceAfterDispatch(blink::Visitor* visitor) const {
   visitor->Trace(properties_);
   visitor->Trace(lazy_property_parser_);
   StyleRuleBase::TraceAfterDispatch(visitor);
@@ -325,7 +312,7 @@ MutableCSSPropertyValueSet& StyleRulePage::MutableProperties() {
   return *To<MutableCSSPropertyValueSet>(properties_.Get());
 }
 
-void StyleRulePage::TraceAfterDispatch(blink::Visitor* visitor) {
+void StyleRulePage::TraceAfterDispatch(blink::Visitor* visitor) const {
   visitor->Trace(properties_);
   StyleRuleBase::TraceAfterDispatch(visitor);
 }
@@ -346,7 +333,7 @@ MutableCSSPropertyValueSet& StyleRuleProperty::MutableProperties() {
   return *To<MutableCSSPropertyValueSet>(properties_.Get());
 }
 
-void StyleRuleProperty::TraceAfterDispatch(blink::Visitor* visitor) {
+void StyleRuleProperty::TraceAfterDispatch(blink::Visitor* visitor) const {
   visitor->Trace(properties_);
   StyleRuleBase::TraceAfterDispatch(visitor);
 }
@@ -358,15 +345,13 @@ StyleRuleFontFace::StyleRuleFontFace(const StyleRuleFontFace& font_face_rule)
     : StyleRuleBase(font_face_rule),
       properties_(font_face_rule.properties_->MutableCopy()) {}
 
-StyleRuleFontFace::~StyleRuleFontFace() = default;
-
 MutableCSSPropertyValueSet& StyleRuleFontFace::MutableProperties() {
   if (!properties_->IsMutable())
     properties_ = properties_->MutableCopy();
   return *To<MutableCSSPropertyValueSet>(properties_.Get());
 }
 
-void StyleRuleFontFace::TraceAfterDispatch(blink::Visitor* visitor) {
+void StyleRuleFontFace::TraceAfterDispatch(blink::Visitor* visitor) const {
   visitor->Trace(properties_);
   StyleRuleBase::TraceAfterDispatch(visitor);
 }
@@ -391,7 +376,7 @@ void StyleRuleGroup::WrapperRemoveRule(unsigned index) {
   child_rules_.EraseAt(index);
 }
 
-void StyleRuleGroup::TraceAfterDispatch(blink::Visitor* visitor) {
+void StyleRuleGroup::TraceAfterDispatch(blink::Visitor* visitor) const {
   visitor->Trace(child_rules_);
   StyleRuleBase::TraceAfterDispatch(visitor);
 }
@@ -427,7 +412,7 @@ StyleRuleSupports::StyleRuleSupports(
     : StyleRuleCondition(kSupports, condition_text, adopt_rules),
       condition_is_supported_(condition_is_supported) {}
 
-void StyleRuleMedia::TraceAfterDispatch(blink::Visitor* visitor) {
+void StyleRuleMedia::TraceAfterDispatch(blink::Visitor* visitor) const {
   StyleRuleCondition::TraceAfterDispatch(visitor);
 }
 
@@ -442,29 +427,14 @@ StyleRuleViewport::StyleRuleViewport(const StyleRuleViewport& viewport_rule)
     : StyleRuleBase(viewport_rule),
       properties_(viewport_rule.properties_->MutableCopy()) {}
 
-StyleRuleViewport::~StyleRuleViewport() = default;
-
 MutableCSSPropertyValueSet& StyleRuleViewport::MutableProperties() {
   if (!properties_->IsMutable())
     properties_ = properties_->MutableCopy();
   return *To<MutableCSSPropertyValueSet>(properties_.Get());
 }
 
-void StyleRuleViewport::TraceAfterDispatch(blink::Visitor* visitor) {
+void StyleRuleViewport::TraceAfterDispatch(blink::Visitor* visitor) const {
   visitor->Trace(properties_);
-  StyleRuleBase::TraceAfterDispatch(visitor);
-}
-
-StyleRuleFontFeatureValues::StyleRuleFontFeatureValues(
-    const CSSValueList* font_family,
-    const CSSIdentifierValue* font_display)
-    : StyleRuleBase(kFontFeatureValues),
-      font_family_(font_family),
-      font_display_(font_display) {}
-
-void StyleRuleFontFeatureValues::TraceAfterDispatch(blink::Visitor* visitor) {
-  visitor->Trace(font_family_);
-  visitor->Trace(font_display_);
   StyleRuleBase::TraceAfterDispatch(visitor);
 }
 

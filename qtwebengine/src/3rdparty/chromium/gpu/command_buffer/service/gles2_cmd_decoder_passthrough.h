@@ -28,6 +28,7 @@
 #include "gpu/command_buffer/service/logger.h"
 #include "gpu/command_buffer/service/mailbox_manager.h"
 #include "gpu/command_buffer/service/passthrough_abstract_texture_impl.h"
+#include "gpu/command_buffer/service/shared_image_representation.h"
 #include "gpu/command_buffer/service/texture_manager.h"
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_context.h"
@@ -37,6 +38,7 @@
 
 namespace gl {
 class GLFence;
+class ProgressReporter;
 }
 
 namespace gpu {
@@ -63,7 +65,7 @@ struct PassthroughResources {
   ~PassthroughResources();
 
   // api is null if we don't have a context (e.g. lost).
-  void Destroy(gl::GLApi* api);
+  void Destroy(gl::GLApi* api, gl::ProgressReporter* progress_reporter);
 
   // Resources stores a shared list of textures pending deletion.
   // If we have don't context when this function is called, we can mark
@@ -91,13 +93,41 @@ struct PassthroughResources {
   ClientServiceMap<GLuint, scoped_refptr<TexturePassthrough>>
       texture_object_map;
 
+  class SharedImageData {
+   public:
+    SharedImageData();
+    explicit SharedImageData(
+        std::unique_ptr<SharedImageRepresentationGLTexturePassthrough>
+            representation);
+    SharedImageData(SharedImageData&& other);
+    ~SharedImageData();
+    SharedImageData& operator=(SharedImageData&& other);
+
+    SharedImageRepresentationGLTexturePassthrough* representation() const {
+      return representation_.get();
+    }
+
+    bool BeginAccess(GLenum mode, gl::GLApi* api);
+
+    void EndAccess() {
+      DCHECK(is_being_accessed());
+      scoped_access_.reset();
+    }
+
+    bool is_being_accessed() const { return !!scoped_access_; }
+
+   private:
+    std::unique_ptr<SharedImageRepresentationGLTexturePassthrough>
+        representation_;
+    std::unique_ptr<SharedImageRepresentationGLTexturePassthrough::ScopedAccess>
+        scoped_access_;
+    DISALLOW_COPY_AND_ASSIGN(SharedImageData);
+  };
   // Mapping of client texture IDs to
   // SharedImageRepresentationGLTexturePassthroughs.
   // TODO(ericrk): Remove this once TexturePassthrough holds a reference to
   // the SharedImageRepresentationGLTexturePassthrough itself.
-  base::flat_map<GLuint,
-                 std::unique_ptr<SharedImageRepresentationGLTexturePassthrough>>
-      texture_shared_image_map;
+  base::flat_map<GLuint, SharedImageData> texture_shared_image_map;
 
   // A set of yet-to-be-deleted TexturePassthrough, which should be tossed
   // whenever a context switch happens or the resources is destroyed.
@@ -107,39 +137,6 @@ struct PassthroughResources {
   // Mapping of client buffer IDs that are mapped to the shared memory used to
   // back the mapping so that it can be flushed when the buffer is unmapped
   std::unordered_map<GLuint, MappedBuffer> mapped_buffer_map;
-};
-
-class ScopedFramebufferBindingReset {
- public:
-  explicit ScopedFramebufferBindingReset(gl::GLApi* api,
-                                         bool supports_separate_fbo_bindings);
-  ~ScopedFramebufferBindingReset();
-
- private:
-  gl::GLApi* api_;
-  bool supports_separate_fbo_bindings_;
-  GLint draw_framebuffer_;
-  GLint read_framebuffer_;
-};
-
-class ScopedRenderbufferBindingReset {
- public:
-  explicit ScopedRenderbufferBindingReset(gl::GLApi* api);
-  ~ScopedRenderbufferBindingReset();
-
- private:
-  gl::GLApi* api_;
-  GLint renderbuffer_;
-};
-
-class ScopedTexture2DBindingReset {
- public:
-  explicit ScopedTexture2DBindingReset(gl::GLApi* api);
-  ~ScopedTexture2DBindingReset();
-
- private:
-  gl::GLApi* api_;
-  GLint texture_;
 };
 
 class GPU_GLES2_EXPORT GLES2DecoderPassthroughImpl : public GLES2Decoder {
@@ -297,6 +294,16 @@ class GPU_GLES2_EXPORT GLES2DecoderPassthroughImpl : public GLES2Decoder {
                                    int width,
                                    int height) override;
 
+  // Clears a level sub area of a compressed 3D texture.
+  // Returns false if a GL error should be generated.
+  bool ClearCompressedTextureLevel3D(Texture* texture,
+                                     unsigned target,
+                                     int level,
+                                     unsigned format,
+                                     int width,
+                                     int height,
+                                     int depth) override;
+
   // Indicates whether a given internal format is one for a compressed
   // texture.
   bool IsCompressedTextureFormat(unsigned format) override;
@@ -381,33 +388,20 @@ class GPU_GLES2_EXPORT GLES2DecoderPassthroughImpl : public GLES2Decoder {
                              const DisallowedFeatures& disallowed_features,
                              bool force_reinitialize);
 
-  void* GetScratchMemory(size_t size);
-
-  template <typename T>
-  T* GetTypedScratchMemory(size_t count) {
-    return reinterpret_cast<T*>(GetScratchMemory(count * sizeof(T)));
-  }
-
   template <typename T, typename GLGetFunction>
   error::Error GetNumericHelper(GLenum pname,
                                 GLsizei bufsize,
                                 GLsizei* length,
                                 T* params,
                                 GLGetFunction get_call) {
-    // Get a scratch buffer to hold the result of the query
-    T* scratch_params = GetTypedScratchMemory<T>(bufsize);
-    get_call(pname, bufsize, length, scratch_params);
+    get_call(pname, bufsize, length, params);
 
     // Update the results of the query, if needed
-    error::Error error = PatchGetNumericResults(pname, *length, scratch_params);
+    const error::Error error = PatchGetNumericResults(pname, *length, params);
     if (error != error::kNoError) {
       *length = 0;
       return error;
     }
-
-    // Copy into the destination
-    DCHECK(*length <= bufsize);
-    std::copy(scratch_params, scratch_params + *length, params);
 
     return error::kNoError;
   }
@@ -676,6 +670,7 @@ class GPU_GLES2_EXPORT GLES2DecoderPassthroughImpl : public GLES2Decoder {
 
     std::unique_ptr<gl::GLFence> commands_completed_fence;
     base::TimeDelta commands_issued_time;
+    base::TimeTicks commands_issued_timestamp;
 
     std::vector<base::OnceClosure> callbacks;
     std::unique_ptr<gl::GLFence> buffer_shadow_update_fence = nullptr;
@@ -857,9 +852,6 @@ class GPU_GLES2_EXPORT GLES2DecoderPassthroughImpl : public GLES2Decoder {
   bool reset_by_robustness_extension_;
   bool lose_context_when_out_of_memory_;
 
-  // Cache of scratch memory
-  std::vector<uint8_t> scratch_memory_;
-
   // After a second fence is inserted, both the GpuChannelMessageQueue and
   // CommandExecutor are descheduled. Once the first fence has completed, both
   // get rescheduled.
@@ -871,6 +863,8 @@ class GPU_GLES2_EXPORT GLES2DecoderPassthroughImpl : public GLES2Decoder {
   std::unique_ptr<CALayerSharedState> ca_layer_shared_state_;
 
   base::WeakPtrFactory<GLES2DecoderPassthroughImpl> weak_ptr_factory_{this};
+
+  class ScopedEnableTextureRectangleInShaderCompiler;
 
 // Include the prototypes of all the doer functions from a separate header to
 // keep this file clean.

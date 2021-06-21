@@ -30,8 +30,9 @@
 #include "third_party/blink/renderer/core/css/media_query_evaluator.h"
 
 #include "third_party/blink/public/common/css/forced_colors.h"
+#include "third_party/blink/public/common/css/navigation_controls.h"
 #include "third_party/blink/public/common/css/preferred_color_scheme.h"
-#include "third_party/blink/public/common/manifest/web_display_mode.h"
+#include "third_party/blink/public/mojom/manifest/display_mode.mojom-shared.h"
 #include "third_party/blink/public/platform/pointer_properties.h"
 #include "third_party/blink/public/platform/shape_properties.h"
 #include "third_party/blink/renderer/core/css/css_primitive_value.h"
@@ -48,6 +49,7 @@
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
+#include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/media_type_names.h"
 #include "third_party/blink/renderer/core/probe/core_probes.h"
 #include "third_party/blink/renderer/platform/geometry/float_rect.h"
@@ -56,8 +58,6 @@
 #include "third_party/blink/renderer/platform/wtf/hash_map.h"
 
 namespace blink {
-
-using namespace media_feature_names;
 
 enum MediaFeaturePrefix { kMinPrefix, kMaxPrefix, kNoPrefix };
 
@@ -84,7 +84,7 @@ MediaQueryEvaluator::MediaQueryEvaluator(
 
 MediaQueryEvaluator::~MediaQueryEvaluator() = default;
 
-void MediaQueryEvaluator::Trace(blink::Visitor* visitor) {
+void MediaQueryEvaluator::Trace(Visitor* visitor) {
   visitor->Trace(media_values_);
 }
 
@@ -101,9 +101,8 @@ const String MediaQueryEvaluator::MediaType() const {
 bool MediaQueryEvaluator::MediaTypeMatch(
     const String& media_type_to_match) const {
   return media_type_to_match.IsEmpty() ||
-         DeprecatedEqualIgnoringCase(media_type_to_match,
-                                     media_type_names::kAll) ||
-         DeprecatedEqualIgnoringCase(media_type_to_match, MediaType());
+         EqualIgnoringASCIICase(media_type_to_match, media_type_names::kAll) ||
+         EqualIgnoringASCIICase(media_type_to_match, MediaType());
 }
 
 static bool ApplyRestrictor(MediaQuery::RestrictorType r, bool value) {
@@ -156,6 +155,15 @@ bool MediaQueryEvaluator::Eval(
                   device_dependent_media_query_results);
 
   return result;
+}
+
+bool MediaQueryEvaluator::DidResultsChange(
+    const MediaQueryResultList& results) const {
+  for (auto& result : results) {
+    if (Eval(result.Expression()) != result.Result())
+      return true;
+  }
+  return false;
 }
 
 template <typename T>
@@ -255,16 +263,16 @@ static bool DisplayModeMediaFeatureEval(const MediaQueryExpValue& value,
   if (!value.is_id)
     return false;
 
-  WebDisplayMode mode = media_values.DisplayMode();
+  blink::mojom::DisplayMode mode = media_values.DisplayMode();
   switch (value.id) {
     case CSSValueID::kFullscreen:
-      return mode == kWebDisplayModeFullscreen;
+      return mode == blink::mojom::DisplayMode::kFullscreen;
     case CSSValueID::kStandalone:
-      return mode == kWebDisplayModeStandalone;
+      return mode == blink::mojom::DisplayMode::kStandalone;
     case CSSValueID::kMinimalUi:
-      return mode == kWebDisplayModeMinimalUi;
+      return mode == blink::mojom::DisplayMode::kMinimalUi;
     case CSSValueID::kBrowser:
-      return mode == kWebDisplayModeBrowser;
+      return mode == blink::mojom::DisplayMode::kBrowser;
     default:
       NOTREACHED();
       return false;
@@ -323,11 +331,11 @@ static bool EvalResolution(const MediaQueryExpValue& value,
   // this method only got called if this media type matches the one defined
   // in the query. Thus, if if the document's media type is "print", the
   // media type of the query will either be "print" or "all".
-  if (DeprecatedEqualIgnoringCase(media_values.MediaType(),
-                                  media_type_names::kScreen)) {
+  if (EqualIgnoringASCIICase(media_values.MediaType(),
+                             media_type_names::kScreen)) {
     actual_resolution = clampTo<float>(media_values.DevicePixelRatio());
-  } else if (DeprecatedEqualIgnoringCase(media_values.MediaType(),
-                                         media_type_names::kPrint)) {
+  } else if (EqualIgnoringASCIICase(media_values.MediaType(),
+                                    media_type_names::kPrint)) {
     // The resolution of images while printing should not depend on the DPI
     // of the screen. Until we support proper ways of querying this info
     // we use 300px which is considered minimum for current printers.
@@ -687,6 +695,15 @@ static bool AnyHoverMediaFeatureEval(const MediaQueryExpValue& value,
   }
 }
 
+static bool OriginTrialTestMediaFeatureEval(const MediaQueryExpValue& value,
+                                            MediaFeaturePrefix,
+                                            const MediaValues& media_values) {
+  // The test feature only supports a 'no-value' parsing. So if we've gotten
+  // to this point it will always match.
+  DCHECK(!value.IsValid());
+  return true;
+}
+
 static bool PointerMediaFeatureEval(const MediaQueryExpValue& value,
                                     MediaFeaturePrefix,
                                     const MediaValues& media_values) {
@@ -769,8 +786,7 @@ static bool ScanMediaFeatureEval(const MediaQueryExpValue& value,
                                  MediaFeaturePrefix,
                                  const MediaValues& media_values) {
   // Scan only applies to 'tv' media.
-  if (!DeprecatedEqualIgnoringCase(media_values.MediaType(),
-                                   media_type_names::kTv))
+  if (!EqualIgnoringASCIICase(media_values.MediaType(), media_type_names::kTv))
     return false;
 
   if (!value.IsValid())
@@ -864,6 +880,25 @@ static bool ForcedColorsMediaFeatureEval(const MediaQueryExpValue& value,
           value.id == CSSValueID::kNone) ||
          (forced_colors != ForcedColors::kNone &&
           value.id == CSSValueID::kActive);
+}
+
+static bool NavigationControlsMediaFeatureEval(
+    const MediaQueryExpValue& value,
+    MediaFeaturePrefix,
+    const MediaValues& media_values) {
+  NavigationControls navigation_controls = media_values.GetNavigationControls();
+
+  if (!value.IsValid())
+    return navigation_controls != NavigationControls::kNone;
+
+  if (!value.is_id)
+    return false;
+
+  // Check the navigation controls against value.id.
+  return (navigation_controls == NavigationControls::kNone &&
+          value.id == CSSValueID::kNone) ||
+         (navigation_controls == NavigationControls::kBackButton &&
+          value.id == CSSValueID::kBackButton);
 }
 
 void MediaQueryEvaluator::Init() {

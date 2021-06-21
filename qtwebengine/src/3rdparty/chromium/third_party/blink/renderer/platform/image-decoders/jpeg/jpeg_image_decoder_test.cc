@@ -40,9 +40,8 @@
 #include "third_party/blink/renderer/platform/graphics/bitmap_image_metrics.h"
 #include "third_party/blink/renderer/platform/image-decoders/image_animation.h"
 #include "third_party/blink/renderer/platform/image-decoders/image_decoder_test_helpers.h"
-#include "third_party/blink/renderer/platform/shared_buffer.h"
 #include "third_party/blink/renderer/platform/testing/histogram_tester.h"
-#include "third_party/blink/renderer/platform/wtf/typed_arrays/array_buffer.h"
+#include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
 
 namespace blink {
 
@@ -50,10 +49,13 @@ static const size_t kLargeEnoughSize = 1000 * 1000;
 
 namespace {
 
-std::unique_ptr<JPEGImageDecoder> CreateJPEGDecoder(size_t max_decoded_bytes) {
+std::unique_ptr<JPEGImageDecoder> CreateJPEGDecoder(
+    size_t max_decoded_bytes,
+    ImageDecoder::OverrideAllowDecodeToYuv decodeToYUV =
+        ImageDecoder::OverrideAllowDecodeToYuv::kDeny) {
   return std::make_unique<JPEGImageDecoder>(
       ImageDecoder::kAlphaNotPremultiplied, ColorBehavior::TransformToSRGB(),
-      max_decoded_bytes);
+      max_decoded_bytes, decodeToYUV);
 }
 
 std::unique_ptr<ImageDecoder> CreateJPEGDecoder() {
@@ -88,10 +90,10 @@ void ReadYUV(size_t max_decoded_bytes,
   scoped_refptr<SharedBuffer> data = ReadFile(image_file_path);
   ASSERT_TRUE(data);
 
-  std::unique_ptr<JPEGImageDecoder> decoder =
-      CreateJPEGDecoder(max_decoded_bytes);
-  decoder->SetData(data.get(), true);
+  std::unique_ptr<JPEGImageDecoder> decoder = CreateJPEGDecoder(
+      max_decoded_bytes, ImageDecoder::OverrideAllowDecodeToYuv::kDefault);
   decoder->SetDecodeToYuvForTesting(true);
+  decoder->SetData(data.get(), true);
 
   // Setting a dummy ImagePlanes object signals to the decoder that we want to
   // do YUV decoding.
@@ -122,12 +124,13 @@ void ReadYUV(size_t max_decoded_bytes,
   row_bytes[1] = decoder->DecodedYUVWidthBytes(1);
   row_bytes[2] = decoder->DecodedYUVWidthBytes(2);
 
-  scoped_refptr<ArrayBuffer> buffer(ArrayBuffer::Create(
-      row_bytes[0] * y_size.Height() + row_bytes[1] * u_size.Height() +
-          row_bytes[2] * v_size.Height(),
-      1));
+  size_t planes_data_size = row_bytes[0] * y_size.Height() +
+                            row_bytes[1] * u_size.Height() +
+                            row_bytes[2] * v_size.Height();
+  std::unique_ptr<char[]> planes_data(new char[planes_data_size]);
+
   void* planes[3];
-  planes[0] = buffer->Data();
+  planes[0] = reinterpret_cast<void*>(planes_data.get());
   planes[1] = ((char*)planes[0]) + row_bytes[0] * y_size.Height();
   planes[2] = ((char*)planes[1]) + row_bytes[1] * u_size.Height();
 
@@ -250,6 +253,16 @@ TEST(JPEGImageDecoderTest, yuv) {
   EXPECT_EQ(128u, output_uv_width);
   EXPECT_EQ(128u, output_uv_height);
 
+  // Each plane is in its own scan.
+  const char* jpeg_file_non_interleaved =
+      "/images/resources/cs-uma-ycbcr-420-non-interleaved.jpg";  // 64x64
+  ReadYUV(kLargeEnoughSize, &output_y_width, &output_y_height, &output_uv_width,
+          &output_uv_height, jpeg_file_non_interleaved);
+  EXPECT_EQ(64u, output_y_width);
+  EXPECT_EQ(64u, output_y_height);
+  EXPECT_EQ(32u, output_uv_width);
+  EXPECT_EQ(32u, output_uv_height);
+
   const char* jpeg_file_image_size_not_multiple_of8 =
       "/images/resources/cropped_mandrill.jpg";  // 439x154
   ReadYUV(kLargeEnoughSize, &output_y_width, &output_y_height, &output_uv_width,
@@ -264,9 +277,10 @@ TEST(JPEGImageDecoderTest, yuv) {
   scoped_refptr<SharedBuffer> data = ReadFile(jpeg_file);
   ASSERT_TRUE(data);
 
-  std::unique_ptr<JPEGImageDecoder> decoder = CreateJPEGDecoder(230 * 230 * 4);
-  decoder->SetData(data.get(), true);
+  std::unique_ptr<JPEGImageDecoder> decoder = CreateJPEGDecoder(
+      230 * 230 * 4, ImageDecoder::OverrideAllowDecodeToYuv::kDefault);
   decoder->SetDecodeToYuvForTesting(true);
+  decoder->SetData(data.get(), true);
 
   std::unique_ptr<ImagePlanes> image_planes = std::make_unique<ImagePlanes>();
   decoder->SetImagePlanes(std::move(image_planes));
@@ -493,7 +507,7 @@ const ColorSpaceUMATest::ParamType kColorSpaceUMATestParams[] = {
     {"cs-uma-grayscale.jpg", true,
      BitmapImageMetrics::JpegColorSpace::kGrayscale},
     {"cs-uma-rgb.jpg", true, BitmapImageMetrics::JpegColorSpace::kRGB},
-    // Each component is in a separate plane. Should not make a difference.
+    // Each component is in a separate scan. Should not make a difference.
     {"cs-uma-rgb-non-interleaved.jpg", true,
      BitmapImageMetrics::JpegColorSpace::kRGB},
     {"cs-uma-cmyk.jpg", true, BitmapImageMetrics::JpegColorSpace::kCMYK},
@@ -515,7 +529,7 @@ const ColorSpaceUMATest::ParamType kColorSpaceUMATestParams[] = {
      BitmapImageMetrics::JpegColorSpace::kYCbCr411},
     {"cs-uma-ycbcr-420.jpg", true,
      BitmapImageMetrics::JpegColorSpace::kYCbCr420},
-    // Each component is in a separate plane. Should not make a difference.
+    // Each component is in a separate scan. Should not make a difference.
     {"cs-uma-ycbcr-420-non-interleaved.jpg", true,
      BitmapImageMetrics::JpegColorSpace::kYCbCr420},
     // 3 components/both JFIF and Adobe markers, so we expect libjpeg_turbo to
@@ -541,5 +555,24 @@ const ColorSpaceUMATest::ParamType kColorSpaceUMATestParams[] = {
 INSTANTIATE_TEST_SUITE_P(JPEGImageDecoderTest,
                          ColorSpaceUMATest,
                          ::testing::ValuesIn(kColorSpaceUMATestParams));
+
+TEST(JPEGImageDecoderTest, PartialDataWithoutSize) {
+  const char* jpeg_file = "/images/resources/lenna.jpg";
+  scoped_refptr<SharedBuffer> full_data = ReadFile(jpeg_file);
+  ASSERT_TRUE(full_data);
+
+  constexpr size_t kDataLengthWithoutSize = 4;
+  ASSERT_LT(kDataLengthWithoutSize, full_data->size());
+  scoped_refptr<SharedBuffer> partial_data =
+      SharedBuffer::Create(full_data->Data(), kDataLengthWithoutSize);
+
+  std::unique_ptr<ImageDecoder> decoder = CreateJPEGDecoder();
+  decoder->SetData(partial_data.get(), false);
+  EXPECT_FALSE(decoder->IsSizeAvailable());
+  EXPECT_FALSE(decoder->Failed());
+  decoder->SetData(full_data.get(), true);
+  EXPECT_TRUE(decoder->IsSizeAvailable());
+  EXPECT_FALSE(decoder->Failed());
+}
 
 }  // namespace blink

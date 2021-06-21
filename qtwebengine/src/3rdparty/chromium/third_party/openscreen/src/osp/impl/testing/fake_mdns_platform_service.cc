@@ -6,16 +6,17 @@
 
 #include <algorithm>
 
-#include "platform/api/logging.h"
+#include "util/logging.h"
 
 namespace openscreen {
+namespace osp {
 
 FakeMdnsPlatformService::FakeMdnsPlatformService() = default;
 FakeMdnsPlatformService::~FakeMdnsPlatformService() = default;
 
 std::vector<MdnsPlatformService::BoundInterface>
 FakeMdnsPlatformService::RegisterInterfaces(
-    const std::vector<platform::NetworkInterfaceIndex>& whitelist) {
+    const std::vector<NetworkInterfaceIndex>& whitelist) {
   OSP_CHECK(registered_interfaces_.empty());
   if (whitelist.empty()) {
     registered_interfaces_ = interfaces_;
@@ -45,4 +46,5 @@ void FakeMdnsPlatformService::DeregisterInterfaces(
   }
 }
 
+}  // namespace osp
 }  // namespace openscreen

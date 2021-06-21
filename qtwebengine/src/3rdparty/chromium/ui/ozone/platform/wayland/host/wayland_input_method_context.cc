@@ -90,9 +90,9 @@ void WaylandInputMethodContext::UpdatePreeditText(
   auto length = preedit.text.size();
 
   preedit.selection = gfx::Range(length);
-  preedit.ime_text_spans.push_back(
-      ImeTextSpan(ImeTextSpan::Type::kComposition, 0, length,
-                  ImeTextSpan::Thickness::kThin, SK_ColorTRANSPARENT));
+  preedit.ime_text_spans.push_back(ImeTextSpan(
+      ImeTextSpan::Type::kComposition, 0, length, ImeTextSpan::Thickness::kThin,
+      ImeTextSpan::UnderlineStyle::kSolid, SK_ColorTRANSPARENT));
   delegate_->OnPreeditChanged(preedit);
 }
 
@@ -103,7 +103,8 @@ void WaylandInputMethodContext::Reset() {
 }
 
 void WaylandInputMethodContext::Focus() {
-  WaylandWindow* window = connection_->GetCurrentKeyboardFocusedWindow();
+  WaylandWindow* window =
+      connection_->wayland_window_manager()->GetCurrentKeyboardFocusedWindow();
   if (!text_input_ || !window)
     return;
 

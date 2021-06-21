@@ -33,8 +33,7 @@ public:
     void onDrawDRRect(const SkRRect&, const SkRRect&, const SkPaint&) override;
     void onDrawRRect(const SkRRect&, const SkPaint&) override;
     void onDrawPoints(PointMode, size_t, const SkPoint[], const SkPaint&) override;
-    void onDrawVerticesObject(const SkVertices*, const SkVertices::Bone bones[], int boneCount,
-                              SkBlendMode, const SkPaint&) override;
+    void onDrawVerticesObject(const SkVertices*, SkBlendMode, const SkPaint&) override;
     void onDrawAtlas(const SkImage*, const SkRSXform[], const SkRect[], const SkColor[],
                      int, SkBlendMode, const SkRect*, const SkPaint*) override;
     void onDrawPath(const SkPath&, const SkPaint&) override;
@@ -43,19 +42,13 @@ public:
                          SrcRectConstraint) override;
     void onDrawImageNine(const SkImage*, const SkIRect&, const SkRect&, const SkPaint*) override;
     void onDrawImageLattice(const SkImage*, const Lattice&, const SkRect&, const SkPaint*) override;
-    void onDrawBitmap(const SkBitmap&, SkScalar, SkScalar, const SkPaint*) override;
-    void onDrawBitmapRect(const SkBitmap&, const SkRect*, const SkRect&, const SkPaint*,
-                          SrcRectConstraint) override;
-    void onDrawBitmapNine(const SkBitmap&, const SkIRect&, const SkRect&, const SkPaint*) override;
-    void onDrawBitmapLattice(const SkBitmap&, const Lattice&, const SkRect&,
-                             const SkPaint*) override;
     void onDrawDrawable(SkDrawable*, const SkMatrix*) override;
     void onDrawPicture(const SkPicture*, const SkMatrix*, const SkPaint*) override;
 
     void onDrawAnnotation(const SkRect&, const char key[], SkData* value) override;
     void onDrawShadowRec(const SkPath&, const SkDrawShadowRec&) override;
 
-    void onDrawEdgeAAQuad(const SkRect&, const SkPoint[4], SkCanvas::QuadAAFlags, SkColor,
+    void onDrawEdgeAAQuad(const SkRect&, const SkPoint[4], SkCanvas::QuadAAFlags, const SkColor4f&,
                           SkBlendMode) override;
     void onDrawEdgeAAImageSet(const ImageSetEntry[], int count, const SkPoint[], const SkMatrix[],
                               const SkPaint*, SrcRectConstraint) override;

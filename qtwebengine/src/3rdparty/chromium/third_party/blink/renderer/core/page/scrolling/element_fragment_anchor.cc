@@ -4,13 +4,15 @@
 
 #include "third_party/blink/renderer/core/page/scrolling/element_fragment_anchor.h"
 
+#include "third_party/blink/renderer/bindings/core/v8/v8_scroll_into_view_options.h"
 #include "third_party/blink/renderer/core/accessibility/ax_object_cache.h"
+#include "third_party/blink/renderer/core/display_lock/display_lock_context.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/core/dom/node.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
-#include "third_party/blink/renderer/core/frame/scroll_into_view_options.h"
 #include "third_party/blink/renderer/core/svg/svg_svg_element.h"
+#include "third_party/blink/renderer/platform/bindings/script_forbidden_scope.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
 
 namespace blink {
@@ -23,7 +25,7 @@ Node* FindAnchorFromFragment(const String& fragment, Document& doc) {
   // Implement the rule that "" and "top" both mean top of page as in other
   // browsers.
   if (!anchor_node &&
-      (fragment.IsEmpty() || DeprecatedEqualIgnoringCase(fragment, "top")))
+      (fragment.IsEmpty() || EqualIgnoringASCIICase(fragment, "top")))
     return &doc;
 
   return anchor_node;
@@ -32,7 +34,8 @@ Node* FindAnchorFromFragment(const String& fragment, Document& doc) {
 }  // namespace
 
 ElementFragmentAnchor* ElementFragmentAnchor::TryCreate(const KURL& url,
-                                                        LocalFrame& frame) {
+                                                        LocalFrame& frame,
+                                                        bool should_scroll) {
   DCHECK(frame.GetDocument());
   Document& doc = *frame.GetDocument();
 
@@ -66,12 +69,13 @@ ElementFragmentAnchor* ElementFragmentAnchor::TryCreate(const KURL& url,
   doc.SetCSSTarget(target);
 
   if (doc.IsSVGDocument()) {
-    if (SVGSVGElement* svg = ToSVGSVGElementOrNull(doc.documentElement()))
+    if (auto* svg = DynamicTo<SVGSVGElement>(doc.documentElement()))
       svg->SetupInitialView(fragment, target);
   }
 
   if (target) {
-    target->ActivateDisplayLockIfNeeded();
+    target->ActivateDisplayLockIfNeeded(
+        DisplayLockActivationReason::kFragmentNavigation);
     target->DispatchActivateInvisibleEventIfNeeded();
   }
 
@@ -79,6 +83,10 @@ ElementFragmentAnchor* ElementFragmentAnchor::TryCreate(const KURL& url,
     return nullptr;
 
   if (!anchor_node)
+    return nullptr;
+
+  // Element fragment anchors only need to be kept alive if they need scrolling.
+  if (!should_scroll)
     return nullptr;
 
   return MakeGarbageCollected<ElementFragmentAnchor>(*anchor_node, frame);
@@ -149,7 +157,7 @@ void ElementFragmentAnchor::Installed() {
   needs_invoke_ = true;
 }
 
-void ElementFragmentAnchor::DidScroll(ScrollType type) {
+void ElementFragmentAnchor::DidScroll(mojom::blink::ScrollType type) {
   if (!IsExplicitScrollType(type))
     return;
 
@@ -160,7 +168,7 @@ void ElementFragmentAnchor::DidScroll(ScrollType type) {
   needs_invoke_ = false;
 }
 
-void ElementFragmentAnchor::Trace(blink::Visitor* visitor) {
+void ElementFragmentAnchor::Trace(Visitor* visitor) {
   visitor->Trace(anchor_node_);
   visitor->Trace(frame_);
   FragmentAnchor::Trace(visitor);
@@ -200,6 +208,10 @@ void ElementFragmentAnchor::ApplyFocusIfNeeded() {
     frame_->GetDocument()->ClearFocusedElement();
   }
   needs_focus_ = false;
+}
+
+bool ElementFragmentAnchor::Dismiss() {
+  return false;
 }
 
 }  // namespace blink

@@ -1,5 +1,11 @@
 # Quick Start Guide to using BackgroundTaskScheduler
 
+## Overview
+
+This document describes how to schedule a background task in Android using
+BackgroundTaskScheduler API. Although most of the examples are described in
+Java, the exact same API is available in C++ as well.
+
 ## Background
 
 In Android M+ it is encouraged to use `JobScheduler` for all background jobs,
@@ -62,6 +68,13 @@ no arguments.**
 A task must also have a unique ID, and it must be listed in `TaskIds` to ensure
 there is no overlap between different tasks.
 
+The connection between `TaskIds` and the corresponding `BackgroundTask` classes is done by injecting
+a `BackgroundTaskFactory` class in `BackgroundTaskSchedulerFactory`. For the //chrome embedder
+(which is the only one needing the association), the `ChromeBackgroundTaskFactory` [implementation]
+(https://cs.chromium.org/chromium/src/chrome/android/java/src/org/chromium/chrome/browser
+/background_task_scheduler/ChromeBackgroundTaskFactory.java) was created. Anyone that adds a new
+task id to `TaskIds` should add a case in this class to.
+
 ## How to schedule a task
 
 A task is scheduled by creating an object containing information about the task,
@@ -69,25 +82,33 @@ such as when to run it, whether it requires battery, and other similar
 constraints. This object is called `TaskInfo` and has a builder you can use
 to set all the relevant fields.
 
-There are two main types of tasks; one-off tasks and periodic tasks. One-off
+There are three main types of tasks; one-off tasks, periodic tasks, and exact timing info tasks. One-off
 tasks are only executed once, whereas periodic tasks are executed once per
-a defined interval.
+a defined interval. The exact info tasks are triggered at the exact scheduled time.
+
+There are two steps in the process of creating a TaskInfo:
+
+ 1. the specific timing info is created; there are three objects available - `OneOffInfo`,
+ `PeriodicInfo`, and `ExactInfo`; each one of these objects has its own builder;
+ 2. the task info is created using the `createTask` method; other parameters can be set afterwards.
 
 As an example for how to create a one-off task that executes in 200 minutes,
 you can do the following:
 
 ```java
-TaskInfo.createOneOffTask(TaskIds.YOUR_FEATURE,
-                            MyBackgroundTask.class,
-                            TimeUnit.MINUTES.toMillis(200)).build();
+TaskInfo.TimingInfo oneOffInfo = TaskInfo.OneOffInfo.create()
+                                    .setWindowEndTimeMs(TimeUnit.MINUTES.toMillis(200)).build();
+TaskInfo taskInfo = TaskInfo.createTask(TaskIds.YOUR_FEATURE,
+                            oneOffInfo).build();
 ```
 
 For a periodic task that executes every 200 minutes, you can call:
 
 ```java
-TaskInfo.createPeriodicTask(TaskIds.YOUR_FEATURE,
-                              MyBackgroundTask.class,
-                              TimeUnit.MINUTES.toMillis(200)).build();
+TaskInfo.TimingInfo periodicInfo = TaskInfo.PeriodicInfo.create()
+                                    .setIntervalMs(TimeUnit.MINUTES.toMillis(200)).build();
+TaskInfo taskInfo = TaskInfo.createTask(TaskIds.YOUR_FEATURE,
+                            periodicInfo).build();
 ```
 
 Typically you will also set other required parameters such as what type of
@@ -95,12 +116,11 @@ network conditions are necessary and whether the task requires the device to
 be charging. They can be set on the builder like this:
 
 ```java
-TaskInfo.createOneOffTask(TaskIds.YOUR_FEATURE,
-                            MyBackgroundTask.class,
-                            /* windowStartTimeMs= */
-                            TimeUnit.MINUTES.toMillis(100)
-                            /* windowEndTimeMs= */
-                            TimeUnit.MINUTES.toMillis(200))
+TaskInfo.TimingInfo oneOffInfo = TaskInfo.OneOffInfo.create()
+                                    .setWindowStartTimeMs(TimeUnit.MINUTES.toMillis(100))
+                                    .setWindowEndTimeMs(TimeUnit.MINUTES.toMillis(200)).build();
+TaskInfo taskInfo = TaskInfo.createTask(TaskIds.YOUR_FEATURE,
+                            oneOffInfo)
                           .setRequiresCharging(true)
                           .setRequiredNetworkType(
                             TaskInfo.NETWORK_TYPE_UNMETERED)
@@ -137,10 +157,11 @@ Bundle myBundle = new Bundle();
 myBundle.putString("foo", "bar");
 myBundle.putLong("number", 1337L);
 
-TaskInfo.createOneOffTask(TaskIds.YOUR_FEATURE,
-                            MyBackgroundTask.class,
-                            TimeUnit.MINUTES.toMillis(100)
-                            TimeUnit.MINUTES.toMillis(200))
+TaskInfo.TimingInfo oneOffInfo = TaskInfo.OneOffInfo.create()
+                                    .setWindowStartTimeMs(TimeUnit.MINUTES.toMillis(100))
+                                    .setWindowEndTimeMs(TimeUnit.MINUTES.toMillis(200)).build();
+TaskInfo taskInfo = TaskInfo.createTask(TaskIds.YOUR_FEATURE,
+                            oneOffInfo)
                           .setExtras(myBundle)
                           .build();
 ```
@@ -158,13 +179,39 @@ boolean onStartTask(Context context,
   ...
 }
 ```
+For native tasks, the extras are packed into a std::string, It's the caller's
+responsibility to pack and unpack the task extras correctly into the std::string.
+We recommend using a proto for consistency.
+
+## Performing actions over TimingInfo objects
+
+To perform actions over the `TimingInfo` objects, based on their implementation, the Visitor design
+pattern was used. A public interface is exposed for this: `TimingInfoVisitor`. To use this
+interface, someone should create a class that would look like this:
+
+```java
+class ImplementedActionVisitor implements TaskInfo.TimingInfoVisitor {
+  @Override
+  public void visit(TaskInfo.OneOffInfo oneOffInfo) { ... }
+
+  @Override
+  public void visit(TaskInfo.PeriodicInfo periodicInfo) { ... }
+}
+```
+
+To use this visitor, someone would make the following calls:
+
+```java
+ImplementedActionVisitor visitor = new ImplementedActionVisitor();
+myTimingInfo.accept(visitor);
+```
 
 ## Loading Native parts
 
 Some of the tasks running in the background require native parts of the browser
 to be initialized. In order to simplify implementation of such tasks, we provide
 a base `NativeBackgroundTask`
-[implementation](https://cs.chromium.org/chromium/src/chrome/android/java/src/org/chromium/chrome/browser/background_task_scheduler/NativeBackgroundTask.java)
+[implementation](https://cs.chromium.org/chromium/src/components/background_task_scheduler/android/java/src/org/chromium/components/background_task_scheduler/NativeBackgroundTask.java)
 in the browser layer. It requires extending classes to implement 4 methods:
 
  * `onStartTaskBeforeNativeLoaded(...)` where the background task can decide
@@ -182,6 +229,15 @@ While in a normal execution, both `onStart...` methods are called, only one of
 the stopping methods will be triggered, depending on whether the native parts of
 the browser are loaded at the time the underlying scheduler decides to stop the
 task.
+
+## Launching Browser process
+
+After the advent of servicfication in chrome, we have the option of launching a
+background task in a reduced service manager only mode without the need to
+launch the full browser process. In order to enable this, you have to override
+`NativeBackgroundTask#supportsServiceManagerOnly` and return true or false
+depending on whether you want to launch service-manager only mode or full
+browser.
 
 ## Background processing
 

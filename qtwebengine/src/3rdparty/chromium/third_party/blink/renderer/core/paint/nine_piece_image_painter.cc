@@ -99,14 +99,14 @@ void PaintPieces(GraphicsContext& context,
         // Since there is no way for the developer to specify decode behavior,
         // use kSync by default.
         context.DrawImage(image, Image::kSyncDecode, draw_info.destination,
-                          &draw_info.source);
+                          &draw_info.source, style.HasFilterInducingProperty());
       } else if (draw_info.tile_rule.horizontal == kStretchImageRule &&
                  draw_info.tile_rule.vertical == kStretchImageRule) {
         // Just do a scale.
         // Since there is no way for the developer to specify decode behavior,
         // use kSync by default.
         context.DrawImage(image, Image::kSyncDecode, draw_info.destination,
-                          &draw_info.source);
+                          &draw_info.source, style.HasFilterInducingProperty());
       } else {
         // TODO(cavalcantii): see crbug.com/662513.
         base::Optional<TileParameters> h_tile = ComputeTileParameters(
@@ -177,10 +177,13 @@ bool NinePieceImagePainter::Paint(GraphicsContext& graphics_context,
   // is one. For generated images, the actual image data (gradient stops, etc.)
   // are scaled to effective zoom instead so we must take care not to cause
   // scale of them again.
-  IntSize image_size = RoundedIntSize(style_image->ImageSize(
-      document, 1, border_image_rect.size.ToLayoutSize()));
+  IntSize image_size = RoundedIntSize(
+      style_image->ImageSize(document, 1, border_image_rect.size.ToLayoutSize(),
+                             kRespectImageOrientation));
   scoped_refptr<Image> image =
       style_image->GetImage(observer, document, style, FloatSize(image_size));
+  if (!image)
+    return true;
 
   TRACE_EVENT1(TRACE_DISABLED_BY_DEFAULT("devtools.timeline"), "PaintImage",
                "data",

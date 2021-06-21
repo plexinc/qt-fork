@@ -11,7 +11,7 @@
 #include "ui/display/mojom/display_snapshot.mojom.h"
 #include "ui/display/types/display_mode.h"
 #include "ui/display/types/display_snapshot.h"
-#include "ui/gfx/geometry/mojo/geometry_struct_traits.h"
+#include "ui/gfx/geometry/mojom/geometry_mojom_traits.h"
 #include "ui/gfx/ipc/color/gfx_param_traits.h"
 
 namespace mojo {
@@ -39,6 +39,11 @@ struct StructTraits<display::mojom::DisplaySnapshotDataView,
     return snapshot->type();
   }
 
+  static display::PanelOrientation panel_orientation(
+      const std::unique_ptr<display::DisplaySnapshot>& snapshot) {
+    return snapshot->panel_orientation();
+  }
+
   static bool is_aspect_preserving_scaling(
       const std::unique_ptr<display::DisplaySnapshot>& snapshot) {
     return snapshot->is_aspect_preserving_scaling();
@@ -47,6 +52,11 @@ struct StructTraits<display::mojom::DisplaySnapshotDataView,
   static bool has_overscan(
       const std::unique_ptr<display::DisplaySnapshot>& snapshot) {
     return snapshot->has_overscan();
+  }
+
+  static display::PrivacyScreenState privacy_screen_state(
+      const std::unique_ptr<display::DisplaySnapshot>& snapshot) {
+    return snapshot->privacy_screen_state();
   }
 
   static bool has_color_correction_matrix(
@@ -62,6 +72,11 @@ struct StructTraits<display::mojom::DisplaySnapshotDataView,
   static const gfx::ColorSpace& color_space(
       const std::unique_ptr<display::DisplaySnapshot>& snapshot) {
     return snapshot->color_space();
+  }
+
+  static uint32_t bits_per_channel(
+      const std::unique_ptr<display::DisplaySnapshot>& snapshot) {
+    return snapshot->bits_per_channel();
   }
 
   static std::string display_name(

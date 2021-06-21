@@ -6,6 +6,7 @@
 
 #include "ui/gl/gl_utils.h"
 
+#include "base/debug/alias.h"
 #include "base/logging.h"
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_features.h"
@@ -14,6 +15,10 @@
 #if defined(OS_ANDROID)
 #include "base/posix/eintr_wrapper.h"
 #include "third_party/libsync/src/include/sync/sync.h"
+#endif
+
+#if defined(OS_WIN)
+#include "ui/gl/direct_composition_surface_win.h"
 #endif
 
 namespace gl {
@@ -25,6 +30,28 @@ void Crash() {
   // Good bye, cruel world.
   volatile int* it_s_the_end_of_the_world_as_we_know_it = nullptr;
   *it_s_the_end_of_the_world_as_we_know_it = 0xdead;
+}
+
+// Used by chrome://gpuhang.
+void Hang() {
+  DVLOG(1) << "GPU: Simulating GPU hang";
+  int do_not_delete_me = 0;
+  for (;;) {
+    // Do not sleep here. The GPU watchdog timer tracks
+    // the amount of user time this thread is using and
+    // it doesn't use much while calling Sleep.
+
+    // The following are multiple mechanisms to prevent compilers from
+    // optimizing out the endless loop. Hope at least one of them works.
+    base::debug::Alias(&do_not_delete_me);
+    ++do_not_delete_me;
+
+#ifdef _MSC_VER
+    _ReadWriteBarrier();
+#else
+    __asm__ volatile("");
+#endif
+  }
 }
 
 #if defined(OS_ANDROID)
@@ -57,4 +84,11 @@ bool UsePassthroughCommandDecoder(const base::CommandLine* command_line) {
         features::kDefaultPassthroughCommandDecoder);
   }
 }
+
+#if defined(OS_WIN)
+// This function is thread safe.
+bool AreOverlaysSupportedWin() {
+  return gl::DirectCompositionSurfaceWin::AreOverlaysSupported();
 }
+#endif
+}  // namespace gl

@@ -7,6 +7,10 @@
 
 #include "third_party/blink/renderer/platform/heap/thread_state.h"
 
+#if defined(LEAK_SANITIZER)
+#include "third_party/blink/renderer/platform/wtf/leak_annotations.h"
+#endif
+
 namespace blink {
 
 // The NoAllocationScope class is used in debug mode to catch unwanted
@@ -43,39 +47,6 @@ class ThreadState::SweepForbiddenScope final {
   ThreadState* const state_;
 };
 
-// Used to denote when access to unmarked objects is allowed but we shouldn't
-// resurrect it by making new references (e.g. during weak processing and pre
-// finalizer).
-class ThreadState::ObjectResurrectionForbiddenScope final {
-  STACK_ALLOCATED();
-  DISALLOW_COPY_AND_ASSIGN(ObjectResurrectionForbiddenScope);
-
- public:
-  explicit ObjectResurrectionForbiddenScope(ThreadState* state)
-      : state_(state) {
-    state_->EnterObjectResurrectionForbiddenScope();
-  }
-  ~ObjectResurrectionForbiddenScope() {
-    state_->LeaveObjectResurrectionForbiddenScope();
-  }
-
- private:
-  ThreadState* const state_;
-};
-
-class ThreadState::MainThreadGCForbiddenScope final {
-  STACK_ALLOCATED();
-
- public:
-  MainThreadGCForbiddenScope() : thread_state_(ThreadState::MainThreadState()) {
-    thread_state_->EnterGCForbiddenScope();
-  }
-  ~MainThreadGCForbiddenScope() { thread_state_->LeaveGCForbiddenScope(); }
-
- private:
-  ThreadState* const thread_state_;
-};
-
 class ThreadState::GCForbiddenScope final {
   STACK_ALLOCATED();
 
@@ -103,9 +74,54 @@ class ThreadState::AtomicPauseScope final {
 
  private:
   ThreadState* const thread_state_;
-  ScriptForbiddenScope script_forbidden_scope;
   GCForbiddenScope gc_forbidden_scope;
 };
+
+class ThreadState::HeapPointersOnStackScope final {
+  STACK_ALLOCATED();
+
+ public:
+  explicit HeapPointersOnStackScope(ThreadState* state) : state_(state) {
+    DCHECK(!state_->heap_pointers_on_stack_forced_);
+    state_->heap_pointers_on_stack_forced_ = true;
+  }
+  ~HeapPointersOnStackScope() {
+    DCHECK(state_->heap_pointers_on_stack_forced_);
+    state_->heap_pointers_on_stack_forced_ = false;
+  }
+
+ private:
+  ThreadState* const state_;
+};
+
+#if defined(LEAK_SANITIZER)
+class ThreadState::LsanDisabledScope final {
+  STACK_ALLOCATED();
+  DISALLOW_COPY_AND_ASSIGN(LsanDisabledScope);
+
+ public:
+  explicit LsanDisabledScope(ThreadState* thread_state)
+      : thread_state_(thread_state) {
+    __lsan_disable();
+    if (thread_state_)
+      thread_state_->EnterStaticReferenceRegistrationDisabledScope();
+  }
+
+  ~LsanDisabledScope() {
+    __lsan_enable();
+    if (thread_state_)
+      thread_state_->LeaveStaticReferenceRegistrationDisabledScope();
+  }
+
+ private:
+  ThreadState* const thread_state_;
+};
+
+#define LEAK_SANITIZER_DISABLED_SCOPE \
+  ThreadState::LsanDisabledScope lsan_disabled_scope(ThreadState::Current())
+#else
+#define LEAK_SANITIZER_DISABLED_SCOPE
+#endif
 
 }  // namespace blink
 

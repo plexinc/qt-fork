@@ -1,5 +1,5 @@
 //
-// Copyright(c) 2014 The ANGLE Project Authors. All rights reserved.
+// Copyright 2014 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -16,19 +16,24 @@
 
 #include <mutex>
 
+namespace angle
+{
+using GlobalMutex = std::recursive_mutex;
+}  // namespace angle
+
 namespace egl
 {
 class Debug;
 class Thread;
 
-std::mutex &GetGlobalMutex();
+angle::GlobalMutex &GetGlobalMutex();
 Thread *GetCurrentThread();
 Debug *GetDebug();
 void SetContextCurrent(Thread *thread, gl::Context *context);
 }  // namespace egl
 
 #define ANGLE_SCOPED_GLOBAL_LOCK() \
-    std::lock_guard<std::mutex> globalMutexLock(egl::GetGlobalMutex())
+    std::lock_guard<angle::GlobalMutex> globalMutexLock(egl::GetGlobalMutex())
 
 namespace gl
 {
@@ -56,6 +61,11 @@ ANGLE_INLINE Context *GetValidGlobalContext()
     return thread->getValidContext();
 }
 
+ANGLE_INLINE std::unique_lock<angle::GlobalMutex> GetShareGroupLock(const Context *context)
+{
+    return context->isShared() ? std::unique_lock<angle::GlobalMutex>(egl::GetGlobalMutex())
+                               : std::unique_lock<angle::GlobalMutex>();
+}
 }  // namespace gl
 
 #endif  // LIBGLESV2_GLOBALSTATE_H_

@@ -2,11 +2,10 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("//build/config/jumbo.gni")
 import("../../../pdfium.gni")
 import("../../../testing/test.gni")
 
-jumbo_source_set("edit") {
+source_set("edit") {
   sources = [
     "cpdf_contentstream_write_utils.cpp",
     "cpdf_contentstream_write_utils.h",
@@ -24,7 +23,6 @@ jumbo_source_set("edit") {
     "../../../constants",
     "../../../third_party:skia_shared",
     "../../fxcrt",
-    "../../fxge",
     "../font",
     "../page",
     "../parser",
@@ -33,12 +31,9 @@ jumbo_source_set("edit") {
 }
 
 pdfium_unittest_source_set("unittests") {
-  sources = [
-    "cpdf_pagecontentgenerator_unittest.cpp",
-  ]
+  sources = [ "cpdf_pagecontentgenerator_unittest.cpp" ]
   deps = [
     ":edit",
-    "../",
     "../../fxge",
     "../font",
     "../page",
@@ -49,8 +44,6 @@ pdfium_unittest_source_set("unittests") {
 }
 
 pdfium_embeddertest_source_set("embeddertests") {
-  sources = [
-    "cpdf_creator_embeddertest.cpp",
-  ]
+  sources = [ "cpdf_creator_embeddertest.cpp" ]
   pdfium_root_dir = "../../../"
 }

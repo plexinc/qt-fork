@@ -19,7 +19,6 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/metrics/histogram_base.h"
 #include "base/metrics/histogram_samples.h"
@@ -30,7 +29,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "components/favicon_base/favicon_usage_data.h"
@@ -42,6 +41,7 @@
 #include "components/history/core/browser/in_memory_database.h"
 #include "components/history/core/browser/in_memory_history_backend.h"
 #include "components/history/core/browser/keyword_search_term.h"
+#include "components/history/core/browser/sync/typed_url_sync_bridge.h"
 #include "components/history/core/browser/visit_delegate.h"
 #include "components/history/core/test/database_test_utils.h"
 #include "components/history/core/test/history_client_fake_bookmarks.h"
@@ -75,10 +75,10 @@ const gfx::Size kTinySize = gfx::Size(kTinyEdgeSize, kTinyEdgeSize);
 const gfx::Size kSmallSize = gfx::Size(kSmallEdgeSize, kSmallEdgeSize);
 const gfx::Size kLargeSize = gfx::Size(kLargeEdgeSize, kLargeEdgeSize);
 
-typedef base::Callback<void(const history::URLRow*,
-                            const history::URLRow*,
-                            const history::URLRow*)>
-    SimulateNotificationCallback;
+using SimulateNotificationCallback =
+    base::RepeatingCallback<void(const history::URLRow*,
+                                 const history::URLRow*,
+                                 const history::URLRow*)>;
 
 void SimulateNotificationURLVisited(history::HistoryServiceObserver* observer,
                                     const history::URLRow* row1,
@@ -241,6 +241,7 @@ class HistoryBackendTestBase : public testing::Test {
     mem_backend_->OnKeywordSearchTermDeleted(nullptr, url_id);
   }
 
+  base::test::TaskEnvironment task_environment_;
   history::HistoryClientFakeBookmarks history_client_;
   scoped_refptr<HistoryBackend> backend_;  // Will be NULL on init failure.
   std::unique_ptr<InMemoryHistoryBackend> mem_backend_;
@@ -266,7 +267,7 @@ class HistoryBackendTestBase : public testing::Test {
       backend_->Closing();
     backend_ = nullptr;
     mem_backend_.reset();
-    base::DeleteFile(test_dir_, true);
+    base::DeleteFileRecursively(test_dir_);
     base::RunLoop().RunUntilIdle();
     history_client_.ClearAllBookmarks();
   }
@@ -282,7 +283,6 @@ class HistoryBackendTestBase : public testing::Test {
   URLsModifiedList urls_modified_notifications_;
   URLsDeletedList urls_deleted_notifications_;
 
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
   base::FilePath test_dir_;
 
   DISALLOW_COPY_AND_ASSIGN(HistoryBackendTestBase);
@@ -1662,7 +1662,7 @@ TEST_F(HistoryBackendTest, MigrationVisitSource) {
   // Copy history database file to current directory so that it will be deleted
   // in Teardown.
   base::FilePath new_history_path(test_dir());
-  base::DeleteFile(new_history_path, true);
+  base::DeleteFileRecursively(new_history_path);
   base::CreateDirectory(new_history_path);
   base::FilePath new_history_file = new_history_path.Append(kHistoryFilename);
   ASSERT_TRUE(base::CopyFile(old_history_path, new_history_file));
@@ -3354,7 +3354,7 @@ TEST_F(HistoryBackendTest, MigrationVisitDuration) {
   // Copy history database file to current directory so that it will be deleted
   // in Teardown.
   base::FilePath new_history_path(test_dir());
-  base::DeleteFile(new_history_path, true);
+  base::DeleteFileRecursively(new_history_path);
   base::CreateDirectory(new_history_path);
   base::FilePath new_history_file = new_history_path.Append(kHistoryFilename);
   ASSERT_TRUE(base::CopyFile(old_history, new_history_file));
@@ -3576,28 +3576,6 @@ TEST_F(HistoryBackendTest, DeleteMatchingUrlsForKeyword) {
   EXPECT_TRUE(backend_->db()->GetKeywordSearchTermRow(url1_id, nullptr));
   EXPECT_FALSE(backend_->db()->GetKeywordSearchTermRow(url2_id, nullptr));
   EXPECT_FALSE(backend_->db()->GetKeywordSearchTermRow(url3_id, nullptr));
-}
-
-// Simple test that removes a bookmark. This test exercises the code paths in
-// History that block till bookmark bar model is loaded.
-TEST_F(HistoryBackendTest, RemoveNotification) {
-  base::ScopedTempDir scoped_temp_dir;
-  EXPECT_TRUE(scoped_temp_dir.CreateUniqueTempDirUnderPath(test_dir()));
-
-  // Add a URL.
-  GURL url("http://www.google.com");
-  std::unique_ptr<HistoryService> service(
-      new HistoryService(base::WrapUnique(new HistoryClientFakeBookmarks),
-                         std::unique_ptr<history::VisitDelegate>()));
-  EXPECT_TRUE(service->Init(
-      TestHistoryDatabaseParamsForPath(scoped_temp_dir.GetPath())));
-
-  service->AddPage(url, base::Time::Now(), nullptr, 1, GURL(), RedirectList(),
-                   ui::PAGE_TRANSITION_TYPED, SOURCE_BROWSED, false);
-
-  // This won't actually delete the URL, rather it'll empty out the visits.
-  // This triggers blocking on the BookmarkModel.
-  service->DeleteURL(url);
 }
 
 // Test DeleteFTSIndexDatabases deletes expected files.
@@ -3838,12 +3816,12 @@ void InMemoryHistoryBackendTest::TestAddingAndChangingURLRows(
 }
 
 TEST_F(InMemoryHistoryBackendTest, OnURLsModified) {
-  TestAddingAndChangingURLRows(base::Bind(
+  TestAddingAndChangingURLRows(base::BindRepeating(
       &SimulateNotificationURLsModified, base::Unretained(mem_backend_.get())));
 }
 
 TEST_F(InMemoryHistoryBackendTest, OnURLsVisisted) {
-  TestAddingAndChangingURLRows(base::Bind(
+  TestAddingAndChangingURLRows(base::BindRepeating(
       &SimulateNotificationURLVisited, base::Unretained(mem_backend_.get())));
 }
 

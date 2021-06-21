@@ -23,14 +23,14 @@ namespace dawn_native { namespace opengl {
 
     class Device;
 
-    class SwapChain : public SwapChainBase {
+    class SwapChain : public OldSwapChainBase {
       public:
         SwapChain(Device* device, const SwapChainDescriptor* descriptor);
         ~SwapChain();
 
       protected:
         TextureBase* GetNextTextureImpl(const TextureDescriptor* descriptor) override;
-        void OnBeforePresent(TextureBase* texture) override;
+        MaybeError OnBeforePresent(TextureBase* texture) override;
     };
 
 }}  // namespace dawn_native::opengl

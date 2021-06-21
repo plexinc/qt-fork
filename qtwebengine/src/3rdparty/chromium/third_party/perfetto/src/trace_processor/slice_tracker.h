@@ -19,7 +19,8 @@
 
 #include <stdint.h>
 
-#include "src/trace_processor/trace_storage.h"
+#include "src/trace_processor/args_tracker.h"
+#include "src/trace_processor/storage/trace_storage.h"
 
 namespace perfetto {
 namespace trace_processor {
@@ -29,84 +30,72 @@ class TraceProcessorContext;
 
 class SliceTracker {
  public:
-  using SetArgsCallback = std::function<void(ArgsTracker*, RowId row_id)>;
+  using SetArgsCallback = std::function<void(ArgsTracker::BoundInserter*)>;
 
   explicit SliceTracker(TraceProcessorContext*);
   virtual ~SliceTracker();
 
-  base::Optional<uint32_t> BeginAndroid(int64_t timestamp,
-                                        uint32_t ftrace_tid,
-                                        uint32_t atrace_tgid,
-                                        StringId category,
-                                        StringId name);
-
   // virtual for testing
   virtual base::Optional<uint32_t> Begin(
       int64_t timestamp,
-      int64_t ref,
-      RefType ref_type,
+      TrackId track_id,
       StringId category,
       StringId name,
       SetArgsCallback args_callback = SetArgsCallback());
 
+  void BeginGpu(tables::GpuSliceTable::Row row,
+                SetArgsCallback args_callback = SetArgsCallback());
+
   // virtual for testing
   virtual base::Optional<uint32_t> Scoped(
       int64_t timestamp,
-      int64_t ref,
-      RefType ref_type,
+      TrackId track_id,
       StringId category,
       StringId name,
       int64_t duration,
       SetArgsCallback args_callback = SetArgsCallback());
 
-  base::Optional<uint32_t> EndAndroid(int64_t timestamp,
-                                      uint32_t ftrace_tid,
-                                      uint32_t atrace_tgid);
+  void ScopedGpu(const tables::GpuSliceTable::Row& row,
+                 SetArgsCallback args_callback = SetArgsCallback());
 
   // virtual for testing
   virtual base::Optional<uint32_t> End(
       int64_t timestamp,
-      int64_t ref,
-      RefType ref_type,
+      TrackId track_id,
       StringId opt_category = {},
       StringId opt_name = {},
+      SetArgsCallback args_callback = SetArgsCallback());
+
+  // TODO(lalitm): eventually this method should become End and End should
+  // be renamed EndChrome.
+  base::Optional<SliceId> EndGpu(
+      int64_t ts,
+      TrackId track_id,
       SetArgsCallback args_callback = SetArgsCallback());
 
   void FlushPendingSlices();
 
  private:
   using SlicesStack = std::vector<std::pair<uint32_t /* row */, ArgsTracker>>;
-
-  struct StackMapKey {
-    int64_t ref;
-    RefType type;
-
-    bool operator==(const StackMapKey& rhs) const {
-      return std::tie(ref, type) == std::tie(rhs.ref, rhs.type);
-    }
-  };
-
-  struct StackMapHash {
-    size_t operator()(const StackMapKey& p) const {
-      base::Hash hash;
-      hash.Update(p.ref);
-      hash.Update(p.type);
-      return static_cast<size_t>(hash.digest());
-    }
-  };
-
-  using StackMap = std::unordered_map<StackMapKey, SlicesStack, StackMapHash>;
+  using StackMap = std::unordered_map<TrackId, SlicesStack>;
 
   base::Optional<uint32_t> StartSlice(int64_t timestamp,
-                                      int64_t duration,
-                                      int64_t ref,
-                                      RefType ref_type,
-                                      StringId category,
-                                      StringId name,
-                                      SetArgsCallback args_callback);
-  base::Optional<uint32_t> CompleteSlice(StackMapKey stack_key);
+                                      TrackId track_id,
+                                      SetArgsCallback args_callback,
+                                      std::function<SliceId()> inserter);
+
+  base::Optional<SliceId> CompleteSlice(
+      int64_t timestamp,
+      TrackId track_id,
+      SetArgsCallback args_callback,
+      std::function<base::Optional<uint32_t>(const SlicesStack&)> finder);
 
   void MaybeCloseStack(int64_t end_ts, SlicesStack*);
+
+  base::Optional<uint32_t> MatchingIncompleteSliceIndex(
+      const SlicesStack& stack,
+      StringId name,
+      StringId category);
   int64_t GetStackHash(const SlicesStack&);
 
   // Timestamp of the previous event. Used to discard events arriving out
@@ -115,7 +104,6 @@ class SliceTracker {
 
   TraceProcessorContext* const context_;
   StackMap stacks_;
-  std::unordered_map<uint32_t, uint32_t> ftrace_to_atrace_tgid_;
 };
 
 }  // namespace trace_processor

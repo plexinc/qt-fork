@@ -31,6 +31,7 @@
 import fnmatch
 import optparse
 import re
+import sys
 
 from blinkpy.common.path_finder import PathFinder
 
@@ -39,6 +40,7 @@ class PortFactory(object):
     PORT_CLASSES = (
         'android.AndroidPort',
         'fuchsia.FuchsiaPort',
+        'ios.IOSPort',
         'linux.LinuxPort',
         'mac.MacPort',
         'mock_drt.MockDRTPort',
@@ -128,6 +130,30 @@ def configuration_options():
                              help='Set the configuration to Release'),
         optparse.make_option('--no-xvfb', action='store_false', dest='use_xvfb', default=True,
                              help='Do not run tests with Xvfb'),
+    ]
+
+
+def wpt_options():
+    return [
+        optparse.make_option('--no-manifest-update', dest='manifest_update',
+                             action='store_false', default=True,
+                             help=('Do not update the web-platform-tests '
+                                   'MANIFEST.json unless it does not exist.')),
+    ]
+
+
+def python_server_options():
+    # TODO(suzukikeita): Remove this once all the servers run on python3 everywhere.
+    return [
+        optparse.make_option(
+            '--python-executable',
+            default=sys.executable,
+            help=('The path to the python executable to run the server in. '
+                  'Use this to run servers on the speicifed python version. '
+                  'For example, use this to run the server on python 3 while '
+                  'other components (such as python scripts) run on python 2. '
+                  'Currently, only pywebsocket supports this option. '
+                  'Default is set to sys.executable')),
     ]
 
 

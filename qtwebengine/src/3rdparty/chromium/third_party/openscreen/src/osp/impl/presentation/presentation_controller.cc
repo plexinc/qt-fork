@@ -15,10 +15,10 @@
 #include "osp/public/message_demuxer.h"
 #include "osp/public/network_service_manager.h"
 #include "osp/public/protocol_connection_client.h"
-#include "platform/api/logging.h"
+#include "util/logging.h"
 
 namespace openscreen {
-namespace presentation {
+namespace osp {
 
 #define DECLARE_MSG_REQUEST_RESPONSE(base_name)                        \
   using RequestMsgType = msgs::Presentation##base_name##Request;       \
@@ -418,7 +418,7 @@ void swap(Controller::ConnectRequest& a, Controller::ConnectRequest& b) {
   swap(a.controller_, b.controller_);
 }
 
-Controller::Controller(platform::ClockNowFunctionPtr now_function) {
+Controller::Controller(ClockNowFunctionPtr now_function) {
   availability_requester_ =
       std::make_unique<UrlAvailabilityRequester>(now_function);
   connection_manager_ =
@@ -428,9 +428,9 @@ Controller::Controller(platform::ClockNowFunctionPtr now_function) {
   const std::vector<ServiceInfo>& receivers =
       NetworkServiceManager::Get()->GetMdnsServiceListener()->GetReceivers();
   for (const auto& info : receivers) {
-    // TODO(issue/33): Replace service_id with endpoint_id when endpoint_id is
-    // more than just an IPEndpoint counter and actually relates to a device's
-    // identity.
+    // TODO(crbug.com/openscreen/33): Replace service_id with endpoint_id when
+    // endpoint_id is more than just an IPEndpoint counter and actually relates
+    // to a device's identity.
     receiver_endpoints_.emplace(info.service_id, info.v4_endpoint.port
                                                      ? info.v4_endpoint
                                                      : info.v6_endpoint);
@@ -621,7 +621,7 @@ class Controller::TerminationListener final
                                   msgs::Type message_type,
                                   const uint8_t* buffer,
                                   size_t buffer_size,
-                                  platform::Clock::time_point now) override;
+                                  Clock::time_point now) override;
 
  private:
   Controller* const controller_;
@@ -650,7 +650,7 @@ ErrorOr<size_t> Controller::TerminationListener::OnStreamMessage(
     msgs::Type message_type,
     const uint8_t* buffer,
     size_t buffer_size,
-    platform::Clock::time_point now) {
+    Clock::time_point now) {
   OSP_CHECK_EQ(static_cast<int>(msgs::Type::kPresentationTerminationEvent),
                static_cast<int>(message_type));
   msgs::PresentationTerminationEvent event;
@@ -783,5 +783,5 @@ void Controller::OnAllReceiversRemoved() {
   availability_requester_->RemoveAllReceivers();
 }
 
-}  // namespace presentation
+}  // namespace osp
 }  // namespace openscreen

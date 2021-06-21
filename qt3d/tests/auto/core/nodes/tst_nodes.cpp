@@ -26,6 +26,10 @@
 **
 ****************************************************************************/
 
+// TODO Remove in Qt6
+#include <QtCore/qcompilerdetection.h>
+QT_WARNING_DISABLE_DEPRECATED
+
 #include <QtTest/QTest>
 #include <Qt3DCore/qnode.h>
 #include <Qt3DCore/qentity.h>
@@ -40,7 +44,6 @@
 #include <Qt3DCore/qpropertynoderemovedchange.h>
 #include <Qt3DCore/private/qnodecreatedchangegenerator_p.h>
 #include <Qt3DCore/private/qaspectengine_p.h>
-#include <Qt3DCore/private/qscenechange_p.h>
 #include <Qt3DCore/private/qaspectengine_p.h>
 #include <private/qabstractaspect_p.h>
 #include <private/qpostman_p.h>
@@ -50,6 +53,7 @@
 #include <Qt3DCore/private/qcomponent_p.h>
 #include <QSignalSpy>
 #include "testpostmanarbiter.h"
+#include <vector>
 
 class tst_Nodes : public QObject
 {
@@ -113,6 +117,10 @@ private slots:
     void checkTrackedPropertyNamesUpdate();
 
     void checkNodeRemovedFromDirtyListOnDestruction();
+
+    void checkBookkeepingSingleNode();
+    void checkBookkeeping_QVector_OfNode();
+    void checkBookkeeping_stdvector_OfNode();
 };
 
 class ObserverSpy;
@@ -213,7 +221,8 @@ class MyQNode : public Qt3DCore::QNode
 {
     Q_OBJECT
     Q_PROPERTY(QString customProperty READ customProperty WRITE setCustomProperty NOTIFY customPropertyChanged)
-    Q_PROPERTY(MyQNode *nodeProperty READ nodeProperty WRITE setNodeProperty NOTIFY nodePropertyChanged)
+    Q_PROPERTY(Qt3DCore::QNode *nodeProperty READ nodeProperty WRITE setNodeProperty NOTIFY nodePropertyChanged)
+
 public:
     explicit MyQNode(Qt3DCore::QNode *parent = nullptr)
         : QNode(parent)
@@ -253,10 +262,12 @@ public:
         Qt3DCore::QNodePrivate::get(this)->m_hasBackendNode = created;
     }
 
-    MyQNode *nodeProperty() const { return m_nodeProperty; }
+    Qt3DCore::QNode *nodeProperty() const { return m_nodeProperty; }
+
+    const QList<Qt3DCore::QNode *> &attributes() const { return m_attributes; }
 
 public slots:
-    void setNodeProperty(MyQNode *node)
+    void setNodeProperty(Qt3DCore::QNode *node)
     {
         Qt3DCore::QNodePrivate *d = Qt3DCore::QNodePrivate::get(this);
         if (m_nodeProperty == node)
@@ -277,7 +288,7 @@ public slots:
         emit nodePropertyChanged(node);
     }
 
-    void addAttribute(MyQNode *attribute)
+    void addAttribute(Qt3DCore::QNode *attribute)
     {
         Qt3DCore::QNodePrivate *d = Qt3DCore::QNodePrivate::get(this);
         if (!m_attributes.contains(attribute)) {
@@ -297,7 +308,7 @@ public slots:
         }
     }
 
-    void removeAttribute(MyQNode *attribute)
+    void removeAttribute(Qt3DCore::QNode *attribute)
     {
         Qt3DCore::QNodePrivate *d = Qt3DCore::QNodePrivate::get(this);
         d->updateNode(attribute, "attribute", Qt3DCore::PropertyValueRemoved);
@@ -309,12 +320,80 @@ public slots:
 
 signals:
     void customPropertyChanged();
-    void nodePropertyChanged(MyQNode *node);
+    void nodePropertyChanged(Qt3DCore::QNode *node);
 
 protected:
     QString m_customProperty;
-    MyQNode *m_nodeProperty;
-    QVector<MyQNode *> m_attributes;
+    Qt3DCore::QNode *m_nodeProperty;
+    QList<Qt3DCore::QNode *> m_attributes;
+};
+
+
+class MyQNodeVec : public Qt3DCore::QNode
+{
+    Q_OBJECT
+public:
+    explicit MyQNodeVec(Qt3DCore::QNode *parent = nullptr)
+        : QNode(parent)
+    {}
+
+    ~MyQNodeVec()
+    {
+    }
+
+    void setArbiterAndScene(Qt3DCore::QChangeArbiter *arbiter,
+                            Qt3DCore::QScene *scene = nullptr)
+    {
+        Q_ASSERT(arbiter);
+        if (scene)
+            scene->setArbiter(arbiter);
+        Qt3DCore::QNodePrivate::get(this)->setScene(scene);
+        Qt3DCore::QNodePrivate::get(this)->setArbiter(arbiter);
+    }
+
+    void setSimulateBackendCreated(bool created)
+    {
+        Qt3DCore::QNodePrivate::get(this)->m_hasBackendNode = created;
+    }
+
+    const std::vector<Qt3DCore::QNode *> &attributes() const { return m_attributes; }
+
+public slots:
+
+    void addAttribute(Qt3DCore::QNode *attribute)
+    {
+        Qt3DCore::QNodePrivate *d = Qt3DCore::QNodePrivate::get(this);
+        if (std::find(std::begin(m_attributes), std::end(m_attributes), attribute) == std::end(m_attributes)) {
+            m_attributes.push_back(attribute);
+
+            // Ensures proper bookkeeping
+            d->registerDestructionHelper(attribute, &MyQNodeVec::removeAttribute, m_attributes);
+
+            // We need to add it as a child of the current node if it has been declared inline
+            // Or not previously added as a child of the current node so that
+            // 1) The backend gets notified about it's creation
+            // 2) When the current node is destroyed, it gets destroyed as well
+            if (!attribute->parent())
+                attribute->setParent(this);
+
+            d->update();
+        }
+    }
+
+    void removeAttribute(Qt3DCore::QNode *attribute)
+    {
+        Qt3DCore::QNodePrivate *d = Qt3DCore::QNodePrivate::get(this);
+        d->update();
+
+        m_attributes.erase(std::remove(m_attributes.begin(),
+                                       m_attributes.end(),
+                                       attribute), m_attributes.end());
+        // Remove bookkeeping connection
+        d->unregisterDestructionHelper(attribute);
+    }
+
+protected:
+    std::vector<Qt3DCore::QNode *> m_attributes;
 };
 
 class MyQEntity : public Qt3DCore::QEntity
@@ -371,7 +450,7 @@ public:
             m_attributes.append(attribute);
 
             // Ensures proper bookkeeping
-            d->registerDestructionHelper(attribute, &MyQNode::removeAttribute, m_attributes);
+            d->registerDestructionHelper(attribute, &MyQEntity::removeAttribute, m_attributes);
 
             // We need to add it as a child of the current node if it has been declared inline
             // Or not previously added as a child of the current node so that
@@ -382,6 +461,16 @@ public:
 
             d->updateNode(attribute, "attribute", Qt3DCore::PropertyValueRemoved);
         }
+    }
+
+    void removeAttribute(MyQNode *attribute)
+    {
+        Qt3DCore::QNodePrivate *d = Qt3DCore::QNodePrivate::get(this);
+        d->update();
+
+        m_attributes.removeOne(attribute);
+        // Remove bookkeeping connection
+        d->unregisterDestructionHelper(attribute);
     }
 
 public slots:
@@ -531,7 +620,7 @@ public:
     void syncDirtyFrontEndNode(Qt3DCore::QNode *node, Qt3DCore::QBackendNode *backend,
                                bool firstTime) const override
     {
-        Q_UNUSED(backend)
+        Q_UNUSED(backend);
         auto q = q_func();
         if (firstTime)
             q->allNodes.insert(node->id(), node);
@@ -542,11 +631,10 @@ public:
 
 TestAspect::TestAspect(QObject *parent) : TestAspect(*new TestAspectPrivate, parent)
 {
-    Q_D(TestAspect);
-    d->registerBackendType<Qt3DCore::QEntity, true>(QSharedPointer<TestFunctor>::create(this));
-    d->registerBackendType<MyQEntity, true>(QSharedPointer<TestFunctor>::create(this));
-    d->registerBackendType<MyQNode, true>(QSharedPointer<TestFunctor>::create(this));
-    d->registerBackendType<Qt3DCore::QNode, true>(QSharedPointer<TestFunctor>::create(this));
+    registerBackendType<Qt3DCore::QEntity, true>(QSharedPointer<TestFunctor>::create(this));
+    registerBackendType<MyQEntity, true>(QSharedPointer<TestFunctor>::create(this));
+    registerBackendType<MyQNode, true>(QSharedPointer<TestFunctor>::create(this));
+    registerBackendType<Qt3DCore::QNode, true>(QSharedPointer<TestFunctor>::create(this));
 }
 
 TestAspect::TestAspect(TestAspectPrivate &dd, QObject *parent)
@@ -2205,6 +2293,101 @@ void tst_Nodes::checkNodeRemovedFromDirtyListOnDestruction()
         QCOMPARE(arbiter.events.size(), 1); // childRemoved (no destroyed change since we had no backend)
         QCOMPARE(arbiter.dirtyNodes.size(), 0);
     }
+}
+
+void tst_Nodes::checkBookkeepingSingleNode()
+{
+    // GIVEN
+    MyQNode root;
+
+    // THEN
+    QVERIFY(root.nodeProperty() == nullptr);
+
+    {
+        // WHEN
+        MyQNode node;
+        root.setNodeProperty(&node);
+
+        // THEN
+        QCOMPARE(root.nodeProperty(), &node);
+    }
+    // WHEN -> node destroyed
+
+    // THEN
+    QVERIFY(root.nodeProperty() == nullptr);
+}
+
+
+void tst_Nodes::checkBookkeeping_QVector_OfNode()
+{
+    // GIVEN
+    MyQNode root;
+
+    // THEN
+    QVERIFY(root.attributes().size() == 0);
+
+    {
+        // WHEN
+        MyQNode node1;
+        root.addAttribute(&node1);
+
+        // THEN
+        QVERIFY(root.attributes().size() == 1);
+
+        // WHEN
+        {
+            MyQNode node2;
+            root.addAttribute(&node2);
+
+            // THEN
+            QVERIFY(root.attributes().size() == 2);
+            QCOMPARE(root.attributes().first(), &node1);
+            QCOMPARE(root.attributes().last(), &node2);
+        }
+
+        // THEN
+        QVERIFY(root.attributes().size() == 1);
+        QCOMPARE(root.attributes().first(), &node1);
+    }
+
+    // THEN
+    QVERIFY(root.attributes().size() == 0);
+}
+
+void tst_Nodes::checkBookkeeping_stdvector_OfNode()
+{
+    // GIVEN
+    MyQNodeVec root;
+
+    // THEN
+    QVERIFY(root.attributes().size() == 0U);
+
+    {
+        // WHEN
+        MyQNode node1;
+        root.addAttribute(&node1);
+
+        // THEN
+        QVERIFY(root.attributes().size() == 1U);
+
+        // WHEN
+        {
+            MyQNode node2;
+            root.addAttribute(&node2);
+
+            // THEN
+            QVERIFY(root.attributes().size() == 2U);
+            QCOMPARE(root.attributes().front(), &node1);
+            QCOMPARE(root.attributes().back(), &node2);
+        }
+
+        // THEN
+        QVERIFY(root.attributes().size() == 1U);
+        QCOMPARE(root.attributes().front(), &node1);
+    }
+
+    // THEN
+    QVERIFY(root.attributes().size() == 0U);
 }
 
 

@@ -45,8 +45,6 @@
 #include "private/qqmlengine_p.h"
 #include "private/qqmlglobal_p.h"
 
-#define DEFAULT_TIMER_INTERVAL 16
-
 QT_BEGIN_NAMESPACE
 
 #ifndef QT_NO_THREAD
@@ -418,7 +416,10 @@ void QAbstractAnimationJob::setDirection(Direction direction)
 
 void QAbstractAnimationJob::setLoopCount(int loopCount)
 {
+    if (m_loopCount == loopCount)
+        return;
     m_loopCount = loopCount;
+    updateLoopCount(loopCount);
 }
 
 int QAbstractAnimationJob::totalDuration() const
@@ -641,7 +642,7 @@ void QAbstractAnimationJob::removeAnimationChangeListener(QAnimationJobChangeLis
 
 void QAbstractAnimationJob::debugAnimation(QDebug d) const
 {
-    d << "AbstractAnimationJob(" << hex << (const void *) this << dec << ") state:"
+    d << "AbstractAnimationJob(" << Qt::hex << (const void *) this << Qt::dec << ") state:"
       << m_state << "duration:" << duration();
 }
 

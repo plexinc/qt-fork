@@ -18,9 +18,25 @@ Polymer({
      * Whether error state should be shown.
      * @type {boolean}
      */
-    showError: {
-      type: Boolean,
-      value: false,
-    },
-  }
+    showError: Boolean,
+  },
+
+  /**
+   * @param {boolean} showError
+   * @return {string}
+   * @private
+   */
+  getTitle_(showError) {
+    return this.i18n(
+        showError ? 'simDetectPageErrorTitle' : 'simDetectPageTitle');
+  },
+
+  /**
+   * @param {boolean} showError
+   * @return {string}
+   * @private
+   */
+  getMessage_(showError) {
+    return showError ? this.i18n('simDetectPageErrorMessage') : '';
+  },
 });

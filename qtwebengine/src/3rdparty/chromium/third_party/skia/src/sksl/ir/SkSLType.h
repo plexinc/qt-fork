@@ -33,7 +33,7 @@ public:
         , fType(std::move(type)) {}
 
         const String description() const {
-            return fType->description() + " " + fName + ";";
+            return fType->displayName() + " " + fName + ";";
         }
 
         Modifiers fModifiers;
@@ -49,8 +49,10 @@ public:
         kMatrix_Kind,
         kOther_Kind,
         kSampler_Kind,
+        kSeparateSampler_Kind,
         kScalar_Kind,
         kStruct_Kind,
+        kTexture_Kind,
         kVector_Kind
     };
 
@@ -192,18 +194,36 @@ public:
         fName.fLength = fNameString.size();
     }
 
-    // Create a sampler type.
+    // Create a texture type.
     Type(const char* name, SpvDim_ dimensions, bool isDepth, bool isArrayed, bool isMultisampled,
          bool isSampled)
     : INHERITED(-1, kType_Kind, StringFragment())
     , fNameString(name)
-    , fTypeKind(kSampler_Kind)
+    , fTypeKind(kTexture_Kind)
     , fNumberKind(kNonnumeric_NumberKind)
     , fDimensions(dimensions)
     , fIsDepth(isDepth)
     , fIsArrayed(isArrayed)
     , fIsMultisampled(isMultisampled)
-    , fIsSampled(isSampled) {
+    , fIsSampled(isSampled)
+    {
+        fName.fChars = fNameString.c_str();
+        fName.fLength = fNameString.size();
+    }
+
+    // Create a sampler type.
+    Type(const char* name, const Type& textureType)
+    : INHERITED(-1, kType_Kind, StringFragment())
+    , fNameString(name)
+    , fTypeKind(kSampler_Kind)
+    , fNumberKind(kNonnumeric_NumberKind)
+    , fDimensions(textureType.dimensions())
+    , fIsDepth(textureType.isDepth())
+    , fIsArrayed(textureType.isArrayed())
+    , fIsMultisampled(textureType.isMultisampled())
+    , fIsSampled(textureType.isSampled())
+    , fTextureType(&textureType)
+    {
         fName.fChars = fNameString.c_str();
         fName.fLength = fNameString.size();
     }
@@ -212,7 +232,7 @@ public:
         return fNameString;
     }
 
-    String description() const override {
+    const String displayName() const {
         if (fNameString == "$floatLiteral") {
             return "float";
         }
@@ -221,6 +241,12 @@ public:
         }
         return fNameString;
     }
+
+#ifdef SK_DEBUG
+    String description() const override {
+        return this->displayName();
+    }
+#endif
 
     bool operator==(const Type& other) const {
         return fName == other.fName;
@@ -305,6 +331,15 @@ public:
     }
 
     /**
+     * For texturesamplers, returns the type of texture it samples (e.g., sampler2D has
+     * a texture type of texture2D).
+     */
+    const Type& textureType() const {
+        SkASSERT(fTextureType);
+        return *fTextureType;
+    }
+
+    /**
      * For nullable types, returns the base type, otherwise returns the type itself.
      */
     const Type& nonnullable() const {
@@ -349,27 +384,27 @@ public:
     }
 
     SpvDim_ dimensions() const {
-        SkASSERT(kSampler_Kind == fTypeKind);
+        SkASSERT(kSampler_Kind == fTypeKind || kTexture_Kind == fTypeKind);
         return fDimensions;
     }
 
     bool isDepth() const {
-        SkASSERT(kSampler_Kind == fTypeKind);
+        SkASSERT(kSampler_Kind == fTypeKind || kTexture_Kind == fTypeKind);
         return fIsDepth;
     }
 
     bool isArrayed() const {
-        SkASSERT(kSampler_Kind == fTypeKind);
+        SkASSERT(kSampler_Kind == fTypeKind || kTexture_Kind == fTypeKind);
         return fIsArrayed;
     }
 
     bool isMultisampled() const {
-        SkASSERT(kSampler_Kind == fTypeKind);
+        SkASSERT(kSampler_Kind == fTypeKind || kTexture_Kind == fTypeKind);
         return fIsMultisampled;
     }
 
     bool isSampled() const {
-        SkASSERT(kSampler_Kind == fTypeKind);
+        SkASSERT(kSampler_Kind == fTypeKind || kTexture_Kind == fTypeKind);
         return fIsSampled;
     }
 
@@ -405,6 +440,7 @@ private:
     bool fIsMultisampled = false;
     bool fIsSampled = false;
     bool fHighPrecision = false;
+    const Type* fTextureType = nullptr;
 };
 
 } // namespace

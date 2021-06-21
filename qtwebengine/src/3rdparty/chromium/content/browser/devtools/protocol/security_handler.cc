@@ -12,8 +12,10 @@
 #include "base/base64.h"
 #include "content/browser/devtools/devtools_agent_host_impl.h"
 #include "content/browser/frame_host/render_frame_host_impl.h"
+#include "content/public/browser/back_forward_cache.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
+#include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/security_style_explanations.h"
 #include "content/public/browser/ssl_status.h"
 #include "content/public/browser/web_contents.h"
@@ -30,16 +32,18 @@ using Explanations = protocol::Array<Security::SecurityStateExplanation>;
 namespace {
 
 std::string SecurityStyleToProtocolSecurityState(
-    blink::WebSecurityStyle security_style) {
+    blink::SecurityStyle security_style) {
   switch (security_style) {
-    case blink::kWebSecurityStyleUnknown:
+    case blink::SecurityStyle::kUnknown:
       return Security::SecurityStateEnum::Unknown;
-    case blink::kWebSecurityStyleNeutral:
+    case blink::SecurityStyle::kNeutral:
       return Security::SecurityStateEnum::Neutral;
-    case blink::kWebSecurityStyleInsecure:
+    case blink::SecurityStyle::kInsecure:
       return Security::SecurityStateEnum::Insecure;
-    case blink::kWebSecurityStyleSecure:
+    case blink::SecurityStyle::kSecure:
       return Security::SecurityStateEnum::Secure;
+    case blink::SecurityStyle::kInsecureBroken:
+      return Security::SecurityStateEnum::InsecureBroken;
     default:
       NOTREACHED();
       return Security::SecurityStateEnum::Unknown;
@@ -147,7 +151,7 @@ void SecurityHandler::DidChangeVisibleSecurityState() {
     return;
 
   SecurityStyleExplanations security_style_explanations;
-  blink::WebSecurityStyle security_style =
+  blink::SecurityStyle security_style =
       web_contents()->GetDelegate()->GetSecurityStyle(
           web_contents(), &security_style_explanations);
 
@@ -192,13 +196,19 @@ void SecurityHandler::DidChangeVisibleSecurityState() {
 }
 
 void SecurityHandler::DidFinishNavigation(NavigationHandle* navigation_handle) {
-  if (cert_error_override_mode_ == CertErrorOverrideMode::kHandleEvents)
+  if (cert_error_override_mode_ == CertErrorOverrideMode::kHandleEvents) {
+    BackForwardCache::DisableForRenderFrameHost(
+        navigation_handle->GetPreviousRenderFrameHostId(),
+        "content::protocol::SecurityHandler");
     FlushPendingCertificateErrorNotifications();
+  }
 }
 
 void SecurityHandler::FlushPendingCertificateErrorNotifications() {
-  for (auto callback : cert_error_callbacks_)
-    callback.second.Run(content::CERTIFICATE_REQUEST_RESULT_TYPE_CANCEL);
+  for (auto& callback : cert_error_callbacks_) {
+    std::move(callback).second.Run(
+        content::CERTIFICATE_REQUEST_RESULT_TYPE_CANCEL);
+  }
   cert_error_callbacks_.clear();
 }
 
@@ -232,7 +242,7 @@ Response SecurityHandler::Enable() {
   if (host_)
     AttachToRenderFrameHost();
 
-  return Response::OK();
+  return Response::Success();
 }
 
 Response SecurityHandler::Disable() {
@@ -240,27 +250,27 @@ Response SecurityHandler::Disable() {
   cert_error_override_mode_ = CertErrorOverrideMode::kDisabled;
   WebContentsObserver::Observe(nullptr);
   FlushPendingCertificateErrorNotifications();
-  return Response::OK();
+  return Response::Success();
 }
 
 Response SecurityHandler::HandleCertificateError(int event_id,
                                                  const String& action) {
   if (cert_error_callbacks_.find(event_id) == cert_error_callbacks_.end()) {
-    return Response::Error(
+    return Response::ServerError(
         String("Unknown event id: " + std::to_string(event_id)));
   }
   content::CertificateRequestResultType type =
       content::CERTIFICATE_REQUEST_RESULT_TYPE_CANCEL;
-  Response response = Response::OK();
+  Response response = Response::Success();
   if (action == Security::CertificateErrorActionEnum::Continue) {
     type = content::CERTIFICATE_REQUEST_RESULT_TYPE_CONTINUE;
   } else if (action == Security::CertificateErrorActionEnum::Cancel) {
     type = content::CERTIFICATE_REQUEST_RESULT_TYPE_CANCEL;
   } else {
-    response =
-        Response::Error(String("Unknown Certificate Error Action: " + action));
+    response = Response::ServerError(
+        String("Unknown Certificate Error Action: " + action));
   }
-  cert_error_callbacks_[event_id].Run(type);
+  std::move(cert_error_callbacks_[event_id]).Run(type);
   cert_error_callbacks_.erase(event_id);
   return response;
 }
@@ -268,26 +278,28 @@ Response SecurityHandler::HandleCertificateError(int event_id,
 Response SecurityHandler::SetOverrideCertificateErrors(bool override) {
   if (override) {
     if (!enabled_)
-      return Response::Error("Security domain not enabled");
+      return Response::ServerError("Security domain not enabled");
     if (cert_error_override_mode_ == CertErrorOverrideMode::kIgnoreAll)
-      return Response::Error("Certificate errors are already being ignored.");
+      return Response::ServerError(
+          "Certificate errors are already being ignored.");
     cert_error_override_mode_ = CertErrorOverrideMode::kHandleEvents;
   } else {
     cert_error_override_mode_ = CertErrorOverrideMode::kDisabled;
     FlushPendingCertificateErrorNotifications();
   }
-  return Response::OK();
+  return Response::Success();
 }
 
 Response SecurityHandler::SetIgnoreCertificateErrors(bool ignore) {
   if (ignore) {
     if (cert_error_override_mode_ == CertErrorOverrideMode::kHandleEvents)
-      return Response::Error("Certificate errors are already overridden.");
+      return Response::ServerError(
+          "Certificate errors are already overridden.");
     cert_error_override_mode_ = CertErrorOverrideMode::kIgnoreAll;
   } else {
     cert_error_override_mode_ = CertErrorOverrideMode::kDisabled;
   }
-  return Response::OK();
+  return Response::Success();
 }
 
 }  // namespace protocol

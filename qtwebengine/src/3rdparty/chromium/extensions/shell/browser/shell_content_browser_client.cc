@@ -37,7 +37,6 @@
 #include "extensions/browser/guest_view/extensions_guest_view_message_filter.h"
 #include "extensions/browser/guest_view/web_view/web_view_guest.h"
 #include "extensions/browser/info_map.h"
-#include "extensions/browser/io_thread_extension_message_filter.h"
 #include "extensions/browser/process_map.h"
 #include "extensions/browser/url_loader_factory_manager.h"
 #include "extensions/common/constants.h"
@@ -49,7 +48,6 @@
 #include "extensions/shell/browser/shell_navigation_ui_data.h"
 #include "extensions/shell/browser/shell_speech_recognition_manager_delegate.h"
 #include "extensions/shell/common/version.h"  // Generated file.
-#include "storage/browser/quota/quota_settings.h"
 #include "url/gurl.h"
 
 #if BUILDFLAG(ENABLE_NACL)
@@ -106,14 +104,11 @@ ShellContentBrowserClient::CreateBrowserMainParts(
 }
 
 void ShellContentBrowserClient::RenderProcessWillLaunch(
-    content::RenderProcessHost* host,
-    service_manager::mojom::ServiceRequest* service_request) {
+    content::RenderProcessHost* host) {
   int render_process_id = host->GetID();
   BrowserContext* browser_context = browser_main_parts_->browser_context();
   host->AddFilter(
       new ExtensionMessageFilter(render_process_id, browser_context));
-  host->AddFilter(
-      new IOThreadExtensionMessageFilter(render_process_id, browser_context));
   host->AddFilter(
       new ExtensionsGuestViewMessageFilter(
           render_process_id, browser_context));
@@ -134,15 +129,6 @@ bool ShellContentBrowserClient::ShouldUseProcessPerSite(
   // default behavior of ContentBrowserClient will lead to separate render
   // processes for the background page and each app window view.
   return true;
-}
-
-void ShellContentBrowserClient::GetQuotaSettings(
-    content::BrowserContext* context,
-    content::StoragePartition* partition,
-    storage::OptionalQuotaSettingsCallback callback) {
-  storage::GetNominalDynamicSettings(
-      partition->GetPath(), context->IsOffTheRecord(),
-      storage::GetDefaultDiskInfoHelper(), std::move(callback));
 }
 
 bool ShellContentBrowserClient::IsHandledURL(const GURL& url) {
@@ -179,7 +165,7 @@ void ShellContentBrowserClient::SiteInstanceGotProcess(
                site_instance->GetProcess()->GetID(),
                site_instance->GetId());
 
-  base::PostTaskWithTraits(
+  base::PostTask(
       FROM_HERE, {BrowserThread::IO},
       base::BindOnce(&InfoMap::RegisterExtensionProcess,
                      browser_main_parts_->extension_system()->info_map(),
@@ -203,7 +189,7 @@ void ShellContentBrowserClient::SiteInstanceDeleting(
                site_instance->GetProcess()->GetID(),
                site_instance->GetId());
 
-  base::PostTaskWithTraits(
+  base::PostTask(
       FROM_HERE, {BrowserThread::IO},
       base::BindOnce(&InfoMap::UnregisterExtensionProcess,
                      browser_main_parts_->extension_system()->info_map(),
@@ -283,6 +269,18 @@ void ShellContentBrowserClient::RegisterNonNetworkNavigationURLLoaderFactories(
 }
 
 void ShellContentBrowserClient::
+    RegisterNonNetworkWorkerMainResourceURLLoaderFactories(
+        content::BrowserContext* browser_context,
+        NonNetworkURLLoaderFactoryMap* factories) {
+  DCHECK(browser_context);
+  DCHECK(factories);
+  factories->emplace(
+      extensions::kExtensionScheme,
+      extensions::CreateExtensionWorkerMainResourceURLLoaderFactory(
+          browser_context));
+}
+
+void ShellContentBrowserClient::
     RegisterNonNetworkServiceWorkerUpdateURLLoaderFactories(
         content::BrowserContext* browser_context,
         NonNetworkURLLoaderFactoryMap* factories) {
@@ -308,17 +306,20 @@ bool ShellContentBrowserClient::WillCreateURLLoaderFactory(
     content::BrowserContext* browser_context,
     content::RenderFrameHost* frame,
     int render_process_id,
-    bool is_navigation,
-    bool is_download,
+    URLLoaderFactoryType type,
     const url::Origin& request_initiator,
+    base::Optional<int64_t> navigation_id,
     mojo::PendingReceiver<network::mojom::URLLoaderFactory>* factory_receiver,
-    network::mojom::TrustedURLLoaderHeaderClientPtrInfo* header_client,
-    bool* bypass_redirect_checks) {
+    mojo::PendingRemote<network::mojom::TrustedURLLoaderHeaderClient>*
+        header_client,
+    bool* bypass_redirect_checks,
+    bool* disable_secure_dns,
+    network::mojom::URLLoaderFactoryOverridePtr* factory_override) {
   auto* web_request_api =
       extensions::BrowserContextKeyedAPIFactory<extensions::WebRequestAPI>::Get(
           browser_context);
   bool use_proxy = web_request_api->MaybeProxyURLLoaderFactory(
-      browser_context, frame, render_process_id, is_navigation, is_download,
+      browser_context, frame, render_process_id, type, std::move(navigation_id),
       factory_receiver, header_client);
   if (bypass_redirect_checks)
     *bypass_redirect_checks = use_proxy;
@@ -327,24 +328,24 @@ bool ShellContentBrowserClient::WillCreateURLLoaderFactory(
 
 bool ShellContentBrowserClient::HandleExternalProtocol(
     const GURL& url,
-    content::ResourceRequestInfo::WebContentsGetter web_contents_getter,
+    content::WebContents::OnceGetter web_contents_getter,
     int child_id,
     content::NavigationUIData* navigation_data,
     bool is_main_frame,
     ui::PageTransition page_transition,
     bool has_user_gesture,
-    network::mojom::URLLoaderFactoryPtr* out_factory) {
+    const base::Optional<url::Origin>& initiating_origin,
+    mojo::PendingRemote<network::mojom::URLLoaderFactory>* out_factory) {
   return false;
 }
 
-network::mojom::URLLoaderFactoryPtrInfo
-ShellContentBrowserClient::CreateURLLoaderFactoryForNetworkRequests(
-    content::RenderProcessHost* process,
-    network::mojom::NetworkContext* network_context,
-    network::mojom::TrustedURLLoaderHeaderClientPtrInfo* header_client,
-    const url::Origin& request_initiator) {
-  return URLLoaderFactoryManager::CreateFactory(
-      process, network_context, header_client, request_initiator);
+void ShellContentBrowserClient::OverrideURLLoaderFactoryParams(
+    content::BrowserContext* browser_context,
+    const url::Origin& origin,
+    bool is_for_isolated_world,
+    network::mojom::URLLoaderFactoryParams* factory_params) {
+  URLLoaderFactoryManager::OverrideURLLoaderFactoryParams(
+      browser_context, origin, is_for_isolated_world, factory_params);
 }
 
 std::string ShellContentBrowserClient::GetUserAgent() {

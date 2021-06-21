@@ -7,7 +7,7 @@
 namespace feed {
 
 const base::Feature kInterestFeedContentSuggestions{
-    "InterestFeedContentSuggestions", base::FEATURE_DISABLED_BY_DEFAULT};
+    "InterestFeedContentSuggestions", base::FEATURE_ENABLED_BY_DEFAULT};
 
 const base::FeatureParam<std::string> kDisableTriggerTypes{
     &kInterestFeedContentSuggestions, "disable_trigger_types", ""};
@@ -23,5 +23,11 @@ const base::FeatureParam<bool> kOnlySetLastRefreshAttemptOnSuccess{
 
 const base::Feature kInterestFeedNotifications{
     "InterestFeedNotifications", base::FEATURE_DISABLED_BY_DEFAULT};
+
+const base::Feature kInterestFeedFeedback{"InterestFeedFeedback",
+                                          base::FEATURE_DISABLED_BY_DEFAULT};
+
+const base::Feature kReportFeedUserActions{"ReportFeedUserActions",
+                                           base::FEATURE_DISABLED_BY_DEFAULT};
 
 }  // namespace feed

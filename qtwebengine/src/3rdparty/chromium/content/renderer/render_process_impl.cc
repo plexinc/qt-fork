@@ -8,8 +8,8 @@
 
 #if defined(OS_WIN)
 #include <windows.h>
-#include <objidl.h>
 #include <mlang.h>
+#include <objidl.h>
 #endif
 
 #include <stddef.h>
@@ -28,7 +28,7 @@
 #include "base/strings/string_split.h"
 #include "base/system/sys_info.h"
 #include "base/task/thread_pool/initialization_util.h"
-#include "base/task/thread_pool/thread_pool.h"
+#include "base/task/thread_pool/thread_pool_instance.h"
 #include "base/time/time.h"
 #include "content/common/thread_pool_util.h"
 #include "content/public/common/bindings_policy.h"
@@ -37,6 +37,7 @@
 #include "content/public/common/content_switches.h"
 #include "content/public/renderer/content_renderer_client.h"
 #include "services/service_manager/embedder/switches.h"
+#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/web/web_frame.h"
 #include "v8/include/v8.h"
 
@@ -118,6 +119,8 @@ RenderProcessImpl::RenderProcessImpl()
   SetV8FlagIfHasSwitch(switches::kDisableJavaScriptHarmonyShipping,
                        "--noharmony-shipping");
   SetV8FlagIfHasSwitch(switches::kJavaScriptHarmony, "--harmony");
+  SetV8FlagIfHasSwitch(switches::kEnableExperimentalWebAssemblyFeatures,
+                       "--wasm-staging");
 
   constexpr char kModuleFlags[] =
       "--harmony-dynamic-import --harmony-import-meta";
@@ -126,33 +129,36 @@ RenderProcessImpl::RenderProcessImpl()
   SetV8FlagIfFeature(features::kV8VmFuture, "--future");
   SetV8FlagIfNotFeature(features::kV8VmFuture, "--no-future");
 
-  SetV8FlagIfFeature(features::kWebAssemblyBaseline,
-                     "--liftoff --wasm-tier-up");
-  SetV8FlagIfNotFeature(features::kWebAssemblyBaseline,
-                        "--no-liftoff --no-wasm-tier-up");
+  SetV8FlagIfFeature(features::kWebAssemblyBaseline, "--liftoff");
+  SetV8FlagIfNotFeature(features::kWebAssemblyBaseline, "--no-liftoff");
 
-  SetV8FlagIfFeature(features::kWebAssemblyCodeGC, "--wasm-code-gc");
-  SetV8FlagIfNotFeature(features::kWebAssemblyCodeGC, "--no-wasm-code-gc");
+  SetV8FlagIfFeature(features::kWebAssemblyLazyCompilation,
+                     "--wasm-lazy-compilation");
+  SetV8FlagIfNotFeature(features::kWebAssemblyLazyCompilation,
+                        "--no-wasm-lazy-compilation");
 
   SetV8FlagIfFeature(features::kWebAssemblySimd, "--experimental-wasm-simd");
   SetV8FlagIfNotFeature(features::kWebAssemblySimd,
                         "--no-experimental-wasm-simd");
 
+  SetV8FlagIfFeature(blink::features::kTopLevelAwait,
+                     "--harmony-top-level-await");
+
   if (base::FeatureList::IsEnabled(features::kWebAssemblyThreads)) {
     constexpr char kFlags[] =
         "--harmony-sharedarraybuffer "
-        "--no-wasm-disable-structured-cloning "
         "--experimental-wasm-threads";
 
     v8::V8::SetFlagsFromString(kFlags, sizeof(kFlags));
   } else {
-    SetV8FlagIfNotFeature(features::kWebAssembly,
-                          "--wasm-disable-structured-cloning");
     SetV8FlagIfFeature(features::kSharedArrayBuffer,
                        "--harmony-sharedarraybuffer");
     SetV8FlagIfNotFeature(features::kSharedArrayBuffer,
                           "--no-harmony-sharedarraybuffer");
   }
+
+  SetV8FlagIfFeature(features::kWebAssemblyTiering, "--wasm-tier-up");
+  SetV8FlagIfNotFeature(features::kWebAssemblyTiering, "--no-wasm-tier-up");
 
   SetV8FlagIfNotFeature(features::kWebAssemblyTrapHandler,
                         "--no-wasm-trap-handler");

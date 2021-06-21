@@ -43,7 +43,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
           <a class="back" href="./index.html">Back</a>
         </p>
         <div id="warning-zone"></div>
-        <button id="xr-button" disabled>XR not found</button>
+        <button id="xr-button" class="barebones-button" disabled>XR not found</button>
       </details>
     </header>
     <main style='text-align: center;'>
@@ -63,13 +63,16 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
         // button. If the supportsSession request is rejected, then
         // disable the button because it means that the desired session mode is
         // not supported.
-        navigator.xr.supportsSession('immersive-vr').then(() => {
+        navigator.xr.isSessionSupported('immersive-vr').then((supported) => {
           // Updates the button to start an XR session when clicked.
-          xrButton.innerHTML = 'Enter XR';
-          xrButton.disabled = false;
-        }, () => {
-          xrButton.innerHTML = 'XR not found';
-          xrButton.disabled = true;
+
+          if (supported) {
+            xrButton.innerHTML = 'Enter XR';
+          } else {
+            xrButton.innerHTML = 'XR not found';
+          }
+
+          xrButton.disabled = !supported;
         });
       }
 

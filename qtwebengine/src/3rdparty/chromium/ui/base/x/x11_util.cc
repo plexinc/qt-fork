@@ -15,7 +15,6 @@
 #include <bitset>
 #include <list>
 #include <map>
-#include <memory>
 #include <utility>
 #include <vector>
 
@@ -40,7 +39,7 @@
 #include "build/build_config.h"
 #include "skia/ext/image_operations.h"
 #include "third_party/skia/include/core/SkBitmap.h"
-#include "third_party/skia/include/core/SkPostConfig.h"
+#include "third_party/skia/include/core/SkTypes.h"
 #include "ui/base/x/x11_menu_list.h"
 #include "ui/base/x/x11_util_internal.h"
 #include "ui/events/devices/x11/device_data_manager_x11.h"
@@ -290,8 +289,21 @@ bool QueryRenderSupport(Display* dpy) {
   // We don't care about the version of Xrender since all the features which
   // we use are included in every version.
   static bool render_supported = XRenderQueryExtension(dpy, &dummy, &dummy);
-
   return render_supported;
+}
+
+bool QueryShmSupport() {
+  int major;
+  int minor;
+  x11::Bool pixmaps;
+  static bool supported =
+      XShmQueryVersion(gfx::GetXDisplay(), &major, &minor, &pixmaps);
+  return supported;
+}
+
+int ShmEventBase() {
+  static int event_base = XShmGetEventBase(gfx::GetXDisplay());
+  return event_base;
 }
 
 ::Cursor CreateReffedCustomXCursor(XcursorImage* image) {
@@ -349,68 +361,89 @@ XcursorImage* SkBitmapToXcursorImage(const SkBitmap* cursor_image,
 }
 
 int CoalescePendingMotionEvents(const XEvent* xev, XEvent* last_event) {
-  XIDeviceEvent* xievent = static_cast<XIDeviceEvent*>(xev->xcookie.data);
-  int num_coalesced = 0;
+  DCHECK(xev->type == MotionNotify || xev->type == GenericEvent);
   XDisplay* display = xev->xany.display;
-  int event_type = xev->xgeneric.evtype;
+  XEvent next_event;
+  bool is_motion = false;
+  int num_coalesced = 0;
 
-  DCHECK(event_type == XI_Motion || event_type == XI_TouchUpdate);
-
-  while (XPending(display)) {
-    XEvent next_event;
-    XPeekEvent(display, &next_event);
-
-    // If we can't get the cookie, abort the check.
-    if (!XGetEventData(next_event.xgeneric.display, &next_event.xcookie))
-      return num_coalesced;
-
-    // If this isn't from a valid device, throw the event away, as
-    // that's what the message pump would do. Device events come in pairs
-    // with one from the master and one from the slave so there will
-    // always be at least one pending.
-    if (!ui::TouchFactory::GetInstance()->ShouldProcessXI2Event(&next_event)) {
-      XFreeEventData(display, &next_event.xcookie);
-      XNextEvent(display, &next_event);
-      continue;
-    }
-
-    if (next_event.type == GenericEvent &&
-        next_event.xgeneric.evtype == event_type &&
-        !ui::DeviceDataManagerX11::GetInstance()->IsCMTGestureEvent(
-            next_event) &&
-        ui::DeviceDataManagerX11::GetInstance()->GetScrollClassEventDetail(
-            next_event) == SCROLL_TYPE_NO_SCROLL) {
-      XIDeviceEvent* next_xievent =
-          static_cast<XIDeviceEvent*>(next_event.xcookie.data);
-      // Confirm that the motion event is targeted at the same window
-      // and that no buttons or modifiers have changed.
-      if (xievent->event == next_xievent->event &&
-          xievent->child == next_xievent->child &&
-          xievent->detail == next_xievent->detail &&
-          xievent->buttons.mask_len == next_xievent->buttons.mask_len &&
-          (memcmp(xievent->buttons.mask, next_xievent->buttons.mask,
-                  xievent->buttons.mask_len) == 0) &&
-          xievent->mods.base == next_xievent->mods.base &&
-          xievent->mods.latched == next_xievent->mods.latched &&
-          xievent->mods.locked == next_xievent->mods.locked &&
-          xievent->mods.effective == next_xievent->mods.effective) {
-        XFreeEventData(display, &next_event.xcookie);
-        // Free the previous cookie.
-        if (num_coalesced > 0)
-          XFreeEventData(display, &last_event->xcookie);
-        // Get the event and its cookie data.
-        XNextEvent(display, last_event);
-        XGetEventData(display, &last_event->xcookie);
-        ++num_coalesced;
-        continue;
+  if (xev->type == MotionNotify) {
+    is_motion = true;
+    while (XPending(display)) {
+      XPeekEvent(xev->xany.display, &next_event);
+      // Discard all but the most recent motion event that targets the same
+      // window with unchanged state.
+      if (next_event.type == MotionNotify &&
+          next_event.xmotion.window == xev->xmotion.window &&
+          next_event.xmotion.subwindow == xev->xmotion.subwindow &&
+          next_event.xmotion.state == xev->xmotion.state) {
+        XNextEvent(xev->xany.display, last_event);
+      } else {
+        break;
       }
     }
-    // This isn't an event we want so free its cookie data.
-    XFreeEventData(display, &next_event.xcookie);
-    break;
+  } else {
+    int event_type = xev->xgeneric.evtype;
+    XIDeviceEvent* xievent = static_cast<XIDeviceEvent*>(xev->xcookie.data);
+    DCHECK(event_type == XI_Motion || event_type == XI_TouchUpdate);
+    is_motion = event_type == XI_Motion;
+
+    while (XPending(display)) {
+      XPeekEvent(display, &next_event);
+
+      // If we can't get the cookie, abort the check.
+      if (!XGetEventData(next_event.xgeneric.display, &next_event.xcookie))
+        return num_coalesced;
+
+      // If this isn't from a valid device, throw the event away, as
+      // that's what the message pump would do. Device events come in pairs
+      // with one from the master and one from the slave so there will
+      // always be at least one pending.
+      if (!ui::TouchFactory::GetInstance()->ShouldProcessXI2Event(
+              &next_event)) {
+        XFreeEventData(display, &next_event.xcookie);
+        XNextEvent(display, &next_event);
+        continue;
+      }
+
+      if (next_event.type == GenericEvent &&
+          next_event.xgeneric.evtype == event_type &&
+          !ui::DeviceDataManagerX11::GetInstance()->IsCMTGestureEvent(
+              next_event) &&
+          ui::DeviceDataManagerX11::GetInstance()->GetScrollClassEventDetail(
+              next_event) == SCROLL_TYPE_NO_SCROLL) {
+        XIDeviceEvent* next_xievent =
+            static_cast<XIDeviceEvent*>(next_event.xcookie.data);
+        // Confirm that the motion event is targeted at the same window
+        // and that no buttons or modifiers have changed.
+        if (xievent->event == next_xievent->event &&
+            xievent->child == next_xievent->child &&
+            xievent->detail == next_xievent->detail &&
+            xievent->buttons.mask_len == next_xievent->buttons.mask_len &&
+            (memcmp(xievent->buttons.mask, next_xievent->buttons.mask,
+                    xievent->buttons.mask_len) == 0) &&
+            xievent->mods.base == next_xievent->mods.base &&
+            xievent->mods.latched == next_xievent->mods.latched &&
+            xievent->mods.locked == next_xievent->mods.locked &&
+            xievent->mods.effective == next_xievent->mods.effective) {
+          XFreeEventData(display, &next_event.xcookie);
+          // Free the previous cookie.
+          if (num_coalesced > 0)
+            XFreeEventData(display, &last_event->xcookie);
+          // Get the event and its cookie data.
+          XNextEvent(display, last_event);
+          XGetEventData(display, &last_event->xcookie);
+          ++num_coalesced;
+          continue;
+        }
+      }
+      // This isn't an event we want so free its cookie data.
+      XFreeEventData(display, &next_event.xcookie);
+      break;
+    }
   }
 
-  if (event_type == XI_Motion && num_coalesced > 0)
+  if (is_motion && num_coalesced > 0)
     UMA_HISTOGRAM_COUNTS_10000("Event.CoalescedCount.Mouse", num_coalesced);
   return num_coalesced;
 }
@@ -947,6 +980,32 @@ void SetWMSpecState(XID window, bool enabled, XAtom state1, XAtom state2) {
              SubstructureRedirectMask | SubstructureNotifyMask, &xclient);
 }
 
+void DoWMMoveResize(XDisplay* display,
+                    XID root_window,
+                    XID window,
+                    const gfx::Point& location_px,
+                    int direction) {
+  // This handler is usually sent when the window has the implicit grab.  We
+  // need to dump it because what we're about to do is tell the window manager
+  // that it's now responsible for moving the window around; it immediately
+  // grabs when it receives the event below.
+  XUngrabPointer(display, x11::CurrentTime);
+
+  XEvent event;
+  memset(&event, 0, sizeof(event));
+  event.xclient.type = ClientMessage;
+  event.xclient.display = display;
+  event.xclient.window = window;
+  event.xclient.message_type = gfx::GetAtom("_NET_WM_MOVERESIZE");
+  event.xclient.format = 32;
+  event.xclient.data.l[0] = location_px.x();
+  event.xclient.data.l[1] = location_px.y();
+  event.xclient.data.l[2] = direction;
+
+  XSendEvent(display, root_window, x11::False,
+             SubstructureRedirectMask | SubstructureNotifyMask, &event);
+}
+
 bool HasWMSpecProperty(const base::flat_set<XAtom>& properties, XAtom atom) {
   return properties.find(atom) != properties.end();
 }
@@ -981,6 +1040,45 @@ bool GetCustomFramePrefDefault() {
 
   // For everything else, use custom frames.
   return true;
+}
+
+bool IsWmTiling(WindowManagerName window_manager) {
+  switch (window_manager) {
+    case WM_BLACKBOX:
+    case WM_COMPIZ:
+    case WM_ENLIGHTENMENT:
+    case WM_FLUXBOX:
+    case WM_ICE_WM:
+    case WM_KWIN:
+    case WM_MATCHBOX:
+    case WM_METACITY:
+    case WM_MUFFIN:
+    case WM_MUTTER:
+    case WM_OPENBOX:
+    case WM_XFWM4:
+      // Stacking window managers.
+      return false;
+
+    case WM_I3:
+    case WM_ION3:
+    case WM_NOTION:
+    case WM_RATPOISON:
+    case WM_STUMPWM:
+      // Tiling window managers.
+      return true;
+
+    case WM_AWESOME:
+    case WM_QTILE:
+    case WM_XMONAD:
+    case WM_WMII:
+      // Dynamic (tiling and stacking) window managers.  Assume tiling.
+      return true;
+
+    case WM_OTHER:
+    case WM_UNNAMED:
+      // Unknown.  Assume stacking.
+      return false;
+  }
 }
 
 bool GetWindowDesktop(XID window, int* desktop) {
@@ -1246,11 +1344,56 @@ gfx::ICCProfile GetICCProfileForMonitor(int monitor) {
 }
 
 bool IsSyncExtensionAvailable() {
+// Chrome for ChromeOS can be run with X11 on a Linux desktop. In this case,
+// NotifySwapAfterResize is never called as the compositor does not notify about
+// swaps after resize. Thus, simply disable usage of XSyncCounter on ChromeOS
+// builds.
+//
+// TODO(https://crbug.com/1036285): Also, disable sync extension for all ozone
+// builds as long as our EGL impl for Ozone/X11 is not mature enough and we do
+// not receive swap completions on time, which results in weird resize behaviour
+// as X Server waits for the XSyncCounter changes.
+#if defined(OS_CHROMEOS) || defined(USE_OZONE)
+  return false;
+#else
   auto* display = gfx::GetXDisplay();
   int unused;
   static bool result = XSyncQueryExtension(display, &unused, &unused) &&
                        XSyncInitialize(display, &unused, &unused);
   return result;
+#endif
+}
+
+SkColorType ColorTypeForVisual(void* visual) {
+  struct {
+    SkColorType color_type;
+    unsigned long red_mask;
+    unsigned long green_mask;
+    unsigned long blue_mask;
+  } color_infos[] = {
+      {kRGB_565_SkColorType, 0xf800, 0x7e0, 0x1f},
+      {kARGB_4444_SkColorType, 0xf000, 0xf00, 0xf0},
+      {kRGBA_8888_SkColorType, 0xff, 0xff00, 0xff0000},
+      {kBGRA_8888_SkColorType, 0xff0000, 0xff00, 0xff},
+      {kRGBA_1010102_SkColorType, 0x3ff, 0xffc00, 0x3ff00000},
+      {kBGRA_1010102_SkColorType, 0x3ff00000, 0xffc00, 0x3ff},
+  };
+  Visual* vis = reinterpret_cast<Visual*>(visual);
+  // When running under Xvfb, a visual may not be set.
+  if (!vis->red_mask && !vis->green_mask && !vis->blue_mask)
+    return kUnknown_SkColorType;
+  for (const auto& color_info : color_infos) {
+    if (vis->red_mask == color_info.red_mask &&
+        vis->green_mask == color_info.green_mask &&
+        vis->blue_mask == color_info.blue_mask) {
+      return color_info.color_type;
+    }
+  }
+  LOG(ERROR) << "Unsupported visual with rgb mask 0x" << std::hex
+             << vis->red_mask << ", 0x" << vis->green_mask << ", 0x"
+             << vis->blue_mask
+             << ".  Please report this to https://crbug.com/1025266";
+  return kUnknown_SkColorType;
 }
 
 XRefcountedMemory::XRefcountedMemory(unsigned char* x11_data, size_t length)
@@ -1285,6 +1428,10 @@ void XScopedCursor::reset(::Cursor cursor) {
   if (cursor_)
     XFreeCursor(display_, cursor_);
   cursor_ = cursor;
+}
+
+void XImageDeleter::operator()(XImage* image) const {
+  XDestroyImage(image);
 }
 
 namespace test {
@@ -1402,7 +1549,8 @@ XVisualManager::XVisualManager()
   gfx::XScopedPtr<XVisualInfo[]> visual_list(XGetVisualInfo(
       display_, VisualScreenMask, &visual_template, &visuals_len));
   for (int i = 0; i < visuals_len; ++i)
-    visuals_[visual_list[i].visualid].reset(new XVisualData(visual_list[i]));
+    visuals_[visual_list[i].visualid] =
+        std::make_unique<XVisualData>(visual_list[i]);
 
   XAtom NET_WM_CM_S0 = gfx::GetAtom("_NET_WM_CM_S0");
   using_compositing_wm_ =

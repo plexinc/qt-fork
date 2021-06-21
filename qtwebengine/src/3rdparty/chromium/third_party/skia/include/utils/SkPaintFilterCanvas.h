@@ -60,13 +60,6 @@ protected:
     void onDrawOval(const SkRect&, const SkPaint&) override;
     void onDrawArc(const SkRect&, SkScalar, SkScalar, bool, const SkPaint&) override;
     void onDrawPath(const SkPath&, const SkPaint&) override;
-    void onDrawBitmap(const SkBitmap&, SkScalar left, SkScalar top, const SkPaint*) override;
-    void onDrawBitmapRect(const SkBitmap&, const SkRect* src, const SkRect& dst, const SkPaint*,
-                          SrcRectConstraint) override;
-    void onDrawBitmapNine(const SkBitmap&, const SkIRect& center, const SkRect& dst,
-                          const SkPaint*) override;
-    void onDrawBitmapLattice(const SkBitmap&, const Lattice&, const SkRect&,
-                             const SkPaint*) override;
     void onDrawImage(const SkImage*, SkScalar left, SkScalar top, const SkPaint*) override;
     void onDrawImageRect(const SkImage*, const SkRect* src, const SkRect& dst,
                          const SkPaint*, SrcRectConstraint) override;
@@ -74,8 +67,7 @@ protected:
                          const SkPaint*) override;
     void onDrawImageLattice(const SkImage*, const Lattice&, const SkRect&,
                             const SkPaint*) override;
-    void onDrawVerticesObject(const SkVertices*, const SkVertices::Bone bones[], int boneCount,
-                              SkBlendMode, const SkPaint&) override;
+    void onDrawVerticesObject(const SkVertices*, SkBlendMode, const SkPaint&) override;
     void onDrawPatch(const SkPoint cubics[12], const SkColor colors[4],
                              const SkPoint texCoords[4], SkBlendMode,
                              const SkPaint& paint) override;
@@ -89,7 +81,7 @@ protected:
     void onDrawAnnotation(const SkRect& rect, const char key[], SkData* value) override;
     void onDrawShadowRec(const SkPath& path, const SkDrawShadowRec& rec) override;
 
-    void onDrawEdgeAAQuad(const SkRect&, const SkPoint[4], QuadAAFlags, SkColor,
+    void onDrawEdgeAAQuad(const SkRect&, const SkPoint[4], QuadAAFlags, const SkColor4f&,
                           SkBlendMode) override;
     void onDrawEdgeAAImageSet(const ImageSetEntry[], int count, const SkPoint[], const SkMatrix[],
                               const SkPaint*, SrcRectConstraint) override;

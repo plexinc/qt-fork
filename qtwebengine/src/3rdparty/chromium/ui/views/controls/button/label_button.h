@@ -11,6 +11,7 @@
 #include "base/compiler_specific.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
+#include "base/optional.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/views/controls/button/button.h"
@@ -45,14 +46,23 @@ class VIEWS_EXPORT LabelButton : public Button, public NativeThemeDelegate {
   void SetImage(ButtonState for_state, const gfx::ImageSkia& image);
 
   // Gets or sets the text shown on the button.
-  base::string16 GetText() const;
+  const base::string16& GetText() const;
   virtual void SetText(const base::string16& text);
+
+  // Makes the button report its preferred size without the label. This lets
+  // AnimatingLayoutManager gradually shrink the button until the text is
+  // invisible, at which point the text gets cleared. Think of this as
+  // transitioning from the current text to SetText("").
+  // Note that the layout manager (or manual SetBounds calls) need to be
+  // configured to eventually hit the the button's preferred size (or smaller)
+  // or the text will never be cleared.
+  void ShrinkDownThenClearText();
 
   // Sets the text color shown for the specified button |for_state| to |color|.
   void SetTextColor(ButtonState for_state, SkColor color);
 
   // Sets the text colors shown for the non-disabled states to |color|.
-  virtual void SetEnabledTextColors(SkColor color);
+  virtual void SetEnabledTextColors(base::Optional<SkColor> color);
 
   // Sets drop shadows underneath the text.
   void SetTextShadows(const gfx::ShadowValues& shadows);
@@ -82,13 +92,20 @@ class VIEWS_EXPORT LabelButton : public Button, public NativeThemeDelegate {
   int GetImageLabelSpacing() const;
   void SetImageLabelSpacing(int spacing);
 
+  // Gets or sets the option to place the image aligned with the center of the
+  // the label. The image is not centered for CheckBox and RadioButton only.
+  bool GetImageCentered() const;
+  void SetImageCentered(bool image_centered);
+
   // Creates the default border for this button. This can be overridden by
   // subclasses.
   virtual std::unique_ptr<LabelButtonBorder> CreateDefaultBorder() const;
 
   // Button:
   void SetBorder(std::unique_ptr<Border> border) override;
+  void OnBoundsChanged(const gfx::Rect& previous_bounds) override;
   gfx::Size CalculatePreferredSize() const override;
+  gfx::Size GetMinimumSize() const override;
   int GetHeightForWidth(int w) const override;
   void Layout() override;
   void EnableCanvasFlippingForRTLUI(bool flip) override;
@@ -132,15 +149,8 @@ class VIEWS_EXPORT LabelButton : public Button, public NativeThemeDelegate {
   // set with SetBorder.
   void UpdateThemedBorder();
 
-  // Returns the available area for the label and image. Subclasses can change
-  // these bounds if they need room to do manual painting.
-  virtual gfx::Rect GetChildAreaBounds();
-
   // Fills |params| with information about the button.
   virtual void GetExtraParams(ui::NativeTheme::ExtraParams* params) const;
-
-  // Resets colors from the NativeTheme, explicitly set colors are unchanged.
-  virtual void ResetColorsFromNativeTheme();
 
   // Changes the visual styling to match changes in the default state.  Returns
   // the PropertyEffects triggered as a result.
@@ -157,6 +167,8 @@ class VIEWS_EXPORT LabelButton : public Button, public NativeThemeDelegate {
  private:
   void SetTextInternal(const base::string16& text);
 
+  void ClearTextIfShrunkDown();
+
   // Resets |cached_preferred_size_|.
   void ResetCachedPreferredSize();
 
@@ -168,6 +180,9 @@ class VIEWS_EXPORT LabelButton : public Button, public NativeThemeDelegate {
   // Both methods will then use the max of inset height + label height and this
   // height as total height, and clamp to min/max sizes as appropriate.
   gfx::Size GetUnclampedSizeWithoutLabel() const;
+
+  // Resets colors from the NativeTheme, explicitly set colors are unchanged.
+  void ResetColorsFromNativeTheme();
 
   // Updates additional state related to focus or default status, rather than
   // merely the Button::state(). E.g. ensures the label text color is
@@ -202,6 +217,11 @@ class VIEWS_EXPORT LabelButton : public Button, public NativeThemeDelegate {
   // Cache the last computed preferred size.
   mutable base::Optional<gfx::Size> cached_preferred_size_;
 
+  // A flag indicating that this button should not include the label in its
+  // desired size. Furthermore, once the bounds of the button adapt to this
+  // desired size, the text in the label should get cleared.
+  bool shrinking_down_label_ = false;
+
   // Flag indicating default handling of the return key via an accelerator.
   // Whether or not the button appears or behaves as the default button in its
   // current context;
@@ -209,6 +229,11 @@ class VIEWS_EXPORT LabelButton : public Button, public NativeThemeDelegate {
 
   // True if current border was set by UpdateThemedBorder.
   bool border_is_themed_border_ = true;
+
+  // A flag indicating that this button's image should be aligned with the
+  // center of the label when multiline is enabled. This shouldn't be the case
+  // for a CheckBox or a RadioButton.
+  bool image_centered_ = true;
 
   // Spacing between the image and the text.
   int image_label_spacing_ = LayoutProvider::Get()->GetDistanceMetric(

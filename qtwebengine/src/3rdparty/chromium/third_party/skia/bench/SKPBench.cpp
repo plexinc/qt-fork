@@ -6,7 +6,6 @@
  */
 
 #include "bench/SKPBench.h"
-#include "include/core/SkMultiPictureDraw.h"
 #include "include/core/SkSurface.h"
 #include "tools/flags/CommandLineFlags.h"
 
@@ -56,8 +55,8 @@ void SKPBench::onPerCanvasPreDraw(SkCanvas* canvas) {
     int tileW = gpu ? FLAGS_GPUbenchTileW : FLAGS_CPUbenchTileW,
         tileH = gpu ? FLAGS_GPUbenchTileH : FLAGS_CPUbenchTileH;
 
-    tileW = SkTMin(tileW, bounds.width());
-    tileH = SkTMin(tileH, bounds.height());
+    tileW = std::min(tileW, bounds.width());
+    tileH = std::min(tileH, bounds.height());
 
     int xTiles = SkScalarCeilToInt(bounds.width()  / SkIntToScalar(tileW));
     int yTiles = SkScalarCeilToInt(bounds.height() / SkIntToScalar(tileH));
@@ -125,17 +124,7 @@ void SKPBench::onDraw(int loops, SkCanvas* canvas) {
 }
 
 void SKPBench::drawMPDPicture() {
-    SkMultiPictureDraw mpd;
-
-    for (int j = 0; j < fTileRects.count(); ++j) {
-        SkMatrix trans;
-        trans.setTranslate(-fTileRects[j].fLeft/fScale,
-                           -fTileRects[j].fTop/fScale);
-        mpd.add(fSurfaces[j]->getCanvas(), fPic.get(), &trans);
-    }
-
-    // We flush after each picture to more closely model how Chrome rasterizes tiles.
-    mpd.draw(/*flush = */ true);
+    // TODO: remove me
 }
 
 void SKPBench::drawPicture() {

@@ -4,6 +4,8 @@
 
 syntax = "proto2";
 option optimize_for = LITE_RUNTIME;
+option java_package = "org.chromium.components.optimization_guide.proto";
+option java_outer_classname = "CommonTypesProto";
 
 package optimization_guide.proto;
 
@@ -35,4 +37,15 @@ enum EffectiveConnectionType {
   // Effective connection type reported when the network has the quality of a
   // 4G connection.
   EFFECTIVE_CONNECTION_TYPE_4G = 5;
+}
+
+// Context in which the items are requested.
+enum RequestContext {
+  reserved 1;
+  // Context not specified.
+  CONTEXT_UNSPECIFIED = 0;
+  // Requesting items on page navigation.
+  CONTEXT_PAGE_NAVIGATION = 2;
+  // Requesting items as part of a batch update.
+  CONTEXT_BATCH_UPDATE = 3;
 }

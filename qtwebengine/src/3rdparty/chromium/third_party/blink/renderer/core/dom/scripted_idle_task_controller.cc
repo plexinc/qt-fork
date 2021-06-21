@@ -7,7 +7,7 @@
 #include "base/location.h"
 #include "base/metrics/histogram_macros.h"
 #include "third_party/blink/public/platform/platform.h"
-#include "third_party/blink/renderer/core/dom/idle_request_options.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_idle_request_options.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/inspector/inspector_trace_events.h"
 #include "third_party/blink/renderer/core/probe/core_probes.h"
@@ -16,7 +16,6 @@
 #include "third_party/blink/renderer/platform/scheduler/public/thread_scheduler.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
 #include "third_party/blink/renderer/platform/wtf/ref_counted.h"
-#include "third_party/blink/renderer/platform/wtf/time.h"
 
 namespace blink {
 
@@ -91,7 +90,7 @@ void ScriptedIdleTaskController::V8IdleTask::invoke(IdleDeadline* deadline) {
 
 ScriptedIdleTaskController::ScriptedIdleTaskController(
     ExecutionContext* context)
-    : ContextLifecycleStateObserver(context),
+    : ExecutionContextLifecycleStateObserver(context),
       scheduler_(ThreadScheduler::Current()),
       next_callback_id_(0),
       paused_(false) {}
@@ -100,7 +99,7 @@ ScriptedIdleTaskController::~ScriptedIdleTaskController() = default;
 
 void ScriptedIdleTaskController::Trace(Visitor* visitor) {
   visitor->Trace(idle_tasks_);
-  ContextLifecycleStateObserver::Trace(visitor);
+  ExecutionContextLifecycleStateObserver::Trace(visitor);
 }
 
 int ScriptedIdleTaskController::NextCallbackId() {
@@ -128,7 +127,7 @@ ScriptedIdleTaskController::RegisterCallback(
                           idle_task, queue_timestamp, timeout_millis));
 
   probe::AsyncTaskScheduled(GetExecutionContext(), "requestIdleCallback",
-                            idle_task);
+                            idle_task->async_task_id());
 
   scoped_refptr<internal::IdleRequestCallbackWrapper> callback_wrapper =
       internal::IdleRequestCallbackWrapper::Create(id, this);
@@ -208,7 +207,8 @@ void ScriptedIdleTaskController::RunCallback(
   base::TimeTicks now = base::TimeTicks::Now();
   base::TimeDelta allotted_time = std::max(deadline - now, base::TimeDelta());
 
-  probe::AsyncTask async_task(GetExecutionContext(), idle_task);
+  probe::AsyncTask async_task(GetExecutionContext(),
+                              idle_task->async_task_id());
   probe::UserCallback probe(GetExecutionContext(), "requestIdleCallback",
                             AtomicString(), true);
 
@@ -228,7 +228,7 @@ void ScriptedIdleTaskController::RunCallback(
   idle_tasks_.erase(id);
 }
 
-void ScriptedIdleTaskController::ContextDestroyed(ExecutionContext*) {
+void ScriptedIdleTaskController::ContextDestroyed() {
   idle_tasks_.clear();
 }
 

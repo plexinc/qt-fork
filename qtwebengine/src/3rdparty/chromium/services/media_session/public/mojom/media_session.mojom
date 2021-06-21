@@ -6,10 +6,10 @@ module media_session.mojom;
 
 import "mojo/public/mojom/base/string16.mojom";
 import "mojo/public/mojom/base/time.mojom";
-import "ui/gfx/geometry/mojo/geometry.mojom";
+import "ui/gfx/geometry/mojom/geometry.mojom";
 import "url/mojom/url.mojom";
 
-// Next MinVersion: 4
+// Next MinVersion: 9
 
 [Extensible]
 enum MediaPlaybackState {
@@ -29,6 +29,8 @@ enum MediaSessionAction {
   kStop,
   kSeekTo,
   kScrubTo,
+  kEnterPictureInPicture,
+  kExitPictureInPicture,
 };
 
 [Extensible]
@@ -38,6 +40,19 @@ enum MediaSessionImageType {
 
   // The icon associated with the source of the media session.
   kSourceIcon,
+};
+
+[Extensible]
+enum MediaPictureInPictureState {
+  kNotInPictureInPicture,
+  kInPictureInPicture,
+};
+
+[Extensible]
+enum MediaAudioVideoState {
+  kUnknown,
+  kAudioOnly,
+  kAudioVideo,
 };
 
 // Album art in MediaMetadata
@@ -61,13 +76,21 @@ struct MediaMetadata {
   mojo_base.mojom.String16 source_title;
 };
 
+// The color type of the bitmap.
+[Extensible]
+enum MediaImageBitmapColorType {
+  kRGBA_8888,  // On Android, this is Bitmap.Config.ARGB_8888
+  kBGRA_8888,
+};
+
 // A bitmap image. We use this instead of SkImage or skia.image.Bitmap so we can
 // use it in ARC and we do not use ArcBitmap because we need to use it in the
 // service.
 struct MediaImageBitmap {
   int32 width;
   int32 height;
-  array<uint8> pixel_data;  // Must be ARGB_8888
+  array<uint8> pixel_data;
+  [MinVersion=5] MediaImageBitmapColorType color_type;
 };
 
 struct MediaPosition {
@@ -111,6 +134,18 @@ struct MediaSessionInfo {
   // If true then we will stop this MediaSession instead of suspending when the
   // session loses focus to a kGain focus type.
   [MinVersion=4] bool prefer_stop_for_gain_focus_loss;
+
+  // If true then the session is considered to be sensitive (e.g. from an
+  // off the record profile). This may result in it being hidden from certain
+  // UIs (e.g. lock screen media controls).
+  [MinVersion=6] bool is_sensitive;
+
+  // The picture-in-picture state tells the client whether the media is
+  // currently in a picture-in-picture window.
+  [MinVersion=7] MediaPictureInPictureState picture_in_picture_state;
+
+  // The audio/video state of the Media Session (if known).
+  [MinVersion=8] MediaAudioVideoState audio_video_state;
 };
 
 // Contains debugging information about a MediaSession. This will be displayed
@@ -153,7 +188,7 @@ interface MediaSessionObserver {
 // WebContents or ARC app.
 // TODO(https://crbug.com/875004): migrate media session from content/public
 // to mojo.
-// Next Method ID: 15
+// Next Method ID: 17
 interface MediaSession {
   [Extensible]
   enum SuspendType {
@@ -229,4 +264,10 @@ interface MediaSession {
   // this will be a no-op. The client should call |SeekTo| to finish the
   // scrubbing operation.
   ScrubTo@14(mojo_base.mojom.TimeDelta seek_time);
+
+  // Enter picture-in-picture.
+  EnterPictureInPicture@15();
+
+  // Exit picture-in-picture.
+  ExitPictureInPicture@16();
 };

@@ -12,8 +12,10 @@ using std::chrono::microseconds;
 using std::chrono::milliseconds;
 
 namespace openscreen {
-namespace platform {
+namespace {
 
+// Tests that the clock always seems to tick forward. If this test is broken, or
+// is flaky, the time source is probably not monotonic.
 TEST(TimeTest, PlatformClockIsMonotonic) {
   constexpr auto kSleepPeriod = milliseconds(2);
   for (int i = 0; i < 50; ++i) {
@@ -24,9 +26,11 @@ TEST(TimeTest, PlatformClockIsMonotonic) {
   }
 }
 
+// Tests that the clock ticks at least 10000 times per second, a requirement
+// specified in the API header comments.
 TEST(TimeTest, PlatformClockHasSufficientResolution) {
-  constexpr std::chrono::duration<int, kRequiredClockResolution> kMaxDuration(
-      1);
+  constexpr std::chrono::duration<int, Clock::kRequiredResolution>
+      kMaxAllowedDurationBetweenTicks(1);
   constexpr int kMaxRetries = 100;
 
   // Loop until a small-enough clock change is observed. The platform is given
@@ -42,13 +46,13 @@ TEST(TimeTest, PlatformClockHasSufficientResolution) {
       ASSERT_LE(microseconds(0), delta);
     } while (delta == microseconds(0));
 
-    if (delta <= kMaxDuration) {
+    if (delta <= kMaxAllowedDurationBetweenTicks) {
       break;
     }
   }
 
-  EXPECT_LE(delta, kMaxDuration);
+  EXPECT_LE(delta, kMaxAllowedDurationBetweenTicks);
 }
 
-}  // namespace platform
+}  // namespace
 }  // namespace openscreen

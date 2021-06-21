@@ -522,10 +522,13 @@ spv_result_t checkLayout(uint32_t struct_id, const char* storage_class_str,
       const auto typeId = array_inst->word(2);
       const auto element_inst = vstate.FindDef(typeId);
       // Check array stride.
-      auto array_stride = 0;
+      uint32_t array_stride = 0;
       for (auto& decoration : vstate.id_decorations(array_inst->id())) {
         if (SpvDecorationArrayStride == decoration.dec_type()) {
           array_stride = decoration.params()[0];
+          if (array_stride == 0) {
+            return fail(memberIdx) << "contains an array with stride 0";
+          }
           if (!IsAlignedTo(array_stride, array_alignment))
             return fail(memberIdx)
                    << "contains an array with stride " << decoration.params()[0]
@@ -563,6 +566,14 @@ spv_result_t checkLayout(uint32_t struct_id, const char* storage_class_str,
                             ? getScalarAlignment(array_inst->id(), vstate)
                             : getBaseAlignment(array_inst->id(), blockRules,
                                                constraint, constraints, vstate);
+
+      const auto element_size =
+          getSize(element_inst->id(), constraint, constraints, vstate);
+      if (element_size > array_stride) {
+        return fail(memberIdx)
+               << "contains an array with stride " << array_stride
+               << ", but with an element size of " << element_size;
+      }
     }
     nextValidOffset = offset + size;
     if (!scalar_block_layout && blockRules &&
@@ -942,6 +953,7 @@ spv_result_t CheckDecorationsOfBuffers(ValidationState_t& vstate) {
           id = id_inst->GetOperandAs<uint32_t>(1u);
           id_inst = vstate.FindDef(id);
         }
+        // Struct requirement is checked on variables so just move on here.
         if (SpvOpTypeStruct != id_inst->opcode()) continue;
         MemberConstraints constraints;
         ComputeMemberConstraintsForStruct(&constraints, id, LayoutConstraints(),
@@ -952,21 +964,40 @@ spv_result_t CheckDecorationsOfBuffers(ValidationState_t& vstate) {
                     : (push_constant ? "PushConstant" : "StorageBuffer");
 
         if (spvIsVulkanEnv(vstate.context()->target_env)) {
-          if (storage_buffer &&
-              hasDecoration(id, SpvDecorationBufferBlock, vstate)) {
+          const bool block = hasDecoration(id, SpvDecorationBlock, vstate);
+          const bool buffer_block =
+              hasDecoration(id, SpvDecorationBufferBlock, vstate);
+          if (storage_buffer && buffer_block) {
             return vstate.diag(SPV_ERROR_INVALID_ID, vstate.FindDef(var_id))
                    << "Storage buffer id '" << var_id
                    << " In Vulkan, BufferBlock is disallowed on variables in "
                       "the StorageBuffer storage class";
           }
-          // Vulkan 14.5.1: Check Block decoration for PushConstant variables.
-          if (push_constant && !hasDecoration(id, SpvDecorationBlock, vstate)) {
+          // Vulkan 14.5.1/2: Check Block decoration for PushConstant, Uniform
+          // and StorageBuffer variables. Uniform can also use BufferBlock.
+          if (push_constant && !block) {
             return vstate.diag(SPV_ERROR_INVALID_ID, vstate.FindDef(id))
                    << "PushConstant id '" << id
                    << "' is missing Block decoration.\n"
                    << "From Vulkan spec, section 14.5.1:\n"
                    << "Such variables must be identified with a Block "
                       "decoration";
+          }
+          if (storage_buffer && !block) {
+            return vstate.diag(SPV_ERROR_INVALID_ID, vstate.FindDef(id))
+                   << "StorageBuffer id '" << id
+                   << "' is missing Block decoration.\n"
+                   << "From Vulkan spec, section 14.5.2:\n"
+                   << "Such variables must be identified with a Block "
+                      "decoration";
+          }
+          if (uniform && !block && !buffer_block) {
+            return vstate.diag(SPV_ERROR_INVALID_ID, vstate.FindDef(id))
+                   << "Uniform id '" << id
+                   << "' is missing Block or BufferBlock decoration.\n"
+                   << "From Vulkan spec, section 14.5.2:\n"
+                   << "Such variables must be identified with a Block or "
+                      "BufferBlock decoration";
           }
           // Vulkan 14.5.2: Check DescriptorSet and Binding decoration for
           // Uniform and StorageBuffer variables.
@@ -1244,6 +1275,7 @@ spv_result_t CheckFPRoundingModeForShaders(ValidationState_t& vstate,
     const auto store = use.first;
     if (store->opcode() == SpvOpFConvert) continue;
     if (spvOpcodeIsDebug(store->opcode())) continue;
+    if (store->IsNonSemantic()) continue;
     if (spvOpcodeIsDecoration(store->opcode())) continue;
     if (store->opcode() != SpvOpStore) {
       return vstate.diag(SPV_ERROR_INVALID_ID, &inst)
@@ -1492,6 +1524,22 @@ spv_result_t CheckComponentDecoration(ValidationState_t& vstate,
   return SPV_SUCCESS;
 }
 
+// Returns SPV_SUCCESS if validation rules are satisfied for the Block
+// decoration.  Otherwise emits a diagnostic and returns something other than
+// SPV_SUCCESS.
+spv_result_t CheckBlockDecoration(ValidationState_t& vstate,
+                                  const Instruction& inst,
+                                  const Decoration& decoration) {
+  assert(inst.id() && "Parser ensures the target of the decoration has an ID");
+  if (inst.opcode() != SpvOpTypeStruct) {
+    const char* const dec_name =
+        decoration.dec_type() == SpvDecorationBlock ? "Block" : "BufferBlock";
+    return vstate.diag(SPV_ERROR_INVALID_ID, &inst)
+           << dec_name << " decoration on a non-struct type.";
+  }
+  return SPV_SUCCESS;
+}
+
 #define PASS_OR_BAIL_AT_LINE(X, LINE)           \
   {                                             \
     spv_result_t e##LINE = (X);                 \
@@ -1537,6 +1585,10 @@ spv_result_t CheckDecorationsFromDecoration(ValidationState_t& vstate) {
         case SpvDecorationNoSignedWrap:
         case SpvDecorationNoUnsignedWrap:
           PASS_OR_BAIL(CheckIntegerWrapDecoration(vstate, *inst, decoration));
+          break;
+        case SpvDecorationBlock:
+        case SpvDecorationBufferBlock:
+          PASS_OR_BAIL(CheckBlockDecoration(vstate, *inst, decoration));
           break;
         default:
           break;

@@ -7,13 +7,19 @@
 Extracts network traffic annotation definitions from C++ source code.
 """
 
+from __future__ import print_function
+
 import argparse
 import os
 import re
 import sys
+import traceback
 
 from annotation_tools import NetworkTrafficAnnotationTools
-from annotation_tokenizer import Tokenizer
+from annotation_tokenizer import Tokenizer, CppParsingError
+
+# Exit code for parsing errors. Other runtime errors return 1.
+EX_PARSE_ERROR = 2
 
 ANNOTATION_TYPES = {
     'DefineNetworkTrafficAnnotation': 'Definition',
@@ -54,13 +60,6 @@ class Annotation:
       file_path: Path to the file that contains this annotation.
     """
     self.file_path = file_path
-    # TODO(crbug/966883): Remove function_name from here and from the clang
-    # tool's output.
-    #
-    # |function_name| is not supported, but keep it in the output for
-    # compatibility with the clang tool. Use an obviously wrong function name
-    # in case this details ends up in auditor output.
-    self.function_name = "XXX_UNIMPLEMENTED_XXX"
     self.line_number = line_number
     self.type_name = type_name
     self.unique_id = unique_id
@@ -83,12 +82,11 @@ class Annotation:
     self._parse_body(body)
 
 
-  def clang_tool_output_string(self):
-    """Returns a string formatted for clang-tool-style output."""
+  def extractor_output_string(self):
+    """Returns a string formatted for output."""
     return "\n".join(map(str, [
         "==== NEW ANNOTATION ====",
         self.file_path,
-        self.function_name,
         self.line_number,
         self.type_name,
         self.unique_id,
@@ -241,12 +239,21 @@ def main():
   for file_path in args.file_paths:
     if not args.no_filter and os.path.abspath(file_path) not in compdb_files:
       continue
-    annotation_definitions.extend(extract_annotations(file_path))
+    try:
+      annotation_definitions.extend(extract_annotations(file_path))
+    except CppParsingError:
+      traceback.print_exc()
+      return EX_PARSE_ERROR
 
   # Print output.
   for annotation in annotation_definitions:
-    print(annotation.clang_tool_output_string())
+    print(annotation.extractor_output_string())
 
+  # If all files were successfully checked for annotations but none of them had
+  # any, print something so that the traffic_annotation_auditor knows there was
+  # no error so that the files get checked for deleted annotations.
+  if not annotation_definitions:
+    print('No annotations in these files.')
   return 0
 
 

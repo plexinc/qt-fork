@@ -9,13 +9,16 @@
 
 #include <string>
 
+#include "base/component_export.h"
+
 namespace leveldb_proto {
 
 const char* const kFeatureEngagementName = "FeatureEngagement";
 
 // The enum values are used to index into the shared database. Do not rearrange
 // or reuse the integer values. Add new database types at the end of the enum,
-// and update the string mapping in ProtoDbTypeToString().
+// and update the string mapping in ProtoDbTypeToString(). Also update the
+// suffix LevelDBClients in histograms.xml to match the strings for the types.
 enum class ProtoDbType {
   TEST_DATABASE0 = 0,
   TEST_DATABASE1 = 1,
@@ -38,7 +41,15 @@ enum class ProtoDbType {
   BUDGET_DATABASE = 18,
   STRIKE_DATABASE = 19,
   HINT_CACHE_STORE = 20,
-
+  DOWNLOAD_DB = 21,
+  VIDEO_DECODE_STATS_DB = 22,
+  PRINT_JOB_DATABASE = 23,
+  // DB is not tied to a profile, will always be unique.
+  GCM_KEY_STORE = 24,
+  // DB Used by shared database, will always be unique.
+  SHARED_DB_METADATA = 25,
+  FEED_STREAM_DATABASE = 26,
+  TAB_STATE_DATABASE = 27,
   LAST,
 };
 
@@ -48,16 +59,20 @@ constexpr ProtoDbType kWhitelistedDbForSharedImpl[]{
     ProtoDbType::NOTIFICATION_SCHEDULER_ICON_STORE,
     ProtoDbType::NOTIFICATION_SCHEDULER_IMPRESSION_STORE,
     ProtoDbType::NOTIFICATION_SCHEDULER_NOTIFICATION_STORE,
+    ProtoDbType::PRINT_JOB_DATABASE,
+    ProtoDbType::FEED_STREAM_DATABASE,
+    ProtoDbType::TAB_STATE_DATABASE,
     ProtoDbType::LAST,  // Marks the end of list.
 };
 
 // Add any obsolete databases in this list so that, if the data is no longer
 // needed.
 constexpr ProtoDbType kObsoleteSharedProtoDbTypeClients[] = {
+    ProtoDbType::DOM_DISTILLER_STORE,
     ProtoDbType::LAST,  // Marks the end of list.
 };
 
-class SharedProtoDatabaseClientList {
+class COMPONENT_EXPORT(LEVELDB_PROTO) SharedProtoDatabaseClientList {
  public:
   // Determines if the given |db_type| should use a unique or shared DB.
   static bool ShouldUseSharedDB(ProtoDbType db_type);

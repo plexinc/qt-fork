@@ -30,6 +30,7 @@
 #include "base/macros.h"
 #include "base/single_thread_task_runner.h"
 #include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_state_observer.h"
 #include "third_party/blink/renderer/platform/bindings/name_client.h"
 #include "third_party/blink/renderer/platform/heap/handle.h"
 #include "third_party/blink/renderer/platform/wtf/deque.h"
@@ -42,8 +43,11 @@ class PendingScript;
 class ScriptLoader;
 
 class CORE_EXPORT ScriptRunner final
-    : public GarbageCollectedFinalized<ScriptRunner>,
+    : public GarbageCollected<ScriptRunner>,
+      public ExecutionContextLifecycleStateObserver,
       public NameClient {
+  USING_GARBAGE_COLLECTED_MIXIN(ScriptRunner);
+
  public:
   explicit ScriptRunner(Document*);
 
@@ -52,13 +56,19 @@ class CORE_EXPORT ScriptRunner final
     return !pending_in_order_scripts_.IsEmpty() ||
            !pending_async_scripts_.IsEmpty();
   }
-  void Suspend();
-  void Resume();
+  void SetForceDeferredExecution(bool force_deferred);
   void NotifyScriptReady(PendingScript*);
+
+  void ContextLifecycleStateChanged(mojom::FrameLifecycleState) final;
+  void ContextDestroyed() final {}
 
   static void MovePendingScript(Document&, Document&, ScriptLoader*);
 
-  void Trace(Visitor*);
+  void SetTaskRunnerForTesting(base::SingleThreadTaskRunner* task_runner) {
+    task_runner_ = task_runner;
+  }
+
+  void Trace(Visitor*) override;
   const char* NameInHeapSnapshot() const override { return "ScriptRunner"; }
 
  private:
@@ -69,6 +79,7 @@ class CORE_EXPORT ScriptRunner final
   void ScheduleReadyInOrderScripts();
 
   void PostTask(const base::Location&);
+  void PostTasksForReadyScripts(const base::Location&);
 
   // Execute the first task in in_order_scripts_to_execute_soon_.
   // Returns true if task was run, and false otherwise.
@@ -79,6 +90,8 @@ class CORE_EXPORT ScriptRunner final
   bool ExecuteAsyncTask();
 
   void ExecuteTask();
+
+  bool IsExecutionSuspended();
 
   Member<Document> document_;
 
@@ -93,15 +106,11 @@ class CORE_EXPORT ScriptRunner final
 
   int number_of_in_order_scripts_with_pending_notification_ = 0;
 
-  bool is_suspended_ = false;
+  // Whether script execution is suspended due to there being force deferred
+  // scripts that have not yet been executed. This is expected to be in sync
+  // with HTMLParserScriptRunner::suspended_async_script_execution_.
+  bool is_force_deferred_ = false;
 
-#ifndef NDEBUG
-  // We expect to have one posted task in flight for each script in either
-  // .._to_be_executed_soon_ queue. This invariant will be temporarily violated
-  // when the ScriptRunner is suspended. We'll use this variable to account &
-  // check this invariant for debugging.
-  int number_of_extra_tasks_ = 0;
-#endif
   DISALLOW_COPY_AND_ASSIGN(ScriptRunner);
 };
 

@@ -42,7 +42,9 @@
 #include "qquickpopup_p_p.h"
 #include "qquickdeferredexecute_p_p.h"
 
-#include <QtGui/private/qshortcutmap_p.h>
+#if QT_CONFIG(shortcut)
+#  include <QtGui/private/qshortcutmap_p.h>
+#endif
 #include <QtGui/private/qguiapplication_p.h>
 
 #if QT_CONFIG(accessibility)
@@ -162,6 +164,9 @@ QQuickPopupItem::QQuickPopupItem(QQuickPopup *popup)
     setParent(popup);
     setFlag(ItemIsFocusScope);
     setAcceptedMouseButtons(Qt::AllButtons);
+#if QT_CONFIG(quicktemplates2_multitouch)
+    setAcceptTouchEvents(true);
+#endif
 #if QT_CONFIG(cursor)
     setCursor(Qt::ArrowCursor);
 #endif

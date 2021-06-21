@@ -6,9 +6,9 @@
 
 #include "third_party/blink/renderer/bindings/core/v8/script_regexp.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
-#include "third_party/blink/renderer/modules/payments/address_errors.h"
-#include "third_party/blink/renderer/modules/payments/payer_errors.h"
-#include "third_party/blink/renderer/modules/payments/payment_validation_errors.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_address_errors.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_payer_errors.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_payment_validation_errors.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/bindings/string_resource.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
@@ -176,13 +176,15 @@ bool PaymentsValidators::IsValidMethodFormat(const String& identifier) {
 }
 
 void PaymentsValidators::ValidateAndStringifyObject(
+    v8::Isolate* isolate,
     const String& input_name,
     const ScriptValue& input,
     String& output,
     ExceptionState& exception_state) {
   v8::Local<v8::String> value;
   if (input.IsEmpty() || !input.V8Value()->IsObject() ||
-      !v8::JSON::Stringify(input.GetContext(), input.V8Value().As<v8::Object>())
+      !v8::JSON::Stringify(isolate->GetCurrentContext(),
+                           input.V8Value().As<v8::Object>())
            .ToLocal(&value)) {
     exception_state.ThrowTypeError(input_name +
                                    " should be a JSON-serializable object");

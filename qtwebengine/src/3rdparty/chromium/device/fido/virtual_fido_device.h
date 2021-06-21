@@ -33,6 +33,10 @@ class ECPrivateKey;
 
 namespace device {
 
+constexpr size_t kMaxPinRetries = 8;
+
+constexpr size_t kMaxUvRetries = 5;
+
 class COMPONENT_EXPORT(DEVICE_FIDO) VirtualFidoDevice : public FidoDevice {
  public:
   // Encapsulates information corresponding to one registered key on the virtual
@@ -106,9 +110,9 @@ class COMPONENT_EXPORT(DEVICE_FIDO) VirtualFidoDevice : public FidoDevice {
     bool non_zero_aaguid_with_self_attestation = false;
 
     // Number of PIN retries remaining.
-    int retries = 8;
+    int pin_retries = kMaxPinRetries;
     // The number of failed PIN attempts since the token was "inserted".
-    int retries_since_insertion = 0;
+    int pin_retries_since_insertion = 0;
     // True if the token is soft-locked due to too many failed PIN attempts
     // since "insertion".
     bool soft_locked = false;
@@ -120,17 +124,35 @@ class COMPONENT_EXPORT(DEVICE_FIDO) VirtualFidoDevice : public FidoDevice {
     // itself.
     uint8_t pin_token[32];
 
+    // Number of internal UV retries remaining.
+    int uv_retries = kMaxUvRetries;
+
     // Whether a device with internal-UV support has fingerprints enrolled.
     bool fingerprints_enrolled = false;
 
     // Whether a device with bio enrollment support has been provisioned.
     bool bio_enrollment_provisioned = false;
+
     // Current template ID being enrolled, if any.
     base::Optional<uint8_t> bio_current_template_id;
+
     // Number of remaining samples in current enrollment.
     uint8_t bio_remaining_samples = 4;
+
     // Backing storage for enrollments and their friendly names.
     std::map<uint8_t, std::string> bio_templates;
+
+    // Whether the next authenticatorBioEnrollment command with a
+    // enrollCaptureNextSample subCommand should return a
+    // CTAP2_ENROLL_FEEDBACK_TOO_HIGH response. Will be reset to false upon
+    // returning the error.
+    bool bio_enrollment_next_sample_error = false;
+
+    // Whether the next authenticatorBioEnrollment command with a
+    // enrollCaptureNextSample subCommand should return a
+    // CTAP2_ENROLL_FEEDBACK_NO_USER_ACTIVITY response. Will be reset to false
+    // upon returning the error.
+    bool bio_enrollment_next_sample_timeout = false;
 
     // pending_assertions contains the second and subsequent assertions
     // resulting from a GetAssertion call. These values are awaiting a
@@ -157,7 +179,18 @@ class COMPONENT_EXPORT(DEVICE_FIDO) VirtualFidoDevice : public FidoDevice {
     bool InjectRegistration(base::span<const uint8_t> credential_id,
                             const std::string& relying_party_id);
 
-    // InjectResidentKey adds a resident credential with the specified values.
+    // Adds a resident credential with the specified values.
+    // Returns false if there already exists a resident credential for the same
+    // (RP ID, user ID) pair, or for the same credential ID. Otherwise returns
+    // true.
+    bool InjectResidentKey(base::span<const uint8_t> credential_id,
+                           device::PublicKeyCredentialRpEntity rp,
+                           device::PublicKeyCredentialUserEntity user,
+                           int32_t signature_counter,
+                           std::unique_ptr<crypto::ECPrivateKey> private_key);
+
+    // Adds a resident credential with the specified values, creating a new
+    // private key.
     // Returns false if there already exists a resident credential for the same
     // (RP ID, user ID) pair, or for the same credential ID. Otherwise returns
     // true.
@@ -170,8 +203,8 @@ class COMPONENT_EXPORT(DEVICE_FIDO) VirtualFidoDevice : public FidoDevice {
     bool InjectResidentKey(base::span<const uint8_t> credential_id,
                            const std::string& relying_party_id,
                            base::span<const uint8_t> user_id,
-                           const std::string& user_name,
-                           const std::string& user_display_name);
+                           base::Optional<std::string> user_name,
+                           base::Optional<std::string> user_display_name);
 
    private:
     friend class base::RefCounted<State>;
@@ -214,11 +247,22 @@ class COMPONENT_EXPORT(DEVICE_FIDO) VirtualFidoDevice : public FidoDevice {
       base::span<const uint8_t> key_handle,
       base::span<const uint8_t, kRpIdHashLength> application_parameter);
 
+  // Simulates flashing the device for a press and potentially receiving one.
+  // Returns true if the "user" pressed the device (and the request must
+  // continue) or false if the user didn't, and the request must be dropped.
+  // Internally calls |state_->simulate_press_callback|, so |this| may be
+  // destroyed after calling this method, in which case it will return false.
+  bool SimulatePress();
+
   // FidoDevice:
+  void TryWink(base::OnceClosure cb) override;
   std::string GetId() const override;
   FidoTransportProtocol DeviceTransport() const override;
 
  private:
+  static std::string MakeVirtualFidoDeviceId();
+
+  const std::string id_ = MakeVirtualFidoDeviceId();
   scoped_refptr<State> state_ = base::MakeRefCounted<State>();
 
   DISALLOW_COPY_AND_ASSIGN(VirtualFidoDevice);

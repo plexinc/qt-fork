@@ -8,53 +8,12 @@
 #include "include/core/SkCanvas.h"
 #include "include/core/SkFontMgr.h"
 #include "include/core/SkPictureRecorder.h"
-#include "modules/skparagraph/src/FontResolver.h"
 #include "modules/skparagraph/src/ParagraphImpl.h"
 #include "src/core/SkSpan.h"
 #include "src/utils/SkUTF.h"
 
 namespace skia {
 namespace textlayout {
-
-class FontIterator final : public SkShaper::FontRunIterator {
-public:
-    FontIterator(SkSpan<const char> utf8, FontResolver* fontResolver)
-        : fText(utf8), fCurrentChar(utf8.begin()), fFontResolver(fontResolver) { }
-
-    void consume() override {
-      SkASSERT(fCurrentChar < fText.end());
-      SkString locale;
-      auto found = fFontResolver->findNext(fCurrentChar, &fFont, &fLineHeight);
-      SkASSERT(found);
-
-      // Move until we find the first character that cannot be resolved with the current font
-      while (++fCurrentChar != fText.end()) {
-          SkFont font;
-          SkScalar height;
-          SkString locale;
-          found = fFontResolver->findNext(fCurrentChar, &font, &height);
-          if (found) {
-              if (fFont == font && fLineHeight == height) {
-                  continue;
-              }
-              break;
-          }
-      }
-  }
-
-    size_t endOfCurrentRun() const override { return fCurrentChar - fText.begin(); }
-    bool atEnd() const override { return fCurrentChar == fText.end(); }
-    const SkFont& currentFont() const override { return fFont; }
-    SkScalar currentLineHeight() const { return fLineHeight; }
-
-private:
-
-    SkSpan<const char> fText;
-    const char* fCurrentChar;
-    SkFont fFont;
-    SkScalar fLineHeight;
-    FontResolver* fFontResolver;
-};
 
 class LangIterator final : public SkShaper::LanguageRunIterator {
 public:
@@ -75,7 +34,7 @@ public:
 
         fCurrentChar = fText.begin() + fCurrentStyle->fRange.end;
         fCurrentLocale = fCurrentStyle->fStyle.getLocale();
-        while (++fCurrentStyle != fTextStyles.end()) {
+        while (++fCurrentStyle != fTextStyles.end() && !fCurrentStyle->fStyle.isPlaceholder()) {
             if (fCurrentStyle->fStyle.getLocale() != fCurrentLocale) {
                 break;
             }
@@ -84,7 +43,7 @@ public:
     }
 
     size_t endOfCurrentRun() const override { return fCurrentChar - fText.begin(); }
-    bool atEnd() const override { return fCurrentChar == fText.end(); }
+    bool atEnd() const override { return fCurrentChar >= fText.end(); }
     const char* currentLanguage() const override { return fCurrentLocale.c_str(); }
 
 private:

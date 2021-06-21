@@ -231,7 +231,6 @@ class CPDF_ICCBasedCS final : public CPDF_ColorSpace {
                             uint32_t nExpectedComponents);
   static RetainPtr<CPDF_ColorSpace> GetStockAlternateProfile(
       uint32_t nComponents);
-  static bool IsValidComponents(int32_t nComps);
   static std::vector<float> GetRanges(const CPDF_Dictionary* pDict,
                                       uint32_t nComponents);
 
@@ -254,7 +253,6 @@ class CPDF_IndexedCS final : public CPDF_ColorSpace {
   uint32_t v_Load(CPDF_Document* pDoc,
                   const CPDF_Array* pArray,
                   std::set<const CPDF_Object*>* pVisited) override;
-
 
  private:
   explicit CPDF_IndexedCS(CPDF_Document* pDoc);
@@ -557,7 +555,7 @@ RetainPtr<CPDF_ColorSpace> CPDF_ColorSpace::Load(
     default:
       return nullptr;
   }
-  pCS->m_pArray = pArray;
+  pCS->m_pArray.Reset(pArray);
   pCS->m_nComponents = pCS->v_Load(pDoc, pArray, pVisited);
   if (pCS->m_nComponents == 0)
     return nullptr;
@@ -578,6 +576,11 @@ uint32_t CPDF_ColorSpace::ComponentsForFamily(int family) {
       NOTREACHED();
       return 4;
   }
+}
+
+// static
+bool CPDF_ColorSpace::IsValidIccComponents(int components) {
+  return components == 1 || components == 3 || components == 4;
 }
 
 std::vector<float> CPDF_ColorSpace::CreateBufAndSetDefaultColor() const {
@@ -792,9 +795,9 @@ void CPDF_CalRGB::TranslateImageLine(uint8_t* pDestBuf,
       Cal[1] = static_cast<float>(pSrcBuf[1]) / 255;
       Cal[2] = static_cast<float>(pSrcBuf[0]) / 255;
       GetRGB(Cal, &R, &G, &B);
-      pDestBuf[0] = FXSYS_round(B * 255);
-      pDestBuf[1] = FXSYS_round(G * 255);
-      pDestBuf[2] = FXSYS_round(R * 255);
+      pDestBuf[0] = FXSYS_roundf(B * 255);
+      pDestBuf[1] = FXSYS_roundf(G * 255);
+      pDestBuf[2] = FXSYS_roundf(R * 255);
       pSrcBuf += 3;
       pDestBuf += 3;
     }
@@ -902,15 +905,7 @@ void CPDF_LabCS::TranslateImageLine(uint8_t* pDestBuf,
 CPDF_ICCBasedCS::CPDF_ICCBasedCS(CPDF_Document* pDoc)
     : CPDF_ColorSpace(pDoc, PDFCS_ICCBASED) {}
 
-CPDF_ICCBasedCS::~CPDF_ICCBasedCS() {
-  if (m_pProfile && m_pDocument) {
-    const CPDF_Stream* pStream = m_pProfile->GetStream();
-    m_pProfile.Reset();  // Give up our reference first.
-    auto* pPageData = CPDF_DocPageData::FromDocument(m_pDocument.Get());
-    if (pPageData)
-      pPageData->MaybePurgeIccProfile(pStream);
-  }
-}
+CPDF_ICCBasedCS::~CPDF_ICCBasedCS() = default;
 
 uint32_t CPDF_ICCBasedCS::v_Load(CPDF_Document* pDoc,
                                  const CPDF_Array* pArray,
@@ -924,7 +919,7 @@ uint32_t CPDF_ICCBasedCS::v_Load(CPDF_Document* pDoc,
   // with Acrobat and reject bad values.
   const CPDF_Dictionary* pDict = pStream->GetDict();
   int32_t nDictComponents = pDict ? pDict->GetIntegerFor("N") : 0;
-  if (!IsValidComponents(nDictComponents))
+  if (!IsValidIccComponents(nDictComponents))
     return 0;
 
   uint32_t nComponents = static_cast<uint32_t>(nDictComponents);
@@ -1009,7 +1004,7 @@ void CPDF_ICCBasedCS::TranslateImageLine(uint8_t* pDestBuf,
 
   // |nMaxColors| will not overflow since |nComponents| is limited in size.
   const uint32_t nComponents = CountComponents();
-  ASSERT(IsValidComponents(nComponents));
+  ASSERT(IsValidIccComponents(nComponents));
   int nMaxColors = 1;
   for (uint32_t i = 0; i < nComponents; i++)
     nMaxColors *= 52;
@@ -1103,14 +1098,9 @@ RetainPtr<CPDF_ColorSpace> CPDF_ICCBasedCS::GetStockAlternateProfile(
 }
 
 // static
-bool CPDF_ICCBasedCS::IsValidComponents(int32_t nComps) {
-  return nComps == 1 || nComps == 3 || nComps == 4;
-}
-
-// static
 std::vector<float> CPDF_ICCBasedCS::GetRanges(const CPDF_Dictionary* pDict,
                                               uint32_t nComponents) {
-  ASSERT(IsValidComponents(nComponents));
+  ASSERT(IsValidIccComponents(nComponents));
 
   std::vector<float> ranges;
   const CPDF_Array* pRanges = pDict->GetArrayFor("Range");
@@ -1171,7 +1161,7 @@ uint32_t CPDF_IndexedCS::v_Load(CPDF_Document* pDoc,
   } else if (const CPDF_Stream* pStream = pTableObj->AsStream()) {
     auto pAcc = pdfium::MakeRetain<CPDF_StreamAcc>(pStream);
     pAcc->LoadAllDataFiltered();
-    m_Table = ByteStringView(pAcc->GetData(), pAcc->GetSize());
+    m_Table = ByteStringView(pAcc->GetSpan());
   }
   return 1;
 }

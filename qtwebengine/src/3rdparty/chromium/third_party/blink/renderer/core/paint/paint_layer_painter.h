@@ -49,9 +49,9 @@ class CORE_EXPORT PaintLayerPainter {
                                  const PaintLayerPaintingInfo&,
                                  PaintLayerFlags);
 
-  void PaintOverlayScrollbars(GraphicsContext&,
-                              const CullRect&,
-                              const GlobalPaintFlags);
+  void PaintOverlayOverflowControls(GraphicsContext&,
+                                    const CullRect&,
+                                    const GlobalPaintFlags);
 
   // Returns true if the painted output of this PaintLayer and its children is
   // invisible and therefore can't impact painted output.
@@ -82,8 +82,6 @@ class CORE_EXPORT PaintLayerPainter {
   void PaintForegroundForFragments(const PaintLayerFragments&,
                                    GraphicsContext&,
                                    const PaintLayerPaintingInfo&,
-                                   bool selection_only,
-                                   bool force_paint_chunks,
                                    PaintLayerFlags);
   void PaintForegroundForFragmentsWithPhase(PaintPhase,
                                             const PaintLayerFragments&,
@@ -94,28 +92,18 @@ class CORE_EXPORT PaintLayerPainter {
                                     GraphicsContext&,
                                     const PaintLayerPaintingInfo&,
                                     PaintLayerFlags);
-  void PaintOverlayScrollbarsForFragments(const PaintLayerFragments&,
-                                          GraphicsContext&,
-                                          const PaintLayerPaintingInfo&,
-                                          PaintLayerFlags);
+  void PaintOverlayOverflowControlsForFragments(const PaintLayerFragments&,
+                                                GraphicsContext&,
+                                                const PaintLayerPaintingInfo&,
+                                                PaintLayerFlags);
   void PaintMaskForFragments(const PaintLayerFragments&,
                              GraphicsContext&,
                              const PaintLayerPaintingInfo&,
                              PaintLayerFlags);
-  void PaintAncestorClippingMask(const PaintLayerFragment&,
-                                 GraphicsContext&,
-                                 const PaintLayerPaintingInfo&,
-                                 PaintLayerFlags);
-  void PaintChildClippingMaskForFragments(const PaintLayerFragments&,
-                                          GraphicsContext&,
-                                          const PaintLayerPaintingInfo&,
-                                          PaintLayerFlags);
 
   void FillMaskingFragment(GraphicsContext&,
                            const ClipRect&,
                            const DisplayItemClient&);
-
-  void PaintEmptyContentForFilters(GraphicsContext&);
 
   void AdjustForPaintProperties(const GraphicsContext&,
                                 PaintLayerPaintingInfo&,

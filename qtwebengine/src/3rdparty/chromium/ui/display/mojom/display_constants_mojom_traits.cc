@@ -108,4 +108,78 @@ bool EnumTraits<display::mojom::HDCPState, display::HDCPState>::FromMojom(
   return false;
 }
 
+// static
+display::mojom::PanelOrientation EnumTraits<
+    display::mojom::PanelOrientation,
+    display::PanelOrientation>::ToMojom(display::PanelOrientation rotation) {
+  switch (rotation) {
+    case display::PanelOrientation::kNormal:
+      return display::mojom::PanelOrientation::NORMAL;
+    case display::PanelOrientation::kBottomUp:
+      return display::mojom::PanelOrientation::BOTTOM_UP;
+    case display::PanelOrientation::kLeftUp:
+      return display::mojom::PanelOrientation::LEFT_UP;
+    case display::PanelOrientation::kRightUp:
+      return display::mojom::PanelOrientation::RIGHT_UP;
+  }
+  NOTREACHED();
+  return display::mojom::PanelOrientation::NORMAL;
+}
+
+// static
+bool EnumTraits<display::mojom::PanelOrientation, display::PanelOrientation>::
+    FromMojom(display::mojom::PanelOrientation rotation,
+              display::PanelOrientation* out) {
+  switch (rotation) {
+    case display::mojom::PanelOrientation::NORMAL:
+      *out = display::PanelOrientation::kNormal;
+      return true;
+    case display::mojom::PanelOrientation::BOTTOM_UP:
+      *out = display::PanelOrientation::kBottomUp;
+      return true;
+    case display::mojom::PanelOrientation::LEFT_UP:
+      *out = display::PanelOrientation::kLeftUp;
+      return true;
+    case display::mojom::PanelOrientation::RIGHT_UP:
+      *out = display::PanelOrientation::kRightUp;
+      return true;
+  }
+  return false;
+}
+
+// static
+display::mojom::PrivacyScreenState EnumTraits<
+    display::mojom::PrivacyScreenState,
+    display::PrivacyScreenState>::ToMojom(display::PrivacyScreenState state) {
+  switch (state) {
+    case display::PrivacyScreenState::kDisabled:
+      return display::mojom::PrivacyScreenState::DISABLED;
+    case display::PrivacyScreenState::kEnabled:
+      return display::mojom::PrivacyScreenState::ENABLED;
+    case display::PrivacyScreenState::kNotSupported:
+      return display::mojom::PrivacyScreenState::NOT_SUPPORTED;
+  }
+  NOTREACHED();
+  return display::mojom::PrivacyScreenState::NOT_SUPPORTED;
+}
+
+// static
+bool EnumTraits<display::mojom::PrivacyScreenState,
+                display::PrivacyScreenState>::
+    FromMojom(display::mojom::PrivacyScreenState state,
+              display::PrivacyScreenState* out) {
+  switch (state) {
+    case display::mojom::PrivacyScreenState::DISABLED:
+      *out = display::PrivacyScreenState::kDisabled;
+      return true;
+    case display::mojom::PrivacyScreenState::ENABLED:
+      *out = display::PrivacyScreenState::kEnabled;
+      return true;
+    case display::mojom::PrivacyScreenState::NOT_SUPPORTED:
+      *out = display::PrivacyScreenState::kNotSupported;
+      return true;
+  }
+  return false;
+}
+
 }  // namespace mojo

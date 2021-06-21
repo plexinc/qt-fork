@@ -16,6 +16,7 @@
 #include "build/build_config.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/accessibility/ax_action_data.h"
+#include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/accelerators/accelerator.h"
 #include "ui/base/ime/text_input_type.h"
@@ -25,7 +26,7 @@
 #include "ui/base/models/menu_separator_types.h"
 #include "ui/base/ui_base_types.h"
 #include "ui/events/event.h"
-#include "ui/events/event_constants.h"
+#include "ui/events/types/event_type.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/font_list.h"
 #include "ui/gfx/geometry/insets.h"
@@ -43,6 +44,7 @@
 #include "ui/views/animation/ink_drop_impl.h"
 #include "ui/views/animation/ink_drop_ripple.h"
 #include "ui/views/controls/button/button.h"
+#include "ui/views/controls/button/button_controller.h"
 #include "ui/views/controls/combobox/combobox_util.h"
 #include "ui/views/controls/editable_combobox/editable_combobox_listener.h"
 #include "ui/views/controls/menu/menu_config.h"
@@ -67,7 +69,8 @@ class Arrow : public Button {
       : Button(listener), color_(color) {
     // Similar to Combobox's TransparentButton.
     SetFocusBehavior(FocusBehavior::NEVER);
-    set_notify_action(PlatformStyle::kMenuNotifyActivationAction);
+    button_controller()->set_notify_action(
+        ButtonController::NotifyAction::kOnPress);
 
     SetInkDropMode(InkDropMode::ON);
     set_has_ink_drop_action_on_click(true);
@@ -134,12 +137,10 @@ class EditableCombobox::EditableComboboxMenuModel
         filter_on_edit_(filter_on_edit),
         show_on_empty_(show_on_empty) {
     UpdateItemsShown();
-    combobox_model_->AddObserver(this);
+    observer_.Add(combobox_model_);
   }
 
-  ~EditableComboboxMenuModel() override {
-    combobox_model_->RemoveObserver(this);
-  }
+  ~EditableComboboxMenuModel() override = default;
 
   void UpdateItemsShown() {
     if (!update_items_shown_enabled_)
@@ -225,7 +226,7 @@ class EditableCombobox::EditableComboboxMenuModel
 
   int GetGroupIdAt(int index) const override { return -1; }
 
-  bool GetIconAt(int index, gfx::Image* icon) override { return false; }
+  bool GetIconAt(int index, gfx::Image* icon) const override { return false; }
 
   ui::ButtonMenuItemModel* GetButtonMenuItemAt(int index) const override {
     return nullptr;
@@ -255,6 +256,8 @@ class EditableCombobox::EditableComboboxMenuModel
   // When false, UpdateItemsShown doesn't do anything.
   bool update_items_shown_enabled_ = true;
 
+  ScopedObserver<ui::ComboboxModel, ui::ComboboxModelObserver> observer_{this};
+
   DISALLOW_COPY_AND_ASSIGN(EditableComboboxMenuModel);
 };
 
@@ -274,7 +277,7 @@ class EditableCombobox::EditableComboboxPreTargetHandler
   // ui::EventHandler overrides.
   void OnMouseEvent(ui::MouseEvent* event) override {
     if (event->type() == ui::ET_MOUSE_PRESSED &&
-        event->flags() == event->changed_button_flags())
+        event->button_flags() == event->changed_button_flags())
       HandlePressEvent(event->root_location());
   }
 
@@ -325,7 +328,7 @@ EditableCombobox::EditableCombobox(
       text_style_(text_style),
       type_(type),
       showing_password_text_(type != Type::kPassword) {
-  textfield_->AddObserver(this);
+  observer_.Add(textfield_);
   textfield_->set_controller(this);
   textfield_->SetFontList(GetFontList());
   textfield_->SetTextInputType((type == Type::kPassword)
@@ -345,11 +348,10 @@ EditableCombobox::EditableCombobox(
 EditableCombobox::~EditableCombobox() {
   CloseMenu();
   textfield_->set_controller(nullptr);
-  textfield_->RemoveObserver(this);
 }
 
 const base::string16& EditableCombobox::GetText() const {
-  return textfield_->text();
+  return textfield_->GetText();
 }
 
 void EditableCombobox::SetText(const base::string16& text) {
@@ -364,7 +366,7 @@ const gfx::FontList& EditableCombobox::GetFontList() const {
 }
 
 void EditableCombobox::SelectRange(const gfx::Range& range) {
-  textfield_->SelectRange(range);
+  textfield_->SetSelectedRange(range);
 }
 
 void EditableCombobox::SetAccessibleName(const base::string16& name) {
@@ -408,14 +410,19 @@ void EditableCombobox::Layout() {
 }
 
 void EditableCombobox::OnThemeChanged() {
+  View::OnThemeChanged();
   textfield_->OnThemeChanged();
 }
 
 void EditableCombobox::GetAccessibleNodeData(ui::AXNodeData* node_data) {
   node_data->role = ax::mojom::Role::kComboBoxGrouping;
 
-  node_data->SetName(textfield_->accessible_name());
+  node_data->SetName(textfield_->GetAccessibleName());
   node_data->SetValue(GetText());
+}
+
+void EditableCombobox::RequestFocus() {
+  textfield_->RequestFocus();
 }
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -36,7 +36,9 @@
 #include "third_party/blink/renderer/core/layout/line/line_layout_state.h"
 #include "third_party/blink/renderer/core/layout/line/line_width.h"
 #include "third_party/blink/renderer/core/layout/line/word_measurement.h"
-#include "third_party/blink/renderer/core/layout/logical_values.h"
+#include "third_party/blink/renderer/core/layout/ng/inline/ng_fragment_item.h"
+#include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_cursor.h"
+#include "third_party/blink/renderer/core/layout/ng/ng_physical_box_fragment.h"
 #include "third_party/blink/renderer/core/layout/svg/line/svg_root_inline_box.h"
 #include "third_party/blink/renderer/core/layout/vertical_position_cache.h"
 #include "third_party/blink/renderer/core/paint/ng/ng_paint_fragment.h"
@@ -955,7 +957,7 @@ RootInlineBox* LayoutBlockFlow::CreateLineBoxesFromBidiRuns(
   // text selection in RTL boxes would not work as expected.
   if (is_svg_root_inline_box) {
     DCHECK(IsSVGText());
-    ToSVGRootInlineBox(line_box)->ComputePerCharacterLayoutInformation();
+    To<SVGRootInlineBox>(line_box)->ComputePerCharacterLayoutInformation();
   }
 
   // Compute our overflow now.
@@ -1178,7 +1180,13 @@ void LayoutBlockFlow::LayoutRunsAndFloatsInRange(
           resolver, bidi_runs, end_of_line, override,
           layout_state.GetLineInfo().PreviousLineBrokeCleanly(),
           is_new_uba_paragraph);
-      DCHECK(resolver.GetPosition() == end_of_line);
+      // |resolver| to be at |end_of_line| is critical, because
+      // |SetLineBreakInfo| below copies |end_of_line.current_| to
+      // |RootInlineBox::line_break_obj_|. When the object is destroyed,
+      // |RootInlineBox::ChildRemoved()| clears |line_break_obj_| to avoid
+      // use-after-free, but we cannot find the correct |RootInlineBox| if
+      // |end_of_line| is actually not in this |RootInlineBox|.
+      CHECK(resolver.GetPosition() == end_of_line);
 
       BidiRun* trailing_space_run = resolver.TrailingSpaceRun();
 
@@ -1689,7 +1697,7 @@ void LayoutBlockFlow::ComputeInlinePreferredLogicalWidths(
           // did change or is going to change size. However, this is our only
           // opportunity to make sure that it gets its min/max widths
           // calculated.
-          child->SetPreferredLogicalWidthsDirty();
+          child->SetIntrinsicLogicalWidthsDirty();
         }
 
         // Case (1) and (2). Inline replaced and inline flow elements.
@@ -1698,13 +1706,14 @@ void LayoutBlockFlow::ComputeInlinePreferredLogicalWidths(
                                     child_min, child_max);
           inline_min += child_min;
           inline_max += child_max;
-          child->ClearPreferredLogicalWidthsDirty();
+          child->ClearIntrinsicLogicalWidthsDirty();
         } else {
           AdjustMarginForInlineReplaced(child, child_min, child_max);
         }
       }
 
-      if (!child->IsLayoutInline() && !child->IsText()) {
+      if (!child->IsLayoutInline() && !child->IsText() &&
+          !child->IsOutsideListMarker()) {
         // Case (2). Inline replaced elements and floats.
         // Go ahead and terminate the current line as far as
         // minwidth is concerned.
@@ -1719,8 +1728,8 @@ void LayoutBlockFlow::ComputeInlinePreferredLogicalWidths(
         bool clear_previous_float;
         if (child->IsFloating()) {
           if (prev_float) {
-            EFloat f = ResolvedFloating(prev_float->StyleRef(), style_to_use);
-            EClear c = ResolvedClear(child->StyleRef(), style_to_use);
+            EFloat f = prev_float->StyleRef().Floating(style_to_use);
+            EClear c = child->StyleRef().Clear(style_to_use);
             clear_previous_float =
                 ((f == EFloat::kLeft &&
                   (c == EClear::kBoth || c == EClear::kLeft)) ||
@@ -1892,7 +1901,7 @@ void LayoutBlockFlow::ComputeInlinePreferredLogicalWidths(
       }
 
       // Ignore spaces after a list marker.
-      if (child->IsListMarkerIncludingNG())
+      if (child->IsListMarkerIncludingNGOutside())
         strip_front_spaces = true;
     } else {
       min_logical_width = std::max(min_logical_width, inline_min);
@@ -2030,6 +2039,17 @@ void LayoutBlockFlow::LayoutInlineChildren(bool relayout_children,
     DCHECK(!is_full_layout || !LineBoxes()->First());
     for (LayoutBox* atomic_inline_child : atomic_inline_children) {
       atomic_inline_child->LayoutIfNeeded();
+#if DCHECK_IS_ON()
+      // |LayoutIfNeeded| should not mark itself and its ancestors to
+      // |NeedsLayout|.
+      for (const LayoutObject* parent = atomic_inline_child;
+           parent && parent != this; parent = parent->Parent()) {
+        DCHECK(!parent->SelfNeedsLayout());
+        DCHECK(!parent->NeedsLayout() ||
+               parent->LayoutBlockedByDisplayLock(
+                   DisplayLockLifecycleTarget::kChildren));
+      }
+#endif
     }
 
     LayoutRunsAndFloats(layout_state);
@@ -2118,7 +2138,6 @@ RootInlineBox* LayoutBlockFlow::DetermineStartPosition(
     if (layout_state.HasInlineChild() && !SelfNeedsLayout()) {
       SetNeedsLayoutAndFullPaintInvalidation(
           layout_invalidation_reason::kFloatDescendantChanged, kMarkOnlyThis);
-      SetShouldDoFullPaintInvalidation();
     }
 
     DeleteLineBoxTree();
@@ -2212,7 +2231,7 @@ bool LayoutBlockFlow::LineBoxHasBRWithClearance(RootInlineBox* curr) {
                             ? curr->LastLeafChild()
                             : curr->FirstLeafChild();
   return last_box && last_box->GetLineLayoutItem().IsBR() &&
-         last_box->GetLineLayoutItem().StyleRef().Clear() != EClear::kNone;
+         last_box->GetLineLayoutItem().StyleRef().HasClear();
 }
 
 void LayoutBlockFlow::DetermineEndPosition(LineLayoutState& layout_state,
@@ -2382,6 +2401,22 @@ void LayoutBlockFlow::AddVisualOverflowFromInlineChildren() {
         child_rect.offset += child->Offset();
         AddContentsVisualOverflow(child_rect);
       }
+    }
+  } else if (const NGPhysicalBoxFragment* fragment = CurrentFragment()) {
+    if (const NGFragmentItems* items = fragment->Items()) {
+      for (NGInlineCursor cursor(*items); cursor; cursor.MoveToNextSibling()) {
+        const NGFragmentItem* child = cursor.CurrentItem();
+        DCHECK(child);
+        if (child->HasSelfPaintingLayer())
+          continue;
+        PhysicalRect child_rect = child->InkOverflow();
+        if (!child_rect.IsEmpty()) {
+          child_rect.offset += child->OffsetInContainerBlock();
+          AddContentsVisualOverflow(child_rect);
+        }
+      }
+    } else if (fragment->HasFloatingDescendantsForPaint()) {
+      AddVisualOverflowFromFloats(*fragment);
     }
   } else {
     for (RootInlineBox* curr = FirstRootBox(); curr;
@@ -2721,18 +2756,36 @@ LayoutUnit LayoutBlockFlow::StartAlignedOffsetForLine(
 
 void LayoutBlockFlow::SetShouldDoFullPaintInvalidationForFirstLine() {
   DCHECK(ChildrenInline());
+
+  if (const NGPaintFragment* paint_fragment = PaintFragment()) {
+    paint_fragment->SetShouldDoFullPaintInvalidationForFirstLine();
+    return;
+  }
+
+  if (const NGFragmentItems* fragment_items = FragmentItems()) {
+    NGInlineCursor first_line(*fragment_items);
+    if (first_line) {
+      DCHECK(!FirstRootBox());
+      first_line.MoveToFirstLine();
+      if (first_line && first_line.Current().UsesFirstLineStyle()) {
+        // Mark all descendants of the first line if first-line style.
+        for (NGInlineCursor descendants = first_line.CursorForDescendants();
+             descendants; descendants.MoveToNext()) {
+          LayoutObject* layout_object =
+              descendants.Current()->GetMutableLayoutObject();
+          DCHECK(layout_object);
+          layout_object->StyleRef().ClearCachedPseudoElementStyles();
+          layout_object->SetShouldDoFullPaintInvalidation();
+        }
+        StyleRef().ClearCachedPseudoElementStyles();
+        SetShouldDoFullPaintInvalidation();
+      }
+    }
+    return;
+  }
+
   if (RootInlineBox* first_root_box = FirstRootBox())
     first_root_box->SetShouldDoFullPaintInvalidationForFirstLine();
-  else if (const NGPaintFragment* paint_fragment = PaintFragment())
-    paint_fragment->SetShouldDoFullPaintInvalidationForFirstLine();
-}
-
-bool LayoutBlockFlow::PaintedOutputOfObjectHasNoEffectRegardlessOfSize() const {
-  // LayoutBlockFlow is in charge of paint invalidation of the first line.
-  if (FirstLineBox())
-    return false;
-
-  return LayoutBlock::PaintedOutputOfObjectHasNoEffectRegardlessOfSize();
 }
 
 }  // namespace blink

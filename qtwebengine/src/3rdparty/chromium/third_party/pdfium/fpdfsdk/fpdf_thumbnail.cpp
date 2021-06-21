@@ -6,7 +6,7 @@
 
 #include <vector>
 
-#include "core/fpdfapi/page/cpdf_dibbase.h"
+#include "core/fpdfapi/page/cpdf_dib.h"
 #include "core/fpdfapi/page/cpdf_page.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_stream.h"
@@ -23,7 +23,7 @@ const CPDF_Stream* CPDFStreamForThumbnailFromPage(FPDF_PAGE page) {
     return nullptr;
 
   const CPDF_Dictionary* page_dict = p_page->GetDict();
-  if (!page_dict || !page_dict->KeyExist("Type"))
+  if (!page_dict->KeyExist("Type"))
     return nullptr;
 
   return page_dict->GetStreamFor("Thumb");
@@ -61,11 +61,11 @@ FPDFPage_GetThumbnailAsBitmap(FPDF_PAGE page) {
 
   const CPDF_Page* p_page = CPDFPageFromFPDFPage(page);
 
-  auto p_source = pdfium::MakeRetain<CPDF_DIBBase>();
-  const CPDF_DIBBase::LoadState start_status = p_source->StartLoadDIBBase(
+  auto p_source = pdfium::MakeRetain<CPDF_DIB>();
+  const CPDF_DIB::LoadState start_status = p_source->StartLoadDIBBase(
       p_page->GetDocument(), thumb_stream, false, nullptr,
       p_page->m_pPageResources.Get(), false, 0, false);
-  if (start_status == CPDF_DIBBase::LoadState::kFail)
+  if (start_status == CPDF_DIB::LoadState::kFail)
     return nullptr;
 
   auto thumb_bitmap = pdfium::MakeRetain<CFX_DIBitmap>();

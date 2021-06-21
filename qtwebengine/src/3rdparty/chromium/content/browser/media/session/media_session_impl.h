@@ -24,17 +24,16 @@
 #include "content/public/browser/media_session.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_contents_user_data.h"
-#include "mojo/public/cpp/bindings/binding.h"
-#include "mojo/public/cpp/bindings/binding_set.h"
 #include "mojo/public/cpp/bindings/interface_ptr_set.h"
+#include "mojo/public/cpp/bindings/receiver_set.h"
 #include "mojo/public/cpp/bindings/remote_set.h"
 #include "services/media_session/public/mojom/audio_focus.mojom.h"
+#include "third_party/blink/public/mojom/favicon/favicon_url.mojom.h"
+#include "third_party/blink/public/mojom/mediasession/media_session.mojom.h"
 
 #if defined(OS_ANDROID)
 #include "base/android/scoped_java_ref.h"
 #endif  // defined(OS_ANDROID)
-
-class MediaSessionImplBrowserTest;
 
 namespace media {
 enum class MediaContentType;
@@ -120,6 +119,9 @@ class MediaSessionImpl : public MediaSession,
   CONTENT_EXPORT void OnPlayerPaused(MediaSessionPlayerObserver* observer,
                                      int player_id);
 
+  // Called when the position state of the session might have changed.
+  CONTENT_EXPORT void RebuildAndNotifyMediaPositionChanged();
+
   // Returns if the session is currently active.
   CONTENT_EXPORT bool IsActive() const;
 
@@ -136,7 +138,9 @@ class MediaSessionImpl : public MediaSession,
   void OnWebContentsFocused(RenderWidgetHost*) override;
   void OnWebContentsLostFocus(RenderWidgetHost*) override;
   void TitleWasSet(NavigationEntry* entry) override;
-  void DidUpdateFaviconURL(const std::vector<FaviconURL>& candidates) override;
+  void DidUpdateFaviconURL(
+      const std::vector<blink::mojom::FaviconURLPtr>& candidates) override;
+  void MediaPictureInPictureChanged(bool is_picture_in_picture) override;
 
   // MediaSessionService-related methods
 
@@ -164,8 +168,7 @@ class MediaSessionImpl : public MediaSession,
       media_session::mojom::AudioFocusType audio_focus_type);
 
   // Creates a binding between |this| and |request|.
-  void BindToMojoRequest(
-      mojo::InterfaceRequest<media_session::mojom::MediaSession> request);
+  mojo::PendingRemote<media_session::mojom::MediaSession> AddRemote();
 
   // Returns information about the MediaSession.
   CONTENT_EXPORT media_session::mojom::MediaSessionInfoPtr
@@ -240,6 +243,18 @@ class MediaSessionImpl : public MediaSession,
   // Skip ad.
   CONTENT_EXPORT void SkipAd() override;
 
+  // Seek the media session to a specific time.
+  void SeekTo(base::TimeDelta seek_time) override;
+
+  // Scrub ("fast seek") the media session to a specific time.
+  void ScrubTo(base::TimeDelta seek_time) override;
+
+  // Enter picture-in-picture.
+  void EnterPictureInPicture() override;
+
+  // Exit picture-in-picture.
+  void ExitPictureInPicture() override;
+
   // Downloads the bitmap version of a MediaImage at least |minimum_size_px|
   // and closest to |desired_size_px|. If the download failed, was too small or
   // the image did not come from the media session then returns a null image.
@@ -253,18 +268,21 @@ class MediaSessionImpl : public MediaSession,
     return audio_focus_group_id_;
   }
 
+  void OnPictureInPictureAvailabilityChanged();
+
   // Returns whether the action should be routed to |routed_service_|.
   bool ShouldRouteAction(media_session::mojom::MediaSessionAction action) const;
 
-  // Seek the media session to a specific time.
-  void SeekTo(base::TimeDelta seek_time) override {}
+  // Returns the source ID which links media sessions on the same browser
+  // context together.
+  CONTENT_EXPORT const base::UnguessableToken& GetSourceId() const;
 
-  // Scrub ("fast seek") the media session to a specific time.
-  void ScrubTo(base::TimeDelta seek_time) override {}
+  // Returns the Audio Focus request ID associated with this media session.
+  const base::UnguessableToken& GetRequestId() const;
 
  private:
   friend class content::WebContentsUserData<MediaSessionImpl>;
-  friend class ::MediaSessionImplBrowserTest;
+  friend class MediaSessionImplBrowserTest;
   friend class content::MediaSessionImplVisibilityBrowserTest;
   friend class content::AudioFocusManagerTest;
   friend class content::MediaSessionImplServiceRoutingTest;
@@ -297,7 +315,6 @@ class MediaSessionImpl : public MediaSession,
   };
   using PlayersMap =
       std::unordered_set<PlayerIdentifier, PlayerIdentifier::Hash>;
-  using StateChangedCallback = base::Callback<void(State)>;
 
   CONTENT_EXPORT explicit MediaSessionImpl(WebContents* web_contents);
 
@@ -367,6 +384,23 @@ class MediaSessionImpl : public MediaSession,
   // changed.
   void RebuildAndNotifyMetadataChanged();
 
+  bool IsPictureInPictureAvailable() const;
+
+  // Called when a MediaSessionAction is received. The action will be forwarded
+  // to blink::MediaSession corresponding to the current routed service.
+  void DidReceiveAction(media_session::mojom::MediaSessionAction action,
+                        blink::mojom::MediaSessionActionDetailsPtr details);
+
+  // Returns the media audio video state. This is whether the players associated
+  // with the media session are audio-only or have audio and video. If we have
+  // a |routed_service_| then we limit to players on that frame because this
+  // should align with the metadata.
+  media_session::mojom::MediaAudioVideoState GetMediaAudioVideoState();
+
+  // Calls the callback with each |PlayerIdentifier| for every player associated
+  // with this media session.
+  void ForAllPlayers(base::RepeatingCallback<void(const PlayerIdentifier&)>);
+
   // A set of actions supported by |routed_service_| and the current media
   // session.
   std::set<media_session::mojom::MediaSessionAction> actions_;
@@ -389,6 +423,9 @@ class MediaSessionImpl : public MediaSession,
 
   // The last updated |MediaSessionInfo| that was sent to |observers_|.
   media_session::mojom::MediaSessionInfoPtr session_info_;
+
+  // The last updated |MediaPosition| that was sent to |observers_|.
+  base::Optional<media_session::MediaPosition> position_;
 
   MediaSessionUmaHelper uma_helper_;
 
@@ -425,7 +462,7 @@ class MediaSessionImpl : public MediaSession,
   MediaSessionServiceImpl* routed_service_;
 
   // Bindings for Mojo pointers to |this| held by media route providers.
-  mojo::BindingSet<media_session::mojom::MediaSession> bindings_;
+  mojo::ReceiverSet<media_session::mojom::MediaSession> receivers_;
 
   mojo::RemoteSet<media_session::mojom::MediaSessionObserver> observers_;
 

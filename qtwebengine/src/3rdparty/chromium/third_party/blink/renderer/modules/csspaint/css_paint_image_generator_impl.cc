@@ -121,9 +121,9 @@ bool CSSPaintImageGeneratorImpl::HasAlpha() const {
   return definition->alpha();
 }
 
-const Vector<CSSSyntaxDescriptor>&
+const Vector<CSSSyntaxDefinition>&
 CSSPaintImageGeneratorImpl::InputArgumentTypes() const {
-  DEFINE_STATIC_LOCAL(Vector<CSSSyntaxDescriptor>, empty_vector, ());
+  DEFINE_STATIC_LOCAL(Vector<CSSSyntaxDefinition>, empty_vector, ());
   DocumentPaintDefinition* definition;
   if (!GetValidDocumentDefinition(definition))
     return empty_vector;
@@ -138,7 +138,7 @@ int CSSPaintImageGeneratorImpl::WorkletId() const {
   return paint_worklet_->WorkletId();
 }
 
-void CSSPaintImageGeneratorImpl::Trace(blink::Visitor* visitor) {
+void CSSPaintImageGeneratorImpl::Trace(Visitor* visitor) {
   visitor->Trace(observer_);
   visitor->Trace(paint_worklet_);
   CSSPaintImageGenerator::Trace(visitor);

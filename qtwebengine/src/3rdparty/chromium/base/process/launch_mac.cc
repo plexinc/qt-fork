@@ -6,6 +6,7 @@
 
 #include <crt_externs.h>
 #include <mach/mach.h>
+#include <os/availability.h>
 #include <spawn.h>
 #include <string.h>
 #include <sys/syscall.h>
@@ -14,21 +15,23 @@
 #include "base/command_line.h"
 #include "base/files/scoped_file.h"
 #include "base/logging.h"
-#include "base/mac/availability.h"
 #include "base/posix/eintr_wrapper.h"
 #include "base/process/environment_internal.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/trace_event/trace_event.h"
 
+extern "C" {
 // Changes the current thread's directory to a path or directory file
 // descriptor. libpthread only exposes a syscall wrapper starting in
 // macOS 10.12, but the system call dates back to macOS 10.5. On older OSes,
 // the syscall is issued directly.
-extern "C" {
-int pthread_chdir_np(const char*) API_AVAILABLE(macosx(10.12));
+int pthread_chdir_np(const char* dir) API_AVAILABLE(macosx(10.12));
 int pthread_fchdir_np(int fd) API_AVAILABLE(macosx(10.12));
-}
+
+int responsibility_spawnattrs_setdisclaim(posix_spawnattr_t attrs, int disclaim)
+    API_AVAILABLE(macosx(10.14));
+}  // extern "C"
 
 namespace base {
 
@@ -223,6 +226,12 @@ Process LaunchProcess(const std::vector<std::string>& argv,
   }
   if (inherit_stderr) {
     file_actions.Inherit(STDERR_FILENO);
+  }
+
+  if (options.disclaim_responsibility) {
+    if (__builtin_available(macOS 10.14, *)) {
+      DPSXCHECK(responsibility_spawnattrs_setdisclaim(attr.get(), 1));
+    }
   }
 
   std::vector<char*> argv_cstr;

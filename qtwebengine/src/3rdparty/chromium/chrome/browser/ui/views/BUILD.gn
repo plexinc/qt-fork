@@ -27,6 +27,7 @@ component("views") {
     "//base",
     "//build:branding_buildflags",
     "//chrome/app:command_ids",
+    "//chrome/app:generated_resources",
     "//components/keep_alive_registry",
     "//components/vector_icons",
     "//content/public/browser",
@@ -41,13 +42,5 @@ component("views") {
 
   if (is_chromeos) {
     deps += [ "//ash" ]
-  }
-
-  if (enable_native_window_nav_buttons) {
-    sources += [ "nav_button_provider.h" ]
-    deps += [
-      "//ui/views",
-      "//ui/views:buildflags",
-    ]
   }
 }

@@ -28,8 +28,7 @@ class CXFA_FFNotify {
   void OnPageEvent(CXFA_ViewLayoutItem* pSender, uint32_t dwEvent);
 
   void OnWidgetListItemAdded(CXFA_Node* pSender,
-                             const wchar_t* pLabel,
-                             const wchar_t* pValue,
+                             const WideString& wsLabel,
                              int32_t iIndex);
   void OnWidgetListItemRemoved(CXFA_Node* pSender, int32_t iIndex);
 
@@ -66,7 +65,7 @@ class CXFA_FFNotify {
   CXFA_FFDoc* GetHDOC() const { return m_pDoc.Get(); }
   IXFA_AppProvider* GetAppProvider();
   CXFA_FFWidgetHandler* GetWidgetHandler();
-  void OpenDropDownList(CXFA_FFWidget* hWidget);
+  void OpenDropDownList(CXFA_Node* pNode);
   void ResetData(CXFA_Node* pNode);
   int32_t GetLayoutStatus();
   void RunNodeInitialize(CXFA_Node* pNode);

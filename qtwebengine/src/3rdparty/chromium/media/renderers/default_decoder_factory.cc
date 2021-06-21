@@ -6,10 +6,12 @@
 
 #include <memory>
 
+#include "base/command_line.h"
 #include "base/feature_list.h"
 #include "base/single_thread_task_runner.h"
 #include "build/build_config.h"
 #include "build/buildflag.h"
+#include "components/viz/common/gpu/raster_context_provider.h"
 #include "media/base/decoder_factory.h"
 #include "media/base/media_switches.h"
 #include "media/media_buildflags.h"
@@ -22,10 +24,11 @@
 #endif
 
 #if defined(OS_FUCHSIA)
+#include "fuchsia/engine/switches.h"
 #include "media/filters/fuchsia/fuchsia_video_decoder.h"
 #endif
 
-#if BUILDFLAG(ENABLE_LIBAOM_DECODER)
+#if BUILDFLAG(ENABLE_LIBAOM)
 #include "media/filters/aom_video_decoder.h"
 #endif
 
@@ -43,6 +46,10 @@
 
 #if BUILDFLAG(ENABLE_LIBVPX)
 #include "media/filters/vpx_video_decoder.h"
+#endif
+
+#if BUILDFLAG(ENABLE_LIBGAV1_DECODER)
+#include "media/filters/gav1_video_decoder.h"
 #endif
 
 namespace media {
@@ -85,7 +92,7 @@ void DefaultDecoderFactory::CreateVideoDecoders(
     scoped_refptr<base::SingleThreadTaskRunner> task_runner,
     GpuVideoAcceleratorFactories* gpu_factories,
     MediaLog* media_log,
-    const RequestOverlayInfoCB& request_overlay_info_cb,
+    RequestOverlayInfoCB request_overlay_info_cb,
     const gfx::ColorSpace& target_color_space,
     std::vector<std::unique_ptr<VideoDecoder>>* video_decoders) {
   base::AutoLock auto_lock(shutdown_lock_);
@@ -107,24 +114,44 @@ void DefaultDecoderFactory::CreateVideoDecoders(
     DCHECK_EQ(gpu_factories->GetTaskRunner(), task_runner);
 
     external_decoder_factory_->CreateVideoDecoders(
-        task_runner, gpu_factories, media_log, request_overlay_info_cb,
-        target_color_space, video_decoders);
+        task_runner, gpu_factories, media_log,
+        std::move(request_overlay_info_cb), target_color_space, video_decoders);
   }
 
 #if defined(OS_FUCHSIA)
-  video_decoders->push_back(CreateFuchsiaVideoDecoder());
+  if (gpu_factories) {
+    auto* context_provider = gpu_factories->GetMediaContextProvider();
+    DCHECK(context_provider);
+    video_decoders->push_back(
+        CreateFuchsiaVideoDecoder(gpu_factories->SharedImageInterface(),
+                                  context_provider->ContextSupport()));
+  }
+
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kDisableSoftwareVideoDecoders)) {
+    // Bypass software codec registration.
+    return;
+  }
 #endif
 
 #if BUILDFLAG(ENABLE_LIBVPX)
   video_decoders->push_back(std::make_unique<OffloadingVpxVideoDecoder>());
 #endif
 
+#if BUILDFLAG(ENABLE_LIBGAV1_DECODER)
+  if (base::FeatureList::IsEnabled(kGav1VideoDecoder)) {
+    video_decoders->push_back(
+        std::make_unique<OffloadingGav1VideoDecoder>(media_log));
+  } else
+#endif  // BUILDFLAG(ENABLE_LIBGAV1_DECODER)
+  {
 #if BUILDFLAG(ENABLE_DAV1D_DECODER)
-  video_decoders->push_back(
-      std::make_unique<OffloadingDav1dVideoDecoder>(media_log));
-#elif BUILDFLAG(ENABLE_LIBAOM_DECODER)
-  video_decoders->push_back(std::make_unique<AomVideoDecoder>(media_log));
+    video_decoders->push_back(
+        std::make_unique<OffloadingDav1dVideoDecoder>(media_log));
+#elif BUILDFLAG(ENABLE_LIBAOM)
+    video_decoders->push_back(std::make_unique<AomVideoDecoder>(media_log));
 #endif
+  }
 
 #if BUILDFLAG(ENABLE_FFMPEG_VIDEO_DECODERS)
   video_decoders->push_back(std::make_unique<FFmpegVideoDecoder>(media_log));

@@ -20,6 +20,7 @@
 #include "ui/events/event_utils.h"
 #include "ui/events/gesture_detection/gesture_configuration.h"
 #include "ui/events/gestures/gesture_types.h"
+#include "ui/events/types/event_type.h"
 
 namespace ui {
 
@@ -179,6 +180,23 @@ void GestureRecognizerImpl::TransferEventsTo(
 
   for (int touch_id : touchids_targeted_at_current)
     touch_id_target_[touch_id] = new_consumer;
+}
+
+std::vector<std::unique_ptr<ui::TouchEvent>>
+GestureRecognizerImpl::ExtractTouches(GestureConsumer* consumer) {
+  std::vector<std::unique_ptr<ui::TouchEvent>> touches =
+      GetEventPerPointForConsumer(consumer, ET_TOUCH_PRESSED);
+  return touches;
+}
+
+void GestureRecognizerImpl::TransferTouches(
+    GestureConsumer* consumer,
+    const std::vector<std::unique_ptr<ui::TouchEvent>>& touch_events) {
+  GestureEventHelper* helper = FindDispatchHelperForConsumer(consumer);
+  DCHECK(helper);
+  for (const auto& event : touch_events) {
+    helper->DispatchSyntheticTouchEvent(event.get());
+  }
 }
 
 bool GestureRecognizerImpl::GetLastTouchPointForTarget(

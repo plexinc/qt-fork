@@ -12,7 +12,7 @@
 #include "content/common/content_export.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
-#include "third_party/blink/public/mojom/appcache/appcache.mojom.h"
+#include "third_party/blink/public/mojom/appcache/appcache.mojom-forward.h"
 
 namespace content {
 
@@ -21,10 +21,10 @@ class AppCacheServiceImpl;
 class CONTENT_EXPORT AppCacheBackendImpl
     : public blink::mojom::AppCacheBackend {
  public:
-  AppCacheBackendImpl(AppCacheServiceImpl* service, int process_id);
+  AppCacheBackendImpl(AppCacheServiceImpl* service,
+                      int process_id,
+                      int routing_id);
   ~AppCacheBackendImpl() override;
-
-  int process_id() const { return process_id_; }
 
   // blink::mojom::AppCacheBackend
   void RegisterHost(
@@ -36,7 +36,8 @@ class CONTENT_EXPORT AppCacheBackendImpl
   // Raw pointer is safe because instances of this class are owned by
   // |service_|.
   AppCacheServiceImpl* service_;
-  int process_id_;
+  const int process_id_;
+  const int routing_id_;
 
   DISALLOW_COPY_AND_ASSIGN(AppCacheBackendImpl);
 };

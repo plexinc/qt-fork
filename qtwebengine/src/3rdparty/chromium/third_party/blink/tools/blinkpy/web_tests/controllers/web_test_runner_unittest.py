@@ -40,6 +40,7 @@ from blinkpy.web_tests.models.test_run_results import TestRunResults
 from blinkpy.web_tests.models.test_input import TestInput
 from blinkpy.web_tests.models.test_results import TestResult
 from blinkpy.web_tests.port.test import TestPort
+from blinkpy.web_tests.port.driver import DriverOutput
 
 
 TestExpectations = test_expectations.TestExpectations
@@ -85,8 +86,13 @@ class LockCheckingRunner(WebTestRunner):
 @unittest.skipIf(sys.platform == 'win32', 'may not clean up child processes')
 class WebTestRunnerTests(unittest.TestCase):
 
-    # pylint: disable=protected-access
+    def setUp(self):
+        self._actual_output = DriverOutput(
+            text='', image=None, image_hash=None, audio=None)
+        self._expected_output = DriverOutput(
+            text='', image=None, image_hash=None, audio=None)
 
+    # pylint: disable=protected-access
     def _runner(self, port=None):
         # FIXME: we shouldn't have to use run_web_tests.py to get the options we need.
         options = run_web_tests.parse_args(['--platform', 'test-mac-mac10.11'])[0]
@@ -108,7 +114,7 @@ class WebTestRunnerTests(unittest.TestCase):
         test_names = ['passes/text.html', 'passes/image.html']
         runner._test_inputs = [TestInput(test_name, timeout_ms=6000) for test_name in test_names]
 
-        run_results = TestRunResults(TestExpectations(runner._port, test_names), len(test_names))
+        run_results = TestRunResults(TestExpectations(runner._port), len(test_names))
         run_results.unexpected_failures = 100
         run_results.unexpected_crashes = 50
         run_results.unexpected_timeouts = 50
@@ -124,8 +130,8 @@ class WebTestRunnerTests(unittest.TestCase):
         runner._options.exit_after_n_crashes_or_timeouts = 10
         with self.assertRaises(TestRunInterruptedException):
             runner._interrupt_if_at_failure_limits(run_results)
-        self.assertEqual(run_results.results_by_name['passes/text.html'].type, test_expectations.SKIP)
-        self.assertEqual(run_results.results_by_name['passes/image.html'].type, test_expectations.SKIP)
+        self.assertEqual(run_results.results_by_name['passes/text.html'].type, 'SKIP')
+        self.assertEqual(run_results.results_by_name['passes/image.html'].type, 'SKIP')
 
         runner._options.exit_after_n_crashes_or_timeouts = None
         runner._options.exit_after_n_failures = 10
@@ -135,11 +141,15 @@ class WebTestRunnerTests(unittest.TestCase):
     def test_update_summary_with_result(self):
         runner = self._runner()
         test = 'failures/expected/reftest.html'
-        expectations = TestExpectations(runner._port, tests=[test])
+        expectations = TestExpectations(runner._port)
         runner._expectations = expectations
 
         run_results = TestRunResults(expectations, 1)
-        result = TestResult(test_name=test, failures=[test_failures.FailureReftestMismatchDidNotOccur()], reftest_type=['!='])
+        result = TestResult(
+            test_name=test, failures=[
+                test_failures.FailureReftestMismatchDidNotOccur(
+                    self._actual_output, self._expected_output)],
+            reftest_type=['!='])
         runner._update_summary_with_result(run_results, result)
         self.assertEqual(1, run_results.expected)
         self.assertEqual(0, run_results.unexpected)
@@ -175,7 +185,7 @@ class SharderTests(unittest.TestCase):
         self.sharder = Sharder(port.split_test, max_locked_shards)
         test_list = test_list or self.test_list
         return self.sharder.shard_tests([self.get_test_input(test) for test in test_list],
-                                        num_workers, fully_parallel, run_singly)
+                                        num_workers, fully_parallel, False, run_singly)
 
     def assert_shards(self, actual_shards, expected_shard_names):
         self.assertEqual(len(actual_shards), len(expected_shard_names))

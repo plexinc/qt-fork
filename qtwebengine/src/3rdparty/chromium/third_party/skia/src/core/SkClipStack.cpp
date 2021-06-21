@@ -7,7 +7,6 @@
 
 #include "include/core/SkCanvas.h"
 #include "include/core/SkPath.h"
-#include "include/pathops/SkPathOps.h"
 #include "src/core/SkClipOpPriv.h"
 #include "src/core/SkClipStack.h"
 #include <atomic>
@@ -129,13 +128,13 @@ void SkClipStack::Element::invertShapeFillType() {
         case DeviceSpaceType::kRect:
             fDeviceSpacePath.init();
             fDeviceSpacePath.get()->addRect(this->getDeviceSpaceRect());
-            fDeviceSpacePath.get()->setFillType(SkPath::kInverseEvenOdd_FillType);
+            fDeviceSpacePath.get()->setFillType(SkPathFillType::kInverseEvenOdd);
             fDeviceSpaceType = DeviceSpaceType::kPath;
             break;
         case DeviceSpaceType::kRRect:
             fDeviceSpacePath.init();
             fDeviceSpacePath.get()->addRRect(fDeviceSpaceRRect);
-            fDeviceSpacePath.get()->setFillType(SkPath::kInverseEvenOdd_FillType);
+            fDeviceSpacePath.get()->setFillType(SkPathFillType::kInverseEvenOdd);
             fDeviceSpaceType = DeviceSpaceType::kPath;
             break;
         case DeviceSpaceType::kPath:
@@ -746,35 +745,6 @@ bool SkClipStack::internalQuickContains(const SkRRect& rrect) const {
         element = iter.prev();
     }
     return true;
-}
-
-bool SkClipStack::asPath(SkPath *path) const {
-    bool isAA = false;
-
-    path->reset();
-    path->setFillType(SkPath::kInverseEvenOdd_FillType);
-
-    SkClipStack::Iter iter(*this, SkClipStack::Iter::kBottom_IterStart);
-    while (const SkClipStack::Element* element = iter.next()) {
-        SkPath operand;
-        if (element->getDeviceSpaceType() != SkClipStack::Element::DeviceSpaceType::kEmpty) {
-            element->asDeviceSpacePath(&operand);
-        }
-
-        SkClipOp elementOp = element->getOp();
-        if (elementOp == kReplace_SkClipOp) {
-            *path = operand;
-        } else {
-            Op(*path, operand, (SkPathOp)elementOp, path);
-        }
-
-        // if the prev and curr clips disagree about aa -vs- not, favor the aa request.
-        // perhaps we need an API change to avoid this sort of mixed-signals about
-        // clipping.
-        isAA = (isAA || element->isAA());
-    }
-
-    return isAA;
 }
 
 void SkClipStack::pushElement(const Element& element) {

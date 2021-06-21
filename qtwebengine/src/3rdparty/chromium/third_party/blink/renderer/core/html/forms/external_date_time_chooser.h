@@ -29,6 +29,7 @@
 #include "third_party/blink/public/mojom/choosers/date_time_chooser.mojom-blink.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/html/forms/date_time_chooser.h"
+#include "third_party/blink/renderer/platform/mojo/heap_mojo_remote.h"
 
 namespace blink {
 
@@ -37,8 +38,6 @@ class LocalFrame;
 
 class CORE_EXPORT ExternalDateTimeChooser final : public DateTimeChooser {
  public:
-  static ExternalDateTimeChooser* Create(DateTimeChooserClient*);
-
   explicit ExternalDateTimeChooser(DateTimeChooserClient*);
   ~ExternalDateTimeChooser() override;
   void Trace(Visitor*) override;
@@ -58,11 +57,11 @@ class CORE_EXPORT ExternalDateTimeChooser final : public DateTimeChooser {
   void EndChooser() override;
   AXObject* RootAXObject() override;
 
-  mojom::blink::DateTimeChooser* GetDateTimeChooser(LocalFrame* frame);
+  mojom::blink::DateTimeChooser& GetDateTimeChooser(LocalFrame* frame);
 
-  mojom::blink::DateTimeChooserPtr date_time_chooser_;
+  HeapMojoRemote<mojom::blink::DateTimeChooser> date_time_chooser_;
 
   Member<DateTimeChooserClient> client_;
 };
-}
+}  // namespace blink
 #endif

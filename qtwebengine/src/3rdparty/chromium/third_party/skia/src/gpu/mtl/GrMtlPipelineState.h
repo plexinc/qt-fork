@@ -37,8 +37,7 @@ public:
             MTLPixelFormat pixelFormat,
             const GrGLSLBuiltinUniformHandles& builtinUniformHandles,
             const UniformInfoArray& uniforms,
-            uint32_t geometryUniformBufferSize,
-            uint32_t fragmentUniformBufferSize,
+            uint32_t uniformBufferSize,
             uint32_t numSamplers,
             std::unique_ptr<GrGLSLPrimitiveProcessor> geometryProcessor,
             std::unique_ptr<GrGLSLXferProcessor> xferPRocessor,
@@ -47,11 +46,13 @@ public:
 
     id<MTLRenderPipelineState> mtlPipelineState() { return fPipelineState; }
 
-    void setData(const GrRenderTarget*, GrSurfaceOrigin,
-                 const GrPrimitiveProcessor& primPRoc, const GrPipeline& pipeline,
-                 const GrTextureProxy* const primProcTextures[]);
+    void setData(const GrRenderTarget*, const GrProgramInfo&);
 
-    void setDrawState(id<MTLRenderCommandEncoder>, const GrSwizzle& outputSwizzle,
+    void setTextures(const GrPrimitiveProcessor&, const GrPipeline&, const GrSurfaceProxy* const[]);
+    void bindTextures(id<MTLRenderCommandEncoder> renderCmdEncoder);
+
+    void setDrawState(id<MTLRenderCommandEncoder>,
+                      const GrSwizzle& writeSwizzle,
                       const GrXferProcessor&);
 
     static void SetDynamicScissorRectState(id<MTLRenderCommandEncoder> renderCmdEncoder,
@@ -100,7 +101,7 @@ private:
 
     void setRenderTargetState(const GrRenderTarget*, GrSurfaceOrigin);
 
-    void bind(id<MTLRenderCommandEncoder>);
+    void bindUniforms(id<MTLRenderCommandEncoder>);
 
     void setBlendConstants(id<MTLRenderCommandEncoder>, const GrSwizzle&, const GrXferProcessor&);
 
@@ -110,7 +111,7 @@ private:
         GrMtlSampler*  fSampler;
         id<MTLTexture> fTexture;
 
-        SamplerBindings(const GrSamplerState& state, GrTexture* texture, GrMtlGpu*);
+        SamplerBindings(GrSamplerState state, GrTexture* texture, GrMtlGpu*);
     };
 
     GrMtlGpu* fGpu;

@@ -72,7 +72,7 @@ class NET_EXPORT URLRequestJob {
   virtual void SetPriority(RequestPriority priority);
 
   // If any error occurs while starting the Job, NotifyStartError should be
-  // called.
+  // called asynchronously.
   // This helps ensure that all errors follow more similar notification code
   // paths, which should simplify testing.
   virtual void Start() = 0;
@@ -103,12 +103,6 @@ class NET_EXPORT URLRequestJob {
   // error. This is just the backend for URLRequest::Read, see that function for
   // more info.
   int Read(IOBuffer* buf, int buf_size);
-
-  // Stops further caching of this request, if any. For more info, see
-  // URLRequest::StopCaching().
-  virtual void StopCaching();
-
-  virtual bool GetFullRequestHeaders(HttpRequestHeaders* headers) const;
 
   // Get the number of bytes received from network. The values returned by this
   // will never decrease over the lifetime of the URLRequestJob.
@@ -248,11 +242,19 @@ class NET_EXPORT URLRequestJob {
   // from the remote party with the actual response headers recieved.
   virtual void SetResponseHeadersCallback(ResponseHeadersCallback callback) {}
 
-  // Given |policy|, |referrer|, and |destination|, returns the
+  // Given |policy|, |original_referrer|, and |destination|, returns the
   // referrer URL mandated by |request|'s referrer policy.
-  static GURL ComputeReferrerForPolicy(URLRequest::ReferrerPolicy policy,
-                                       const GURL& original_referrer,
-                                       const GURL& destination);
+  //
+  // If |same_origin_out_for_metrics| is non-null, saves to
+  // |*same_origin_out_for_metrics| whether |original_referrer| and
+  // |destination| are cross-origin.
+  // (This allows reporting in a UMA whether the request is same-origin, without
+  // recomputing that information.)
+  static GURL ComputeReferrerForPolicy(
+      URLRequest::ReferrerPolicy policy,
+      const GURL& original_referrer,
+      const GURL& destination,
+      bool* same_origin_out_for_metrics = nullptr);
 
  protected:
   // Notifies the job that a certificate is requested.
@@ -281,15 +283,12 @@ class NET_EXPORT URLRequestJob {
   void NotifyFinalHeadersReceived();
 
   // Notifies the request that a start error has occurred.
+  // NOTE: Must not be called synchronously from |Start|.
   void NotifyStartError(const URLRequestStatus& status);
 
   // Used as an asynchronous callback for Kill to notify the URLRequest
   // that we were canceled.
   void NotifyCanceled();
-
-  // Notifies the job the request should be restarted.
-  // Should only be called if the job has not started a response.
-  void NotifyRestartRequired();
 
   // See corresponding functions in url_request.h.
   void OnCallToDelegate(NetLogEventType type);
@@ -401,17 +400,6 @@ class NET_EXPORT URLRequestJob {
   // the URLRequest::Delegate.
   void NotifyDone();
 
-  // Subclasses may implement this method to record packet arrival times.
-  // The default implementation does nothing.  Only invoked when bytes have been
-  // read since the last invocation.
-  virtual void UpdatePacketReadTimes();
-
-
-  // Notify the network delegate that more bytes have been received or sent over
-  // the network, if bytes have been received or sent since the previous
-  // notification.
-  void MaybeNotifyNetworkBytes();
-
   // Indicates that the job is done producing data, either it has completed
   // all the data or an error has been encountered. Set exclusively by
   // NotifyDone so that it is kept in sync with the request.
@@ -447,16 +435,6 @@ class NET_EXPORT URLRequestJob {
 
   // The network delegate to use with this request, if any.
   NetworkDelegate* network_delegate_;
-
-  // The value from GetTotalReceivedBytes() the last time
-  // MaybeNotifyNetworkBytes() was called. Used to calculate how bytes have been
-  // newly received since the last notification.
-  int64_t last_notified_total_received_bytes_;
-
-  // The value from GetTotalSentBytes() the last time MaybeNotifyNetworkBytes()
-  // was called. Used to calculate how bytes have been newly sent since the last
-  // notification.
-  int64_t last_notified_total_sent_bytes_;
 
   // Non-null if ReadRawData() returned ERR_IO_PENDING, and the read has not
   // completed.

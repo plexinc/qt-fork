@@ -13,24 +13,64 @@
 
 #include "net/third_party/quiche/src/quic/core/crypto/quic_random.h"
 #include "net/third_party/quiche/src/quic/core/quic_bandwidth.h"
+#include "net/third_party/quiche/src/quic/core/quic_clock.h"
 #include "net/third_party/quiche/src/quic/core/quic_config.h"
 #include "net/third_party/quiche/src/quic/core/quic_connection_stats.h"
 #include "net/third_party/quiche/src/quic/core/quic_packets.h"
 #include "net/third_party/quiche/src/quic/core/quic_time.h"
 #include "net/third_party/quiche/src/quic/core/quic_types.h"
 #include "net/third_party/quiche/src/quic/core/quic_unacked_packet_map.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_clock.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_export.h"
 
 namespace quic {
 
+typedef uint64_t QuicRoundTripCount;
+
 class CachedNetworkParameters;
 class RttStats;
 
-const QuicPacketCount kDefaultMaxCongestionWindowPackets = 2000;
-
 class QUIC_EXPORT_PRIVATE SendAlgorithmInterface {
  public:
+  // Network Params for AdjustNetworkParameters.
+  struct QUIC_NO_EXPORT NetworkParams {
+    NetworkParams()
+        : NetworkParams(QuicBandwidth::Zero(), QuicTime::Delta::Zero(), false) {
+    }
+    NetworkParams(const QuicBandwidth& bandwidth,
+                  const QuicTime::Delta& rtt,
+                  bool allow_cwnd_to_decrease)
+        : bandwidth(bandwidth),
+          rtt(rtt),
+          allow_cwnd_to_decrease(allow_cwnd_to_decrease),
+          quic_fix_bbr_cwnd_in_bandwidth_resumption(
+              GetQuicReloadableFlag(quic_fix_bbr_cwnd_in_bandwidth_resumption)),
+          quic_bbr_fix_pacing_rate(
+              GetQuicReloadableFlag(quic_bbr_fix_pacing_rate)),
+          quic_bbr_donot_inject_bandwidth(
+              GetQuicReloadableFlag(quic_bbr_donot_inject_bandwidth)) {}
+
+    bool operator==(const NetworkParams& other) const {
+      return bandwidth == other.bandwidth && rtt == other.rtt &&
+             allow_cwnd_to_decrease == other.allow_cwnd_to_decrease &&
+             quic_fix_bbr_cwnd_in_bandwidth_resumption ==
+                 other.quic_fix_bbr_cwnd_in_bandwidth_resumption &&
+             quic_bbr_fix_pacing_rate == other.quic_bbr_fix_pacing_rate &&
+             quic_bbr_donot_inject_bandwidth ==
+                 other.quic_bbr_donot_inject_bandwidth;
+    }
+
+    QuicBandwidth bandwidth;
+    QuicTime::Delta rtt;
+    bool allow_cwnd_to_decrease;
+    // Code changes that are controlled by flags.
+    // TODO(b/131899599): Remove after impact of fix is measured.
+    bool quic_fix_bbr_cwnd_in_bandwidth_resumption;
+    // TODO(b/143540157): Remove after impact of fix is measured.
+    bool quic_bbr_fix_pacing_rate;
+    // TODO(b/72089315, b/143891040): Remove after impact of fix is measured.
+    bool quic_bbr_donot_inject_bandwidth;
+  };
+
   static SendAlgorithmInterface* Create(
       const QuicClock* clock,
       const RttStats* rtt_stats,
@@ -38,7 +78,8 @@ class QUIC_EXPORT_PRIVATE SendAlgorithmInterface {
       CongestionControlType type,
       QuicRandom* random,
       QuicConnectionStats* stats,
-      QuicPacketCount initial_congestion_window);
+      QuicPacketCount initial_congestion_window,
+      SendAlgorithmInterface* old_send_algorithm);
 
   virtual ~SendAlgorithmInterface() {}
 
@@ -69,6 +110,9 @@ class QUIC_EXPORT_PRIVATE SendAlgorithmInterface {
                             QuicPacketNumber packet_number,
                             QuicByteCount bytes,
                             HasRetransmittableData is_retransmittable) = 0;
+
+  // Inform that |packet_number| has been neutered.
+  virtual void OnPacketNeutered(QuicPacketNumber packet_number) = 0;
 
   // Called when the retransmission timeout fires.  Neither OnPacketAbandoned
   // nor OnPacketLost will be called for these packets.
@@ -115,9 +159,7 @@ class QUIC_EXPORT_PRIVATE SendAlgorithmInterface {
   // Notifies the congestion control algorithm of an external network
   // measurement or prediction.  Either |bandwidth| or |rtt| may be zero if no
   // sample is available.
-  virtual void AdjustNetworkParameters(QuicBandwidth bandwidth,
-                                       QuicTime::Delta rtt,
-                                       bool allow_cwnd_to_decrease) = 0;
+  virtual void AdjustNetworkParameters(const NetworkParams& params) = 0;
 
   // Retrieves debugging information about the current state of the
   // send algorithm.
@@ -136,6 +178,9 @@ class QUIC_EXPORT_PRIVATE SendAlgorithmInterface {
   // such cases, it should use the internal state it uses for congestion control
   // for that.
   virtual void OnApplicationLimited(QuicByteCount bytes_in_flight) = 0;
+
+  // Called before connection close to collect stats.
+  virtual void PopulateConnectionStats(QuicConnectionStats* stats) const = 0;
 };
 
 }  // namespace quic

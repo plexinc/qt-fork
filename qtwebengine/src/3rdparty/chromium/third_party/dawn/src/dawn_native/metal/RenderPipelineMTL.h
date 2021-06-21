@@ -25,7 +25,8 @@ namespace dawn_native { namespace metal {
 
     class RenderPipeline : public RenderPipelineBase {
       public:
-        RenderPipeline(Device* device, const RenderPipelineDescriptor* descriptor);
+        static ResultOrError<RenderPipeline*> Create(Device* device,
+                                                     const RenderPipelineDescriptor* descriptor);
         ~RenderPipeline();
 
         MTLIndexType GetMTLIndexType() const;
@@ -37,7 +38,16 @@ namespace dawn_native { namespace metal {
 
         id<MTLDepthStencilState> GetMTLDepthStencilState();
 
+        // For each Dawn vertex buffer, give the index in which it will be positioned in the Metal
+        // vertex buffer table.
+        uint32_t GetMtlVertexBufferIndex(uint32_t dawnIndex) const;
+
+        wgpu::ShaderStage GetStagesRequiringStorageBufferLength() const;
+
       private:
+        using RenderPipelineBase::RenderPipelineBase;
+        MaybeError Initialize(const RenderPipelineDescriptor* descriptor);
+
         MTLVertexDescriptor* MakeVertexDesc();
 
         MTLIndexType mMtlIndexType;
@@ -46,6 +56,9 @@ namespace dawn_native { namespace metal {
         MTLCullMode mMtlCullMode;
         id<MTLRenderPipelineState> mMtlRenderPipelineState = nil;
         id<MTLDepthStencilState> mMtlDepthStencilState = nil;
+        std::array<uint32_t, kMaxVertexBuffers> mMtlVertexBufferIndices;
+
+        wgpu::ShaderStage mStagesRequiringStorageBufferLength = wgpu::ShaderStage::None;
     };
 
 }}  // namespace dawn_native::metal

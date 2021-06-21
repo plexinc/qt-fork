@@ -5,6 +5,7 @@
 #include "third_party/blink/renderer/modules/canvas/offscreencanvas2d/offscreen_canvas_rendering_context_2d.h"
 
 #include "base/metrics/histogram_functions.h"
+#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/renderer/bindings/modules/v8/offscreen_rendering_context.h"
 #include "third_party/blink/renderer/core/css/offscreen_font_selector.h"
 #include "third_party/blink/renderer/core/css/parser/css_parser.h"
@@ -19,17 +20,18 @@
 #include "third_party/blink/renderer/platform/graphics/canvas_resource_provider.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_types.h"
 #include "third_party/blink/renderer/platform/graphics/paint/paint_canvas.h"
+#include "third_party/blink/renderer/platform/graphics/skia/skia_utils.h"
 #include "third_party/blink/renderer/platform/graphics/static_bitmap_image.h"
 #include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/text/bidi_text_run.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
 #include "third_party/blink/renderer/platform/wtf/linked_hash_set.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
-#include "third_party/blink/renderer/platform/wtf/time.h"
 
 namespace {
 const size_t kHardMaxCachedFonts = 250;
 const size_t kMaxCachedFonts = 25;
+const float kUMASampleProbability = 0.01;
 
 class OffscreenFontCache {
  public:
@@ -40,15 +42,15 @@ class OffscreenFontCache {
     }
   }
 
-  void AddFont(String name, blink::Font font) {
+  void AddFont(String name, blink::FontDescription font) {
     fonts_resolved_.insert(name, font);
     auto add_result = font_lru_list_.PrependOrMoveToFirst(name);
     DCHECK(add_result.is_new_entry);
     PruneLocalFontCache(kHardMaxCachedFonts);
   }
 
-  blink::Font* GetFont(String name) {
-    HashMap<String, blink::Font>::iterator i = fonts_resolved_.find(name);
+  blink::FontDescription* GetFont(String name) {
+    auto i = fonts_resolved_.find(name);
     if (i != fonts_resolved_.end()) {
       auto add_result = font_lru_list_.PrependOrMoveToFirst(name);
       DCHECK(!add_result.is_new_entry);
@@ -58,7 +60,7 @@ class OffscreenFontCache {
   }
 
  private:
-  HashMap<String, blink::Font> fonts_resolved_;
+  HashMap<String, blink::FontDescription> fonts_resolved_;
   LinkedHashSet<String> font_lru_list_;
 };
 
@@ -78,9 +80,19 @@ OffscreenCanvasRenderingContext2D::~OffscreenCanvasRenderingContext2D() =
 OffscreenCanvasRenderingContext2D::OffscreenCanvasRenderingContext2D(
     OffscreenCanvas* canvas,
     const CanvasContextCreationAttributesCore& attrs)
-    : CanvasRenderingContext(canvas, attrs) {
+    : CanvasRenderingContext(canvas, attrs),
+      random_generator_((uint32_t)base::RandUint64()),
+      bernoulli_distribution_(kUMASampleProbability) {
+  is_valid_size_ = IsValidImageSize(Host()->Size());
+
+  // Clear the background transparent or opaque.
+  if (IsCanvas2DBufferValid()) {
+    GetCanvasResourceProvider()->Clear();
+    DidDraw();
+  }
+
   ExecutionContext* execution_context = canvas->GetTopExecutionContext();
-  if (auto* document = DynamicTo<Document>(execution_context)) {
+  if (auto* document = Document::DynamicFrom(execution_context)) {
     Settings* settings = document->GetSettings();
     if (settings && settings->GetDisableReadingFromCanvas())
       canvas->SetDisableReadingFromCanvasTrue();
@@ -93,7 +105,7 @@ OffscreenCanvasRenderingContext2D::OffscreenCanvasRenderingContext2D(
     canvas->SetDisableReadingFromCanvasTrue();
 }
 
-void OffscreenCanvasRenderingContext2D::Trace(blink::Visitor* visitor) {
+void OffscreenCanvasRenderingContext2D::Trace(Visitor* visitor) {
   CanvasRenderingContext::Trace(visitor);
   BaseRenderingContext2D::Trace(visitor);
 }
@@ -102,8 +114,28 @@ void OffscreenCanvasRenderingContext2D::commit() {
   // TODO(fserb): consolidate this with PushFrame
   SkIRect damage_rect(dirty_rect_for_commit_);
   dirty_rect_for_commit_.setEmpty();
+  FinalizeFrame();
   Host()->Commit(ProduceCanvasResource(), damage_rect);
   GetOffscreenFontCache().PruneLocalFontCache(kMaxCachedFonts);
+}
+
+void OffscreenCanvasRenderingContext2D::FlushRecording() {
+  if (!GetCanvasResourceProvider() ||
+      !GetCanvasResourceProvider()->HasRecordedDrawOps())
+    return;
+
+  GetCanvasResourceProvider()->FlushCanvas();
+  GetCanvasResourceProvider()->ReleaseLockedImages();
+}
+
+void OffscreenCanvasRenderingContext2D::FinalizeFrame() {
+  TRACE_EVENT0("blink", "OffscreenCanvasRenderingContext2D::FinalizeFrame");
+
+  // Make sure surface is ready for painting: fix the rendering mode now
+  // because it will be too late during the paint invalidation phase.
+  if (!GetOrCreateCanvasResourceProvider())
+    return;
+  FlushRecording();
 }
 
 // BaseRenderingContext2D implementation
@@ -130,7 +162,15 @@ int OffscreenCanvasRenderingContext2D::Height() const {
 
 bool OffscreenCanvasRenderingContext2D::CanCreateCanvas2dResourceProvider()
     const {
-  return !!offscreenCanvasForBinding()->GetOrCreateResourceProvider();
+  if (!Host() || Host()->Size().IsEmpty())
+    return false;
+  return !!GetOrCreateCanvasResourceProvider();
+}
+
+CanvasResourceProvider*
+OffscreenCanvasRenderingContext2D::GetOrCreateCanvasResourceProvider() const {
+  // TODO(aaronhk) use Host() instead of offscreenCanvasForBinding() here
+  return offscreenCanvasForBinding()->GetOrCreateResourceProvider();
 }
 
 CanvasResourceProvider*
@@ -140,11 +180,13 @@ OffscreenCanvasRenderingContext2D::GetCanvasResourceProvider() const {
 void OffscreenCanvasRenderingContext2D::Reset() {
   Host()->DiscardResourceProvider();
   BaseRenderingContext2D::Reset();
+  // Because the host may have changed to a zero size
+  is_valid_size_ = IsValidImageSize(Host()->Size());
 }
 
 scoped_refptr<CanvasResource>
 OffscreenCanvasRenderingContext2D::ProduceCanvasResource() {
-  if (!CanCreateCanvas2dResourceProvider())
+  if (!GetOrCreateCanvasResourceProvider())
     return nullptr;
   scoped_refptr<CanvasResource> frame =
       GetCanvasResourceProvider()->ProduceCanvasResource();
@@ -155,14 +197,16 @@ OffscreenCanvasRenderingContext2D::ProduceCanvasResource() {
   return frame;
 }
 
-void OffscreenCanvasRenderingContext2D::PushFrame() {
+bool OffscreenCanvasRenderingContext2D::PushFrame() {
   if (dirty_rect_for_commit_.isEmpty())
-    return;
+    return false;
 
   SkIRect damage_rect(dirty_rect_for_commit_);
-  Host()->PushFrame(ProduceCanvasResource(), damage_rect);
+  FinalizeFrame();
+  bool ret = Host()->PushFrame(ProduceCanvasResource(), damage_rect);
   dirty_rect_for_commit_.setEmpty();
   GetOffscreenFontCache().PruneLocalFontCache(kMaxCachedFonts);
+  return ret;
 }
 
 ImageBitmap* OffscreenCanvasRenderingContext2D::TransferToImageBitmap(
@@ -170,25 +214,31 @@ ImageBitmap* OffscreenCanvasRenderingContext2D::TransferToImageBitmap(
   WebFeature feature = WebFeature::kOffscreenCanvasTransferToImageBitmap2D;
   UseCounter::Count(ExecutionContext::From(script_state), feature);
 
-  if (!CanCreateCanvas2dResourceProvider())
+  if (!GetOrCreateCanvasResourceProvider())
     return nullptr;
-  scoped_refptr<StaticBitmapImage> image =
-      GetCanvasResourceProvider()->Snapshot();
+  scoped_refptr<StaticBitmapImage> image = GetImage(kPreferAcceleration);
   if (!image)
     return nullptr;
   image->SetOriginClean(this->OriginClean());
   if (image->IsTextureBacked()) {
     // Before discarding the image resource, we need to flush pending render ops
     // to fully resolve the snapshot.
-    image->PaintImageForCurrentFrame().GetSkImage()->getBackendTexture(
-        true);  // Flush pending ops.
+    // We can only do this if the skImage is not null
+    if (auto skImage = image->PaintImageForCurrentFrame().GetSkImage()) {
+      skImage->getBackendTexture(true);  // Flush pending ops.
+    } else {
+      // If the SkImage was null, we better return a null ImageBitmap
+      return nullptr;
+    }
   }
-  Host()->DiscardResourceProvider();  // "Transfer" means no retained buffer.
-  return ImageBitmap::Create(std::move(image));
+  Host()->DiscardResourceProvider();
+
+  return MakeGarbageCollected<ImageBitmap>(std::move(image));
 }
 
 scoped_refptr<StaticBitmapImage> OffscreenCanvasRenderingContext2D::GetImage(
-    AccelerationHint hint) const {
+    AccelerationHint hint) {
+  FinalizeFrame();
   if (!IsPaintable())
     return nullptr;
   scoped_refptr<StaticBitmapImage> image =
@@ -208,27 +258,30 @@ bool OffscreenCanvasRenderingContext2D::ParseColorOrCurrentColor(
   return ::blink::ParseColorOrCurrentColor(color, color_string, nullptr);
 }
 
-cc::PaintCanvas* OffscreenCanvasRenderingContext2D::DrawingCanvas() const {
-  if (!CanCreateCanvas2dResourceProvider())
+cc::PaintCanvas* OffscreenCanvasRenderingContext2D::GetOrCreatePaintCanvas() {
+  if (!is_valid_size_ || !GetOrCreateCanvasResourceProvider())
     return nullptr;
-  return GetCanvasResourceProvider()->Canvas();
+  return GetPaintCanvas();
 }
 
-cc::PaintCanvas* OffscreenCanvasRenderingContext2D::ExistingDrawingCanvas()
-    const {
-  if (!IsPaintable())
+cc::PaintCanvas* OffscreenCanvasRenderingContext2D::GetPaintCanvas() const {
+  if (!is_valid_size_ || !GetCanvasResourceProvider())
     return nullptr;
   return GetCanvasResourceProvider()->Canvas();
 }
 
 void OffscreenCanvasRenderingContext2D::DidDraw() {
+  dirty_rect_for_commit_.setWH(Width(), Height());
   Host()->DidDraw();
-  dirty_rect_for_commit_.set(0, 0, Width(), Height());
+  if (GetCanvasResourceProvider() && GetCanvasResourceProvider()->needs_flush())
+    FinalizeFrame();
 }
 
 void OffscreenCanvasRenderingContext2D::DidDraw(const SkIRect& dirty_rect) {
   dirty_rect_for_commit_.join(dirty_rect);
   Host()->DidDraw(SkRect::Make(dirty_rect_for_commit_));
+  if (GetCanvasResourceProvider() && GetCanvasResourceProvider()->needs_flush())
+    FinalizeFrame();
 }
 
 bool OffscreenCanvasRenderingContext2D::StateHasFilter() {
@@ -243,10 +296,11 @@ void OffscreenCanvasRenderingContext2D::SnapshotStateForFilter() {
   ModifiableState().SetFontForFilter(AccessFont());
 }
 
-void OffscreenCanvasRenderingContext2D::ValidateStateStack() const {
+void OffscreenCanvasRenderingContext2D::ValidateStateStackWithCanvas(
+    const cc::PaintCanvas* canvas) const {
 #if DCHECK_IS_ON()
-  if (cc::PaintCanvas* sk_canvas = ExistingDrawingCanvas()) {
-    DCHECK_EQ(static_cast<size_t>(sk_canvas->getSaveCount()),
+  if (canvas) {
+    DCHECK_EQ(static_cast<size_t>(canvas->getSaveCount()),
               state_stack_.size() + 1);
   }
 #endif
@@ -257,7 +311,7 @@ bool OffscreenCanvasRenderingContext2D::isContextLost() const {
 }
 
 bool OffscreenCanvasRenderingContext2D::IsPaintable() const {
-  return offscreenCanvasForBinding()->ResourceProvider();
+  return Host()->ResourceProvider();
 }
 
 String OffscreenCanvasRenderingContext2D::ColorSpaceAsString() const {
@@ -278,7 +332,12 @@ bool OffscreenCanvasRenderingContext2D::WritePixels(
     size_t row_bytes,
     int x,
     int y) {
+  if (!GetOrCreateCanvasResourceProvider())
+    return false;
+
   DCHECK(IsPaintable());
+  FinalizeFrame();
+
   return offscreenCanvasForBinding()->ResourceProvider()->WritePixels(
       orig_info, pixels, row_bytes, x, y);
 }
@@ -287,13 +346,16 @@ bool OffscreenCanvasRenderingContext2D::IsAccelerated() const {
   return IsPaintable() && GetCanvasResourceProvider()->IsAccelerated();
 }
 
+void OffscreenCanvasRenderingContext2D::WillOverwriteCanvas() {
+  GetCanvasResourceProvider()->SkipQueuedDrawCommands();
+}
+
 String OffscreenCanvasRenderingContext2D::font() const {
   if (!GetState().HasRealizedFont())
     return kDefaultFont;
 
   StringBuilder serialized_font;
-  const FontDescription& font_description =
-      GetState().GetFont().GetFontDescription();
+  const FontDescription& font_description = GetState().GetFontDescription();
 
   if (font_description.Style() == ItalicSlopeValue())
     serialized_font.Append("italic ");
@@ -333,7 +395,7 @@ void OffscreenCanvasRenderingContext2D::setFont(const String& new_font) {
   base::TimeTicks start_time = base::TimeTicks::Now();
   OffscreenFontCache& font_cache = GetOffscreenFontCache();
 
-  Font* cached_font = font_cache.GetFont(new_font);
+  FontDescription* cached_font = font_cache.GetFont(new_font);
   if (cached_font) {
     ModifiableState().SetFont(*cached_font, Host()->GetFontSelector());
   } else {
@@ -357,15 +419,15 @@ void OffscreenCanvasRenderingContext2D::setFont(const String& new_font) {
     FontDescription desc =
         FontStyleResolver::ComputeFont(*style, Host()->GetFontSelector());
 
-    Font font = Font(desc);
-
-    font_cache.AddFont(new_font, font);
-    ModifiableState().SetFont(font, Host()->GetFontSelector());
+    font_cache.AddFont(new_font, desc);
+    ModifiableState().SetFont(desc, Host()->GetFontSelector());
   }
   ModifiableState().SetUnparsedFont(new_font);
-  base::TimeDelta elapsed = base::TimeTicks::Now() - start_time;
-  base::UmaHistogramMicrosecondsTimesUnderTenMilliseconds(
-      "OffscreenCanvas.TextMetrics.SetFont", elapsed);
+  if (bernoulli_distribution_(random_generator_)) {
+    base::TimeDelta elapsed = base::TimeTicks::Now() - start_time;
+    base::UmaHistogramMicrosecondsTimesUnderTenMilliseconds(
+        "OffscreenCanvas.TextMetrics.SetFont", elapsed);
+  }
 }
 
 static inline TextDirection ToTextDirection(
@@ -438,8 +500,8 @@ void OffscreenCanvasRenderingContext2D::DrawTextInternal(
     double y,
     CanvasRenderingContext2DState::PaintType paint_type,
     double* max_width) {
-  cc::PaintCanvas* c = DrawingCanvas();
-  if (!c)
+  cc::PaintCanvas* paint_canvas = GetOrCreatePaintCanvas();
+  if (!paint_canvas)
     return;
 
   if (!std::isfinite(x) || !std::isfinite(y))
@@ -495,34 +557,39 @@ void OffscreenCanvasRenderingContext2D::DrawTextInternal(
   if (paint_type == CanvasRenderingContext2DState::kStrokePaintType)
     InflateStrokeRect(bounds);
 
-  int save_count = c->getSaveCount();
+  int save_count = paint_canvas->getSaveCount();
   if (use_max_width) {
-    DrawingCanvas()->save();
-    DrawingCanvas()->translate(location.X(), location.Y());
+    paint_canvas->save();
+    paint_canvas->translate(location.X(), location.Y());
     // We draw when fontWidth is 0 so compositing operations (eg, a "copy" op)
     // still work.
-    DrawingCanvas()->scale((font_width > 0 ? (width / font_width) : 0), 1);
+    paint_canvas->scale((font_width > 0 ? (width / font_width) : 0), 1);
     location = FloatPoint();
   }
 
   Draw(
       [&font, &text_run_paint_info, &location](
-          cc::PaintCanvas* c, const PaintFlags* flags)  // draw lambda
-      {
-        font.DrawBidiText(c, text_run_paint_info, location,
+          cc::PaintCanvas* paint_canvas,
+          const PaintFlags* flags) /* draw lambda */ {
+        font.DrawBidiText(paint_canvas, text_run_paint_info, location,
                           Font::kUseFallbackIfFontNotReady, kCDeviceScaleFactor,
                           *flags);
       },
       [](const SkIRect& rect)  // overdraw test lambda
       { return false; },
       bounds, paint_type);
-  c->restoreToCount(save_count);
-  ValidateStateStack();
+
+  // |paint_canvas| maybe rese during Draw. If that happens,
+  // GetOrCreatePaintCanvas will create a new |paint_canvas| and return a new
+  // address. In this case, there is no need to call |restoreToCount|.
+  if (paint_canvas == GetOrCreatePaintCanvas()) {
+    paint_canvas->restoreToCount(save_count);
+    ValidateStateStack();
+  }
 }
 
 TextMetrics* OffscreenCanvasRenderingContext2D::measureText(
     const String& text) {
-  base::TimeTicks start_time = base::TimeTicks::Now();
   const Font& font = AccessFont();
 
   TextDirection direction;
@@ -532,19 +599,15 @@ TextMetrics* OffscreenCanvasRenderingContext2D::measureText(
   else
     direction = ToTextDirection(GetState().GetDirection());
 
-  TextMetrics* text_metrics = MakeGarbageCollected<TextMetrics>(
-      font, direction, GetState().GetTextBaseline(), GetState().GetTextAlign(),
-      text);
-  base::TimeDelta elapsed = base::TimeTicks::Now() - start_time;
-  base::UmaHistogramMicrosecondsTimesUnderTenMilliseconds(
-      "OffscreenCanvas.TextMetrics.MeasureText", elapsed);
-  return text_metrics;
+  return MakeGarbageCollected<TextMetrics>(font, direction,
+                                           GetState().GetTextBaseline(),
+                                           GetState().GetTextAlign(), text);
 }
 
 const Font& OffscreenCanvasRenderingContext2D::AccessFont() {
   if (!GetState().HasRealizedFont())
     setFont(GetState().UnparsedFont());
-  return GetState().GetFont();
+  return ModifiableState().GetFont();
 }
 
 bool OffscreenCanvasRenderingContext2D::IsCanvas2DBufferValid() const {
@@ -552,4 +615,5 @@ bool OffscreenCanvasRenderingContext2D::IsCanvas2DBufferValid() const {
     return GetCanvasResourceProvider()->IsValid();
   return false;
 }
+
 }  // namespace blink

@@ -9,12 +9,16 @@
 #define GrPathRendering_DEFINED
 
 #include "include/core/SkPath.h"
-#include "src/gpu/GrPipeline.h"
 
 class GrGpu;
 class GrPath;
+class GrProgramInfo;
+class GrRenderTarget;
+class GrRenderTargetProxy;
+class GrScissorState;
 class GrStencilSettings;
 class GrStyle;
+struct GrUserStencilSettings;
 struct SkScalerContextEffects;
 class SkDescriptor;
 class SkTypeface;
@@ -59,7 +63,6 @@ public:
 
             default:
                 SK_ABORT("Unknown path transform type");
-                return 0;
         }
     }
 
@@ -91,17 +94,20 @@ public:
     struct StencilPathArgs {
         StencilPathArgs(bool useHWAA,
                         GrRenderTargetProxy* proxy,
+                        GrSurfaceOrigin origin,
                         const SkMatrix* viewMatrix,
                         const GrScissorState* scissor,
                         const GrStencilSettings* stencil)
             : fUseHWAA(useHWAA)
             , fProxy(proxy)
+            , fOrigin(origin)
             , fViewMatrix(viewMatrix)
             , fScissor(scissor)
             , fStencil(stencil) {
         }
         bool                     fUseHWAA;
         GrRenderTargetProxy*     fProxy;
+        GrSurfaceOrigin          fOrigin;
         const SkMatrix*          fViewMatrix;
         const GrScissorState*    fScissor;
         const GrStencilSettings* fStencil;
@@ -109,10 +115,8 @@ public:
 
     void stencilPath(const StencilPathArgs& args, const GrPath* path);
 
-    void drawPath(GrRenderTarget*, GrSurfaceOrigin,
-                  const GrPrimitiveProcessor& primProc,
-                  const GrPipeline& pipeline,
-                  const GrPipeline::FixedDynamicState&,
+    void drawPath(GrRenderTarget*,
+                  const GrProgramInfo&,
                   const GrStencilSettings& stencilPassSettings,  // Cover pass settings in pipeline.
                   const GrPath* path);
 
@@ -120,12 +124,7 @@ protected:
     GrPathRendering(GrGpu* gpu) : fGpu(gpu) { }
 
     virtual void onStencilPath(const StencilPathArgs&, const GrPath*) = 0;
-    virtual void onDrawPath(GrRenderTarget*, GrSurfaceOrigin,
-                            const GrPrimitiveProcessor&,
-                            const GrPipeline&,
-                            const GrPipeline::FixedDynamicState&,
-                            const GrStencilSettings&,
-                            const GrPath*) = 0;
+    virtual void onDrawPath(const GrStencilSettings&, const GrPath*) = 0;
 
     GrGpu* fGpu;
 private:

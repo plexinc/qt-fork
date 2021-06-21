@@ -35,6 +35,7 @@ cr.define('inline.login', function() {
     if (isLoginPrimaryAccount) {
       chrome.send('metricsHandler:recordAction', ['Signin_SigninPage_Shown']);
     }
+    chrome.send('authExtensionReady');
   }
 
   function onDropLink(e) {
@@ -65,6 +66,11 @@ cr.define('inline.login', function() {
    */
   function initialize() {
     $('navigation-button').addEventListener('click', navigationButtonClicked);
+    cr.addWebUIListener('show-back-button', showBackButton);
+    cr.addWebUIListener('navigate-back-in-webview', navigateBackInWebview);
+    cr.addWebUIListener('load-auth-extension', loadAuthExtension);
+    cr.addWebUIListener('close-dialog', closeDialog);
+
     authExtHost = new cr.login.Authenticator('signin-frame');
     authExtHost.addEventListener('dropLink', onDropLink);
     authExtHost.addEventListener('ready', onAuthReady);
@@ -134,20 +140,17 @@ cr.define('inline.login', function() {
   }
 
   function showBackButton() {
-    $('navigation-button').ironIcon =
-        isRTL() ? 'cr:arrow-forward' : 'cr:arrow-back';
-
-    $('navigation-button')
-        .setAttribute(
-            'aria-label', loadTimeData.getString('accessibleBackButtonLabel'));
+    $('navigation-icon').icon =
+        isRTL() ? 'cr:chevron-right' : 'cr:chevron-left';
+    $('navigation-button').classList.add('enabled');
   }
 
-  function showCloseButton() {
-    $('navigation-button').ironIcon = 'cr:close';
-    $('navigation-button').classList.add('enabled');
-    $('navigation-button')
-        .setAttribute(
-            'aria-label', loadTimeData.getString('accessibleCloseButtonLabel'));
+  function navigateBackInWebview() {
+    if ($('signin-frame').canGoBack()) {
+      $('signin-frame').back();
+    } else {
+      closeDialog();
+    }
   }
 
   function navigationButtonClicked() {
@@ -164,7 +167,6 @@ cr.define('inline.login', function() {
     loadAuthExtension: loadAuthExtension,
     navigationButtonClicked: navigationButtonClicked,
     showBackButton: showBackButton,
-    showCloseButton: showCloseButton
   };
 });
 

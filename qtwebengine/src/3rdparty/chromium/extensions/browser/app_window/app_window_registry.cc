@@ -107,13 +107,6 @@ AppWindowRegistry::AppWindowList AppWindowRegistry::GetAppWindowsForApp(
   return app_windows;
 }
 
-void AppWindowRegistry::CloseAllAppWindowsForApp(const std::string& app_id) {
-  const AppWindowList windows = GetAppWindowsForApp(app_id);
-  for (auto it = windows.cbegin(); it != windows.cend(); ++it) {
-    (*it)->GetBaseWindow()->Close();
-  }
-}
-
 AppWindow* AppWindowRegistry::GetAppWindowForWebContents(
     const content::WebContents* web_contents) const {
   for (AppWindow* window : app_windows_) {
@@ -245,10 +238,6 @@ KeyedService* AppWindowRegistry::Factory::BuildServiceInstanceFor(
 
 bool AppWindowRegistry::Factory::ServiceIsCreatedWithBrowserContext() const {
   return true;
-}
-
-bool AppWindowRegistry::Factory::ServiceIsNULLWhileTesting() const {
-  return false;
 }
 
 content::BrowserContext* AppWindowRegistry::Factory::GetBrowserContextToUse(

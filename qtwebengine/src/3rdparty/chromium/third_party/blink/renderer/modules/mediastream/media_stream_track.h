@@ -29,7 +29,6 @@
 #include <memory>
 #include "third_party/blink/renderer/bindings/core/v8/active_script_wrappable.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
-#include "third_party/blink/renderer/core/execution_context/context_lifecycle_observer.h"
 #include "third_party/blink/renderer/modules/event_target_modules.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/mediastream/media_stream_descriptor.h"
@@ -50,19 +49,15 @@ class ScriptState;
 class MODULES_EXPORT MediaStreamTrack
     : public EventTargetWithInlineData,
       public ActiveScriptWrappable<MediaStreamTrack>,
-      public ContextLifecycleObserver,
       public MediaStreamSource::Observer {
   USING_GARBAGE_COLLECTED_MIXIN(MediaStreamTrack);
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-  static MediaStreamTrack* Create(ExecutionContext*, MediaStreamComponent*);
-
   MediaStreamTrack(ExecutionContext*, MediaStreamComponent*);
   MediaStreamTrack(ExecutionContext*,
                    MediaStreamComponent*,
-                   MediaStreamSource::ReadyState,
-                   bool stopped);
+                   MediaStreamSource::ReadyState);
   ~MediaStreamTrack() override;
 
   String kind() const;
@@ -84,7 +79,7 @@ class MODULES_EXPORT MediaStreamTrack
 
   // This function is called when constrains have been successfully applied.
   // Called from UserMediaRequest when it succeeds. It is not IDL-exposed.
-  void SetConstraints(const WebMediaConstraints&);
+  void SetConstraints(const MediaConstraints&);
 
   MediaTrackCapabilities* getCapabilities() const;
   MediaTrackConstraints* getConstraints() const;
@@ -108,13 +103,10 @@ class MODULES_EXPORT MediaStreamTrack
   // ScriptWrappable
   bool HasPendingActivity() const final;
 
-  // ContextLifecycleObserver
-  void ContextDestroyed(ExecutionContext*) override;
-
   std::unique_ptr<AudioSourceProvider> CreateWebAudioSource(
       int context_sample_rate);
 
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
 
  private:
   friend class CanvasCaptureMediaStreamTrack;
@@ -126,12 +118,14 @@ class MODULES_EXPORT MediaStreamTrack
   void applyConstraintsImageCapture(ScriptPromiseResolver*,
                                     const MediaTrackConstraints*);
 
+  std::string GetTrackLogString() const;
+
   MediaStreamSource::ReadyState ready_state_;
   HeapHashSet<Member<MediaStream>> registered_media_streams_;
   bool is_iterating_registered_media_streams_ = false;
-  bool stopped_;
   Member<MediaStreamComponent> component_;
   Member<ImageCapture> image_capture_;
+  WeakMember<ExecutionContext> execution_context_;
 };
 
 typedef HeapVector<Member<MediaStreamTrack>> MediaStreamTrackVector;

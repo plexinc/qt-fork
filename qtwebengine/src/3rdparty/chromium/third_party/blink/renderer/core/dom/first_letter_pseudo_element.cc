@@ -110,15 +110,12 @@ LayoutText* FirstLetterPseudoElement::FirstLetterTextLayoutObject(
   }
 
   if (!parent_layout_object ||
-      !parent_layout_object->Style()->HasPseudoStyle(kPseudoIdFirstLetter) ||
+      !parent_layout_object->Style()->HasPseudoElementStyle(
+          kPseudoIdFirstLetter) ||
       !CanHaveGeneratedChildren(*parent_layout_object) ||
       !parent_layout_object->BehavesLikeBlockContainer())
     return nullptr;
 
-  LayoutObject* marker =
-      parent_layout_object->IsLayoutNGListItem()
-          ? ToLayoutNGListItem(parent_layout_object)->Marker()
-          : nullptr;
   // Drill down into our children and look for our first text child.
   LayoutObject* first_letter_text_layout_object =
       parent_layout_object->SlowFirstChild();
@@ -145,8 +142,8 @@ LayoutText* FirstLetterPseudoElement::FirstLetterTextLayoutObject(
         break;
       first_letter_text_layout_object =
           first_letter_text_layout_object->NextSibling();
-    } else if (first_letter_text_layout_object->IsListMarker() ||
-               first_letter_text_layout_object == marker) {
+    } else if (first_letter_text_layout_object
+                   ->IsListMarkerIncludingNGOutsideAndInside()) {
       // The list item marker may have out-of-flow siblings inside an anonymous
       // block. Skip them to make sure we leave the anonymous block before
       // continuing looking for the first letter text.
@@ -169,7 +166,7 @@ LayoutText* FirstLetterPseudoElement::FirstLetterTextLayoutObject(
           first_letter_text_layout_object->NextSibling();
     } else if (first_letter_text_layout_object->IsAtomicInlineLevel() ||
                first_letter_text_layout_object->IsLayoutButton() ||
-               first_letter_text_layout_object->IsMenuList()) {
+               IsMenuList(first_letter_text_layout_object)) {
       return nullptr;
     } else if (first_letter_text_layout_object
                    ->IsFlexibleBoxIncludingDeprecatedAndNG() ||
@@ -177,7 +174,7 @@ LayoutText* FirstLetterPseudoElement::FirstLetterTextLayoutObject(
       first_letter_text_layout_object =
           first_letter_text_layout_object->NextSibling();
     } else if (!first_letter_text_layout_object->IsInline() &&
-               first_letter_text_layout_object->Style()->HasPseudoStyle(
+               first_letter_text_layout_object->Style()->HasPseudoElementStyle(
                    kPseudoIdFirstLetter) &&
                CanHaveGeneratedChildren(*first_letter_text_layout_object)) {
       // There is a layoutObject further down the tree which has
@@ -185,9 +182,6 @@ LayoutText* FirstLetterPseudoElement::FirstLetterTextLayoutObject(
       // setting up the first letter then.
       return nullptr;
     } else {
-      if (first_letter_text_layout_object->IsLayoutNGListItem())
-        marker = ToLayoutNGListItem(first_letter_text_layout_object)->Marker();
-
       first_letter_text_layout_object =
           first_letter_text_layout_object->SlowFirstChild();
     }
@@ -238,7 +232,7 @@ void FirstLetterPseudoElement::UpdateTextFragments() {
     // Make sure the first-letter layoutObject is set to require a layout as it
     // needs to re-create the line boxes. The remaining text layoutObject
     // will be marked by the LayoutText::setText.
-    child_fragment->SetNeedsLayoutAndPrefWidthsRecalc(
+    child_fragment->SetNeedsLayoutAndIntrinsicWidthsRecalc(
         layout_invalidation_reason::kTextChanged);
     break;
   }
@@ -248,7 +242,7 @@ void FirstLetterPseudoElement::ClearRemainingTextLayoutObject() {
   DCHECK(remaining_text_layout_object_);
   remaining_text_layout_object_ = nullptr;
 
-  if (GetDocument().ChildNeedsReattachLayoutTree()) {
+  if (GetDocument().GetStyleEngine().InRebuildLayoutTree()) {
     // We are in the layout tree rebuild phase. We will do UpdateFirstLetter()
     // as part of RebuildFirstLetterLayoutTree() or AttachLayoutTree(). Marking
     // us style-dirty during layout tree rebuild is not allowed.
@@ -313,7 +307,7 @@ FirstLetterPseudoElement::CustomStyleForLayoutObject() {
     return nullptr;
   DCHECK(first_letter_text->Parent());
   return ParentOrShadowHostElement()->StyleForPseudoElement(
-      PseudoStyleRequest(GetPseudoId()),
+      PseudoElementStyleRequest(GetPseudoId()),
       first_letter_text->Parent()->FirstLineStyle());
 }
 

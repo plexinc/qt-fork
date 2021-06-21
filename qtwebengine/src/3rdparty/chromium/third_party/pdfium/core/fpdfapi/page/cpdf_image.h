@@ -79,6 +79,8 @@ class CPDF_Image final : public Retainable {
   void FinishInitialization(CPDF_Dictionary* pStreamDict);
   RetainPtr<CPDF_Dictionary> InitJPEG(pdfium::span<uint8_t> src_span);
 
+  RetainPtr<CPDF_Dictionary> CreateXObjectImageDict(int width, int height);
+
   int32_t m_Height = 0;
   int32_t m_Width = 0;
   bool m_bIsInline = false;
@@ -86,7 +88,7 @@ class CPDF_Image final : public Retainable {
   bool m_bInterpolate = false;
   UnownedPtr<CPDF_Document> const m_pDocument;
   RetainPtr<CPDF_Stream> m_pStream;
-  UnownedPtr<const CPDF_Dictionary> m_pOC;
+  RetainPtr<const CPDF_Dictionary> m_pOC;
 };
 
 #endif  // CORE_FPDFAPI_PAGE_CPDF_IMAGE_H_

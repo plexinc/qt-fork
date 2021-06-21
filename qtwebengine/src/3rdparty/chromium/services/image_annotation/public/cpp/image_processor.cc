@@ -6,6 +6,7 @@
 
 #include "base/bind.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/task_runner_util.h"
 #include "mojo/public/cpp/bindings/interface_request.h"
 #include "services/image_annotation/image_annotation_metrics.h"
@@ -79,15 +80,15 @@ constexpr int ImageProcessor::kJpgQuality;
 
 ImageProcessor::ImageProcessor(base::RepeatingCallback<SkBitmap()> get_pixels)
     : get_pixels_(std::move(get_pixels)),
-      background_task_runner_(base::CreateSequencedTaskRunnerWithTraits(
+      background_task_runner_(base::ThreadPool::CreateSequencedTaskRunner(
           {base::MayBlock(), base::TaskPriority::BEST_EFFORT})) {}
 
 ImageProcessor::~ImageProcessor() = default;
 
-mojom::ImageProcessorPtr ImageProcessor::GetPtr() {
-  mojom::ImageProcessorPtr ptr;
-  bindings_.AddBinding(this, mojo::MakeRequest(&ptr));
-  return ptr;
+mojo::PendingRemote<mojom::ImageProcessor> ImageProcessor::GetPendingRemote() {
+  mojo::PendingRemote<mojom::ImageProcessor> remote;
+  receivers_.Add(this, remote.InitWithNewPipeAndPassReceiver());
+  return remote;
 }
 
 void ImageProcessor::GetJpgImageData(GetJpgImageDataCallback callback) {

@@ -2,11 +2,10 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("//build/config/jumbo.gni")
 import("../../pdfium.gni")
 import("../../testing/test.gni")
 
-jumbo_source_set("fxcodec") {
+source_set("fxcodec") {
   sources = [
     "basic/basicmodule.cpp",
     "basic/basicmodule.h",
@@ -156,8 +155,6 @@ pdfium_unittest_source_set("unittests") {
 }
 
 pdfium_embeddertest_source_set("embeddertests") {
-  sources = [
-    "jbig2/jbig2_embeddertest.cpp",
-  ]
+  sources = [ "jbig2/jbig2_embeddertest.cpp" ]
   pdfium_root_dir = "../../"
 }

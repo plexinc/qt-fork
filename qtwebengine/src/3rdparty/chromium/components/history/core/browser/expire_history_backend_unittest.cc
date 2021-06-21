@@ -23,7 +23,7 @@
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/scoped_feature_list.h"
-#include "base/test/scoped_task_environment.h"
+#include "base/test/task_environment.h"
 #include "components/history/core/browser/history_backend_client.h"
 #include "components/history/core/browser/history_backend_notifier.h"
 #include "components/history/core/browser/history_constants.h"
@@ -84,7 +84,7 @@ class ExpireHistoryTest : public testing::Test, public HistoryBackendNotifier {
       : backend_client_(history_client_.CreateBackendClient()),
         expirer_(this,
                  backend_client_.get(),
-                 scoped_task_environment_.GetMainThreadTaskRunner()),
+                 task_environment_.GetMainThreadTaskRunner()),
         now_(PretendNow()) {}
 
  protected:
@@ -131,7 +131,7 @@ class ExpireHistoryTest : public testing::Test, public HistoryBackendNotifier {
   // This must be destroyed last.
   base::ScopedTempDir tmp_dir_;
 
-  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  base::test::TaskEnvironment task_environment_;
 
   HistoryClientFakeBookmarks history_client_;
   std::unique_ptr<HistoryBackendClient> backend_client_;
@@ -170,9 +170,9 @@ class ExpireHistoryTest : public testing::Test, public HistoryBackendNotifier {
     TopSitesImpl::RegisterPrefs(pref_service_->registry());
 
     expirer_.SetDatabases(main_db_.get(), thumb_db_.get());
-    top_sites_ = new TopSitesImpl(
-        pref_service_.get(), nullptr,
-        PrepopulatedPageList(), base::Bind(MockCanAddURLToHistory));
+    top_sites_ =
+        new TopSitesImpl(pref_service_.get(), nullptr, PrepopulatedPageList(),
+                         base::BindRepeating(MockCanAddURLToHistory));
     WaitTopSitesLoadedObserver wait_top_sites_observer(top_sites_);
     top_sites_->Init(path().Append(kTopSitesFilename));
     wait_top_sites_observer.Run();

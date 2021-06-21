@@ -101,9 +101,7 @@ static_library("prefetch") {
     "visuals_fetch_by_url.h",
   ]
 
-  public_deps = [
-    ":proto",
-  ]
+  public_deps = [ ":proto" ]
 
   deps = [
     "//base",
@@ -275,14 +273,8 @@ source_set("unit_tests") {
     "//url",
   ]
 
-  defines = []
-
-  if (defined(notouch_build) && notouch_build) {
-    defines += [ "DISABLE_OFFLINE_PAGES_TOUCHLESS" ]
-  } else {
-    sources += [
-      "prefetch_dispatcher_impl_unittest.cc",
-      "prefetch_download_flow_unittest.cc",
-    ]
-  }
+  sources += [
+    "prefetch_dispatcher_impl_unittest.cc",
+    "prefetch_download_flow_unittest.cc",
+  ]
 }

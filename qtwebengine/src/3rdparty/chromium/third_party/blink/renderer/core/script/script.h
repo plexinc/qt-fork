@@ -5,6 +5,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_SCRIPT_SCRIPT_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_SCRIPT_SCRIPT_H_
 
+#include "base/optional.h"
 #include "third_party/blink/public/mojom/script/script_type.mojom-blink.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
@@ -19,13 +20,15 @@ class SecurityOrigin;
 class WorkerGlobalScope;
 
 // https://html.spec.whatwg.org/C/#concept-script
-class CORE_EXPORT Script : public GarbageCollectedFinalized<Script> {
+class CORE_EXPORT Script : public GarbageCollected<Script> {
  public:
   virtual void Trace(Visitor* visitor) {}
 
   virtual ~Script() {}
 
   virtual mojom::ScriptType GetScriptType() const = 0;
+  static base::Optional<mojom::ScriptType> ParseScriptType(
+      const String& script_type);
 
   // https://html.spec.whatwg.org/C/#run-a-classic-script
   // or
@@ -34,9 +37,6 @@ class CORE_EXPORT Script : public GarbageCollectedFinalized<Script> {
   // on Window or on WorkerGlobalScope, respectively.
   virtual void RunScript(LocalFrame*, const SecurityOrigin*) = 0;
   virtual void RunScriptOnWorker(WorkerGlobalScope&) = 0;
-
-  // For CSP check for inline scripts.
-  virtual String InlineSourceTextForCSP() const = 0;
 
   const ScriptFetchOptions& FetchOptions() const { return fetch_options_; }
   const KURL& BaseURL() const { return base_url_; }

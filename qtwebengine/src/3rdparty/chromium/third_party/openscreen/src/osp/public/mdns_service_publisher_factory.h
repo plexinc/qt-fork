@@ -11,13 +11,19 @@
 
 namespace openscreen {
 
+class TaskRunner;
+
+namespace osp {
+
 class MdnsServicePublisherFactory {
  public:
   static std::unique_ptr<ServicePublisher> Create(
       const ServicePublisher::Config& config,
-      ServicePublisher::Observer* observer);
+      ServicePublisher::Observer* observer,
+      TaskRunner* task_runner);
 };
 
+}  // namespace osp
 }  // namespace openscreen
 
 #endif  // OSP_PUBLIC_MDNS_SERVICE_PUBLISHER_FACTORY_H_

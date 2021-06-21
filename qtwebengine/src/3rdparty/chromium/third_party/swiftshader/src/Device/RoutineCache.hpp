@@ -19,12 +19,16 @@
 
 #include "Reactor/Reactor.hpp"
 
-namespace sw
-{
-	using namespace rr;
+namespace sw {
 
-	template<class State>
-	using RoutineCache = LRUCache<State, Routine>;
-}
+using namespace rr;
 
-#endif   // sw_RoutineCache_hpp
+template<class State>
+using RoutineCache = LRUCache<State, std::shared_ptr<Routine>>;
+
+template<class State, class FunctionType>
+using RoutineCacheT = LRUCache<State, RoutineT<FunctionType>>;
+
+}  // namespace sw
+
+#endif  // sw_RoutineCache_hpp

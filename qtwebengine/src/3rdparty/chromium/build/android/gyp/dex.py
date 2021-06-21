@@ -14,11 +14,17 @@ import tempfile
 import zipfile
 
 from util import build_utils
+from util import md5_check
 from util import zipalign
 
 sys.path.insert(1, os.path.join(os.path.dirname(__file__), os.path.pardir))
 
 import convert_dex_profile
+
+
+_IGNORE_WARNINGS = (
+    # A play services library triggers this.
+    'Type `libcore.io.Memory` was not found', )
 
 
 def _ParseArgs(args):
@@ -27,7 +33,23 @@ def _ParseArgs(args):
 
   build_utils.AddDepfileOption(parser)
   parser.add_argument('--output', required=True, help='Dex output path.')
-  parser.add_argument('--input-list', help='GN-list of additional input paths.')
+  parser.add_argument(
+      '--class-inputs',
+      action='append',
+      help='GN-list of .jars with .class files.')
+  parser.add_argument(
+      '--class-inputs-filearg',
+      action='append',
+      help='GN-list of .jars with .class files (added to depfile).')
+  parser.add_argument(
+      '--dex-inputs', action='append', help='GN-list of .jars with .dex files.')
+  parser.add_argument(
+      '--dex-inputs-filearg',
+      action='append',
+      help='GN-list of .jars with .dex files (added to depfile).')
+  parser.add_argument(
+      '--incremental-dir',
+      help='Path of directory to put intermediate dex files.')
   parser.add_argument(
       '--main-dex-list-path',
       help='File containing a list of the classes to include in the main dex.')
@@ -35,7 +57,16 @@ def _ParseArgs(args):
       '--multi-dex',
       action='store_true',
       help='Allow multiple dex files within output.')
-  parser.add_argument('--d8-jar-path', required=True, help='Path to D8 jar.')
+  parser.add_argument('--r8-jar-path', required=True, help='Path to R8 jar.')
+  parser.add_argument('--desugar', action='store_true')
+  parser.add_argument(
+      '--bootclasspath',
+      action='append',
+      help='GN-list of bootclasspath. Needed for --desugar')
+  parser.add_argument(
+      '--classpath',
+      action='append',
+      help='GN-list of full classpath. Needed for --desugar')
   parser.add_argument(
       '--release',
       action='store_true',
@@ -44,7 +75,6 @@ def _ParseArgs(args):
       'main dex and keeps all line number information, and then some.')
   parser.add_argument(
       '--min-api', help='Minimum Android API level compatibility.')
-  parser.add_argument('inputs', nargs='*', help='Input .jar files.')
 
   group = parser.add_argument_group('Dexlayout')
   group.add_argument(
@@ -66,6 +96,11 @@ def _ParseArgs(args):
             'unobfuscated symbols present in the code. If not present, the jar '
             'is assumed not to be obfuscated.'))
 
+  parser.add_argument(
+      '--force-enable-assertions',
+      action='store_true',
+      help='Forcefully enable javac generated assertion code.')
+
   options = parser.parse_args(args)
 
   if options.dexlayout_profile:
@@ -79,15 +114,46 @@ def _ParseArgs(args):
   if options.main_dex_list_path and not options.multi_dex:
     parser.error('--main-dex-list-path is unused if multidex is not enabled')
 
-  if options.input_list:
-    options.inputs += build_utils.ParseGnList(options.input_list)
+  if options.desugar and options.classpath is None:
+    parser.error('--classpath required with use of --desugar')
+  if options.desugar and options.bootclasspath is None:
+    parser.error('--bootclasspath required with use of --desugar')
+
+  options.class_inputs = build_utils.ParseGnList(options.class_inputs)
+  options.class_inputs_filearg = build_utils.ParseGnList(
+      options.class_inputs_filearg)
+  options.bootclasspath = build_utils.ParseGnList(options.bootclasspath)
+  options.classpath = build_utils.ParseGnList(options.classpath)
+  options.dex_inputs = build_utils.ParseGnList(options.dex_inputs)
+  options.dex_inputs_filearg = build_utils.ParseGnList(
+      options.dex_inputs_filearg)
 
   return options
 
 
 def _RunD8(dex_cmd, input_paths, output_path):
   dex_cmd = dex_cmd + ['--output', output_path] + input_paths
-  build_utils.CheckOutput(dex_cmd, print_stderr=False)
+
+  def stderr_filter(output):
+    # Filter out warnings caused by our fake main dex list used to enable
+    # multidex on library targets.
+    # Warning: Application does not contain `Foo` as referenced in main-dex-list
+    pattern = r'does not contain `Foo`'
+    pattern += '|' + '|'.join(re.escape(p) for p in _IGNORE_WARNINGS)
+    output = build_utils.FilterLines(output, pattern)
+
+    # Each warning has a prefix line of tthe file it's from. If we've filtered
+    # out the warning, then also filter out the file header.
+    # E.g.:
+    # Warning in path/to/Foo.class:
+    #   Error message #1 indented here.
+    #   Error message #2 indented here.
+    output = re.sub(r'^Warning in .*?:\n(?!  )', '', output, flags=re.MULTILINE)
+    return output
+
+  # stdout sometimes spams with things like:
+  # Stripped invalid locals information from 1 method.
+  build_utils.CheckOutput(dex_cmd, stderr_filter=stderr_filter)
 
 
 def _EnvWithArtLibPath(binary_path):
@@ -249,48 +315,194 @@ def _PerformDexlayout(tmp_dir, tmp_dex_output, options):
   return final_output
 
 
-def _PerformDexing(options):
-  dex_cmd = ['java', '-jar', options.d8_jar_path, '--no-desugaring']
+def _CreateFinalDex(d8_inputs, output, tmp_dir, dex_cmd, options=None):
+  tmp_dex_output = os.path.join(tmp_dir, 'tmp_dex_output.zip')
+  if (output.endswith('.dex')
+      or not all(f.endswith('.dex') for f in d8_inputs)):
+    if options:
+      if options.main_dex_list_path:
+        dex_cmd = dex_cmd + ['--main-dex-list', options.main_dex_list_path]
+      elif options.multi_dex and int(options.min_api or 1) < 21:
+        # When dexing library targets, it doesn't matter what's in the main dex.
+        tmp_main_dex_list_path = os.path.join(tmp_dir, 'main_list.txt')
+        with open(tmp_main_dex_list_path, 'w') as f:
+          f.write('Foo.class\n')
+        dex_cmd = dex_cmd + ['--main-dex-list', tmp_main_dex_list_path]
+
+    tmp_dex_dir = os.path.join(tmp_dir, 'tmp_dex_dir')
+    os.mkdir(tmp_dex_dir)
+    _RunD8(dex_cmd, d8_inputs, tmp_dex_dir)
+    logging.debug('Performed dex merging')
+
+    dex_files = [os.path.join(tmp_dex_dir, f) for f in os.listdir(tmp_dex_dir)]
+
+    if output.endswith('.dex'):
+      if len(dex_files) > 1:
+        raise Exception('%d files created, expected 1' % len(dex_files))
+      tmp_dex_output = dex_files[0]
+    else:
+      _ZipAligned(sorted(dex_files), tmp_dex_output)
+  else:
+    # Skip dexmerger. Just put all incrementals into the .jar individually.
+    _ZipAligned(sorted(d8_inputs), tmp_dex_output)
+    logging.debug('Quick-zipped %d files', len(d8_inputs))
+
+  if options and options.dexlayout_profile:
+    tmp_dex_output = _PerformDexlayout(tmp_dir, tmp_dex_output, options)
+
+  # The dex file is complete and can be moved out of tmp_dir.
+  shutil.move(tmp_dex_output, output)
+
+
+def _IntermediateDexFilePathsFromInputJars(class_inputs, incremental_dir):
+  """Returns a list of all intermediate dex file paths."""
+  dex_files = []
+  for jar in class_inputs:
+    with zipfile.ZipFile(jar, 'r') as z:
+      for subpath in z.namelist():
+        if subpath.endswith('.class'):
+          subpath = subpath[:-5] + 'dex'
+          dex_files.append(os.path.join(incremental_dir, subpath))
+  return dex_files
+
+
+def _DeleteStaleIncrementalDexFiles(dex_dir, dex_files):
+  """Deletes intermediate .dex files that are no longer needed."""
+  all_files = build_utils.FindInDirectory(dex_dir)
+  desired_files = set(dex_files)
+  for path in all_files:
+    if path not in desired_files:
+      os.unlink(path)
+
+
+def _ExtractClassFiles(changes, tmp_dir, class_inputs):
+  classes_list = []
+  for jar in class_inputs:
+    if changes:
+      changed_class_list = set(changes.IterChangedSubpaths(jar))
+      predicate = lambda x: x in changed_class_list and x.endswith('.class')
+    else:
+      predicate = lambda x: x.endswith('.class')
+
+    classes_list.extend(
+        build_utils.ExtractAll(jar, path=tmp_dir, predicate=predicate))
+  return classes_list
+
+
+def _CreateIntermediateDexFiles(changes, options, tmp_dir, dex_cmd):
+  # Create temporary directory for classes to be extracted to.
+  tmp_extract_dir = os.path.join(tmp_dir, 'tmp_extract_dir')
+  os.mkdir(tmp_extract_dir)
+
+  # Do a full rebuild when changes are to classpath or other non-input files.
+  allowed_changed = set(options.class_inputs)
+  allowed_changed.update(options.dex_inputs)
+  strings_changed = changes.HasStringChanges()
+  non_direct_input_changed = next(
+      (p for p in changes.IterChangedPaths() if p not in allowed_changed), None)
+
+  if strings_changed or non_direct_input_changed:
+    logging.debug('Full dex required: strings_changed=%s path_changed=%s',
+                  strings_changed, non_direct_input_changed)
+    changes = None
+  class_files = _ExtractClassFiles(changes, tmp_extract_dir,
+                                   options.class_inputs)
+  logging.debug('Extracted class files: %d', len(class_files))
+
+  # If the only change is deleting a file, class_files will be empty.
+  if class_files:
+    # Dex necessary classes into intermediate dex files.
+    dex_cmd = dex_cmd + ['--intermediate', '--file-per-class']
+    _RunD8(dex_cmd, class_files, options.incremental_dir)
+    logging.debug('Dexed class files.')
+
+
+def _OnStaleMd5(changes, options, final_dex_inputs, dex_cmd):
+  logging.debug('_OnStaleMd5')
+  with build_utils.TempDir() as tmp_dir:
+    if options.incremental_dir:
+      # Create directory for all intermediate dex files.
+      if not os.path.exists(options.incremental_dir):
+        os.makedirs(options.incremental_dir)
+
+      _DeleteStaleIncrementalDexFiles(options.incremental_dir, final_dex_inputs)
+      logging.debug('Stale files deleted')
+      _CreateIntermediateDexFiles(changes, options, tmp_dir, dex_cmd)
+
+    _CreateFinalDex(
+        final_dex_inputs, options.output, tmp_dir, dex_cmd, options=options)
+
+
+def MergeDexForIncrementalInstall(r8_jar_path, src_paths, dest_dex_jar):
+  dex_cmd = [
+      build_utils.JAVA_PATH,
+      '-jar',
+      r8_jar_path,
+      'd8',
+  ]
+  with build_utils.TempDir() as tmp_dir:
+    _CreateFinalDex(src_paths, dest_dex_jar, tmp_dir, dex_cmd)
+
+
+def main(args):
+  build_utils.InitLogging('DEX_DEBUG')
+  options = _ParseArgs(args)
+
+  options.class_inputs += options.class_inputs_filearg
+  options.dex_inputs += options.dex_inputs_filearg
+
+  input_paths = options.class_inputs + options.dex_inputs
   if options.multi_dex and options.main_dex_list_path:
-    dex_cmd += ['--main-dex-list', options.main_dex_list_path]
+    input_paths.append(options.main_dex_list_path)
+  input_paths.append(options.r8_jar_path)
+
+  depfile_deps = options.class_inputs_filearg + options.dex_inputs_filearg
+
+  output_paths = [options.output]
+
+  if options.incremental_dir:
+    final_dex_inputs = _IntermediateDexFilePathsFromInputJars(
+        options.class_inputs, options.incremental_dir)
+    output_paths += final_dex_inputs
+    track_subpaths_allowlist = options.class_inputs
+  else:
+    final_dex_inputs = list(options.class_inputs)
+    track_subpaths_allowlist = None
+  final_dex_inputs += options.dex_inputs
+
+  dex_cmd = [
+      build_utils.JAVA_PATH, '-jar', options.r8_jar_path, 'd8',
+  ]
   if options.release:
     dex_cmd += ['--release']
   if options.min_api:
     dex_cmd += ['--min-api', options.min_api]
 
-  with build_utils.TempDir() as tmp_dir:
-    tmp_dex_dir = os.path.join(tmp_dir, 'tmp_dex_dir')
-    os.mkdir(tmp_dex_dir)
-    _RunD8(dex_cmd, options.inputs, tmp_dex_dir)
-    dex_files = [os.path.join(tmp_dex_dir, f) for f in os.listdir(tmp_dex_dir)]
+  if options.desugar:
+    dex_cmd += ['--lib', build_utils.JAVA_HOME]
+    for path in options.bootclasspath:
+      dex_cmd += ['--lib', path]
+    for path in options.classpath:
+      dex_cmd += ['--classpath', path]
+    depfile_deps += options.classpath
+    depfile_deps += options.bootclasspath
+    input_paths += options.classpath
+    input_paths += options.bootclasspath
+  else:
+    dex_cmd += ['--no-desugaring']
 
-    if not options.output.endswith('.dex'):
-      tmp_dex_output = os.path.join(tmp_dir, 'tmp_dex_output.zip')
-      _ZipAligned(sorted(dex_files), tmp_dex_output)
-    else:
-      # Output to a .dex file.
-      if len(dex_files) > 1:
-        raise Exception('%d files created, expected 1' % len(dex_files))
-      tmp_dex_output = dex_files[0]
+  if options.force_enable_assertions:
+    dex_cmd += ['--force-enable-assertions']
 
-    if options.dexlayout_profile:
-      tmp_dex_output = _PerformDexlayout(tmp_dir, tmp_dex_output, options)
-
-    # The dex file is complete and can be moved out of tmp_dir.
-    shutil.move(tmp_dex_output, options.output)
-
-
-def main(args):
-  options = _ParseArgs(args)
-
-  input_paths = list(options.inputs)
-  if options.multi_dex and options.main_dex_list_path:
-    input_paths.append(options.main_dex_list_path)
-
-  _PerformDexing(options)
-
-  build_utils.WriteDepfile(
-      options.depfile, options.output, input_paths, add_pydeps=False)
+  md5_check.CallAndWriteDepfileIfStale(
+      lambda changes: _OnStaleMd5(changes, options, final_dex_inputs, dex_cmd),
+      options,
+      input_paths=input_paths,
+      input_strings=dex_cmd + [bool(options.incremental_dir)],
+      output_paths=output_paths,
+      pass_changes=True,
+      track_subpaths_allowlist=track_subpaths_allowlist,
+      depfile_deps=depfile_deps)
 
 
 if __name__ == '__main__':

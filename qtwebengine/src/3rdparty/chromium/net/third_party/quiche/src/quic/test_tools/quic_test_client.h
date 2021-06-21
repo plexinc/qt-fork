@@ -16,9 +16,9 @@
 #include "net/third_party/quiche/src/quic/platform/api/quic_containers.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_epoll.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_map_util.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_string_piece.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
 #include "net/third_party/quiche/src/quic/tools/quic_client.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 
@@ -56,8 +56,10 @@ class MockableQuicClient : public QuicClient {
 
   QuicConnectionId GenerateNewConnectionId() override;
   void UseConnectionId(QuicConnectionId server_connection_id);
+  void UseConnectionIdLength(int server_connection_id_length);
   QuicConnectionId GetClientConnectionId() override;
   void UseClientConnectionId(QuicConnectionId client_connection_id);
+  void UseClientConnectionIdLength(int client_connection_id_length);
 
   void UseWriter(QuicPacketWriterWrapper* writer);
   void set_peer_address(const QuicSocketAddress& address);
@@ -74,9 +76,11 @@ class MockableQuicClient : public QuicClient {
   // Server connection ID to use, if server_connection_id_overridden_
   QuicConnectionId override_server_connection_id_;
   bool server_connection_id_overridden_;
+  int override_server_connection_id_length_ = -1;
   // Client connection ID to use, if client_connection_id_overridden_
   QuicConnectionId override_client_connection_id_;
   bool client_connection_id_overridden_;
+  int override_client_connection_id_length_ = -1;
   CachedNetworkParameters cached_network_paramaters_;
 };
 
@@ -123,19 +127,19 @@ class QuicTestClient : public QuicSpdyStream::Visitor,
   // Sends a request containing |headers| and |body| and returns the number of
   // bytes sent (the size of the serialized request headers and body).
   ssize_t SendMessage(const spdy::SpdyHeaderBlock& headers,
-                      QuicStringPiece body);
+                      quiche::QuicheStringPiece body);
   // Sends a request containing |headers| and |body| with the fin bit set to
   // |fin| and returns the number of bytes sent (the size of the serialized
   // request headers and body).
   ssize_t SendMessage(const spdy::SpdyHeaderBlock& headers,
-                      QuicStringPiece body,
+                      quiche::QuicheStringPiece body,
                       bool fin);
   // Sends a request containing |headers| and |body| with the fin bit set to
   // |fin| and returns the number of bytes sent (the size of the serialized
   // request headers and body). If |flush| is true, will wait for the message to
   // be flushed before returning.
   ssize_t SendMessage(const spdy::SpdyHeaderBlock& headers,
-                      QuicStringPiece body,
+                      quiche::QuicheStringPiece body,
                       bool fin,
                       bool flush);
   // Sends a request containing |headers| and |body|, waits for the response,
@@ -152,7 +156,7 @@ class QuicTestClient : public QuicSpdyStream::Visitor,
   QuicSocketAddress local_address() const;
   void ClearPerRequestState();
   bool WaitUntil(int timeout_ms, std::function<bool()> trigger);
-  ssize_t Send(const void* buffer, size_t size);
+  ssize_t Send(quiche::QuicheStringPiece data);
   bool connected() const;
   bool buffer_body() const;
   void set_buffer_body(bool buffer_body);
@@ -227,9 +231,15 @@ class QuicTestClient : public QuicSpdyStream::Visitor,
   // Configures client_ to use a specific server connection ID instead of a
   // random one.
   void UseConnectionId(QuicConnectionId server_connection_id);
+  // Configures client_ to use a specific server connection ID length instead
+  // of the default of kQuicDefaultConnectionIdLength.
+  void UseConnectionIdLength(int server_connection_id_length);
   // Configures client_ to use a specific client connection ID instead of an
   // empty one.
   void UseClientConnectionId(QuicConnectionId client_connection_id);
+  // Configures client_ to use a specific client connection ID length instead
+  // of the default of zero.
+  void UseClientConnectionIdLength(int client_connection_id_length);
 
   // Returns nullptr if the maximum number of streams have already been created.
   QuicSpdyClientStream* GetOrCreateStream();
@@ -239,7 +249,7 @@ class QuicTestClient : public QuicSpdyStream::Visitor,
   // null, only the body will be sent on the stream.
   ssize_t GetOrCreateStreamAndSendRequest(
       const spdy::SpdyHeaderBlock* headers,
-      QuicStringPiece body,
+      quiche::QuicheStringPiece body,
       bool fin,
       QuicReferenceCountedPointer<QuicAckListenerInterface> ack_listener);
 
@@ -314,7 +324,7 @@ class QuicTestClient : public QuicSpdyStream::Visitor,
    public:
     TestClientDataToResend(
         std::unique_ptr<spdy::SpdyHeaderBlock> headers,
-        QuicStringPiece body,
+        quiche::QuicheStringPiece body,
         bool fin,
         QuicTestClient* test_client,
         QuicReferenceCountedPointer<QuicAckListenerInterface> ack_listener);

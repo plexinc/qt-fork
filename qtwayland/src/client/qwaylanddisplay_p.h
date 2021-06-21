@@ -55,6 +55,8 @@
 #include <QtCore/QRect>
 #include <QtCore/QPointer>
 #include <QtCore/QVector>
+#include <QtCore/QMutex>
+#include <QtCore/QReadWriteLock>
 
 #include <QtCore/QWaitCondition>
 #include <QtCore/QLoggingCategory>
@@ -76,11 +78,11 @@ QT_BEGIN_NAMESPACE
 class QAbstractEventDispatcher;
 class QSocketNotifier;
 class QPlatformScreen;
+class QPlatformPlaceholderScreen;
 
 namespace QtWayland {
     class qt_surface_extension;
     class zwp_text_input_manager_v2;
-    class zxdg_output_manager_v1;
 }
 
 namespace QtWaylandClient {
@@ -90,12 +92,14 @@ Q_WAYLAND_CLIENT_EXPORT Q_DECLARE_LOGGING_CATEGORY(lcQpaWayland);
 class QWaylandInputDevice;
 class QWaylandBuffer;
 class QWaylandScreen;
+class QWaylandXdgOutputManagerV1;
 class QWaylandClientBufferIntegration;
 class QWaylandWindowManagerIntegration;
 class QWaylandDataDeviceManager;
 #if QT_CONFIG(wayland_client_primary_selection)
 class QWaylandPrimarySelectionDeviceManagerV1;
 #endif
+class QWaylandTabletManagerV2;
 class QWaylandTouchExtension;
 class QWaylandQtKeyExtension;
 class QWaylandWindow;
@@ -116,6 +120,12 @@ class Q_WAYLAND_CLIENT_EXPORT QWaylandDisplay : public QObject, public QtWayland
     Q_OBJECT
 
 public:
+    struct FrameQueue {
+        FrameQueue(wl_event_queue *q = nullptr) : queue(q), mutex(new QMutex) {}
+        wl_event_queue *queue;
+        QMutex *mutex;
+    };
+
     QWaylandDisplay(QWaylandIntegration *waylandIntegration);
     ~QWaylandDisplay(void) override;
 
@@ -124,6 +134,8 @@ public:
 #endif
 
     QList<QWaylandScreen *> screens() const { return mScreens; }
+    QPlatformPlaceholderScreen *placeholderScreen() const { return mPlaceholderScreen; }
+    void ensureScreen();
 
     QWaylandScreen *screenForOutput(struct wl_output *output) const;
     void handleScreenInitialized(QWaylandScreen *screen);
@@ -157,10 +169,11 @@ public:
     QWaylandPrimarySelectionDeviceManagerV1 *primarySelectionManager() const { return mPrimarySelectionManager.data(); }
 #endif
     QtWayland::qt_surface_extension *windowExtension() const { return mWindowExtension.data(); }
+    QWaylandTabletManagerV2 *tabletManager() const { return mTabletManager.data(); }
     QWaylandTouchExtension *touchExtension() const { return mTouchExtension.data(); }
     QtWayland::zwp_text_input_manager_v2 *textInputManager() const { return mTextInputManager.data(); }
     QWaylandHardwareIntegration *hardwareIntegration() const { return mHardwareIntegration.data(); }
-    QtWayland::zxdg_output_manager_v1 *xdgOutputManager() const { return mXdgOutputManager.data(); }
+    QWaylandXdgOutputManagerV1 *xdgOutputManager() const { return mXdgOutputManager.data(); }
 
     bool usingInputContextFromCompositor() const { return mUsingInputContextFromCompositor; }
 
@@ -200,6 +213,8 @@ public:
     void handleWindowDestroyed(QWaylandWindow *window);
 
     wl_event_queue *createEventQueue();
+    FrameQueue createFrameQueue();
+    void destroyFrameQueue(const FrameQueue &q);
     void dispatchQueueWhile(wl_event_queue *queue, std::function<bool()> condition, int timeout = -1);
 
 public slots:
@@ -228,6 +243,7 @@ private:
     QScopedPointer<QWaylandShm> mShm;
     QList<QWaylandScreen *> mWaitingScreens;
     QList<QWaylandScreen *> mScreens;
+    QPlatformPlaceholderScreen *mPlaceholderScreen = nullptr;
     QList<QWaylandInputDevice *> mInputDevices;
     QList<Listener> mRegistryListeners;
     QWaylandIntegration *mWaylandIntegration = nullptr;
@@ -243,12 +259,13 @@ private:
     QScopedPointer<QWaylandTouchExtension> mTouchExtension;
     QScopedPointer<QWaylandQtKeyExtension> mQtKeyExtension;
     QScopedPointer<QWaylandWindowManagerIntegration> mWindowManagerIntegration;
+    QScopedPointer<QWaylandTabletManagerV2> mTabletManager;
 #if QT_CONFIG(wayland_client_primary_selection)
     QScopedPointer<QWaylandPrimarySelectionDeviceManagerV1> mPrimarySelectionManager;
 #endif
     QScopedPointer<QtWayland::zwp_text_input_manager_v2> mTextInputManager;
     QScopedPointer<QWaylandHardwareIntegration> mHardwareIntegration;
-    QScopedPointer<QtWayland::zxdg_output_manager_v1> mXdgOutputManager;
+    QScopedPointer<QWaylandXdgOutputManagerV1> mXdgOutputManager;
     QSocketNotifier *mReadNotifier = nullptr;
     int mFd = -1;
     int mWritableNotificationFd = -1;
@@ -259,8 +276,10 @@ private:
     QPointer<QWaylandWindow> mLastInputWindow;
     QPointer<QWaylandWindow> mLastKeyboardFocus;
     QVector<QWaylandWindow *> mActiveWindows;
+    QVector<FrameQueue> mExternalQueues;
     struct wl_callback *mSyncCallback = nullptr;
     static const wl_callback_listener syncCallbackListener;
+    QReadWriteLock m_frameQueueLock;
 
     bool mClientSideInputContextRequested = !QPlatformInputContextFactory::requested().isNull();
     bool mUsingInputContextFromCompositor = false;

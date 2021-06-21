@@ -5,6 +5,7 @@
 #include "net/third_party/quiche/src/quic/core/crypto/quic_decrypter.h"
 
 #include <string>
+#include <utility>
 
 #include "third_party/boringssl/src/include/openssl/tls1.h"
 #include "net/third_party/quiche/src/quic/core/crypto/aes_128_gcm_12_decrypter.h"
@@ -17,17 +18,27 @@
 #include "net/third_party/quiche/src/quic/core/crypto/quic_hkdf.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_bug_tracker.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_logging.h"
-#include "net/third_party/quiche/src/quic/platform/api/quic_ptr_util.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 
 // static
-std::unique_ptr<QuicDecrypter> QuicDecrypter::Create(QuicTag algorithm) {
+std::unique_ptr<QuicDecrypter> QuicDecrypter::Create(
+    const ParsedQuicVersion& version,
+    QuicTag algorithm) {
   switch (algorithm) {
     case kAESG:
-      return QuicMakeUnique<Aes128Gcm12Decrypter>();
+      if (version.UsesInitialObfuscators()) {
+        return std::make_unique<Aes128GcmDecrypter>();
+      } else {
+        return std::make_unique<Aes128Gcm12Decrypter>();
+      }
     case kCC20:
-      return QuicMakeUnique<ChaCha20Poly1305Decrypter>();
+      if (version.UsesInitialObfuscators()) {
+        return std::make_unique<ChaCha20Poly1305TlsDecrypter>();
+      } else {
+        return std::make_unique<ChaCha20Poly1305Decrypter>();
+      }
     default:
       QUIC_LOG(FATAL) << "Unsupported algorithm: " << algorithm;
       return nullptr;
@@ -39,11 +50,11 @@ std::unique_ptr<QuicDecrypter> QuicDecrypter::CreateFromCipherSuite(
     uint32_t cipher_suite) {
   switch (cipher_suite) {
     case TLS1_CK_AES_128_GCM_SHA256:
-      return QuicMakeUnique<Aes128GcmDecrypter>();
+      return std::make_unique<Aes128GcmDecrypter>();
     case TLS1_CK_AES_256_GCM_SHA384:
-      return QuicMakeUnique<Aes256GcmDecrypter>();
+      return std::make_unique<Aes256GcmDecrypter>();
     case TLS1_CK_CHACHA20_POLY1305_SHA256:
-      return QuicMakeUnique<ChaCha20Poly1305TlsDecrypter>();
+      return std::make_unique<ChaCha20Poly1305TlsDecrypter>();
     default:
       QUIC_BUG << "TLS cipher suite is unknown to QUIC";
       return nullptr;
@@ -51,15 +62,16 @@ std::unique_ptr<QuicDecrypter> QuicDecrypter::CreateFromCipherSuite(
 }
 
 // static
-void QuicDecrypter::DiversifyPreliminaryKey(QuicStringPiece preliminary_key,
-                                            QuicStringPiece nonce_prefix,
-                                            const DiversificationNonce& nonce,
-                                            size_t key_size,
-                                            size_t nonce_prefix_size,
-                                            std::string* out_key,
-                                            std::string* out_nonce_prefix) {
+void QuicDecrypter::DiversifyPreliminaryKey(
+    quiche::QuicheStringPiece preliminary_key,
+    quiche::QuicheStringPiece nonce_prefix,
+    const DiversificationNonce& nonce,
+    size_t key_size,
+    size_t nonce_prefix_size,
+    std::string* out_key,
+    std::string* out_nonce_prefix) {
   QuicHKDF hkdf((std::string(preliminary_key)) + (std::string(nonce_prefix)),
-                QuicStringPiece(nonce.data(), nonce.size()),
+                quiche::QuicheStringPiece(nonce.data(), nonce.size()),
                 "QUIC key diversification", 0, key_size, 0, nonce_prefix_size,
                 0);
   *out_key = std::string(hkdf.server_write_key());

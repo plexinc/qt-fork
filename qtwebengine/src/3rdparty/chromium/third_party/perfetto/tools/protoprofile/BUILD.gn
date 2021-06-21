@@ -12,29 +12,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import("../../gn/perfetto.gni")
-import("../../gn/proto_library.gni")
+import("../../gn/perfetto_host_executable.gni")
 
-source_set("common") {
-  testonly = true
-  public_deps = [
-    "../../gn:default_deps",
-    "../../protos/third_party/pprof:lite",
-    "../../src/base",
-    "../../src/protozero",
-  ]
-  sources = [
-    "main.cc",
-  ]
-  deps = [
-    "../../gn:protobuf_full",
-  ]
-}
-
-executable("protoprofile") {
+perfetto_host_executable("protoprofile") {
   testonly = true
   deps = [
     ":common",
     "../../gn:default_deps",
   ]
+}
+
+source_set("common") {
+  testonly = true
+  public_deps = [
+    "../../gn:default_deps",
+    "../../protos/third_party/pprof:zero",
+    "../../src/base",
+    "../../src/protozero",
+  ]
+  sources = [ "main.cc" ]
+  deps = [ "../../gn:protobuf_full" ]
 }

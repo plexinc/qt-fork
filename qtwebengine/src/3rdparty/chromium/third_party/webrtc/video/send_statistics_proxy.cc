@@ -11,11 +11,15 @@
 #include "video/send_statistics_proxy.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 #include <utility>
 
-#include "absl/algorithm/container.h"
+#include "absl/strings/match.h"
+#include "api/video/video_codec_constants.h"
+#include "api/video/video_codec_type.h"
+#include "api/video_codecs/video_codec.h"
 #include "modules/video_coding/include/video_codec_interface.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
@@ -109,15 +113,17 @@ absl::optional<int> GetFallbackMaxPixels(const std::string& group) {
 absl::optional<int> GetFallbackMaxPixelsIfFieldTrialEnabled() {
   std::string group =
       webrtc::field_trial::FindFullName(kVp8ForcedFallbackEncoderFieldTrial);
-  return (group.find("Enabled") == 0) ? GetFallbackMaxPixels(group.substr(7))
-                                      : absl::optional<int>();
+  return (absl::StartsWith(group, "Enabled"))
+             ? GetFallbackMaxPixels(group.substr(7))
+             : absl::optional<int>();
 }
 
 absl::optional<int> GetFallbackMaxPixelsIfFieldTrialDisabled() {
   std::string group =
       webrtc::field_trial::FindFullName(kVp8ForcedFallbackEncoderFieldTrial);
-  return (group.find("Disabled") == 0) ? GetFallbackMaxPixels(group.substr(8))
-                                       : absl::optional<int>();
+  return (absl::StartsWith(group, "Disabled"))
+             ? GetFallbackMaxPixels(group.substr(8))
+             : absl::optional<int>();
 }
 }  // namespace
 
@@ -140,6 +146,11 @@ SendStatisticsProxy::SendStatisticsProxy(
       quality_limitation_reason_tracker_(clock_),
       media_byte_rate_tracker_(kBucketSizeMs, kBucketCount),
       encoded_frame_rate_tracker_(kBucketSizeMs, kBucketCount),
+      last_num_spatial_layers_(0),
+      last_num_simulcast_streams_(0),
+      last_spatial_layer_use_{},
+      bw_limited_layers_(false),
+      internal_encoder_scaler_(false),
       uma_container_(
           new UmaSamplesContainer(GetUmaPrefix(content_type_), stats_, clock)) {
 }
@@ -197,19 +208,22 @@ void SendStatisticsProxy::UmaSamplesContainer::InitializeBitrateCounters(
     retransmit_byte_counter_.SetLast(
         it.second.rtp_stats.retransmitted.TotalBytes(), ssrc);
     fec_byte_counter_.SetLast(it.second.rtp_stats.fec.TotalBytes(), ssrc);
-    if (it.second.is_rtx) {
-      rtx_byte_counter_.SetLast(it.second.rtp_stats.transmitted.TotalBytes(),
-                                ssrc);
-    } else {
-      media_byte_counter_.SetLast(it.second.rtp_stats.MediaPayloadBytes(),
+    switch (it.second.type) {
+      case VideoSendStream::StreamStats::StreamType::kMedia:
+        media_byte_counter_.SetLast(it.second.rtp_stats.MediaPayloadBytes(),
+                                    ssrc);
+        break;
+      case VideoSendStream::StreamStats::StreamType::kRtx:
+        rtx_byte_counter_.SetLast(it.second.rtp_stats.transmitted.TotalBytes(),
                                   ssrc);
+        break;
+      case VideoSendStream::StreamStats::StreamType::kFlexfec:
+        break;
     }
   }
 }
 
-void SendStatisticsProxy::UmaSamplesContainer::RemoveOld(
-    int64_t now_ms,
-    bool* is_limited_in_resolution) {
+void SendStatisticsProxy::UmaSamplesContainer::RemoveOld(int64_t now_ms) {
   while (!encoded_frames_.empty()) {
     auto it = encoded_frames_.begin();
     if (now_ms - it->second.send_ms < kMaxEncodedFrameWindowMs)
@@ -221,7 +235,6 @@ void SendStatisticsProxy::UmaSamplesContainer::RemoveOld(
 
     // Check number of encoded streams per timestamp.
     if (num_streams_ > static_cast<size_t>(it->second.max_simulcast_idx)) {
-      *is_limited_in_resolution = false;
       if (num_streams_ > 1) {
         int disabled_streams =
             static_cast<int>(num_streams_ - 1 - it->second.max_simulcast_idx);
@@ -232,7 +245,6 @@ void SendStatisticsProxy::UmaSamplesContainer::RemoveOld(
         bw_limited_frame_counter_.Add(bw_limited_resolution);
         if (bw_limited_resolution) {
           bw_resolutions_disabled_counter_.Add(disabled_streams);
-          *is_limited_in_resolution = true;
         }
       }
     }
@@ -242,10 +254,9 @@ void SendStatisticsProxy::UmaSamplesContainer::RemoveOld(
 
 bool SendStatisticsProxy::UmaSamplesContainer::InsertEncodedFrame(
     const EncodedImage& encoded_frame,
-    int simulcast_idx,
-    bool* is_limited_in_resolution) {
+    int simulcast_idx) {
   int64_t now_ms = clock_->TimeInMilliseconds();
-  RemoveOld(now_ms, is_limited_in_resolution);
+  RemoveOld(now_ms);
   if (encoded_frames_.size() > kMaxEncodedFrameMapSize) {
     encoded_frames_.clear();
   }
@@ -649,9 +660,11 @@ void SendStatisticsProxy::UmaSamplesContainer::UpdateHistograms(
   RTC_HISTOGRAMS_COUNTS_1000(kIndex, uma_prefix_ + "DroppedFrames.Encoder",
                              current_stats.frames_dropped_by_encoder);
   log_stream << uma_prefix_ << "DroppedFrames.Ratelimiter "
-             << current_stats.frames_dropped_by_rate_limiter;
+             << current_stats.frames_dropped_by_rate_limiter << "\n";
   RTC_HISTOGRAMS_COUNTS_1000(kIndex, uma_prefix_ + "DroppedFrames.Ratelimiter",
                              current_stats.frames_dropped_by_rate_limiter);
+  log_stream << uma_prefix_ << "DroppedFrames.CongestionWindow "
+             << current_stats.frames_dropped_by_congestion_window;
 
   RTC_LOG(LS_INFO) << log_stream.str();
 }
@@ -755,17 +768,42 @@ VideoSendStream::StreamStats* SendStatisticsProxy::GetStatsEntry(
   if (it != stats_.substreams.end())
     return &it->second;
 
-  bool is_media = absl::c_linear_search(rtp_config_.ssrcs, ssrc);
+  bool is_media = rtp_config_.IsMediaSsrc(ssrc);
   bool is_flexfec = rtp_config_.flexfec.payload_type != -1 &&
                     ssrc == rtp_config_.flexfec.ssrc;
-  bool is_rtx = absl::c_linear_search(rtp_config_.rtx.ssrcs, ssrc);
+  bool is_rtx = rtp_config_.IsRtxSsrc(ssrc);
   if (!is_media && !is_flexfec && !is_rtx)
     return nullptr;
 
   // Insert new entry and return ptr.
   VideoSendStream::StreamStats* entry = &stats_.substreams[ssrc];
-  entry->is_rtx = is_rtx;
-  entry->is_flexfec = is_flexfec;
+  if (is_media) {
+    entry->type = VideoSendStream::StreamStats::StreamType::kMedia;
+  } else if (is_rtx) {
+    entry->type = VideoSendStream::StreamStats::StreamType::kRtx;
+  } else if (is_flexfec) {
+    entry->type = VideoSendStream::StreamStats::StreamType::kFlexfec;
+  } else {
+    RTC_NOTREACHED();
+  }
+  switch (entry->type) {
+    case VideoSendStream::StreamStats::StreamType::kMedia:
+      break;
+    case VideoSendStream::StreamStats::StreamType::kRtx:
+      entry->referenced_media_ssrc =
+          rtp_config_.GetMediaSsrcAssociatedWithRtxSsrc(ssrc);
+      entry->is_rtx = true;
+      break;
+    case VideoSendStream::StreamStats::StreamType::kFlexfec:
+      entry->referenced_media_ssrc =
+          rtp_config_.GetMediaSsrcAssociatedWithFlexfecSsrc(ssrc);
+      entry->is_flexfec = true;
+      break;
+  }
+  // TODO(hbos): Remove these booleans once downstream projects stop depedning
+  // on them, reading the value of |type| instead.
+  RTC_DCHECK_EQ(entry->is_rtx, is_rtx);
+  RTC_DCHECK_EQ(entry->is_flexfec, is_flexfec);
 
   return entry;
 }
@@ -976,16 +1014,11 @@ void SendStatisticsProxy::OnSendEncodedImage(
 
   media_byte_rate_tracker_.AddSamples(encoded_image.size());
 
-  // Initialize to current since |is_limited_in_resolution| is only updated
-  // when an encoded frame is removed from the EncodedFrameMap.
-  bool is_limited_in_resolution = stats_.bw_limited_resolution;
-  if (uma_container_->InsertEncodedFrame(encoded_image, simulcast_idx,
-                                         &is_limited_in_resolution)) {
+  if (uma_container_->InsertEncodedFrame(encoded_image, simulcast_idx)) {
     encoded_frame_rate_tracker_.AddSamples(1);
   }
 
-  stats_.bw_limited_resolution =
-      is_limited_in_resolution || quality_downscales_ > 0;
+  stats_.bw_limited_resolution |= quality_downscales_ > 0;
 
   if (quality_downscales_ != -1) {
     uma_container_->quality_limited_frame_counter_.Add(quality_downscales_ > 0);
@@ -1044,6 +1077,9 @@ void SendStatisticsProxy::OnFrameDropped(DropReason reason) {
     case DropReason::kMediaOptimization:
       ++stats_.frames_dropped_by_rate_limiter;
       break;
+    case DropReason::kCongestionWindow:
+      ++stats_.frames_dropped_by_congestion_window;
+      break;
   }
 }
 
@@ -1066,10 +1102,21 @@ void SendStatisticsProxy::OnAdaptationChanged(
       break;
   }
 
-  bool is_cpu_limited = cpu_counts.num_resolution_reductions > 0 ||
-                        cpu_counts.num_framerate_reductions > 0;
-  bool is_bandwidth_limited = quality_counts.num_resolution_reductions > 0 ||
-                              quality_counts.num_framerate_reductions > 0;
+  cpu_downscales_ = cpu_counts.num_resolution_reductions.value_or(-1);
+  quality_downscales_ = quality_counts.num_resolution_reductions.value_or(-1);
+
+  cpu_counts_ = cpu_counts;
+  quality_counts_ = quality_counts;
+
+  UpdateAdaptationStats();
+}
+
+void SendStatisticsProxy::UpdateAdaptationStats() {
+  bool is_cpu_limited = cpu_counts_.num_resolution_reductions > 0 ||
+                        cpu_counts_.num_framerate_reductions > 0;
+  bool is_bandwidth_limited = quality_counts_.num_resolution_reductions > 0 ||
+                              quality_counts_.num_framerate_reductions > 0 ||
+                              bw_limited_layers_ || internal_encoder_scaler_;
   if (is_bandwidth_limited) {
     // We may be both CPU limited and bandwidth limited at the same time but
     // there is no way to express this in standardized stats. Heuristically,
@@ -1085,23 +1132,82 @@ void SendStatisticsProxy::OnAdaptationChanged(
         QualityLimitationReason::kNone);
   }
 
-  UpdateAdaptationStats(cpu_counts, quality_counts);
-}
+  stats_.cpu_limited_resolution = cpu_counts_.num_resolution_reductions > 0;
+  stats_.cpu_limited_framerate = cpu_counts_.num_framerate_reductions > 0;
+  stats_.bw_limited_resolution = quality_counts_.num_resolution_reductions > 0;
+  stats_.bw_limited_framerate = quality_counts_.num_framerate_reductions > 0;
+  // If bitrate allocator has disabled some layers frame-rate or resolution are
+  // limited depending on the encoder configuration.
+  if (bw_limited_layers_) {
+    switch (content_type_) {
+      case VideoEncoderConfig::ContentType::kRealtimeVideo: {
+        stats_.bw_limited_resolution = true;
+        break;
+      }
+      case VideoEncoderConfig::ContentType::kScreen: {
+        stats_.bw_limited_framerate = true;
+        break;
+      }
+    }
+  }
+  if (internal_encoder_scaler_) {
+    stats_.bw_limited_resolution = true;
+  }
 
-void SendStatisticsProxy::UpdateAdaptationStats(
-    const AdaptationSteps& cpu_counts,
-    const AdaptationSteps& quality_counts) {
-  cpu_downscales_ = cpu_counts.num_resolution_reductions.value_or(-1);
-  quality_downscales_ = quality_counts.num_resolution_reductions.value_or(-1);
-
-  stats_.cpu_limited_resolution = cpu_counts.num_resolution_reductions > 0;
-  stats_.cpu_limited_framerate = cpu_counts.num_framerate_reductions > 0;
-  stats_.bw_limited_resolution = quality_counts.num_resolution_reductions > 0;
-  stats_.bw_limited_framerate = quality_counts.num_framerate_reductions > 0;
   stats_.quality_limitation_reason =
       quality_limitation_reason_tracker_.current_reason();
+
   // |stats_.quality_limitation_durations_ms| depends on the current time
   // when it is polled; it is updated in SendStatisticsProxy::GetStats().
+}
+
+void SendStatisticsProxy::OnBitrateAllocationUpdated(
+    const VideoCodec& codec,
+    const VideoBitrateAllocation& allocation) {
+  int num_spatial_layers = 0;
+  for (int i = 0; i < kMaxSpatialLayers; i++) {
+    if (codec.spatialLayers[i].active) {
+      num_spatial_layers++;
+    }
+  }
+  int num_simulcast_streams = 0;
+  for (int i = 0; i < kMaxSimulcastStreams; i++) {
+    if (codec.simulcastStream[i].active) {
+      num_simulcast_streams++;
+    }
+  }
+
+  std::array<bool, kMaxSpatialLayers> spatial_layers;
+  for (int i = 0; i < kMaxSpatialLayers; i++) {
+    spatial_layers[i] = (allocation.GetSpatialLayerSum(i) > 0);
+  }
+
+  rtc::CritScope lock(&crit_);
+
+  bw_limited_layers_ = allocation.is_bw_limited();
+  UpdateAdaptationStats();
+
+  if (spatial_layers != last_spatial_layer_use_) {
+    // If the number of spatial layers has changed, the resolution change is
+    // not due to quality limitations, it is because the configuration
+    // changed.
+    if (last_num_spatial_layers_ == num_spatial_layers &&
+        last_num_simulcast_streams_ == num_simulcast_streams) {
+      ++stats_.quality_limitation_resolution_changes;
+    }
+    last_spatial_layer_use_ = spatial_layers;
+  }
+  last_num_spatial_layers_ = num_spatial_layers;
+  last_num_simulcast_streams_ = num_simulcast_streams;
+}
+
+// Informes observer if an internal encoder scaler has reduced video
+// resolution or not. |is_scaled| is a flag indicating if the video is scaled
+// down.
+void SendStatisticsProxy::OnEncoderInternalScalerUpdate(bool is_scaled) {
+  rtc::CritScope lock(&crit_);
+  internal_encoder_scaler_ = is_scaled;
+  UpdateAdaptationStats();
 }
 
 // TODO(asapersson): Include fps changes.
@@ -1158,10 +1264,8 @@ void SendStatisticsProxy::StatisticsUpdated(const RtcpStatistics& statistics,
     return;
 
   stats->rtcp_stats = statistics;
-  uma_container_->report_block_stats_.Store(statistics, 0, ssrc);
+  uma_container_->report_block_stats_.Store(ssrc, statistics);
 }
-
-void SendStatisticsProxy::CNameChanged(const char* cname, uint32_t ssrc) {}
 
 void SendStatisticsProxy::OnReportBlockDataUpdated(
     ReportBlockData report_block_data) {
@@ -1180,7 +1284,7 @@ void SendStatisticsProxy::DataCountersUpdated(
   VideoSendStream::StreamStats* stats = GetStatsEntry(ssrc);
   RTC_DCHECK(stats) << "DataCountersUpdated reported for unknown ssrc " << ssrc;
 
-  if (stats->is_flexfec) {
+  if (stats->type == VideoSendStream::StreamStats::StreamType::kFlexfec) {
     // The same counters are reported for both the media ssrc and flexfec ssrc.
     // Bitrate stats are summed for all SSRCs. Use fec stats from media update.
     return;
@@ -1201,11 +1305,17 @@ void SendStatisticsProxy::DataCountersUpdated(
   uma_container_->retransmit_byte_counter_.Set(
       counters.retransmitted.TotalBytes(), ssrc);
   uma_container_->fec_byte_counter_.Set(counters.fec.TotalBytes(), ssrc);
-  if (stats->is_rtx) {
-    uma_container_->rtx_byte_counter_.Set(counters.transmitted.TotalBytes(),
-                                          ssrc);
-  } else {
-    uma_container_->media_byte_counter_.Set(counters.MediaPayloadBytes(), ssrc);
+  switch (stats->type) {
+    case VideoSendStream::StreamStats::StreamType::kMedia:
+      uma_container_->media_byte_counter_.Set(counters.MediaPayloadBytes(),
+                                              ssrc);
+      break;
+    case VideoSendStream::StreamStats::StreamType::kRtx:
+      uma_container_->rtx_byte_counter_.Set(counters.transmitted.TotalBytes(),
+                                            ssrc);
+      break;
+    case VideoSendStream::StreamStats::StreamType::kFlexfec:
+      break;
   }
 }
 

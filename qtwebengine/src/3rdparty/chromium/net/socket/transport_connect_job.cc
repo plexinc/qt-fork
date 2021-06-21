@@ -47,8 +47,12 @@ bool AddressListOnlyContainsIPv6(const AddressList& list) {
 
 TransportSocketParams::TransportSocketParams(
     const HostPortPair& host_port_pair,
+    const NetworkIsolationKey& network_isolation_key,
+    bool disable_secure_dns,
     const OnHostResolutionCallback& host_resolution_callback)
     : destination_(host_port_pair),
+      network_isolation_key_(network_isolation_key),
+      disable_secure_dns_(disable_secure_dns),
       host_resolution_callback_(host_resolution_callback) {}
 
 TransportSocketParams::~TransportSocketParams() = default;
@@ -145,6 +149,10 @@ ConnectionAttempts TransportConnectJob::GetConnectionAttempts() const {
   attempts.insert(attempts.begin(), fallback_connection_attempts_.begin(),
                   fallback_connection_attempts_.end());
   return attempts;
+}
+
+ResolveErrorInfo TransportConnectJob::GetResolveErrorInfo() const {
+  return resolve_error_info_;
 }
 
 // static
@@ -259,8 +267,11 @@ int TransportConnectJob::DoResolveHost() {
 
   HostResolver::ResolveHostParameters parameters;
   parameters.initial_priority = priority();
-  request_ = host_resolver()->CreateRequest(params_->destination(), net_log(),
-                                            parameters);
+  if (params_->disable_secure_dns())
+    parameters.secure_dns_mode_override = DnsConfig::SecureDnsMode::OFF;
+  request_ = host_resolver()->CreateRequest(params_->destination(),
+                                            params_->network_isolation_key(),
+                                            net_log(), parameters);
 
   return request_->Start(base::BindOnce(&TransportConnectJob::OnIOComplete,
                                         base::Unretained(this)));
@@ -274,6 +285,7 @@ int TransportConnectJob::DoResolveHostComplete(int result) {
   // through proxies, |connect_start| should not include dns lookup time.
   connect_timing_.connect_start = connect_timing_.dns_end;
   resolve_result_ = result;
+  resolve_error_info_ = request_->GetResolveErrorInfo();
 
   if (result != OK)
     return result;

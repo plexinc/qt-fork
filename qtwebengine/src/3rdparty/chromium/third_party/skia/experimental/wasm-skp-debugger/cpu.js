@@ -36,6 +36,7 @@
         // We are sending these pixels directly into the HTML canvas,
         // (and those pixels are un-premultiplied, i.e. straight r,g,b,a)
         'alphaType': DebuggerView.AlphaType.Unpremul,
+        'imageAddress': 0, // unused here. field only relevant for some UI stuff in resource tab.
       }
       var surface = this._getRasterDirectSurface(imageInfo, pixelPtr, width * 4);
       if (surface) {
@@ -60,7 +61,7 @@
         // Do we have an HTML canvas to write the pixels to?
         // We will not if this a GPU build or a raster surface, for example.
         if (this._canvas) {
-          var pixels = new Uint8ClampedArray(DebuggerView.buffer, this._pixelPtr, this._bufferLen);
+          var pixels = new Uint8ClampedArray(DebuggerView.HEAPU8.buffer, this._pixelPtr, this._bufferLen);
           var imageData = new ImageData(pixels, this._width, this._height);
           this._canvas.getContext('2d').putImageData(imageData, 0, 0);
         }

@@ -4,6 +4,9 @@
 
 #include "ui/views/widget/desktop_aura/desktop_native_widget_aura.h"
 
+#include <memory>
+#include <utility>
+
 #include "base/bind.h"
 #include "base/macros.h"
 #include "base/run_loop.h"
@@ -19,6 +22,7 @@
 #include "ui/aura/test/window_occlusion_tracker_test_api.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_tree_host.h"
+#include "ui/base/mojom/cursor_type.mojom-shared.h"
 #include "ui/display/screen.h"
 #include "ui/events/event_processor.h"
 #include "ui/events/event_utils.h"
@@ -55,7 +59,7 @@ TEST_F(DesktopNativeWidgetAuraTest, CreateWithParentNotInRootWindow) {
   params.bounds = gfx::Rect(0, 0, 200, 200);
   params.parent = window.get();
   params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  widget.Init(params);
+  widget.Init(std::move(params));
 }
 
 // Verifies that the Aura windows making up a widget instance have the correct
@@ -66,15 +70,14 @@ TEST_F(DesktopNativeWidgetAuraTest, DesktopAuraWindowSizeTest) {
   // On Linux we test this with popup windows because the WM may ignore the size
   // suggestion for normal windows.
 #if defined(OS_LINUX)
-  Widget::InitParams init_params =
-      CreateParams(Widget::InitParams::TYPE_POPUP);
+  Widget::InitParams init_params = CreateParams(Widget::InitParams::TYPE_POPUP);
 #else
   Widget::InitParams init_params =
       CreateParams(Widget::InitParams::TYPE_WINDOW_FRAMELESS);
 #endif
 
   init_params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  widget.Init(init_params);
+  widget.Init(std::move(init_params));
 
   gfx::Rect bounds(0, 0, 100, 100);
   widget.SetBounds(bounds);
@@ -102,7 +105,7 @@ TEST_F(DesktopNativeWidgetAuraTest, NativeViewInitiallyHidden) {
   Widget::InitParams init_params =
       CreateParams(Widget::InitParams::TYPE_WINDOW);
   init_params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  widget.Init(init_params);
+  widget.Init(std::move(init_params));
   EXPECT_FALSE(widget.GetNativeView()->IsVisible());
 }
 
@@ -112,7 +115,7 @@ TEST_F(DesktopNativeWidgetAuraTest, NativeViewNoActivate) {
   Widget widget;
   Widget::InitParams init_params = CreateParams(Widget::InitParams::TYPE_POPUP);
   init_params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  widget.Init(init_params);
+  widget.Init(std::move(init_params));
 
   EXPECT_FALSE(widget.CanActivate());
   EXPECT_EQ(nullptr, aura::client::GetFocusClient(widget.GetNativeWindow())
@@ -127,7 +130,7 @@ TEST_F(DesktopNativeWidgetAuraTest, WidgetNotVisibleOnlyWindowTreeHostShown) {
   Widget::InitParams init_params =
       CreateParams(Widget::InitParams::TYPE_WINDOW);
   init_params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  widget.Init(init_params);
+  widget.Init(std::move(init_params));
   ShowWindow(widget.GetNativeView()->GetHost()->GetAcceleratedWidget(),
              SW_SHOWNORMAL);
   EXPECT_FALSE(widget.IsVisible());
@@ -139,7 +142,7 @@ TEST_F(DesktopNativeWidgetAuraTest, DesktopAuraWindowShowFrameless) {
   Widget::InitParams init_params =
       CreateParams(Widget::InitParams::TYPE_WINDOW_FRAMELESS);
   init_params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  widget.Init(init_params);
+  widget.Init(std::move(init_params));
 
   // Make sure that changing frame type doesn't crash when there's no non-client
   // view.
@@ -172,13 +175,13 @@ TEST_F(DesktopNativeWidgetAuraTest, MAYBE_GlobalCursorState) {
   Widget::InitParams init_params_a =
       CreateParams(Widget::InitParams::TYPE_WINDOW);
   init_params_a.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  widget_a.Init(init_params_a);
+  widget_a.Init(std::move(init_params_a));
 
   Widget widget_b;
   Widget::InitParams init_params_b =
       CreateParams(Widget::InitParams::TYPE_WINDOW);
   init_params_b.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  widget_b.Init(init_params_b);
+  widget_b.Init(std::move(init_params_b));
 
   aura::client::CursorClient* cursor_client_a = aura::client::GetCursorClient(
       widget_a.GetNativeView()->GetHost()->window());
@@ -220,14 +223,14 @@ TEST_F(DesktopNativeWidgetAuraTest, MAYBE_GlobalCursorState) {
 
   // Verify that setting the cursor using one cursor client
   // will set it for all root windows.
-  EXPECT_EQ(ui::CursorType::kNone, cursor_client_a->GetCursor().native_type());
-  EXPECT_EQ(ui::CursorType::kNone, cursor_client_b->GetCursor().native_type());
+  EXPECT_EQ(ui::mojom::CursorType::kNone, cursor_client_a->GetCursor().type());
+  EXPECT_EQ(ui::mojom::CursorType::kNone, cursor_client_b->GetCursor().type());
 
-  cursor_client_b->SetCursor(ui::CursorType::kPointer);
-  EXPECT_EQ(ui::CursorType::kPointer,
-            cursor_client_a->GetCursor().native_type());
-  EXPECT_EQ(ui::CursorType::kPointer,
-            cursor_client_b->GetCursor().native_type());
+  cursor_client_b->SetCursor(ui::mojom::CursorType::kPointer);
+  EXPECT_EQ(ui::mojom::CursorType::kPointer,
+            cursor_client_a->GetCursor().type());
+  EXPECT_EQ(ui::mojom::CursorType::kPointer,
+            cursor_client_b->GetCursor().type());
 
   // Verify that hiding the cursor using one cursor client will
   // hide it for all root windows. Note that hiding the cursor
@@ -264,7 +267,7 @@ TEST_F(DesktopNativeWidgetAuraTest, DontAccessContentWindowDuringDestruction) {
     Widget::InitParams init_params =
         CreateParams(Widget::InitParams::TYPE_WINDOW);
     init_params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-    widget.Init(init_params);
+    widget.Init(std::move(init_params));
 
     // Owned by |widget|.
     aura::Window* window = new aura::Window(&delegate);
@@ -285,7 +288,7 @@ std::unique_ptr<Widget> CreateAndShowControlWidget(aura::Window* parent) {
   params.parent = parent;
   params.native_widget = CreatePlatformNativeWidgetImpl(params, widget.get(),
                                                         kStubCapture, nullptr);
-  widget->Init(params);
+  widget->Init(std::move(params));
   widget->Show();
   return widget;
 }
@@ -306,7 +309,7 @@ TEST_F(DesktopNativeWidgetAuraTest, MAYBE_ReorderDoesntRecomputeOcclusion) {
   Widget::InitParams init_params =
       CreateParams(Widget::InitParams::TYPE_WINDOW);
   init_params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  parent.Init(init_params);
+  parent.Init(std::move(init_params));
   parent.Show();
 
   aura::Window* parent_window = parent.GetNativeWindow();
@@ -353,7 +356,7 @@ TEST_F(DesktopNativeWidgetAuraTest, WidgetCanBeDestroyedFromNestedLoop) {
   Widget::InitParams params = CreateParams(Widget::InitParams::TYPE_WINDOW);
   params.bounds = gfx::Rect(0, 0, 200, 200);
   params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  widget->Init(params);
+  widget->Init(std::move(params));
   widget->Show();
 
   // Post a task that terminates the nested loop and destroyes the widget. This
@@ -392,7 +395,7 @@ class DesktopAuraTopLevelWindowTest : public aura::WindowObserver {
     init_params.layer_type = ui::LAYER_NOT_DRAWN;
     init_params.accept_events = fullscreen;
 
-    widget_.Init(init_params);
+    widget_.Init(std::move(init_params));
 
     owned_window_ = new aura::Window(&child_window_delegate_);
     owned_window_->SetType(aura::client::WINDOW_TYPE_NORMAL);
@@ -405,8 +408,7 @@ class DesktopAuraTopLevelWindowTest : public aura::WindowObserver {
     }
     owned_window_->Init(ui::LAYER_TEXTURED);
     aura::client::ParentWindowWithContext(
-        owned_window_,
-        widget_.GetNativeView()->GetRootWindow(),
+        owned_window_, widget_.GetNativeView()->GetRootWindow(),
         gfx::Rect(0, 0, 1900, 1600));
     owned_window_->Show();
     owned_window_->AddObserver(this);
@@ -447,17 +449,11 @@ class DesktopAuraTopLevelWindowTest : public aura::WindowObserver {
     }
   }
 
-  aura::Window* owned_window() {
-    return owned_window_;
-  }
+  aura::Window* owned_window() { return owned_window_; }
 
-  views::Widget* top_level_widget() {
-    return top_level_widget_;
-  }
+  views::Widget* top_level_widget() { return top_level_widget_; }
 
-  void set_use_async_mode(bool async_mode) {
-    use_async_mode_ = async_mode;
-  }
+  void set_use_async_mode(bool async_mode) { use_async_mode_ = async_mode; }
 
  private:
   views::Widget widget_;
@@ -477,8 +473,8 @@ using DesktopAuraWidgetTest = DesktopWidgetTest;
 
 TEST_F(DesktopAuraWidgetTest, FullscreenWindowDestroyedBeforeOwnerTest) {
   DesktopAuraTopLevelWindowTest fullscreen_window;
-  ASSERT_NO_FATAL_FAILURE(fullscreen_window.CreateTopLevelWindow(
-      gfx::Rect(0, 0, 200, 200), true));
+  ASSERT_NO_FATAL_FAILURE(
+      fullscreen_window.CreateTopLevelWindow(gfx::Rect(0, 0, 200, 200), true));
 
   RunPendingMessages();
   ASSERT_NO_FATAL_FAILURE(fullscreen_window.DestroyOwnedWindow());
@@ -487,8 +483,8 @@ TEST_F(DesktopAuraWidgetTest, FullscreenWindowDestroyedBeforeOwnerTest) {
 
 TEST_F(DesktopAuraWidgetTest, FullscreenWindowOwnerDestroyed) {
   DesktopAuraTopLevelWindowTest fullscreen_window;
-  ASSERT_NO_FATAL_FAILURE(fullscreen_window.CreateTopLevelWindow(
-      gfx::Rect(0, 0, 200, 200), true));
+  ASSERT_NO_FATAL_FAILURE(
+      fullscreen_window.CreateTopLevelWindow(gfx::Rect(0, 0, 200, 200), true));
 
   RunPendingMessages();
   ASSERT_NO_FATAL_FAILURE(fullscreen_window.DestroyOwnerWindow());
@@ -497,8 +493,8 @@ TEST_F(DesktopAuraWidgetTest, FullscreenWindowOwnerDestroyed) {
 
 TEST_F(DesktopAuraWidgetTest, TopLevelOwnedPopupTest) {
   DesktopAuraTopLevelWindowTest popup_window;
-  ASSERT_NO_FATAL_FAILURE(popup_window.CreateTopLevelWindow(
-      gfx::Rect(0, 0, 200, 200), false));
+  ASSERT_NO_FATAL_FAILURE(
+      popup_window.CreateTopLevelWindow(gfx::Rect(0, 0, 200, 200), false));
 
   RunPendingMessages();
   ASSERT_NO_FATAL_FAILURE(popup_window.DestroyOwnedWindow());
@@ -512,8 +508,8 @@ TEST_F(DesktopAuraWidgetTest, TopLevelOwnedPopupResizeTest) {
 
   popup_window.set_use_async_mode(false);
 
-  ASSERT_NO_FATAL_FAILURE(popup_window.CreateTopLevelWindow(
-      gfx::Rect(0, 0, 200, 200), false));
+  ASSERT_NO_FATAL_FAILURE(
+      popup_window.CreateTopLevelWindow(gfx::Rect(0, 0, 200, 200), false));
 
   gfx::Rect new_size(0, 0, 400, 400);
   popup_window.owned_window()->SetBounds(new_size);
@@ -531,8 +527,8 @@ TEST_F(DesktopAuraWidgetTest, TopLevelOwnedPopupRepositionTest) {
 
   popup_window.set_use_async_mode(false);
 
-  ASSERT_NO_FATAL_FAILURE(popup_window.CreateTopLevelWindow(
-      gfx::Rect(0, 0, 200, 200), false));
+  ASSERT_NO_FATAL_FAILURE(
+      popup_window.CreateTopLevelWindow(gfx::Rect(0, 0, 200, 200), false));
 
   gfx::Rect new_pos(10, 10, 400, 400);
   popup_window.owned_window()->SetBoundsInScreen(
@@ -595,7 +591,7 @@ void RunCloseWidgetDuringDispatchTest(WidgetTest* test,
   Widget::InitParams params =
       test->CreateParams(Widget::InitParams::TYPE_POPUP);
   params.bounds = gfx::Rect(0, 0, 50, 100);
-  widget->Init(params);
+  widget->Init(std::move(params));
   widget->SetContentsView(new CloseWidgetView(last_event_type));
   widget->Show();
   GenerateMouseEvents(widget, last_event_type);
@@ -646,7 +642,7 @@ TEST_F(DesktopWidgetTest, MAYBE_WindowMouseModalityTest) {
   gfx::Rect initial_bounds(0, 0, 500, 500);
   init_params.bounds = initial_bounds;
   init_params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  top_level_widget.Init(init_params);
+  top_level_widget.Init(std::move(init_params));
   top_level_widget.Show();
   EXPECT_TRUE(top_level_widget.IsVisible());
 
@@ -733,9 +729,7 @@ TEST_F(DesktopWidgetTest, WindowModalityActivationTest) {
   EXPECT_TRUE(modal_dialog_widget->IsVisible());
 
   LRESULT activate_result = ::SendMessage(
-      win32_window,
-      WM_MOUSEACTIVATE,
-      reinterpret_cast<WPARAM>(win32_window),
+      win32_window, WM_MOUSEACTIVATE, reinterpret_cast<WPARAM>(win32_window),
       MAKELPARAM(WM_LBUTTONDOWN, HTCLIENT));
   EXPECT_EQ(activate_result, MA_ACTIVATE);
 
@@ -750,7 +744,7 @@ TEST_F(DesktopWidgetTest, CharMessagesAsKeyboardMessagesDoesNotCrash) {
   Widget widget;
   Widget::InitParams params = CreateParams(Widget::InitParams::TYPE_WINDOW);
   params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  widget.Init(params);
+  widget.Init(std::move(params));
   widget.Show();
 
   ui::WindowEventTarget* target =

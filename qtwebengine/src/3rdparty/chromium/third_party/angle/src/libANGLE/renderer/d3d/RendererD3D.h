@@ -1,5 +1,5 @@
 
-// Copyright (c) 2014 The ANGLE Project Authors. All rights reserved.
+// Copyright 2014 The ANGLE Project Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -22,6 +22,7 @@
 #include "libANGLE/renderer/d3d/VertexDataManager.h"
 #include "libANGLE/renderer/d3d/formatutilsD3D.h"
 #include "libANGLE/renderer/renderer_utils.h"
+#include "libANGLE/renderer/serial_utils.h"
 #include "platform/FeaturesD3D.h"
 
 namespace egl
@@ -180,9 +181,11 @@ class RendererD3D : public BufferFactoryD3D
                                           EGLint samples)                          = 0;
     virtual egl::Error getD3DTextureInfo(const egl::Config *configuration,
                                          IUnknown *d3dTexture,
+                                         const egl::AttributeMap &attribs,
                                          EGLint *width,
                                          EGLint *height,
-                                         EGLint *samples,
+                                         GLsizei *samples,
+                                         gl::Format *glFormat,
                                          const angle::Format **angleFormat) const  = 0;
     virtual egl::Error validateShareHandle(const egl::Config *config,
                                            HANDLE shareHandle,

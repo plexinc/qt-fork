@@ -60,15 +60,16 @@ TEST_F(ShellSystemLogsFetcherTest, TestLogSources) {
   EXPECT_TRUE(registry);
 
   std::vector<scoped_refptr<const Extension>> extensions{
-      BuildExtension("My First Extension", "1.1", std::string(32, 'a')),
-      BuildExtension("My Second Extension", "1.2", std::string(32, 'b'))};
+      BuildExtension("My First Extension", "1.1", std::string(32, 'g')),
+      BuildExtension("My Second Extension", "1.2", std::string(32, 'h'))};
   for (const scoped_refptr<const Extension>& extension : extensions)
     registry->AddEnabled(extension);
 
   system_logs::SystemLogsFetcher* fetcher =
       system_logs::BuildShellSystemLogsFetcher(browser_context());
-  fetcher->Fetch(base::Bind(&ShellSystemLogsFetcherTest::OnSystemLogsResponse,
-                            base::Unretained(this)));
+  fetcher->Fetch(
+      base::BindOnce(&ShellSystemLogsFetcherTest::OnSystemLogsResponse,
+                     base::Unretained(this)));
 
   wait_for_logs_response_run_loop_.Run();
 

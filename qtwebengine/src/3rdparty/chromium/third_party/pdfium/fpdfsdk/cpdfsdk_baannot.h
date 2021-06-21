@@ -13,7 +13,6 @@
 #include "core/fxcrt/fx_coordinates.h"
 #include "core/fxcrt/fx_string.h"
 #include "core/fxge/cfx_renderdevice.h"
-#include "fpdfsdk/cfx_systemhandler.h"
 #include "fpdfsdk/cpdfsdk_annot.h"
 
 class CFX_Matrix;
@@ -36,7 +35,6 @@ class CPDFSDK_BAAnnot : public CPDFSDK_Annot {
 
   virtual CPDF_Action GetAAction(CPDF_AAction::AActionType eAAT);
   virtual bool IsAppearanceValid();
-  virtual bool IsAppearanceValid(CPDF_Annot::AppearanceMode mode);
   virtual void DrawAppearance(CFX_RenderDevice* pDevice,
                               const CFX_Matrix& mtUser2Device,
                               CPDF_Annot::AppearanceMode mode,

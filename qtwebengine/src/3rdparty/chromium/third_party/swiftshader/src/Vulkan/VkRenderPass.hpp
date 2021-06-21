@@ -19,31 +19,28 @@
 
 #include <vector>
 
-namespace vk
-{
+namespace vk {
 
 class RenderPass : public Object<RenderPass, VkRenderPass>
 {
 public:
-	RenderPass(const VkRenderPassCreateInfo* pCreateInfo, void* mem);
-	void destroy(const VkAllocationCallbacks* pAllocator);
+	RenderPass(const VkRenderPassCreateInfo *pCreateInfo, void *mem);
+	RenderPass(const VkRenderPassCreateInfo2KHR *pCreateInfo, void *mem);
+	void destroy(const VkAllocationCallbacks *pAllocator);
 
-	static size_t ComputeRequiredAllocationSize(const VkRenderPassCreateInfo* pCreateInfo);
+	static size_t ComputeRequiredAllocationSize(const VkRenderPassCreateInfo *pCreateInfo);
+	static size_t ComputeRequiredAllocationSize(const VkRenderPassCreateInfo2KHR *pCreateInfo);
 
-	void getRenderAreaGranularity(VkExtent2D* pGranularity) const;
-
-	void begin();
-	void nextSubpass();
-	void end();
+	void getRenderAreaGranularity(VkExtent2D *pGranularity) const;
 
 	uint32_t getAttachmentCount() const
 	{
 		return attachmentCount;
 	}
 
-	VkAttachmentDescription getAttachment(uint32_t i) const
+	VkAttachmentDescription getAttachment(uint32_t attachmentIndex) const
 	{
-		return attachments[i];
+		return attachments[attachmentIndex];
 	}
 
 	uint32_t getSubpassCount() const
@@ -51,14 +48,9 @@ public:
 		return subpassCount;
 	}
 
-	VkSubpassDescription getSubpass(uint32_t i) const
+	VkSubpassDescription const &getSubpass(uint32_t subpassIndex) const
 	{
-		return subpasses[i];
-	}
-
-	VkSubpassDescription getCurrentSubpass() const
-	{
-		return subpasses[currentSubpass];
+		return subpasses[subpassIndex];
 	}
 
 	uint32_t getDependencyCount() const
@@ -76,22 +68,42 @@ public:
 		return attachmentFirstUse[i] >= 0;
 	}
 
+	uint32_t getViewMask(uint32_t subpassIndex) const
+	{
+		return viewMasks ? viewMasks[subpassIndex] : 1;
+	}
+
+	bool isMultiView() const
+	{
+		return viewMasks != nullptr;
+	}
+
+	uint32_t getAttachmentViewMask(uint32_t attachmentIndex) const
+	{
+		return attachmentViewMasks[attachmentIndex];
+	}
+
 private:
-	uint32_t                 attachmentCount = 0;
-	VkAttachmentDescription* attachments = nullptr;
-	uint32_t                 subpassCount = 0;
-	VkSubpassDescription*    subpasses = nullptr;
-	uint32_t                 dependencyCount = 0;
-	VkSubpassDependency*     dependencies = nullptr;
-	uint32_t                 currentSubpass = 0;
-	int*                     attachmentFirstUse = nullptr;
+	uint32_t attachmentCount = 0;
+	VkAttachmentDescription *attachments = nullptr;
+	uint32_t subpassCount = 0;
+	VkSubpassDescription *subpasses = nullptr;
+	uint32_t dependencyCount = 0;
+	VkSubpassDependency *dependencies = nullptr;
+	int *attachmentFirstUse = nullptr;
+	uint32_t *viewMasks = nullptr;
+	uint32_t *attachmentViewMasks = nullptr;
+
+	void MarkFirstUse(int attachment, int subpass);
+	template<class T>
+	void init(const T *pCreateInfo, void *mem);
 };
 
-static inline RenderPass* Cast(VkRenderPass object)
+static inline RenderPass *Cast(VkRenderPass object)
 {
 	return RenderPass::Cast(object);
 }
 
-} // namespace vk
+}  // namespace vk
 
-#endif // VK_RENDER_PASS_HPP_
+#endif  // VK_RENDER_PASS_HPP_

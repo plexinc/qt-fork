@@ -3,6 +3,9 @@
 // found in the LICENSE file.
 
 #include "net/third_party/quiche/src/quic/quartc/quartc_crypto_helpers.h"
+
+#include <utility>
+
 #include "net/third_party/quiche/src/quic/core/quic_utils.h"
 
 namespace quic {
@@ -11,7 +14,7 @@ void DummyProofSource::GetProof(const QuicSocketAddress& server_address,
                                 const std::string& hostname,
                                 const std::string& /*server_config*/,
                                 QuicTransportVersion /*transport_version*/,
-                                QuicStringPiece /*chlo_hash*/,
+                                quiche::QuicheStringPiece /*chlo_hash*/,
                                 std::unique_ptr<Callback> callback) {
   QuicReferenceCountedPointer<ProofSource::Chain> chain =
       GetCertChain(server_address, hostname);
@@ -34,9 +37,9 @@ void DummyProofSource::ComputeTlsSignature(
     const QuicSocketAddress& /*server_address*/,
     const std::string& /*hostname*/,
     uint16_t /*signature_algorithm*/,
-    QuicStringPiece /*in*/,
+    quiche::QuicheStringPiece /*in*/,
     std::unique_ptr<SignatureCallback> callback) {
-  callback->Run(true, "Dummy signature");
+  callback->Run(true, "Dummy signature", /*details=*/nullptr);
 }
 
 QuicAsyncStatus InsecureProofVerifier::VerifyProof(
@@ -44,7 +47,7 @@ QuicAsyncStatus InsecureProofVerifier::VerifyProof(
     const uint16_t /*port*/,
     const std::string& /*server_config*/,
     QuicTransportVersion /*transport_version*/,
-    QuicStringPiece /*chlo_hash*/,
+    quiche::QuicheStringPiece /*chlo_hash*/,
     const std::vector<std::string>& /*certs*/,
     const std::string& /*cert_sct*/,
     const std::string& /*signature*/,
@@ -72,14 +75,6 @@ InsecureProofVerifier::CreateDefaultContext() {
   return nullptr;
 }
 
-QuicConnectionId QuartcCryptoServerStreamHelper::GenerateConnectionIdForReject(
-    QuicTransportVersion /*version*/,
-    QuicConnectionId /*connection_id*/) const {
-  // TODO(b/124399417):  Request a zero-length connection id here when the QUIC
-  // server perspective supports it.
-  return QuicUtils::CreateRandomConnectionId();
-}
-
 bool QuartcCryptoServerStreamHelper::CanAcceptClientHello(
     const CryptoHandshakeMessage& /*message*/,
     const QuicSocketAddress& /*client_address*/,
@@ -90,9 +85,9 @@ bool QuartcCryptoServerStreamHelper::CanAcceptClientHello(
 }
 
 std::unique_ptr<QuicCryptoClientConfig> CreateCryptoClientConfig(
-    QuicStringPiece pre_shared_key) {
-  auto config = QuicMakeUnique<QuicCryptoClientConfig>(
-      QuicMakeUnique<InsecureProofVerifier>());
+    quiche::QuicheStringPiece pre_shared_key) {
+  auto config = std::make_unique<QuicCryptoClientConfig>(
+      std::make_unique<InsecureProofVerifier>());
   config->set_pad_inchoate_hello(false);
   config->set_pad_full_hello(false);
   if (!pre_shared_key.empty()) {
@@ -101,9 +96,10 @@ std::unique_ptr<QuicCryptoClientConfig> CreateCryptoClientConfig(
   return config;
 }
 
-CryptoServerConfig CreateCryptoServerConfig(QuicRandom* random,
-                                            const QuicClock* clock,
-                                            QuicStringPiece pre_shared_key) {
+CryptoServerConfig CreateCryptoServerConfig(
+    QuicRandom* random,
+    const QuicClock* clock,
+    quiche::QuicheStringPiece pre_shared_key) {
   CryptoServerConfig crypto_server_config;
 
   // Generate a random source address token secret. For long-running servers
@@ -111,9 +107,10 @@ CryptoServerConfig CreateCryptoServerConfig(QuicRandom* random,
   // handshakes, but for transient clients it does not matter.
   char source_address_token_secret[kInputKeyingMaterialLength];
   random->RandBytes(source_address_token_secret, kInputKeyingMaterialLength);
-  auto config = QuicMakeUnique<QuicCryptoServerConfig>(
+  auto config = std::make_unique<QuicCryptoServerConfig>(
       std::string(source_address_token_secret, kInputKeyingMaterialLength),
-      random, QuicMakeUnique<DummyProofSource>(), KeyExchangeSource::Default());
+      random, std::make_unique<DummyProofSource>(),
+      KeyExchangeSource::Default());
 
   // We run QUIC over ICE, and ICE is verifying remote side with STUN pings.
   // We disable source address token validation in order to allow for 0-rtt

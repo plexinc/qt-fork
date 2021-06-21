@@ -21,10 +21,8 @@ namespace rx
 {
 
 WindowSurfaceVkFuchsia::WindowSurfaceVkFuchsia(const egl::SurfaceState &surfaceState,
-                                               EGLNativeWindowType window,
-                                               EGLint width,
-                                               EGLint height)
-    : WindowSurfaceVk(surfaceState, window, width, height)
+                                               EGLNativeWindowType window)
+    : WindowSurfaceVk(surfaceState, window)
 {}
 
 WindowSurfaceVkFuchsia::~WindowSurfaceVkFuchsia() {}
@@ -38,7 +36,6 @@ bool WindowSurfaceVkFuchsia::isValidNativeWindow(EGLNativeWindowType window)
 
 angle::Result WindowSurfaceVkFuchsia::createSurfaceVk(vk::Context *context, gl::Extents *extentsOut)
 {
-    InitImagePipeSurfaceFUCHSIAFunctions(context->getRenderer()->getInstance());
     fuchsia_egl_window *egl_window = reinterpret_cast<fuchsia_egl_window *>(mNativeWindowType);
 
     VkImagePipeSurfaceCreateInfoFUCHSIA createInfo = {};

@@ -188,7 +188,7 @@ bool SanitizeResponse(const std::string& key_system,
     if (keys.empty())
       return false;
 
-    for (const auto key_pair : keys) {
+    for (const auto& key_pair : keys) {
       if (key_pair.first.size() < limits::kMinKeyIdLength ||
           key_pair.first.size() > limits::kMaxKeyIdLength) {
         return false;
@@ -339,7 +339,7 @@ void WebContentDecryptionModuleSessionImpl::InitializeNewSession(
       eme_init_data_type, sanitized_init_data, cdm_session_type,
       std::unique_ptr<NewSessionCdmPromise>(new NewSessionCdmResultPromise(
           result, adapter_->GetKeySystemUMAPrefix(), kGenerateRequestUMAName,
-          base::Bind(
+          base::BindOnce(
               &WebContentDecryptionModuleSessionImpl::OnSessionInitialized,
               weak_ptr_factory_.GetWeakPtr()),
           {SessionInitStatus::NEW_SESSION})));
@@ -375,7 +375,7 @@ void WebContentDecryptionModuleSessionImpl::Load(
       CdmSessionType::kPersistentLicense, sanitized_session_id,
       std::unique_ptr<NewSessionCdmPromise>(new NewSessionCdmResultPromise(
           result, adapter_->GetKeySystemUMAPrefix(), kLoadSessionUMAName,
-          base::Bind(
+          base::BindOnce(
               &WebContentDecryptionModuleSessionImpl::OnSessionInitialized,
               weak_ptr_factory_.GetWeakPtr()),
           {SessionInitStatus::NEW_SESSION,
@@ -411,8 +411,8 @@ void WebContentDecryptionModuleSessionImpl::Update(
 
   adapter_->UpdateSession(
       session_id_, sanitized_response,
-      std::unique_ptr<SimpleCdmPromise>(new CdmResultPromise<>(
-          result, adapter_->GetKeySystemUMAPrefix() + kUpdateSessionUMAName)));
+      std::make_unique<CdmResultPromise<>>(
+          result, adapter_->GetKeySystemUMAPrefix(), kUpdateSessionUMAName));
 }
 
 void WebContentDecryptionModuleSessionImpl::Close(
@@ -433,8 +433,8 @@ void WebContentDecryptionModuleSessionImpl::Close(
   has_close_been_called_ = true;
   adapter_->CloseSession(
       session_id_,
-      std::unique_ptr<SimpleCdmPromise>(new CdmResultPromise<>(
-          result, adapter_->GetKeySystemUMAPrefix() + kCloseSessionUMAName)));
+      std::make_unique<CdmResultPromise<>>(
+          result, adapter_->GetKeySystemUMAPrefix(), kCloseSessionUMAName));
 }
 
 void WebContentDecryptionModuleSessionImpl::Remove(
@@ -444,8 +444,8 @@ void WebContentDecryptionModuleSessionImpl::Remove(
 
   adapter_->RemoveSession(
       session_id_,
-      std::unique_ptr<SimpleCdmPromise>(new CdmResultPromise<>(
-          result, adapter_->GetKeySystemUMAPrefix() + kRemoveSessionUMAName)));
+      std::make_unique<CdmResultPromise<>>(
+          result, adapter_->GetKeySystemUMAPrefix(), kRemoveSessionUMAName));
 }
 
 void WebContentDecryptionModuleSessionImpl::OnSessionMessage(

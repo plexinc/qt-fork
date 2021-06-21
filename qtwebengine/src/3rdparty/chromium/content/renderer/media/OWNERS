@@ -1,5 +1,6 @@
 file://media/OWNERS
 miu@chromium.org
+mfoltz@chromium.org
 
 # WebRTC OWNERS.
 hbos@chromium.org
@@ -7,7 +8,6 @@ perkj@chromium.org
 tommi@chromium.org
 guidou@chromium.org
 olka@chromium.org
-maxmorin@chromium.org
 
 # Original (legacy) owner.
 emircan@chromium.org

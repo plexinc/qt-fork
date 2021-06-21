@@ -11,9 +11,9 @@
 #include "test/pc/e2e/analyzer/video/quality_analyzing_video_encoder.h"
 
 #include <cmath>
+#include <memory>
 #include <utility>
 
-#include "absl/memory/memory.h"
 #include "api/video/video_codec_type.h"
 #include "api/video_codecs/video_encoder.h"
 #include "modules/video_coding/include/video_error_codes.h"
@@ -114,9 +114,13 @@ int32_t QualityAnalyzingVideoEncoder::RegisterEncodeCompleteCallback(
 }
 
 int32_t QualityAnalyzingVideoEncoder::Release() {
+  // Release encoder first. During release process it can still encode some
+  // frames, so we don't take a lock to prevent deadlock.
+  int32_t result = delegate_->Release();
+
   rtc::CritScope crit(&lock_);
   delegate_callback_ = nullptr;
-  return delegate_->Release();
+  return result;
 }
 
 int32_t QualityAnalyzingVideoEncoder::Encode(
@@ -157,6 +161,10 @@ void QualityAnalyzingVideoEncoder::SetRates(
     const VideoEncoder::RateControlParameters& parameters) {
   RTC_DCHECK_GT(bitrate_multiplier_, 0.0);
   if (fabs(bitrate_multiplier_ - kNoMultiplier) < kEps) {
+    {
+      rtc::CritScope crit(&lock_);
+      bitrate_allocation_ = parameters.bitrate;
+    }
     return delegate_->SetRates(parameters);
   }
 
@@ -196,6 +204,10 @@ void QualityAnalyzingVideoEncoder::SetRates(
 
   RateControlParameters adjusted_params = parameters;
   adjusted_params.bitrate = multiplied_allocation;
+  {
+    rtc::CritScope crit(&lock_);
+    bitrate_allocation_ = adjusted_params.bitrate;
+  }
   return delegate_->SetRates(adjusted_params);
 }
 
@@ -222,6 +234,7 @@ EncodedImageCallback::Result QualityAnalyzingVideoEncoder::OnEncodedImage(
     const RTPFragmentationHeader* fragmentation) {
   uint16_t frame_id;
   bool discard = false;
+  uint32_t target_encode_bitrate = 0;
   {
     rtc::CritScope crit(&lock_);
     std::pair<uint32_t, uint16_t> timestamp_frame_id;
@@ -253,11 +266,20 @@ EncodedImageCallback::Result QualityAnalyzingVideoEncoder::OnEncodedImage(
     frame_id = timestamp_frame_id.second;
 
     discard = ShouldDiscard(frame_id, encoded_image);
+    if (!discard) {
+      std::string stream_label = analyzer_->GetStreamLabel(frame_id);
+      absl::optional<int> required_spatial_index =
+          stream_required_spatial_index_[stream_label];
+      target_encode_bitrate = bitrate_allocation_.GetSpatialLayerSum(
+          required_spatial_index.value_or(0));
+    }
   }
 
   if (!discard) {
     // Analyzer should see only encoded images, that weren't discarded.
-    analyzer_->OnFrameEncoded(frame_id, encoded_image);
+    VideoQualityAnalyzerInterface::EncoderStats stats;
+    stats.target_encode_bitrate = target_encode_bitrate;
+    analyzer_->OnFrameEncoded(frame_id, encoded_image, stats);
   }
 
   // Image data injector injects frame id and discard flag into provided
@@ -354,7 +376,7 @@ QualityAnalyzingVideoEncoderFactory::QueryVideoEncoder(
 std::unique_ptr<VideoEncoder>
 QualityAnalyzingVideoEncoderFactory::CreateVideoEncoder(
     const SdpVideoFormat& format) {
-  return absl::make_unique<QualityAnalyzingVideoEncoder>(
+  return std::make_unique<QualityAnalyzingVideoEncoder>(
       id_generator_->GetNextId(), delegate_->CreateVideoEncoder(format),
       bitrate_multiplier_, stream_required_spatial_index_, injector_,
       analyzer_);

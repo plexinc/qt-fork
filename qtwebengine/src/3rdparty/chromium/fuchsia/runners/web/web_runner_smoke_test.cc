@@ -5,14 +5,13 @@
 #include <fuchsia/modular/cpp/fidl.h>
 #include <fuchsia/modular/cpp/fidl_test_base.h>
 #include <fuchsia/sys/cpp/fidl.h>
+#include <lib/sys/cpp/component_context.h>
 
 #include "base/bind.h"
+#include "base/fuchsia/default_context.h"
 #include "base/fuchsia/scoped_service_binding.h"
-#include "base/fuchsia/service_directory.h"
-#include "base/fuchsia/service_directory_client.h"
 #include "base/fuchsia/service_provider_impl.h"
-#include "base/test/bind_test_util.h"
-#include "base/test/test_timeouts.h"
+#include "base/test/task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/embedded_test_server/http_request.h"
@@ -27,17 +26,17 @@ namespace {
 
 class WebRunnerSmokeTest : public testing::Test {
  public:
-  WebRunnerSmokeTest()
-      : run_timeout_(TestTimeouts::action_timeout(),
-                     base::MakeExpectedNotRunClosure(FROM_HERE)) {}
+  WebRunnerSmokeTest() = default;
   void SetUp() final {
     test_server_.RegisterRequestHandler(base::BindRepeating(
         &WebRunnerSmokeTest::HandleRequest, base::Unretained(this)));
     ASSERT_TRUE(test_server_.Start());
 
     fidl::InterfaceHandle<fuchsia::io::Directory> directory;
-    service_directory_ = std::make_unique<base::fuchsia::ServiceDirectory>(
-        directory.NewRequest());
+    outgoing_directory_.GetOrCreateDirectory("svc")->Serve(
+        fuchsia::io::OPEN_RIGHT_READABLE | fuchsia::io::OPEN_RIGHT_WRITABLE,
+        directory.NewRequest().TakeChannel());
+
     service_provider_ = std::make_unique<base::fuchsia::ServiceProviderImpl>(
         std::move(directory));
   }
@@ -79,14 +78,13 @@ class WebRunnerSmokeTest : public testing::Test {
   }
 
  protected:
-  const base::RunLoop::ScopedRunTimeoutForTest run_timeout_;
-
   bool test_html_requested_ = false;
   bool test_image_requested_ = false;
 
-  base::MessageLoopForIO message_loop_;
+  base::test::SingleThreadTaskEnvironment task_environment_{
+      base::test::SingleThreadTaskEnvironment::MainThreadType::IO};
 
-  std::unique_ptr<base::fuchsia::ServiceDirectory> service_directory_;
+  sys::OutgoingDirectory outgoing_directory_;
   std::unique_ptr<base::fuchsia::ServiceProviderImpl> service_provider_;
 
   net::EmbeddedTestServer test_server_;
@@ -101,8 +99,9 @@ TEST_F(WebRunnerSmokeTest, RequestHtmlAndImage) {
   fuchsia::sys::LaunchInfo launch_info = LaunchInfoWithServices();
   launch_info.url = test_server_.GetURL("/test.html").spec();
 
-  auto launcher = base::fuchsia::ServiceDirectoryClient::ForCurrentProcess()
-                      ->ConnectToServiceSync<fuchsia::sys::Launcher>();
+  auto launcher = base::fuchsia::ComponentContextForCurrentProcess()
+                      ->svc()
+                      ->Connect<fuchsia::sys::Launcher>();
 
   fuchsia::sys::ComponentControllerSyncPtr controller;
   launcher->CreateComponent(std::move(launch_info), controller.NewRequest());
@@ -121,16 +120,15 @@ TEST_F(WebRunnerSmokeTest, LifecycleTerminate) {
   launch_info.url = test_server_.GetURL("/test.html").spec();
   launch_info.directory_request = directory.NewRequest().TakeChannel();
 
-  auto launcher = base::fuchsia::ServiceDirectoryClient::ForCurrentProcess()
-                      ->ConnectToServiceSync<fuchsia::sys::Launcher>();
+  auto launcher = base::fuchsia::ComponentContextForCurrentProcess()
+                      ->svc()
+                      ->Connect<fuchsia::sys::Launcher>();
 
   fuchsia::sys::ComponentControllerPtr controller;
   launcher->CreateComponent(std::move(launch_info), controller.NewRequest());
 
-  base::fuchsia::ServiceDirectoryClient component_services(
-      std::move(directory));
-  auto lifecycle =
-      component_services.ConnectToService<fuchsia::modular::Lifecycle>();
+  sys::ServiceDirectory component_services(std::move(directory));
+  auto lifecycle = component_services.Connect<fuchsia::modular::Lifecycle>();
   ASSERT_TRUE(lifecycle);
 
   // Terminate() the component, and expect that |controller| disconnects us.
@@ -151,8 +149,9 @@ TEST_F(WebRunnerSmokeTest, ComponentExitOnFrameClose) {
   fuchsia::sys::LaunchInfo launch_info = LaunchInfoWithServices();
   launch_info.url = test_server_.GetURL("/window_close.html").spec();
 
-  auto launcher = base::fuchsia::ServiceDirectoryClient::ForCurrentProcess()
-                      ->ConnectToService<fuchsia::sys::Launcher>();
+  auto launcher = base::fuchsia::ComponentContextForCurrentProcess()
+                      ->svc()
+                      ->Connect<fuchsia::sys::Launcher>();
 
   fuchsia::sys::ComponentControllerPtr controller;
   launcher->CreateComponent(std::move(launch_info), controller.NewRequest());
@@ -193,12 +192,13 @@ TEST_F(WebRunnerSmokeTest, RemoveSelfFromStoryOnFrameClose) {
   MockModuleContext module_context;
   EXPECT_CALL(module_context, RemoveSelfFromStory);
   base::fuchsia::ScopedServiceBinding<fuchsia::modular::ModuleContext> binding(
-      service_directory_.get(), &module_context);
+      &outgoing_directory_, &module_context);
   launch_info.additional_services->names.emplace_back(
       fuchsia::modular::ModuleContext::Name_);
 
-  auto launcher = base::fuchsia::ServiceDirectoryClient::ForCurrentProcess()
-                      ->ConnectToService<fuchsia::sys::Launcher>();
+  auto launcher = base::fuchsia::ComponentContextForCurrentProcess()
+                      ->svc()
+                      ->Connect<fuchsia::sys::Launcher>();
 
   fuchsia::sys::ComponentControllerPtr controller;
   launcher->CreateComponent(std::move(launch_info), controller.NewRequest());

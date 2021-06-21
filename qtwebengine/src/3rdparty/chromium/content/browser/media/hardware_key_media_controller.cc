@@ -12,9 +12,8 @@
 #include "content/browser/browser_main_loop.h"
 #include "content/browser/media/media_keys_listener_manager_impl.h"
 #include "content/public/browser/media_keys_listener_manager.h"
-#include "services/media_session/public/mojom/constants.mojom.h"
+#include "content/public/browser/media_session_service.h"
 #include "services/media_session/public/mojom/media_session.mojom.h"
-#include "services/service_manager/public/cpp/connector.h"
 #include "ui/base/accelerators/accelerator.h"
 #include "ui/base/accelerators/media_keys_util.h"
 
@@ -22,23 +21,19 @@ namespace content {
 
 using media_session::mojom::MediaSessionAction;
 
-HardwareKeyMediaController::HardwareKeyMediaController(
-    service_manager::Connector* connector) {
-  // |connector| can be null in tests.
-  if (!connector)
-    return;
-
+HardwareKeyMediaController::HardwareKeyMediaController() {
   // Connect to the MediaControllerManager and create a MediaController that
   // controls the active session.
-  media_session::mojom::MediaControllerManagerPtr controller_manager_ptr;
-  connector->BindInterface(media_session::mojom::kServiceName,
-                           mojo::MakeRequest(&controller_manager_ptr));
-  controller_manager_ptr->CreateActiveMediaController(
-      mojo::MakeRequest(&media_controller_ptr_));
+  mojo::Remote<media_session::mojom::MediaControllerManager>
+      controller_manager_remote;
+  GetMediaSessionService().BindMediaControllerManager(
+      controller_manager_remote.BindNewPipeAndPassReceiver());
+  controller_manager_remote->CreateActiveMediaController(
+      media_controller_remote_.BindNewPipeAndPassReceiver());
 
   // Observe the active media controller for changes to playback state and
   // supported actions.
-  media_controller_ptr_->AddObserver(
+  media_controller_remote_->AddObserver(
       media_controller_observer_receiver_.BindNewPipeAndPassRemote());
 }
 
@@ -93,7 +88,7 @@ void HardwareKeyMediaController::MediaSessionActionsChanged(
 }
 
 void HardwareKeyMediaController::FlushForTesting() {
-  media_controller_ptr_.FlushForTesting();
+  media_controller_remote_.FlushForTesting();
 }
 
 void HardwareKeyMediaController::OnMediaKeysAccelerator(
@@ -121,26 +116,26 @@ void HardwareKeyMediaController::PerformAction(MediaSessionAction action) {
   DCHECK(SupportsAction(action));
   switch (action) {
     case MediaSessionAction::kPreviousTrack:
-      media_controller_ptr_->PreviousTrack();
+      media_controller_remote_->PreviousTrack();
       ui::RecordMediaHardwareKeyAction(
           ui::MediaHardwareKeyAction::kPreviousTrack);
       return;
     case MediaSessionAction::kPlay:
-      media_controller_ptr_->Resume();
+      media_controller_remote_->Resume();
       ui::RecordMediaHardwareKeyAction(ui::MediaHardwareKeyAction::kPlay);
       return;
     case MediaSessionAction::kPause:
-      media_controller_ptr_->Suspend();
+      media_controller_remote_->Suspend();
       ui::RecordMediaHardwareKeyAction(
           ui::MediaHardwareKeyAction::kPause);
       return;
     case MediaSessionAction::kNextTrack:
-      media_controller_ptr_->NextTrack();
+      media_controller_remote_->NextTrack();
       ui::RecordMediaHardwareKeyAction(
           ui::MediaHardwareKeyAction::kNextTrack);
       return;
     case MediaSessionAction::kStop:
-      media_controller_ptr_->Stop();
+      media_controller_remote_->Stop();
       ui::RecordMediaHardwareKeyAction(ui::MediaHardwareKeyAction::kStop);
       return;
     case MediaSessionAction::kSeekBackward:
@@ -148,6 +143,8 @@ void HardwareKeyMediaController::PerformAction(MediaSessionAction action) {
     case MediaSessionAction::kSkipAd:
     case MediaSessionAction::kSeekTo:
     case MediaSessionAction::kScrubTo:
+    case MediaSessionAction::kEnterPictureInPicture:
+    case MediaSessionAction::kExitPictureInPicture:
       NOTREACHED();
       return;
   }
@@ -193,6 +190,8 @@ HardwareKeyMediaController::MediaSessionActionToKeyCode(
     case MediaSessionAction::kSkipAd:
     case MediaSessionAction::kSeekTo:
     case MediaSessionAction::kScrubTo:
+    case MediaSessionAction::kEnterPictureInPicture:
+    case MediaSessionAction::kExitPictureInPicture:
       return base::nullopt;
   }
 }

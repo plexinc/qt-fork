@@ -5,9 +5,10 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_NATIVE_FILE_SYSTEM_NATIVE_FILE_SYSTEM_DIRECTORY_HANDLE_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_NATIVE_FILE_SYSTEM_NATIVE_FILE_SYSTEM_DIRECTORY_HANDLE_H_
 
+#include "mojo/public/cpp/bindings/pending_remote.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "third_party/blink/public/mojom/native_file_system/native_file_system_directory_handle.mojom-blink.h"
 #include "third_party/blink/renderer/modules/native_file_system/native_file_system_handle.h"
-#include "third_party/blink/renderer/platform/mojo/revocable_interface_ptr.h"
 
 namespace blink {
 class FileSystemGetDirectoryOptions;
@@ -20,8 +21,9 @@ class NativeFileSystemDirectoryHandle final : public NativeFileSystemHandle {
 
  public:
   NativeFileSystemDirectoryHandle(
+      ExecutionContext* context,
       const String& name,
-      RevocableInterfacePtr<mojom::blink::NativeFileSystemDirectoryHandle>);
+      mojo::PendingRemote<mojom::blink::NativeFileSystemDirectoryHandle>);
 
   bool isDirectory() const override { return true; }
 
@@ -36,14 +38,20 @@ class NativeFileSystemDirectoryHandle final : public NativeFileSystemHandle {
                             const String& name,
                             const FileSystemRemoveOptions*);
 
-  static ScriptPromise getSystemDirectory(ScriptState*,
-                                          const GetSystemDirectoryOptions*);
+  ScriptPromise resolve(ScriptState*, NativeFileSystemHandle* possible_child);
 
-  mojom::blink::NativeFileSystemTransferTokenPtr Transfer() override;
+  static ScriptPromise getSystemDirectory(ScriptState*,
+                                          const GetSystemDirectoryOptions*,
+                                          ExceptionState&);
+
+  mojo::PendingRemote<mojom::blink::NativeFileSystemTransferToken> Transfer()
+      override;
 
   mojom::blink::NativeFileSystemDirectoryHandle* MojoHandle() {
     return mojo_ptr_.get();
   }
+
+  void ContextDestroyed() override;
 
  private:
   void QueryPermissionImpl(
@@ -51,10 +59,16 @@ class NativeFileSystemDirectoryHandle final : public NativeFileSystemHandle {
       base::OnceCallback<void(mojom::blink::PermissionStatus)>) override;
   void RequestPermissionImpl(
       bool writable,
-      base::OnceCallback<void(mojom::blink::PermissionStatus)>) override;
+      base::OnceCallback<void(mojom::blink::NativeFileSystemErrorPtr,
+                              mojom::blink::PermissionStatus)>) override;
+  // IsSameEntry for directories is implemented in terms of resolve, as resolve
+  // also can be used to figure out if two directories are the same entry.
+  void IsSameEntryImpl(
+      mojo::PendingRemote<mojom::blink::NativeFileSystemTransferToken> other,
+      base::OnceCallback<void(mojom::blink::NativeFileSystemErrorPtr, bool)>)
+      override;
 
-  RevocableInterfacePtr<mojom::blink::NativeFileSystemDirectoryHandle>
-      mojo_ptr_;
+  mojo::Remote<mojom::blink::NativeFileSystemDirectoryHandle> mojo_ptr_;
 };
 
 }  // namespace blink

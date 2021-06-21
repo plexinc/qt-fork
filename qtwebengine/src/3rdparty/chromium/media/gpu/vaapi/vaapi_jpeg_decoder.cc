@@ -240,74 +240,31 @@ VaapiImageDecodeStatus VaapiJpegDecoder::AllocateVASurfaceAndSubmitVABuffers(
     return VaapiImageDecodeStatus::kUnsupportedImage;
   }
 
-  // Prepare the VaSurface for decoding.
+  // Prepare the surface for decoding.
+  const gfx::Size new_visible_size(
+      base::strict_cast<int>(parse_result.frame_header.visible_width),
+      base::strict_cast<int>(parse_result.frame_header.visible_height));
   const gfx::Size new_coded_size(
       base::strict_cast<int>(parse_result.frame_header.coded_width),
       base::strict_cast<int>(parse_result.frame_header.coded_height));
-  DCHECK(!scoped_va_context_and_surface_ ||
-         scoped_va_context_and_surface_->IsValid());
-  if (!scoped_va_context_and_surface_ ||
-      new_coded_size != scoped_va_context_and_surface_->size() ||
-      picture_va_rt_format != scoped_va_context_and_surface_->format()) {
-    scoped_va_context_and_surface_.reset();
-    scoped_va_context_and_surface_ =
-        ScopedVAContextAndSurface(vaapi_wrapper_
-                                      ->CreateContextAndScopedVASurface(
-                                          picture_va_rt_format, new_coded_size)
-                                      .release());
-    if (!scoped_va_context_and_surface_) {
-      VLOGF(1) << "CreateContextAndScopedVASurface() failed";
-      return VaapiImageDecodeStatus::kSurfaceCreationFailed;
-    }
-    DCHECK(scoped_va_context_and_surface_->IsValid());
+  if (!MaybeCreateSurface(picture_va_rt_format, new_coded_size,
+                          new_visible_size)) {
+    return VaapiImageDecodeStatus::kSurfaceCreationFailed;
   }
 
-  // Set picture parameters.
-  VAPictureParameterBufferJPEGBaseline pic_param{};
-  FillPictureParameters(parse_result.frame_header, &pic_param);
-  if (!vaapi_wrapper_->SubmitBuffer(VAPictureParameterBufferType, &pic_param)) {
-    VLOGF(1) << "Could not submit VAPictureParameterBufferType";
+  // Submit input buffers.
+  if (!SubmitBuffers(parse_result))
     return VaapiImageDecodeStatus::kSubmitVABuffersFailed;
-  }
-
-  // Set quantization table.
-  VAIQMatrixBufferJPEGBaseline iq_matrix{};
-  FillIQMatrix(parse_result.q_table, &iq_matrix);
-  if (!vaapi_wrapper_->SubmitBuffer(VAIQMatrixBufferType, &iq_matrix)) {
-    VLOGF(1) << "Could not submit VAIQMatrixBufferType";
-    return VaapiImageDecodeStatus::kSubmitVABuffersFailed;
-  }
-
-  // Set huffman table.
-  VAHuffmanTableBufferJPEGBaseline huffman_table{};
-  FillHuffmanTable(parse_result.dc_table, parse_result.ac_table,
-                   &huffman_table);
-  if (!vaapi_wrapper_->SubmitBuffer(VAHuffmanTableBufferType, &huffman_table)) {
-    VLOGF(1) << "Could not submit VAHuffmanTableBufferType";
-    return VaapiImageDecodeStatus::kSubmitVABuffersFailed;
-  }
-
-  // Set slice parameters.
-  VASliceParameterBufferJPEGBaseline slice_param{};
-  FillSliceParameters(parse_result, &slice_param);
-  if (!vaapi_wrapper_->SubmitBuffer(VASliceParameterBufferType, &slice_param)) {
-    VLOGF(1) << "Could not submit VASliceParameterBufferType";
-    return VaapiImageDecodeStatus::kSubmitVABuffersFailed;
-  }
-
-  // Set scan data.
-  if (!vaapi_wrapper_->SubmitBuffer(VASliceDataBufferType,
-                                    parse_result.data_size,
-                                    const_cast<char*>(parse_result.data))) {
-    VLOGF(1) << "Could not submit VASliceDataBufferType";
-    return VaapiImageDecodeStatus::kSubmitVABuffersFailed;
-  }
 
   return VaapiImageDecodeStatus::kSuccess;
 }
 
 gpu::ImageDecodeAcceleratorType VaapiJpegDecoder::GetType() const {
   return gpu::ImageDecodeAcceleratorType::kJpeg;
+}
+
+SkYUVColorSpace VaapiJpegDecoder::GetYUVColorSpace() const {
+  return SkYUVColorSpace::kJPEG_SkYUVColorSpace;
 }
 
 std::unique_ptr<ScopedVAImage> VaapiJpegDecoder::GetImage(
@@ -330,6 +287,18 @@ std::unique_ptr<ScopedVAImage> VaapiJpegDecoder::GetImage(
     return nullptr;
   }
   VAImageFormat image_format{.fourcc = image_fourcc};
+  // In at least one driver, the VPP seems to have problems if we request a
+  // VAImage with odd dimensions. Rather than debugging the issue in depth, we
+  // disable support for odd dimensions since the VAImage path is only expected
+  // to be used in camera captures (and we don't expect JPEGs with odd
+  // dimensions in that path).
+  if ((scoped_va_context_and_surface_->size().width() & 1) ||
+      (scoped_va_context_and_surface_->size().height() & 1)) {
+    VLOGF(1) << "Getting images with odd dimensions is not supported";
+    *status = VaapiImageDecodeStatus::kCannotGetImage;
+    NOTREACHED();
+    return nullptr;
+  }
   auto scoped_image = vaapi_wrapper_->CreateVaImage(
       scoped_va_context_and_surface_->id(), &image_format,
       scoped_va_context_and_surface_->size());
@@ -342,6 +311,83 @@ std::unique_ptr<ScopedVAImage> VaapiJpegDecoder::GetImage(
 
   *status = VaapiImageDecodeStatus::kSuccess;
   return scoped_image;
+}
+
+bool VaapiJpegDecoder::MaybeCreateSurface(unsigned int picture_va_rt_format,
+                                          const gfx::Size& new_coded_size,
+                                          const gfx::Size& new_visible_size) {
+  DCHECK(!scoped_va_context_and_surface_ ||
+         scoped_va_context_and_surface_->IsValid());
+  if (scoped_va_context_and_surface_ &&
+      new_visible_size == scoped_va_context_and_surface_->size() &&
+      picture_va_rt_format == scoped_va_context_and_surface_->format()) {
+    // No need to allocate a new surface. We can re-use the current one.
+    return true;
+  }
+
+  scoped_va_context_and_surface_.reset();
+
+  // We'll request a surface of |new_coded_size| from the VAAPI, but we will
+  // keep track of the |new_visible_size| inside the ScopedVASurface so that
+  // when we create a VAImage or export the surface as a NativePixmapDmaBuf, we
+  // can report the size that clients should be using to read the contents.
+  scoped_va_context_and_surface_.reset(
+      vaapi_wrapper_
+          ->CreateContextAndScopedVASurface(picture_va_rt_format,
+                                            new_coded_size, new_visible_size)
+          .release());
+  if (!scoped_va_context_and_surface_) {
+    VLOGF(1) << "CreateContextAndScopedVASurface() failed";
+    return false;
+  }
+
+  DCHECK(scoped_va_context_and_surface_->IsValid());
+  return true;
+}
+
+bool VaapiJpegDecoder::SubmitBuffers(const JpegParseResult& parse_result) {
+  // Set picture parameters.
+  VAPictureParameterBufferJPEGBaseline pic_param{};
+  FillPictureParameters(parse_result.frame_header, &pic_param);
+  if (!vaapi_wrapper_->SubmitBuffer(VAPictureParameterBufferType, &pic_param)) {
+    VLOGF(1) << "Could not submit VAPictureParameterBufferType";
+    return false;
+  }
+
+  // Set quantization table.
+  VAIQMatrixBufferJPEGBaseline iq_matrix{};
+  FillIQMatrix(parse_result.q_table, &iq_matrix);
+  if (!vaapi_wrapper_->SubmitBuffer(VAIQMatrixBufferType, &iq_matrix)) {
+    VLOGF(1) << "Could not submit VAIQMatrixBufferType";
+    return false;
+  }
+
+  // Set huffman table.
+  VAHuffmanTableBufferJPEGBaseline huffman_table{};
+  FillHuffmanTable(parse_result.dc_table, parse_result.ac_table,
+                   &huffman_table);
+  if (!vaapi_wrapper_->SubmitBuffer(VAHuffmanTableBufferType, &huffman_table)) {
+    VLOGF(1) << "Could not submit VAHuffmanTableBufferType";
+    return false;
+  }
+
+  // Set slice parameters.
+  VASliceParameterBufferJPEGBaseline slice_param{};
+  FillSliceParameters(parse_result, &slice_param);
+  if (!vaapi_wrapper_->SubmitBuffer(VASliceParameterBufferType, &slice_param)) {
+    VLOGF(1) << "Could not submit VASliceParameterBufferType";
+    return false;
+  }
+
+  // Set scan data.
+  if (!vaapi_wrapper_->SubmitBuffer(VASliceDataBufferType,
+                                    parse_result.data_size,
+                                    const_cast<char*>(parse_result.data))) {
+    VLOGF(1) << "Could not submit VASliceDataBufferType";
+    return false;
+  }
+
+  return true;
 }
 
 }  // namespace media

@@ -130,7 +130,7 @@ static bool HasDolbyVisionSupport() {
 }
 
 static bool HasEac3Support() {
-#if BUILDFLAG(ENABLE_AC3_EAC3_AUDIO_DEMUXING)
+#if BUILDFLAG(ENABLE_PLATFORM_AC3_EAC3_AUDIO)
   return true;
 #else
   return false;
@@ -440,6 +440,7 @@ TEST(IsCodecSupportedOnAndroidTest, EncryptedCodecBehavior) {
           case MimeUtil::MP3:
           case MimeUtil::MPEG2_AAC:
           case MimeUtil::MPEG4_AAC:
+          case MimeUtil::MPEG4_XHE_AAC:
           case MimeUtil::VORBIS:
           case MimeUtil::FLAC:
           case MimeUtil::H264:
@@ -461,7 +462,7 @@ TEST(IsCodecSupportedOnAndroidTest, EncryptedCodecBehavior) {
             break;
 
           case MimeUtil::HEVC:
-#if BUILDFLAG(ENABLE_HEVC_DEMUXING)
+#if BUILDFLAG(ENABLE_PLATFORM_HEVC)
             EXPECT_EQ(info.has_platform_hevc_decoder, result);
 #else
             EXPECT_FALSE(result);
@@ -514,8 +515,12 @@ TEST(IsCodecSupportedOnAndroidTest, ClearCodecBehavior) {
             break;
 
           // These codecs are only supported if platform decoders are supported.
+          case MimeUtil::MPEG4_XHE_AAC:
+            EXPECT_EQ(info.has_platform_decoders, result);
+            break;
+
           case MimeUtil::HEVC:
-#if BUILDFLAG(ENABLE_HEVC_DEMUXING)
+#if BUILDFLAG(ENABLE_PLATFORM_HEVC)
             EXPECT_EQ(
                 info.has_platform_decoders && info.has_platform_hevc_decoder,
                 result);
@@ -550,7 +555,7 @@ TEST(IsCodecSupportedOnAndroidTest, OpusOggSupport) {
       });
 }
 
-#if BUILDFLAG(ENABLE_HEVC_DEMUXING)
+#if BUILDFLAG(ENABLE_PLATFORM_HEVC)
 TEST(IsCodecSupportedOnAndroidTest, HEVCSupport) {
   MimeUtil::PlatformInfo info;
   info.has_platform_decoders = false;
@@ -568,38 +573,6 @@ TEST(IsCodecSupportedOnAndroidTest, HEVCSupport) {
       MimeUtil::HEVC, kTestMimeType, false, VIDEO_CODEC_PROFILE_UNKNOWN, info));
 }
 #endif
-
-TEST(IsCodecSupportedOnAndroidTest, Vp9Profile23Support) {
-  MimeUtil::PlatformInfo info;
-  info.has_platform_decoders = false;
-  info.has_platform_vp9_decoder = false;
-  info.has_platform_vp9_2_decoder = false;
-  info.has_platform_vp9_3_decoder = false;
-
-  EXPECT_FALSE(MimeUtil::IsCodecSupportedOnAndroid(
-      MimeUtil::VP9, kTestMimeType, false, VP9PROFILE_PROFILE2, info));
-  EXPECT_FALSE(MimeUtil::IsCodecSupportedOnAndroid(
-      MimeUtil::VP9, kTestMimeType, false, VP9PROFILE_PROFILE3, info));
-
-  info.has_platform_decoders = true;
-  info.has_platform_vp9_decoder = true;
-  EXPECT_FALSE(MimeUtil::IsCodecSupportedOnAndroid(
-      MimeUtil::VP9, kTestMimeType, false, VP9PROFILE_PROFILE2, info));
-  EXPECT_FALSE(MimeUtil::IsCodecSupportedOnAndroid(
-      MimeUtil::VP9, kTestMimeType, false, VP9PROFILE_PROFILE3, info));
-
-  info.has_platform_vp9_2_decoder = true;
-  EXPECT_TRUE(MimeUtil::IsCodecSupportedOnAndroid(
-      MimeUtil::VP9, kTestMimeType, false, VP9PROFILE_PROFILE2, info));
-  EXPECT_FALSE(MimeUtil::IsCodecSupportedOnAndroid(
-      MimeUtil::VP9, kTestMimeType, false, VP9PROFILE_PROFILE3, info));
-
-  info.has_platform_vp9_3_decoder = true;
-  EXPECT_TRUE(MimeUtil::IsCodecSupportedOnAndroid(
-      MimeUtil::VP9, kTestMimeType, false, VP9PROFILE_PROFILE2, info));
-  EXPECT_TRUE(MimeUtil::IsCodecSupportedOnAndroid(
-      MimeUtil::VP9, kTestMimeType, false, VP9PROFILE_PROFILE3, info));
-}
 
 TEST(IsCodecSupportedOnAndroidTest, AndroidHLSAAC) {
   const std::string hls_mime_types[] = {"application/x-mpegurl",

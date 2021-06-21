@@ -7,30 +7,33 @@
 
 #include "base/memory/ref_counted.h"
 #include "content/common/frame.mojom.h"
+#include "content/common/navigation_params.mojom.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
+#include "third_party/blink/public/mojom/frame/frame.mojom.h"
 #include "url/gurl.h"
 
-struct FrameHostMsg_DownloadUrl_Params;
 struct FrameHostMsg_OpenURL_Params;
 
 namespace content {
 
 class SiteInstance;
 
-// Verifies that |params| are valid and can be accessed by |process_id|.
+// Verifies that |params| are valid and can be accessed by the renderer process
+// associated with |site_instance|.
 //
-// Returns true if the |params| are valid.  As a side-effect of the verification
-// |out_blob_url_token_info| will be populated.
+// Returns true if the |params| are valid. In the case |params->blob_url_token|
+// is non-null, it gets deserialized and |out_blob_url_token_remote| is
+// populated. |params| is a mojo Ptr instead const& to make it clear to callees
+// of its mutable nature.
 //
 // Terminates the renderer with the given |process_id| and returns false if the
 // |params| are invalid.
 //
-// This function may be called on either the IO thread or the UI thread
-// (but not on other threads).
+// This function has to be called on the UI thread.
 bool VerifyDownloadUrlParams(
-    int process_id,
-    const FrameHostMsg_DownloadUrl_Params& params,
-    blink::mojom::BlobURLTokenPtrInfo* out_blob_url_token_info);
+    SiteInstance* site_instance,
+    blink::mojom::DownloadURLParams* params,
+    mojo::PendingRemote<blink::mojom::BlobURLToken>* out_blob_url_token_remote);
 
 // Verifies that |params| are valid and can be accessed by the renderer process
 // associated with |site_instance|.
@@ -59,8 +62,9 @@ bool VerifyOpenURLParams(SiteInstance* site_instance,
 // returns false if the CommonNavigationParams are invalid.
 //
 // This function has to be called on the UI thread.
-bool VerifyBeginNavigationCommonParams(SiteInstance* site_instance,
-                                       CommonNavigationParams* common_params);
+bool VerifyBeginNavigationCommonParams(
+    SiteInstance* site_instance,
+    mojom::CommonNavigationParams* common_params);
 
 }  // namespace content
 

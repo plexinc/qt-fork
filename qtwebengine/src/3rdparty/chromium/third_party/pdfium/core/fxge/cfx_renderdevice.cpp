@@ -27,6 +27,7 @@
 #include "core/fxge/renderdevicedriver_iface.h"
 #include "core/fxge/text_char_pos.h"
 #include "core/fxge/text_glyph_pos.h"
+#include "third_party/base/span.h"
 
 #if defined _SKIA_SUPPORT_ || defined _SKIA_SUPPORT_PATHS_
 #include "third_party/skia/include/core/SkTypes.h"
@@ -458,6 +459,10 @@ bool CFX_RenderDevice::CreateCompatibleBitmap(
       m_RenderCaps & FXRC_ALPHA_OUTPUT ? FXDIB_Argb : kPlatformFormat);
 }
 
+void CFX_RenderDevice::SetBaseClip(const FX_RECT& rect) {
+  m_pDeviceDriver->SetBaseClip(rect);
+}
+
 bool CFX_RenderDevice::SetClip_PathFill(const CFX_PathData* pPathData,
                                         const CFX_Matrix* pObject2Device,
                                         int fill_mode) {
@@ -480,15 +485,6 @@ bool CFX_RenderDevice::SetClip_PathStroke(
   UpdateClipBox();
   return true;
 }
-
-#ifdef PDF_ENABLE_XFA
-bool CFX_RenderDevice::SetClip_Rect(const CFX_RectF& rtClip) {
-  return SetClip_Rect(FX_RECT(static_cast<int32_t>(floor(rtClip.left)),
-                              static_cast<int32_t>(floor(rtClip.top)),
-                              static_cast<int32_t>(ceil(rtClip.right())),
-                              static_cast<int32_t>(ceil(rtClip.bottom()))));
-}
-#endif
 
 bool CFX_RenderDevice::SetClip_Rect(const FX_RECT& rect) {
   CFX_PathData path;
@@ -518,10 +514,10 @@ bool CFX_RenderDevice::DrawPathWithBlend(const CFX_PathData* pPathData,
                                          BlendMode blend_type) {
   uint8_t stroke_alpha = pGraphState ? FXARGB_A(stroke_color) : 0;
   uint8_t fill_alpha = (fill_mode & 3) ? FXARGB_A(fill_color) : 0;
-  const std::vector<FX_PATHPOINT>& pPoints = pPathData->GetPoints();
-  if (stroke_alpha == 0 && pPoints.size() == 2) {
-    CFX_PointF pos1 = pPoints[0].m_Point;
-    CFX_PointF pos2 = pPoints[1].m_Point;
+  pdfium::span<const FX_PATHPOINT> points = pPathData->GetPoints();
+  if (stroke_alpha == 0 && points.size() == 2) {
+    CFX_PointF pos1 = points[0].m_Point;
+    CFX_PointF pos2 = points[1].m_Point;
     if (pObject2Device) {
       pos1 = pObject2Device->Transform(pos1);
       pos2 = pObject2Device->Transform(pos2);
@@ -530,10 +526,11 @@ bool CFX_RenderDevice::DrawPathWithBlend(const CFX_PathData* pPathData,
     return true;
   }
 
-  if ((pPoints.size() == 5 || pPoints.size() == 4) && stroke_alpha == 0) {
-    CFX_FloatRect rect_f;
-    if (!(fill_mode & FXFILL_RECT_AA) &&
-        pPathData->IsRect(pObject2Device, &rect_f)) {
+  if ((points.size() == 5 || points.size() == 4) && stroke_alpha == 0 &&
+      !(fill_mode & FXFILL_RECT_AA)) {
+    Optional<CFX_FloatRect> maybe_rect_f = pPathData->GetRect(pObject2Device);
+    if (maybe_rect_f.has_value()) {
+      const CFX_FloatRect& rect_f = maybe_rect_f.value();
       FX_RECT rect_i = rect_f.GetOuterRect();
 
       // Depending on the top/bottom, left/right values of the rect it's
@@ -840,7 +837,7 @@ bool CFX_RenderDevice::ContinueDIBits(CFX_ImageRenderer* handle,
 
 #ifdef _SKIA_SUPPORT_
 void CFX_RenderDevice::DebugVerifyBitmapIsPreMultiplied() const {
-  SkASSERT(0);
+  NOTREACHED();
 }
 
 bool CFX_RenderDevice::SetBitsWithMask(const RetainPtr<CFX_DIBBase>& pBitmap,
@@ -927,10 +924,10 @@ bool CFX_RenderDevice::DrawNormalText(int nChars,
 
     glyph.m_fOrigin = text2Device.Transform(charpos.m_Origin);
     if (anti_alias < FT_RENDER_MODE_LCD)
-      glyph.m_Origin.x = FXSYS_round(glyph.m_fOrigin.x);
+      glyph.m_Origin.x = FXSYS_roundf(glyph.m_fOrigin.x);
     else
       glyph.m_Origin.x = static_cast<int>(floor(glyph.m_fOrigin.x));
-    glyph.m_Origin.y = FXSYS_round(glyph.m_fOrigin.y);
+    glyph.m_Origin.y = FXSYS_roundf(glyph.m_fOrigin.y);
 
     if (charpos.m_bGlyphAdjust) {
       CFX_Matrix new_matrix(
@@ -1096,7 +1093,7 @@ void CFX_RenderDevice::DrawFillRect(const CFX_Matrix* pUser2Device,
                                     const CFX_FloatRect& rect,
                                     const FX_COLORREF& color) {
   CFX_PathData path;
-  path.AppendRect(rect);
+  path.AppendFloatRect(rect);
   DrawPath(&path, pUser2Device, nullptr, color, 0, FXFILL_WINDING);
 }
 
@@ -1120,7 +1117,7 @@ void CFX_RenderDevice::DrawStrokeRect(const CFX_Matrix& mtUser2Device,
   gsd.m_LineWidth = fWidth;
 
   CFX_PathData path;
-  path.AppendRect(rect);
+  path.AppendFloatRect(rect);
   DrawPath(&path, &mtUser2Device, &gsd, 0, color, FXFILL_ALTERNATE);
 }
 

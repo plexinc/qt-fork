@@ -10,8 +10,12 @@
 #include "base/feature_list.h"
 #include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
+#include "mojo/public/cpp/bindings/pending_receiver.h"
+#include "mojo/public/cpp/bindings/remote.h"
+#include "services/network/public/cpp/features.h"
 #include "services/network/public/mojom/fetch_api.mojom-blink.h"
 #include "third_party/blink/public/mojom/devtools/console_message.mojom-blink.h"
+#include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink-forward.h"
 #include "third_party/blink/public/mojom/loader/request_context_frame_type.mojom-blink.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
@@ -20,9 +24,11 @@
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/fetch/body_stream_buffer.h"
 #include "third_party/blink/renderer/core/inspector/console_message.h"
+#include "third_party/blink/renderer/modules/service_worker/cross_origin_resource_policy_checker.h"
 #include "third_party/blink/renderer/modules/service_worker/service_worker_global_scope.h"
 #include "third_party/blink/renderer/modules/service_worker/wait_until_observer.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
+#include "third_party/blink/renderer/platform/heap/heap.h"
 #include "third_party/blink/renderer/platform/loader/fetch/bytes_consumer.h"
 #include "v8/include/v8.h"
 
@@ -101,6 +107,11 @@ const String GetMessageForResponseError(ServiceWorkerResponseError error,
       error_message =
           error_message + "a response body's status could not be checked.";
       break;
+    case ServiceWorkerResponseError::kDisallowedByCorp:
+      error_message = error_message +
+                      "Cross-Origin-Resource-Policy prevented from serving the "
+                      "response to the client.";
+      break;
     case ServiceWorkerResponseError::kUnknown:
     default:
       error_message = error_message + "an unexpected error occurred.";
@@ -109,33 +120,32 @@ const String GetMessageForResponseError(ServiceWorkerResponseError error,
   return error_message;
 }
 
-bool IsNavigationRequest(network::mojom::RequestContextFrameType frame_type) {
-  return frame_type != network::mojom::RequestContextFrameType::kNone;
+bool IsNavigationRequest(mojom::RequestContextFrameType frame_type) {
+  return frame_type != mojom::RequestContextFrameType::kNone;
 }
 
-bool IsClientRequest(network::mojom::RequestContextFrameType frame_type,
+bool IsClientRequest(mojom::RequestContextFrameType frame_type,
                      mojom::RequestContextType request_context) {
   return IsNavigationRequest(frame_type) ||
          request_context == mojom::RequestContextType::SHARED_WORKER ||
          request_context == mojom::RequestContextType::WORKER;
 }
 
-// Notifies the result of FetchDataLoader to |callback_ptr_|, the other endpoint
+// Notifies the result of FetchDataLoader to |callback_|, the other endpoint
 // for which is passed to the browser process via
 // blink.mojom.ServiceWorkerFetchResponseCallback.OnResponseStream().
-class FetchLoaderClient final
-    : public GarbageCollectedFinalized<FetchLoaderClient>,
-      public FetchDataLoader::Client {
+class FetchLoaderClient final : public GarbageCollected<FetchLoaderClient>,
+                                public FetchDataLoader::Client {
   USING_GARBAGE_COLLECTED_MIXIN(FetchLoaderClient);
 
  public:
   FetchLoaderClient(
-      std::unique_ptr<ServiceWorkerTimeoutTimer::StayAwakeToken> token)
+      std::unique_ptr<ServiceWorkerEventQueue::StayAwakeToken> token)
       : token_(std::move(token)) {
-    // We need to make |callback_ptr_| callable in the first place because some
+    // We need to make |callback_| callable in the first place because some
     // DidFetchDataLoadXXX() accessing it may be called synchronously from
     // StartLoading().
-    callback_request_ = mojo::MakeRequest(&callback_ptr_);
+    callback_receiver_ = callback_.BindNewPipeAndPassReceiver();
   }
 
   void DidFetchDataStartedDataPipe(
@@ -145,18 +155,18 @@ class FetchLoaderClient final
     body_stream_ = std::move(pipe);
   }
   void DidFetchDataLoadedDataPipe() override {
-    callback_ptr_->OnCompleted();
+    callback_->OnCompleted();
     token_.reset();
   }
   void DidFetchDataLoadFailed() override {
-    callback_ptr_->OnAborted();
+    callback_->OnAborted();
     token_.reset();
   }
   void Abort() override {
     // A fetch() aborted via AbortSignal in the ServiceWorker will just look
     // like an ordinary failure to the page.
     // TODO(ricea): Should a fetch() on the page get an AbortError instead?
-    callback_ptr_->OnAborted();
+    callback_->OnAborted();
     token_.reset();
   }
 
@@ -164,38 +174,25 @@ class FetchLoaderClient final
     if (!body_stream_.is_valid())
       return nullptr;
     return mojom::blink::ServiceWorkerStreamHandle::New(
-        std::move(body_stream_), std::move(callback_request_));
+        std::move(body_stream_), std::move(callback_receiver_));
   }
 
-  void Trace(blink::Visitor* visitor) override {
+  void Trace(Visitor* visitor) override {
     FetchDataLoader::Client::Trace(visitor);
   }
 
  private:
   mojo::ScopedDataPipeConsumerHandle body_stream_;
-  mojom::blink::ServiceWorkerStreamCallbackRequest callback_request_;
+  mojo::PendingReceiver<mojom::blink::ServiceWorkerStreamCallback>
+      callback_receiver_;
 
-  mojom::blink::ServiceWorkerStreamCallbackPtr callback_ptr_;
-  std::unique_ptr<ServiceWorkerTimeoutTimer::StayAwakeToken> token_;
+  mojo::Remote<mojom::blink::ServiceWorkerStreamCallback> callback_;
+  std::unique_ptr<ServiceWorkerEventQueue::StayAwakeToken> token_;
 
   DISALLOW_COPY_AND_ASSIGN(FetchLoaderClient);
 };
 
 }  // namespace
-
-FetchRespondWithObserver* FetchRespondWithObserver::Create(
-    ExecutionContext* context,
-    int fetch_event_id,
-    const KURL& request_url,
-    network::mojom::RequestMode request_mode,
-    network::mojom::RedirectMode redirect_mode,
-    network::mojom::RequestContextFrameType frame_type,
-    mojom::RequestContextType request_context,
-    WaitUntilObserver* observer) {
-  return MakeGarbageCollected<FetchRespondWithObserver>(
-      context, fetch_event_id, request_url, request_mode, redirect_mode,
-      frame_type, request_context, observer);
-}
 
 // This function may be called when an exception is scheduled. Thus, it must
 // never invoke any code that might throw. In particular, it must never invoke
@@ -203,10 +200,10 @@ FetchRespondWithObserver* FetchRespondWithObserver::Create(
 void FetchRespondWithObserver::OnResponseRejected(
     ServiceWorkerResponseError error) {
   DCHECK(GetExecutionContext());
-  GetExecutionContext()->AddConsoleMessage(
-      ConsoleMessage::Create(mojom::ConsoleMessageSource::kJavaScript,
-                             mojom::ConsoleMessageLevel::kWarning,
-                             GetMessageForResponseError(error, request_url_)));
+  GetExecutionContext()->AddConsoleMessage(MakeGarbageCollected<ConsoleMessage>(
+      mojom::ConsoleMessageSource::kJavaScript,
+      mojom::ConsoleMessageLevel::kWarning,
+      GetMessageForResponseError(error, request_url_)));
 
   // The default value of FetchAPIResponse's status is 0, which maps to a
   // network error.
@@ -214,22 +211,23 @@ void FetchRespondWithObserver::OnResponseRejected(
   response->status_text = "";
   response->error = error;
   To<ServiceWorkerGlobalScope>(GetExecutionContext())
-      ->RespondToFetchEvent(event_id_, std::move(response),
+      ->RespondToFetchEvent(event_id_, request_url_, std::move(response),
                             event_dispatch_time_, base::TimeTicks::Now());
 }
 
 void FetchRespondWithObserver::OnResponseFulfilled(
+    ScriptState* script_state,
     const ScriptValue& value,
     ExceptionState::ContextType context_type,
     const char* interface_name,
     const char* property_name) {
   DCHECK(GetExecutionContext());
-  if (!V8Response::HasInstance(value.V8Value(), value.GetIsolate())) {
+  if (!V8Response::HasInstance(value.V8Value(), script_state->GetIsolate())) {
     OnResponseRejected(ServiceWorkerResponseError::kNoV8Instance);
     return;
   }
-  Response* response =
-      V8Response::ToImplWithTypeCheck(value.GetIsolate(), value.V8Value());
+  Response* response = V8Response::ToImplWithTypeCheck(
+      script_state->GetIsolate(), value.V8Value());
   // "If one of the following conditions is true, return a network error:
   //   - |response|'s type is |error|.
   //   - |request|'s mode is |same-origin| and |response|'s type is |cors|.
@@ -277,8 +275,8 @@ void FetchRespondWithObserver::OnResponseFulfilled(
     return;
   }
 
-  ExceptionState exception_state(value.GetScriptState()->GetIsolate(),
-                                 context_type, interface_name, property_name);
+  ExceptionState exception_state(script_state->GetIsolate(), context_type,
+                                 interface_name, property_name);
   if (response->IsBodyLocked(exception_state) == Body::BodyLocked::kLocked) {
     DCHECK(!exception_state.HadException());
     OnResponseRejected(ServiceWorkerResponseError::kBodyLocked);
@@ -302,12 +300,42 @@ void FetchRespondWithObserver::OnResponseFulfilled(
   }
 
   mojom::blink::FetchAPIResponsePtr fetch_api_response =
-      response->PopulateFetchAPIResponse();
+      response->PopulateFetchAPIResponse(request_url_);
   ServiceWorkerGlobalScope* service_worker_global_scope =
       To<ServiceWorkerGlobalScope>(GetExecutionContext());
 
+  // If Cross-Origin-Embedder-Policy is set to require-corp,
+  // Cross-Origin-Resource-Policy verification should happen before passing the
+  // response to the client.
+  if (base::FeatureList::IsEnabled(
+          network::features::kCrossOriginEmbedderPolicy)) {
+    // The service worker script must be in the same origin with the requestor,
+    // which is a client of the service worker.
+    //
+    // Here is in the renderer and we don't have a "trustworthy" initiator.
+    // Hence we provide |initiator_origin| as |request_initiator_site_lock|.
+    auto initiator_origin =
+        url::Origin::Create(GURL(service_worker_global_scope->Url()));
+    // |corp_checker_| could be nullptr when the request is for a main resource
+    // or the connection to the client which initiated the request is broken.
+    // CORP check isn't needed in both cases because a service worker should be
+    // in the same origin with the main resource, and the response to the broken
+    // connection won't reach to the client.
+    if (corp_checker_ &&
+        corp_checker_->IsBlocked(
+            url::Origin::Create(GURL(service_worker_global_scope->Url())),
+            request_mode_, *response)) {
+      OnResponseRejected(ServiceWorkerResponseError::kDisallowedByCorp);
+      return;
+    }
+  }
+
   BodyStreamBuffer* buffer = response->InternalBodyBuffer();
   if (buffer) {
+    // The |side_data_blob| must be taken before the body buffer is
+    // drained or loading begins.
+    fetch_api_response->side_data_blob = buffer->TakeSideDataBlob();
+
     scoped_refptr<BlobDataHandle> blob_data_handle =
         buffer->DrainAsBlobDataHandle(
             BytesConsumer::BlobSizePolicy::kAllowBlobWithInvalidSize,
@@ -320,8 +348,8 @@ void FetchRespondWithObserver::OnResponseFulfilled(
       // Handle the blob response body.
       fetch_api_response->blob = blob_data_handle;
       service_worker_global_scope->RespondToFetchEvent(
-          event_id_, std::move(fetch_api_response), event_dispatch_time_,
-          base::TimeTicks::Now());
+          event_id_, request_url_, std::move(fetch_api_response),
+          event_dispatch_time_, base::TimeTicks::Now());
       return;
     }
 
@@ -346,40 +374,39 @@ void FetchRespondWithObserver::OnResponseFulfilled(
     }
 
     service_worker_global_scope->RespondToFetchEventWithResponseStream(
-        event_id_, std::move(fetch_api_response), std::move(stream_handle),
-        event_dispatch_time_, base::TimeTicks::Now());
+        event_id_, request_url_, std::move(fetch_api_response),
+        std::move(stream_handle), event_dispatch_time_, base::TimeTicks::Now());
     return;
   }
   service_worker_global_scope->RespondToFetchEvent(
-      event_id_, std::move(fetch_api_response), event_dispatch_time_,
-      base::TimeTicks::Now());
+      event_id_, request_url_, std::move(fetch_api_response),
+      event_dispatch_time_, base::TimeTicks::Now());
 }
 
 void FetchRespondWithObserver::OnNoResponse() {
   DCHECK(GetExecutionContext());
   To<ServiceWorkerGlobalScope>(GetExecutionContext())
-      ->RespondToFetchEventWithNoResponse(event_id_, event_dispatch_time_,
+      ->RespondToFetchEventWithNoResponse(event_id_, request_url_,
+                                          event_dispatch_time_,
                                           base::TimeTicks::Now());
 }
 
 FetchRespondWithObserver::FetchRespondWithObserver(
     ExecutionContext* context,
     int fetch_event_id,
-    const KURL& request_url,
-    network::mojom::RequestMode request_mode,
-    network::mojom::RedirectMode redirect_mode,
-    network::mojom::RequestContextFrameType frame_type,
-    mojom::RequestContextType request_context,
+    base::WeakPtr<CrossOriginResourcePolicyChecker> corp_checker,
+    const mojom::blink::FetchAPIRequest& request,
     WaitUntilObserver* observer)
     : RespondWithObserver(context, fetch_event_id, observer),
-      request_url_(request_url),
-      request_mode_(request_mode),
-      redirect_mode_(redirect_mode),
-      frame_type_(frame_type),
-      request_context_(request_context),
+      request_url_(request.url),
+      request_mode_(request.mode),
+      redirect_mode_(request.redirect_mode),
+      frame_type_(request.frame_type),
+      request_context_(request.request_context_type),
+      corp_checker_(std::move(corp_checker)),
       task_runner_(context->GetTaskRunner(TaskType::kNetworking)) {}
 
-void FetchRespondWithObserver::Trace(blink::Visitor* visitor) {
+void FetchRespondWithObserver::Trace(Visitor* visitor) {
   RespondWithObserver::Trace(visitor);
 }
 

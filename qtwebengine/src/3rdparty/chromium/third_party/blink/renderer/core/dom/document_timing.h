@@ -27,7 +27,6 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_DOM_DOCUMENT_TIMING_H_
 
 #include "third_party/blink/renderer/platform/heap/handle.h"
-#include "third_party/blink/renderer/platform/wtf/time.h"
 
 namespace blink {
 
@@ -45,7 +44,6 @@ class DocumentTiming final {
   void MarkDomContentLoadedEventStart();
   void MarkDomContentLoadedEventEnd();
   void MarkDomComplete();
-  void MarkFirstLayout();
 
   // These return monotonically-increasing time.
   base::TimeTicks DomLoading() const { return dom_loading_; }
@@ -57,7 +55,6 @@ class DocumentTiming final {
     return dom_content_loaded_event_end_;
   }
   base::TimeTicks DomComplete() const { return dom_complete_; }
-  base::TimeTicks FirstLayout() const { return first_layout_; }
 
   void Trace(Visitor*);
 
@@ -70,7 +67,6 @@ class DocumentTiming final {
   base::TimeTicks dom_content_loaded_event_start_;
   base::TimeTicks dom_content_loaded_event_end_;
   base::TimeTicks dom_complete_;
-  base::TimeTicks first_layout_;
 
   Member<Document> document_;
 };

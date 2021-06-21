@@ -85,8 +85,10 @@ VkAccessFlags GetAccessMask(const VkImageLayout layout) {
 
 VulkanCommandBuffer::VulkanCommandBuffer(VulkanDeviceQueue* device_queue,
                                          VulkanCommandPool* command_pool,
-                                         bool primary)
+                                         bool primary,
+                                         bool use_protected_memory)
     : primary_(primary),
+      use_protected_memory_(use_protected_memory),
       device_queue_(device_queue),
       command_pool_(command_pool) {
   command_pool_->IncrementCommandBufferCount();
@@ -104,14 +106,15 @@ bool VulkanCommandBuffer::Initialize() {
   VkDevice device = device_queue_->GetVulkanDevice();
 
   VkCommandBufferAllocateInfo command_buffer_info = {
-      .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-      .pNext = nullptr,
-      .commandPool = command_pool_->handle(),
-      .level = primary_ ? VK_COMMAND_BUFFER_LEVEL_PRIMARY
-                        : VK_COMMAND_BUFFER_LEVEL_SECONDARY,
-      .commandBufferCount = 1,
+      VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+      nullptr,
+      command_pool_->handle(),
+      primary_ ? VK_COMMAND_BUFFER_LEVEL_PRIMARY
+               : VK_COMMAND_BUFFER_LEVEL_SECONDARY,
+      1,
   };
 
+  DCHECK_EQ(static_cast<VkCommandBuffer>(VK_NULL_HANDLE), command_buffer_);
   result =
       vkAllocateCommandBuffers(device, &command_buffer_info, &command_buffer_);
   if (VK_SUCCESS != result) {
@@ -145,17 +148,21 @@ bool VulkanCommandBuffer::Submit(uint32_t num_wait_semaphores,
   std::vector<VkPipelineStageFlags> wait_dst_stage_mask(
       num_wait_semaphores, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
 
-  VkSubmitInfo submit_info = {
-      .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-      .pNext = nullptr,
-      .waitSemaphoreCount = num_wait_semaphores,
-      .pWaitSemaphores = wait_semaphores,
-      .pWaitDstStageMask = wait_dst_stage_mask.data(),
-      .commandBufferCount = 1,
-      .pCommandBuffers = &command_buffer_,
-      .signalSemaphoreCount = num_signal_semaphores,
-      .pSignalSemaphores = signal_semaphores,
-  };
+  VkProtectedSubmitInfo protected_submit_info = {};
+  protected_submit_info.sType = VK_STRUCTURE_TYPE_PROTECTED_SUBMIT_INFO;
+  protected_submit_info.pNext = nullptr;
+  protected_submit_info.protectedSubmit = VK_TRUE;
+
+  VkSubmitInfo submit_info = {};
+  submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+  submit_info.pNext = use_protected_memory_ ? &protected_submit_info : nullptr;
+  submit_info.waitSemaphoreCount = num_wait_semaphores;
+  submit_info.pWaitSemaphores = wait_semaphores;
+  submit_info.pWaitDstStageMask = wait_dst_stage_mask.data();
+  submit_info.commandBufferCount = 1;
+  submit_info.pCommandBuffers = &command_buffer_;
+  submit_info.signalSemaphoreCount = num_signal_semaphores;
+  submit_info.pSignalSemaphores = signal_semaphores;
 
   VkResult result = VK_SUCCESS;
 
@@ -212,17 +219,20 @@ bool VulkanCommandBuffer::SubmissionFinished() {
   return device_queue_->GetFenceHelper()->HasPassed(submission_fence_);
 }
 
-void VulkanCommandBuffer::TransitionImageLayout(VkImage image,
-                                                VkImageLayout old_layout,
-                                                VkImageLayout new_layout) {
+void VulkanCommandBuffer::TransitionImageLayout(
+    VkImage image,
+    VkImageLayout old_layout,
+    VkImageLayout new_layout,
+    uint32_t src_queue_family_index,
+    uint32_t dst_queue_family_index) {
   VkImageMemoryBarrier barrier = {};
   barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
   barrier.srcAccessMask = GetAccessMask(old_layout);
   barrier.dstAccessMask = GetAccessMask(new_layout);
   barrier.oldLayout = old_layout;
   barrier.newLayout = new_layout;
-  barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-  barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  barrier.srcQueueFamilyIndex = src_queue_family_index;
+  barrier.dstQueueFamilyIndex = dst_queue_family_index;
   barrier.image = image;
   barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
   barrier.subresourceRange.baseMipLevel = 0;

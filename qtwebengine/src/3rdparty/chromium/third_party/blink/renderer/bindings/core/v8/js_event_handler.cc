@@ -69,7 +69,7 @@ void JSEventHandler::InvokeInternal(EventTarget& event_target,
   // WindowOrWorkerGlobalScope mixin. Otherwise, let special error event
   // handling be false.
   const bool special_error_event_handling =
-      event.IsErrorEvent() && event.type() == event_type_names::kError &&
+      IsA<ErrorEvent>(event) && event.type() == event_type_names::kError &&
       event.currentTarget()->IsWindowOrWorkerGlobalScope();
 
   // Step 4. Process the Event object event as follows:
@@ -88,20 +88,21 @@ void JSEventHandler::InvokeInternal(EventTarget& event_target,
   //   If an exception gets thrown by the callback, end these steps and allow
   //   the exception to propagate. (It will propagate to the DOM event dispatch
   //   logic, which will then report the exception.)
-  Vector<ScriptValue> arguments;
+  HeapVector<ScriptValue> arguments;
   ScriptState* script_state_of_listener =
       event_handler_->CallbackRelevantScriptState();
 
   if (special_error_event_handling) {
-    ErrorEvent* error_event = ToErrorEvent(&event);
+    auto* error_event = To<ErrorEvent>(&event);
 
     // The error argument should be initialized to null for dedicated workers.
     // https://html.spec.whatwg.org/C/#runtime-script-errors-2
     ScriptValue error_attribute = error_event->error(script_state_of_listener);
     if (error_attribute.IsEmpty() ||
-        error_event->target()->InterfaceName() == event_target_names::kWorker)
-      error_attribute = ScriptValue::CreateNull(script_state_of_listener);
-
+        error_event->target()->InterfaceName() == event_target_names::kWorker) {
+      error_attribute =
+          ScriptValue::CreateNull(script_state_of_listener->GetIsolate());
+    }
     arguments = {
         ScriptValue::From(script_state_of_listener, error_event->message()),
         ScriptValue::From(script_state_of_listener, error_event->filename()),
@@ -173,13 +174,12 @@ void JSEventHandler::InvokeInternal(EventTarget& event_target,
   //             then return value will never be false, since in such cases
   //             return value will have been coerced into either null or a
   //             DOMString.
+  auto* before_unload_event = DynamicTo<BeforeUnloadEvent>(&event);
   const bool is_beforeunload_event =
-      event.IsBeforeUnloadEvent() &&
-      event.type() == event_type_names::kBeforeunload;
+      before_unload_event && event.type() == event_type_names::kBeforeunload;
   if (is_beforeunload_event) {
     if (result_for_beforeunload) {
       event.preventDefault();
-      BeforeUnloadEvent* before_unload_event = ToBeforeUnloadEvent(&event);
       if (before_unload_event->returnValue().IsEmpty())
         before_unload_event->setReturnValue(result_for_beforeunload);
     }
@@ -193,7 +193,7 @@ void JSEventHandler::InvokeInternal(EventTarget& event_target,
   }
 }
 
-void JSEventHandler::Trace(blink::Visitor* visitor) {
+void JSEventHandler::Trace(Visitor* visitor) {
   visitor->Trace(event_handler_);
   JSBasedEventListener::Trace(visitor);
 }

@@ -15,6 +15,7 @@
 #include "src/core/SkEffectPriv.h"
 #include "src/core/SkMask.h"
 #include "src/core/SkTLazy.h"
+#include "src/core/SkVM_fwd.h"
 
 #if SK_SUPPORT_GPU
 #include "src/gpu/GrFPArgs.h"
@@ -28,10 +29,31 @@ class SkImage;
 struct SkImageInfo;
 class SkPaint;
 class SkRasterPipeline;
+class SkRuntimeEffect;
+
+/**
+ *  Shaders can optionally return a subclass of this when appending their stages.
+ *  Doing so tells the caller that the stages can be reused with different CTMs (but nothing
+ *  else can change), by calling the updater's udpate() method before each use.
+ *
+ *  This can be a perf-win bulk draws like drawAtlas and drawVertices, where most of the setup
+ *  (i.e. uniforms) are constant, and only something small is changing (i.e. matrices). This
+ *  reuse skips the cost of computing the stages (and/or avoids having to allocate a separate
+ *  shader for each small draw.
+ */
+class SkStageUpdater {
+public:
+    virtual ~SkStageUpdater() {}
+
+    virtual bool update(const SkMatrix& ctm, const SkMatrix* localM) = 0;
+};
 
 class SkShaderBase : public SkShader {
 public:
     ~SkShaderBase() override;
+
+    sk_sp<SkShader> makeInvertAlpha() const;
+    sk_sp<SkShader> makeWithCTM(const SkMatrix&) const;  // owns its own ctm
 
     /**
      *  Returns true if the shader is guaranteed to produce only a single color.
@@ -161,13 +183,13 @@ public:
     //
     //   M = postLocalMatrix x shaderLocalMatrix x preLocalMatrix
     //
-    SkTCopyOnFirstWrite<SkMatrix> totalLocalMatrix(const SkMatrix* preLocalMatrix,
-                                                   const SkMatrix* postLocalMatrix = nullptr) const;
+    SkTCopyOnFirstWrite<SkMatrix> totalLocalMatrix(const SkMatrix* preLocalMatrix) const;
 
     virtual SkImage* onIsAImage(SkMatrix*, SkTileMode[2]) const {
         return nullptr;
     }
-    virtual SkPicture* isAPicture(SkMatrix*, SkTileMode[2], SkRect* tile) const { return nullptr; }
+
+    virtual SkRuntimeEffect* asRuntimeEffect() const { return nullptr; }
 
     static Type GetFlattenableType() { return kSkShaderBase_Type; }
     Type getFlattenableType() const override { return GetFlattenableType(); }
@@ -184,6 +206,15 @@ public:
      *  the localMatrix. If not, return nullptr and ignore the localMatrix parameter.
      */
     virtual sk_sp<SkShader> makeAsALocalMatrixShader(SkMatrix* localMatrix) const;
+
+    SkStageUpdater* appendUpdatableStages(const SkStageRec& rec) const {
+        return this->onAppendUpdatableStages(rec);
+    }
+
+    skvm::Color program(skvm::Builder*, skvm::F32 x, skvm::F32 y, skvm::Color paint,
+                        const SkMatrix& ctm, const SkMatrix* localM,
+                        SkFilterQuality quality, const SkColorInfo& dst,
+                        skvm::Uniforms* uniforms, SkArenaAlloc* alloc) const;
 
 protected:
     SkShaderBase(const SkMatrix* localMatrix = nullptr);
@@ -207,9 +238,19 @@ protected:
     // Default impl creates shadercontext and calls that (not very efficient)
     virtual bool onAppendStages(const SkStageRec&) const;
 
+    virtual SkStageUpdater* onAppendUpdatableStages(const SkStageRec&) const { return nullptr; }
+
+protected:
+    static void ApplyMatrix(skvm::Builder*, const SkMatrix&, skvm::F32* x, skvm::F32* y, skvm::Uniforms*);
+
 private:
     // This is essentially const, but not officially so it can be modified in constructors.
     SkMatrix fLocalMatrix;
+
+    virtual skvm::Color onProgram(skvm::Builder*, skvm::F32 x, skvm::F32 y, skvm::Color paint,
+                                  const SkMatrix& ctm, const SkMatrix* localM,
+                                  SkFilterQuality quality, const SkColorInfo& dst,
+                                  skvm::Uniforms* uniforms, SkArenaAlloc* alloc) const;
 
     typedef SkShader INHERITED;
 };

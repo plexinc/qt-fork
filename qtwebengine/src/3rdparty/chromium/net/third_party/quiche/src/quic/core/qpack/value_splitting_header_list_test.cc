@@ -4,8 +4,9 @@
 
 #include "net/third_party/quiche/src/quic/core/qpack/value_splitting_header_list.h"
 
-#include "net/third_party/quiche/src/quic/platform/api/quic_arraysize.h"
 #include "net/third_party/quiche/src/quic/platform/api/quic_test.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_arraysize.h"
+#include "net/third_party/quiche/src/common/platform/api/quiche_string_piece.h"
 
 namespace quic {
 namespace test {
@@ -16,7 +17,7 @@ using ::testing::Pair;
 
 TEST(ValueSplittingHeaderListTest, Comparison) {
   spdy::SpdyHeaderBlock block;
-  block["foo"] = QuicStringPiece("bar\0baz", 7);
+  block["foo"] = quiche::QuicheStringPiece("bar\0baz", 7);
   block["baz"] = "qux";
   block["cookie"] = "foo; bar";
 
@@ -60,10 +61,16 @@ TEST(ValueSplittingHeaderListTest, Comparison) {
         EXPECT_FALSE(it1 == it2);
         EXPECT_TRUE(it1 != it2);
       }
-      ++it2;
+      if (j < kEnd - 1) {
+        ASSERT_NE(it2, headers.end());
+        ++it2;
+      }
     }
 
-    ++it1;
+    if (i < kEnd - 1) {
+      ASSERT_NE(it1, headers.end());
+      ++it1;
+    }
   }
 }
 
@@ -75,38 +82,38 @@ TEST(ValueSplittingHeaderListTest, Empty) {
   EXPECT_EQ(headers.begin(), headers.end());
 }
 
-struct {
-  const char* name;
-  QuicStringPiece value;
-  std::vector<const char*> expected_values;
-} kTestData[]{
-    // Empty value.
-    {"foo", "", {""}},
-    // Trivial case.
-    {"foo", "bar", {"bar"}},
-    // Simple split.
-    {"foo", {"bar\0baz", 7}, {"bar", "baz"}},
-    {"cookie", "foo;bar", {"foo", "bar"}},
-    {"cookie", "foo; bar", {"foo", "bar"}},
-    // Empty fragments with \0 separator.
-    {"foo", {"\0", 1}, {"", ""}},
-    {"bar", {"foo\0", 4}, {"foo", ""}},
-    {"baz", {"\0bar", 4}, {"", "bar"}},
-    {"qux", {"\0foobar\0", 8}, {"", "foobar", ""}},
-    // Empty fragments with ";" separator.
-    {"cookie", ";", {"", ""}},
-    {"cookie", "foo;", {"foo", ""}},
-    {"cookie", ";bar", {"", "bar"}},
-    {"cookie", ";foobar;", {"", "foobar", ""}},
-    // Empty fragments with "; " separator.
-    {"cookie", "; ", {"", ""}},
-    {"cookie", "foo; ", {"foo", ""}},
-    {"cookie", "; bar", {"", "bar"}},
-    {"cookie", "; foobar; ", {"", "foobar", ""}},
-};
-
 TEST(ValueSplittingHeaderListTest, Split) {
-  for (size_t i = 0; i < QUIC_ARRAYSIZE(kTestData); ++i) {
+  struct {
+    const char* name;
+    quiche::QuicheStringPiece value;
+    std::vector<const char*> expected_values;
+  } kTestData[]{
+      // Empty value.
+      {"foo", "", {""}},
+      // Trivial case.
+      {"foo", "bar", {"bar"}},
+      // Simple split.
+      {"foo", {"bar\0baz", 7}, {"bar", "baz"}},
+      {"cookie", "foo;bar", {"foo", "bar"}},
+      {"cookie", "foo; bar", {"foo", "bar"}},
+      // Empty fragments with \0 separator.
+      {"foo", {"\0", 1}, {"", ""}},
+      {"bar", {"foo\0", 4}, {"foo", ""}},
+      {"baz", {"\0bar", 4}, {"", "bar"}},
+      {"qux", {"\0foobar\0", 8}, {"", "foobar", ""}},
+      // Empty fragments with ";" separator.
+      {"cookie", ";", {"", ""}},
+      {"cookie", "foo;", {"foo", ""}},
+      {"cookie", ";bar", {"", "bar"}},
+      {"cookie", ";foobar;", {"", "foobar", ""}},
+      // Empty fragments with "; " separator.
+      {"cookie", "; ", {"", ""}},
+      {"cookie", "foo; ", {"foo", ""}},
+      {"cookie", "; bar", {"", "bar"}},
+      {"cookie", "; foobar; ", {"", "foobar", ""}},
+  };
+
+  for (size_t i = 0; i < QUICHE_ARRAYSIZE(kTestData); ++i) {
     spdy::SpdyHeaderBlock block;
     block[kTestData[i].name] = kTestData[i].value;
 
@@ -124,9 +131,9 @@ TEST(ValueSplittingHeaderListTest, Split) {
 
 TEST(ValueSplittingHeaderListTest, MultipleFields) {
   spdy::SpdyHeaderBlock block;
-  block["foo"] = QuicStringPiece("bar\0baz\0", 8);
+  block["foo"] = quiche::QuicheStringPiece("bar\0baz\0", 8);
   block["cookie"] = "foo; bar";
-  block["bar"] = QuicStringPiece("qux\0foo", 7);
+  block["bar"] = quiche::QuicheStringPiece("qux\0foo", 7);
 
   ValueSplittingHeaderList headers(&block);
   EXPECT_THAT(headers, ElementsAre(Pair("foo", "bar"), Pair("foo", "baz"),

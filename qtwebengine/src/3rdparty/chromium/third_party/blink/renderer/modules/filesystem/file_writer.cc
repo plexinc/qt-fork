@@ -38,7 +38,6 @@
 #include "third_party/blink/renderer/modules/filesystem/file_system_dispatcher.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
-#include "third_party/blink/renderer/platform/wtf/time.h"
 
 namespace blink {
 
@@ -49,7 +48,7 @@ static constexpr uint64_t kMaxTruncateLength =
     std::numeric_limits<uint64_t>::max();
 
 FileWriter::FileWriter(ExecutionContext* context)
-    : ContextLifecycleObserver(context),
+    : ExecutionContextLifecycleObserver(context),
       ready_state_(kInit),
       operation_in_progress_(kOperationNone),
       queued_operation_(kOperationNone),
@@ -68,7 +67,7 @@ const AtomicString& FileWriter::InterfaceName() const {
   return event_target_names::kFileWriter;
 }
 
-void FileWriter::ContextDestroyed(ExecutionContext*) {
+void FileWriter::ContextDestroyed() {
   Dispose();
 }
 
@@ -255,7 +254,8 @@ void FileWriter::CompleteAbort() {
 }
 
 void FileWriter::DoOperation(Operation operation) {
-  probe::AsyncTaskScheduled(GetExecutionContext(), "FileWriter", this);
+  probe::AsyncTaskScheduled(GetExecutionContext(), "FileWriter",
+                            &async_task_id_);
   switch (operation) {
     case kOperationWrite:
       DCHECK_EQ(kOperationNone, operation_in_progress_);
@@ -305,11 +305,11 @@ void FileWriter::SignalCompletion(base::File::Error error) {
   }
   FireEvent(event_type_names::kWriteend);
 
-  probe::AsyncTaskCanceled(GetExecutionContext(), this);
+  probe::AsyncTaskCanceled(GetExecutionContext(), &async_task_id_);
 }
 
 void FileWriter::FireEvent(const AtomicString& type) {
-  probe::AsyncTask async_task(GetExecutionContext(), this);
+  probe::AsyncTask async_task(GetExecutionContext(), &async_task_id_);
   ++recursion_depth_;
   DispatchEvent(
       *ProgressEvent::Create(type, true, bytes_written_, bytes_to_write_));
@@ -335,12 +335,12 @@ void FileWriter::Dispose() {
   queued_operation_ = kOperationNone;
 }
 
-void FileWriter::Trace(blink::Visitor* visitor) {
+void FileWriter::Trace(Visitor* visitor) {
   visitor->Trace(error_);
   visitor->Trace(blob_being_written_);
   EventTargetWithInlineData::Trace(visitor);
   FileWriterBase::Trace(visitor);
-  ContextLifecycleObserver::Trace(visitor);
+  ExecutionContextLifecycleObserver::Trace(visitor);
 }
 
 }  // namespace blink

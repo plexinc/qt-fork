@@ -53,13 +53,34 @@
 
 #include <QStyledItemDelegate>
 #include <QRegularExpression>
+#include <QSharedPointer>
+
+struct TypeChecker
+{
+    TypeChecker();
+
+    QRegularExpression boolExp;
+    QRegularExpression byteArrayExp;
+    QRegularExpression charExp;
+    QRegularExpression colorExp;
+    QRegularExpression dateExp;
+    QRegularExpression dateTimeExp;
+    QRegularExpression doubleExp;
+    QRegularExpression pointExp;
+    QRegularExpression rectExp;
+    QRegularExpression signedIntegerExp;
+    QRegularExpression sizeExp;
+    QRegularExpression timeExp;
+    QRegularExpression unsignedIntegerExp;
+};
 
 class VariantDelegate : public QStyledItemDelegate
 {
     Q_OBJECT
 
 public:
-    VariantDelegate(QObject *parent = nullptr);
+    explicit VariantDelegate(const QSharedPointer<TypeChecker> &typeChecker,
+                             QObject *parent = nullptr);
 
     void paint(QPainter *painter, const QStyleOptionViewItem &option,
                const QModelIndex &index) const override;
@@ -69,23 +90,11 @@ public:
     void setModelData(QWidget *editor, QAbstractItemModel *model,
                       const QModelIndex &index) const override;
 
-    static bool isSupportedType(QVariant::Type type);
+    static bool isSupportedType(int type);
     static QString displayText(const QVariant &value);
 
 private:
-    mutable QRegularExpression boolExp;
-    mutable QRegularExpression byteArrayExp;
-    mutable QRegularExpression charExp;
-    mutable QRegularExpression colorExp;
-    mutable QRegularExpression dateExp;
-    mutable QRegularExpression dateTimeExp;
-    mutable QRegularExpression doubleExp;
-    mutable QRegularExpression pointExp;
-    mutable QRegularExpression rectExp;
-    mutable QRegularExpression signedIntegerExp;
-    mutable QRegularExpression sizeExp;
-    mutable QRegularExpression timeExp;
-    mutable QRegularExpression unsignedIntegerExp;
+    QSharedPointer<TypeChecker> m_typeChecker;
 };
 
 #endif

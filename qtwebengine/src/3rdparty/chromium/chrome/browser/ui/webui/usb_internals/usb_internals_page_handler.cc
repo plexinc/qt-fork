@@ -6,26 +6,22 @@
 
 #include <utility>
 
-#include "content/public/browser/system_connector.h"
-#include "services/device/public/mojom/constants.mojom.h"
-#include "services/service_manager/public/cpp/connector.h"
+#include "content/public/browser/device_service.h"
 
 UsbInternalsPageHandler::UsbInternalsPageHandler(
-    mojom::UsbInternalsPageHandlerRequest request)
-    : binding_(this, std::move(request)) {}
+    mojo::PendingReceiver<mojom::UsbInternalsPageHandler> receiver)
+    : receiver_(this, std::move(receiver)) {}
 
 UsbInternalsPageHandler::~UsbInternalsPageHandler() {}
 
 void UsbInternalsPageHandler::BindTestInterface(
-    device::mojom::UsbDeviceManagerTestRequest request) {
+    mojo::PendingReceiver<device::mojom::UsbDeviceManagerTest> receiver) {
   // Forward the request to the DeviceService.
-  content::GetSystemConnector()->BindInterface(device::mojom::kServiceName,
-                                               std::move(request));
+  content::GetDeviceService().BindUsbDeviceManagerTest(std::move(receiver));
 }
 
 void UsbInternalsPageHandler::BindUsbDeviceManagerInterface(
-    device::mojom::UsbDeviceManagerRequest request) {
+    mojo::PendingReceiver<device::mojom::UsbDeviceManager> receiver) {
   // Forward the request to the DeviceService.
-  content::GetSystemConnector()->BindInterface(device::mojom::kServiceName,
-                                               std::move(request));
+  content::GetDeviceService().BindUsbDeviceManager(std::move(receiver));
 }

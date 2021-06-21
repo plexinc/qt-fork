@@ -29,6 +29,8 @@
 
 #include <memory>
 #include "cc/layers/layer.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
+#include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
 #include "third_party/blink/public/platform/modules/service_worker/web_service_worker_provider.h"
 #include "third_party/blink/public/platform/modules/service_worker/web_service_worker_provider_client.h"
 #include "third_party/blink/public/platform/platform.h"
@@ -79,14 +81,6 @@ void EmptyChromeClient::OpenTextDataListChooser(HTMLInputElement&) {}
 void EmptyChromeClient::OpenFileChooser(LocalFrame*,
                                         scoped_refptr<FileChooser>) {}
 
-void EmptyChromeClient::AttachRootGraphicsLayer(GraphicsLayer* layer,
-                                                LocalFrame* local_root) {
-  Page* page = local_root ? local_root->GetPage() : nullptr;
-  if (!page)
-    return;
-  page->GetVisualViewport().AttachLayerTree(layer);
-}
-
 void EmptyChromeClient::AttachRootLayer(scoped_refptr<cc::Layer>, LocalFrame*) {
 }
 
@@ -96,7 +90,7 @@ String EmptyChromeClient::AcceptLanguages() {
 
 void EmptyLocalFrameClient::BeginNavigation(
     const ResourceRequest&,
-    network::mojom::RequestContextFrameType,
+    mojom::RequestContextFrameType,
     Document* origin_document,
     DocumentLoader*,
     WebNavigationType,
@@ -104,47 +98,29 @@ void EmptyLocalFrameClient::BeginNavigation(
     bool,
     WebFrameLoadType,
     bool,
-    WebTriggeringEventInfo,
+    TriggeringEventInfo,
     HTMLFormElement*,
-    ContentSecurityPolicyDisposition,
-    mojom::blink::BlobURLTokenPtr,
+    network::mojom::CSPDisposition,
+    mojo::PendingRemote<mojom::blink::BlobURLToken>,
     base::TimeTicks,
     const String&,
-    WebContentSecurityPolicyList,
-    mojom::blink::NavigationInitiatorPtr) {}
+    WTF::Vector<network::mojom::blink::ContentSecurityPolicyPtr> initiator_csp,
+    network::mojom::blink::CSPSourcePtr initiator_csp_self,
+    network::mojom::IPAddressSpace,
+    mojo::PendingRemote<mojom::blink::NavigationInitiator>) {}
 
 void EmptyLocalFrameClient::DispatchWillSendSubmitEvent(HTMLFormElement*) {}
 
 DocumentLoader* EmptyLocalFrameClient::CreateDocumentLoader(
     LocalFrame* frame,
     WebNavigationType navigation_type,
+    ContentSecurityPolicy* content_security_policy,
     std::unique_ptr<WebNavigationParams> navigation_params,
     std::unique_ptr<WebDocumentLoader::ExtraData> extra_data) {
   DCHECK(frame);
   return MakeGarbageCollected<DocumentLoader>(frame, navigation_type,
+                                              content_security_policy,
                                               std::move(navigation_params));
-}
-
-mojom::blink::DocumentInterfaceBroker*
-EmptyLocalFrameClient::GetDocumentInterfaceBroker() {
-  if (!document_interface_broker_.is_bound())
-    mojo::MakeRequest(&document_interface_broker_);
-  return document_interface_broker_.get();
-}
-
-mojo::ScopedMessagePipeHandle
-EmptyLocalFrameClient::SetDocumentInterfaceBrokerForTesting(
-    mojo::ScopedMessagePipeHandle blink_handle) {
-  mojom::blink::DocumentInterfaceBrokerPtr test_broker(
-      mojom::blink::DocumentInterfaceBrokerPtrInfo(
-          std::move(blink_handle),
-          mojom::blink::DocumentInterfaceBroker::Version_));
-
-  mojo::ScopedMessagePipeHandle real_handle =
-      document_interface_broker_.PassInterface().PassHandle();
-  document_interface_broker_ = std::move(test_broker);
-
-  return real_handle;
 }
 
 LocalFrame* EmptyLocalFrameClient::CreateFrame(const AtomicString&,
@@ -178,8 +154,7 @@ WebPluginContainerImpl* EmptyLocalFrameClient::CreatePlugin(
 std::unique_ptr<WebMediaPlayer> EmptyLocalFrameClient::CreateWebMediaPlayer(
     HTMLMediaElement&,
     const WebMediaPlayerSource&,
-    WebMediaPlayerClient*,
-    WebLayerTreeView*) {
+    WebMediaPlayerClient*) {
   return nullptr;
 }
 
@@ -199,6 +174,11 @@ void EmptyLocalFrameClient::SetTextCheckerClientForTesting(
 
 Frame* EmptyLocalFrameClient::FindFrame(const AtomicString& name) const {
   return nullptr;
+}
+
+AssociatedInterfaceProvider*
+EmptyLocalFrameClient::GetRemoteNavigationAssociatedInterfaces() {
+  return AssociatedInterfaceProvider::GetEmptyAssociatedInterfaceProvider();
 }
 
 std::unique_ptr<WebServiceWorkerProvider>

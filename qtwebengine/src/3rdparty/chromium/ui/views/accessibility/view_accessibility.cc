@@ -7,11 +7,15 @@
 #include <algorithm>
 #include <utility>
 
+#include "base/callback.h"
 #include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/platform/ax_platform_node.h"
+#include "ui/accessibility/platform/ax_platform_node_delegate.h"
 #include "ui/base/buildflags.h"
 #include "ui/views/view.h"
+#include "ui/views/widget/root_view.h"
 #include "ui/views/widget/widget.h"
 
 namespace views {
@@ -81,7 +85,7 @@ std::unique_ptr<AXVirtualView> ViewAccessibility::RemoveVirtualChildView(
   child->set_parent_view(nullptr);
   child->UnsetPopulateDataCallback();
   if (focused_virtual_child_ && child->Contains(focused_virtual_child_))
-    focused_virtual_child_ = nullptr;
+    OverrideFocus(nullptr);
   return child;
 }
 
@@ -118,6 +122,8 @@ const ui::AXUniqueId& ViewAccessibility::GetUniqueId() const {
 }
 
 void ViewAccessibility::GetAccessibleNodeData(ui::AXNodeData* data) const {
+  data->id = GetUniqueId().Get();
+
   // Views may misbehave if their widget is closed; return an unknown role
   // rather than possibly crashing.
   const views::Widget* widget = view_->GetWidget();
@@ -150,6 +156,9 @@ void ViewAccessibility::GetAccessibleNodeData(ui::AXNodeData* data) const {
     data->SetDescription(custom_data_.GetStringAttribute(
         ax::mojom::StringAttribute::kDescription));
   }
+
+  if (custom_data_.GetHasPopup() != ax::mojom::HasPopup::kFalse)
+    data->SetHasPopup(custom_data_.GetHasPopup());
 
   static const ax::mojom::IntAttribute kOverridableIntAttributes[]{
       ax::mojom::IntAttribute::kPosInSet,
@@ -214,6 +223,12 @@ void ViewAccessibility::OverrideFocus(AXVirtualView* virtual_view) {
   DCHECK(!virtual_view || Contains(virtual_view))
       << "|virtual_view| must be nullptr or a descendant of this view.";
   focused_virtual_child_ = virtual_view;
+
+  if (focused_virtual_child_) {
+    focused_virtual_child_->NotifyAccessibilityEvent(ax::mojom::Event::kFocus);
+  } else {
+    view_->NotifyAccessibilityEvent(ax::mojom::Event::kFocus, true);
+  }
 }
 
 void ViewAccessibility::OverrideRole(const ax::mojom::Role role) {
@@ -256,6 +271,10 @@ void ViewAccessibility::OverrideDescribedBy(View* described_by_view) {
                                    {described_by_id});
 }
 
+void ViewAccessibility::OverrideHasPopup(const ax::mojom::HasPopup has_popup) {
+  custom_data_.SetHasPopup(has_popup);
+}
+
 void ViewAccessibility::OverridePosInSet(int pos_in_set, int set_size) {
   custom_data_.AddIntAttribute(ax::mojom::IntAttribute::kPosInSet, pos_in_set);
   custom_data_.AddIntAttribute(ax::mojom::IntAttribute::kSetSize, set_size);
@@ -277,14 +296,46 @@ Widget* ViewAccessibility::GetPreviousFocus() {
   return previous_focus_;
 }
 
-gfx::NativeViewAccessible ViewAccessibility::GetNativeObject() {
+gfx::NativeViewAccessible ViewAccessibility::GetNativeObject() const {
   return nullptr;
+}
+
+void ViewAccessibility::NotifyAccessibilityEvent(ax::mojom::Event event_type) {
+  // On certain platforms, e.g. Chrome OS, we don't create any
+  // AXPlatformDelegates, so the base method in this file would be called.
+  if (accessibility_events_callback_)
+    accessibility_events_callback_.Run(nullptr, event_type);
+}
+
+void ViewAccessibility::AnnounceText(const base::string16& text) {
+  Widget* const widget = view_->GetWidget();
+  if (!widget)
+    return;
+  auto* const root_view =
+      static_cast<internal::RootView*>(widget->GetRootView());
+  if (!root_view)
+    return;
+  root_view->AnnounceText(text);
 }
 
 gfx::NativeViewAccessible ViewAccessibility::GetFocusedDescendant() {
   if (focused_virtual_child_)
     return focused_virtual_child_->GetNativeObject();
   return view_->GetNativeViewAccessible();
+}
+
+void ViewAccessibility::FireFocusAfterMenuClose() {
+  NotifyAccessibilityEvent(ax::mojom::Event::kFocusAfterMenuClose);
+}
+
+const ViewAccessibility::AccessibilityEventsCallback&
+ViewAccessibility::accessibility_events_callback() const {
+  return accessibility_events_callback_;
+}
+
+void ViewAccessibility::set_accessibility_events_callback(
+    ViewAccessibility::AccessibilityEventsCallback callback) {
+  accessibility_events_callback_ = std::move(callback);
 }
 
 }  // namespace views

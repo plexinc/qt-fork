@@ -16,6 +16,8 @@ public:
     SkAutoPixmapStorage();
     ~SkAutoPixmapStorage();
 
+    SkAutoPixmapStorage(SkAutoPixmapStorage&& other);
+
     /**
     * Leave the moved-from object in a free-but-valid state.
     */
@@ -44,6 +46,13 @@ public:
     * alloc/tryAlloc was called.
     */
     static size_t AllocSize(const SkImageInfo& info, size_t* rowBytes);
+
+    /**
+    * Returns a void* of the allocated pixel memory and resets the pixmap. If the storage hasn't
+    * been allocated, the result is NULL. The caller is responsible for calling sk_free to free
+    * the returned memory.
+    */
+    void* SK_WARN_UNUSED_RESULT detachPixels();
 
     /**
     *  Returns an SkData object wrapping the allocated pixels memory, and resets the pixmap.

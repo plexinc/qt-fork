@@ -195,33 +195,11 @@ MostVisitedURL::MostVisitedURL() {}
 MostVisitedURL::MostVisitedURL(const GURL& url, const base::string16& title)
     : url(url), title(title) {}
 
-MostVisitedURL::MostVisitedURL(const GURL& url,
-                               const base::string16& title,
-                               const RedirectList& preceding_redirects)
-    : url(url), title(title) {
-  InitRedirects(preceding_redirects);
-}
-
 MostVisitedURL::MostVisitedURL(const MostVisitedURL& other) = default;
 
 MostVisitedURL::MostVisitedURL(MostVisitedURL&& other) noexcept = default;
 
-MostVisitedURL::~MostVisitedURL() {}
-
-void MostVisitedURL::InitRedirects(const RedirectList& redirects_from) {
-  redirects.clear();
-
-  if (redirects_from.empty()) {
-    // Redirects must contain at least the target URL.
-    redirects.push_back(url);
-  } else {
-    redirects = redirects_from;
-    if (redirects.back() != url) {
-      // The last url must be the target URL.
-      redirects.push_back(url);
-    }
-  }
-}
+MostVisitedURL::~MostVisitedURL() = default;
 
 MostVisitedURL& MostVisitedURL::operator=(const MostVisitedURL&) = default;
 
@@ -296,6 +274,13 @@ HistoryAddPageArgs::HistoryAddPageArgs(const HistoryAddPageArgs& other) =
     default;
 
 HistoryAddPageArgs::~HistoryAddPageArgs() {}
+
+// DomainMetricSet ------------------------------------------------------------
+
+DomainMetricSet::DomainMetricSet() {}
+DomainMetricSet::DomainMetricSet(const DomainMetricSet&) = default;
+DomainMetricSet::~DomainMetricSet() {}
+DomainMetricSet& DomainMetricSet::operator=(const DomainMetricSet&) = default;
 
 // IconMapping ----------------------------------------------------------------
 

@@ -45,7 +45,6 @@ class Layer;
 namespace blink {
 
 class InspectedFrames;
-class LayoutRect;
 class PictureSnapshot;
 
 class CORE_EXPORT InspectorLayerTreeAgent final
@@ -59,13 +58,12 @@ class CORE_EXPORT InspectorLayerTreeAgent final
 
   InspectorLayerTreeAgent(InspectedFrames*, Client*);
   ~InspectorLayerTreeAgent() override;
-  void Trace(blink::Visitor*) override;
+  void Trace(Visitor*) override;
 
   void Restore() override;
 
   // Called from InspectorInstrumentation
   void LayerTreeDidChange();
-  void DidPaint(const cc::Layer*, const LayoutRect&);
   void LayerTreePainted();
 
   // Called from the front-end.
@@ -73,7 +71,9 @@ class CORE_EXPORT InspectorLayerTreeAgent final
   protocol::Response disable() override;
   protocol::Response compositingReasons(
       const String& layer_id,
-      std::unique_ptr<protocol::Array<String>>* compositing_reasons) override;
+      std::unique_ptr<protocol::Array<String>>* compositing_reasons,
+      std::unique_ptr<protocol::Array<String>>* compositing_reason_ids)
+      override;
   protocol::Response makeSnapshot(const String& layer_id,
                                   String* snapshot_id) override;
   protocol::Response loadSnapshot(

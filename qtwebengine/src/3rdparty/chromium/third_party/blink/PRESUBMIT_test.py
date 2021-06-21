@@ -117,7 +117,7 @@ class PresubmitTest(unittest.TestCase):
                                                        MockOutputApi())
         self.assertEquals(
             'Public blink headers using Blink variant mojoms found. ' +
-            'You must include .mojom-shared.h instead:',
+            'You must include .mojom-forward.h or .mojom-shared.h instead:',
             errors[0].message)
 
     def testCheckInternalHeaderWithBlinkMojo(self):
@@ -240,7 +240,7 @@ class CxxDependencyTest(unittest.TestCase):
 
     # External module checks should not affect CSS files.
     def testCheckCSSIgnored(self):
-        filename = 'third_party/blink/renderer/devtools/front_end/timeline/someFile.css'
+        filename = 'third_party/blink/renderer/someFile.css'
         errors = self.runCheck(filename, ['.toolbar::after { color: pink; }\n'])
         self.assertEqual([], errors)
 

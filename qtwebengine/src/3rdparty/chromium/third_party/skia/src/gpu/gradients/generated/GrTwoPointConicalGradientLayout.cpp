@@ -10,7 +10,7 @@
  **************************************************************************************************/
 #include "GrTwoPointConicalGradientLayout.h"
 
-#include "include/gpu/GrTexture.h"
+#include "src/gpu/GrTexture.h"
 #include "src/gpu/glsl/GrGLSLFragmentProcessor.h"
 #include "src/gpu/glsl/GrGLSLFragmentShaderBuilder.h"
 #include "src/gpu/glsl/GrGLSLProgramBuilder.h"
@@ -42,7 +42,8 @@ public:
         (void)focalParams;
         focalParamsVar = args.fUniformHandler->addUniform(kFragment_GrShaderFlag, kHalf2_GrSLType,
                                                           "focalParams");
-        SkString sk_TransformedCoords2D_0 = fragBuilder->ensureCoords2D(args.fTransformedCoords[0]);
+        SkString sk_TransformedCoords2D_0 =
+                fragBuilder->ensureCoords2D(args.fTransformedCoords[0].fVaryingPoint);
         fragBuilder->codeAppendf(
                 "float2 p = %s;\nfloat t = -1.0;\nhalf v = 1.0;\n@switch (%d) {\n    case 1:\n     "
                 "   {\n            half r0_2 = %s.y;\n            t = float(r0_2) - p.y * p.y;\n   "
@@ -175,7 +176,7 @@ std::unique_ptr<GrFragmentProcessor> GrTwoPointConicalGradientLayout::TestCreate
             radius2 += offset;
         }
     } else if (type == static_cast<int>(Type::kStrip)) {
-        radius1 = SkTMax(radius1, .1f);  // Make sure that the radius is non-zero
+        radius1 = std::max(radius1, .1f);  // Make sure that the radius is non-zero
         radius2 = radius1;
         // Make sure that the centers are different
         if (SkScalarNearlyZero(SkPoint::Distance(center1, center2))) {
@@ -221,7 +222,7 @@ std::unique_ptr<GrFragmentProcessor> GrTwoPointConicalGradientLayout::TestCreate
     GrTest::TestAsFPArgs asFPArgs(d);
     std::unique_ptr<GrFragmentProcessor> fp = as_SB(shader)->asFragmentProcessor(asFPArgs.args());
 
-    GrAlwaysAssert(fp);
+    SkASSERT_RELEASE(fp);
     return fp;
 }
 #endif
@@ -263,7 +264,7 @@ std::unique_ptr<GrFragmentProcessor> GrTwoPointConicalGradientLayout::Make(
     SkMatrix matrix;
 
     // Initialize the base matrix
-    if (!grad.totalLocalMatrix(args.fPreLocalMatrix, args.fPostLocalMatrix)->invert(&matrix)) {
+    if (!grad.totalLocalMatrix(args.fPreLocalMatrix)->invert(&matrix)) {
         return nullptr;
     }
 

@@ -50,6 +50,7 @@ class ApplicationStatusListener;
 namespace disk_cache {
 class Backend;
 class Entry;
+class EntryResult;
 }  // namespace disk_cache
 
 namespace net {
@@ -99,7 +100,8 @@ class NET_EXPORT HttpCache : public HttpTransactionFactory {
     DefaultBackend(CacheType type,
                    BackendType backend_type,
                    const base::FilePath& path,
-                   int max_bytes);
+                   int max_bytes,
+                   bool hard_reset);
     ~DefaultBackend() override;
 
     // Returns a factory for an in-memory cache.
@@ -120,6 +122,7 @@ class NET_EXPORT HttpCache : public HttpTransactionFactory {
     BackendType backend_type_;
     const base::FilePath path_;
     int max_bytes_;
+    bool hard_reset_;
 #if defined(OS_ANDROID)
     base::android::ApplicationStatusListener* app_status_listener_ = nullptr;
 #endif
@@ -213,10 +216,10 @@ class NET_EXPORT HttpCache : public HttpTransactionFactory {
   // Close currently active sockets so that fresh page loads will not use any
   // recycled connections.  For sockets currently in use, they may not close
   // immediately, but they will not be reusable. This is for debugging.
-  void CloseAllConnections();
+  void CloseAllConnections(int net_error, const char* net_log_reason_utf8);
 
   // Close all idle connections. Will close all sockets not in active use.
-  void CloseIdleConnections();
+  void CloseIdleConnections(const char* net_log_reason_utf8);
 
   // Called whenever an external cache in the system reuses the resource
   // referred to by |url| and |http_method| and |network_isolation_key|.
@@ -267,7 +270,7 @@ class NET_EXPORT HttpCache : public HttpTransactionFactory {
   static std::string GetResourceURLFromHttpCacheKey(const std::string& key);
 
   // Function to generate cache key for testing.
-  std::string GenerateCacheKeyForTest(const HttpRequestInfo* request);
+  static std::string GenerateCacheKeyForTest(const HttpRequestInfo* request);
 
  private:
   // Types --------------------------------------------------------------------
@@ -310,6 +313,11 @@ class NET_EXPORT HttpCache : public HttpTransactionFactory {
   // To help with testing.
   friend class MockHttpCache;
   friend class HttpCacheIOCallbackTest;
+
+  FRIEND_TEST_ALL_PREFIXES(HttpCacheTest, SplitCacheWithFrameOrigin);
+  FRIEND_TEST_ALL_PREFIXES(HttpCacheTest, NonSplitCache);
+  FRIEND_TEST_ALL_PREFIXES(HttpCacheTest, SplitCache);
+  FRIEND_TEST_ALL_PREFIXES(HttpCacheTest, SplitCacheWithRegistrableDomain);
 
   using TransactionList = std::list<Transaction*>;
   using TransactionSet = std::unordered_set<Transaction*>;
@@ -412,7 +420,7 @@ class NET_EXPORT HttpCache : public HttpTransactionFactory {
   int GetBackendForTransaction(Transaction* transaction);
 
   // Generates the cache key for this request.
-  std::string GenerateCacheKey(const HttpRequestInfo*);
+  static std::string GenerateCacheKey(const HttpRequestInfo*);
 
   // Dooms the entry selected by |key|, if it is currently in the list of active
   // entries.
@@ -617,6 +625,11 @@ class NET_EXPORT HttpCache : public HttpTransactionFactory {
   static void OnPendingOpComplete(const base::WeakPtr<HttpCache>& cache,
                                   PendingOp* pending_op,
                                   int result);
+
+  // Variant for Open/Create method family, which has a different signature.
+  static void OnPendingCreationOpComplete(const base::WeakPtr<HttpCache>& cache,
+                                          PendingOp* pending_op,
+                                          disk_cache::EntryResult result);
 
   // Processes the backend creation notification.
   void OnBackendCreated(int result, PendingOp* pending_op);

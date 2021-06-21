@@ -15,6 +15,7 @@
 #include "base/strings/string_util.h"
 #include "base/system/sys_info.h"
 #include "base/task/post_task.h"
+#include "base/task/thread_pool.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "components/metrics/persistent_system_profile.h"
@@ -168,7 +169,7 @@ void InstantiatePersistentHistograms(const base::FilePath& metrics_dir) {
       }
     }
     // Schedule the creation of a "spare" file for use on the next run.
-    base::PostDelayedTaskWithTraits(
+    base::ThreadPool::PostDelayedTask(
         FROM_HERE,
         {base::MayBlock(), base::TaskPriority::LOWEST,
          base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN},
@@ -211,7 +212,7 @@ void InstantiatePersistentHistograms(const base::FilePath& metrics_dir) {
   allocator->CreateTrackingHistograms(kBrowserMetricsName);
 
 #if defined(OS_WIN)
-  base::PostDelayedTaskWithTraits(
+  base::ThreadPool::PostDelayedTask(
       FROM_HERE,
       {base::MayBlock(), base::TaskPriority::LOWEST,
        base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN},

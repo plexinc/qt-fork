@@ -63,27 +63,11 @@ void LayoutTextControl::StyleDidChange(StyleDifference diff,
     // (see: GetUncachedSelectionStyle in SelectionPaintingUtils.cpp) so ensure
     // the inner editor selection is invalidated anytime style changes and a
     // ::selection style is or was present on LayoutTextControl.
-    if (StyleRef().HasPseudoStyle(kPseudoIdSelection) ||
-        (old_style && old_style->HasPseudoStyle(kPseudoIdSelection))) {
+    if (StyleRef().HasPseudoElementStyle(kPseudoIdSelection) ||
+        (old_style && old_style->HasPseudoElementStyle(kPseudoIdSelection))) {
       inner_editor_layout_object->InvalidateSelectedChildrenOnStyleChange();
     }
   }
-}
-
-int LayoutTextControl::TextBlockLogicalHeight() const {
-  return (LogicalHeight() - BorderAndPaddingLogicalHeight()).ToInt();
-}
-
-int LayoutTextControl::TextBlockLogicalWidth() const {
-  Element* inner_editor = InnerEditorElement();
-  DCHECK(inner_editor);
-
-  LayoutUnit unit_width = LogicalWidth() - BorderAndPaddingLogicalWidth();
-  if (inner_editor->GetLayoutObject())
-    unit_width -= inner_editor->GetLayoutBox()->PaddingStart() +
-                  inner_editor->GetLayoutBox()->PaddingEnd();
-
-  return unit_width.ToInt();
 }
 
 int LayoutTextControl::ScrollbarThickness() const {
@@ -132,10 +116,10 @@ void LayoutTextControl::HitInnerEditorElement(
   if (!inner_editor->GetLayoutObject())
     return;
 
-  PhysicalOffset local_point = hit_test_location.Point() - accumulated_offset -
-                               inner_editor->GetLayoutBox()->PhysicalLocation();
-  if (HasOverflowClip())
-    local_point += PhysicalOffset(ScrolledContentOffset());
+  PhysicalOffset local_point =
+      hit_test_location.Point() - accumulated_offset -
+      inner_editor->GetLayoutObject()->LocalToAncestorPoint(PhysicalOffset(),
+                                                            this);
   result.SetNodeAndPosition(inner_editor, local_point);
 }
 
@@ -224,77 +208,25 @@ float LayoutTextControl::GetAvgCharWidth(const AtomicString& family) const {
   return font.Width(text_run);
 }
 
-float LayoutTextControl::ScaleEmToUnits(int x) const {
-  // This matches the unitsPerEm value for MS Shell Dlg and Courier New from the
-  // "head" font table.
-  float units_per_em = 2048.0f;
-  return roundf(StyleRef().GetFont().GetFontDescription().ComputedSize() * x /
-                units_per_em);
-}
+MinMaxSizes LayoutTextControl::ComputeIntrinsicLogicalWidths() const {
+  MinMaxSizes sizes;
+  sizes += BorderAndPaddingLogicalWidth();
 
-void LayoutTextControl::ComputeIntrinsicLogicalWidths(
-    LayoutUnit& min_logical_width,
-    LayoutUnit& max_logical_width) const {
   // Use average character width. Matches IE.
   AtomicString family =
       StyleRef().GetFont().GetFontDescription().Family().Family();
-  max_logical_width = PreferredContentLogicalWidth(
+  sizes.max_size += PreferredContentLogicalWidth(
       const_cast<LayoutTextControl*>(this)->GetAvgCharWidth(family));
   if (InnerEditorElement()) {
     if (LayoutBox* inner_editor_layout_box =
-            InnerEditorElement()->GetLayoutBox())
-      max_logical_width += inner_editor_layout_box->PaddingStart() +
-                           inner_editor_layout_box->PaddingEnd();
+            InnerEditorElement()->GetLayoutBox()) {
+      sizes.max_size += inner_editor_layout_box->PaddingStart() +
+                        inner_editor_layout_box->PaddingEnd();
+    }
   }
   if (!StyleRef().LogicalWidth().IsPercentOrCalc())
-    min_logical_width = max_logical_width;
-}
-
-void LayoutTextControl::ComputePreferredLogicalWidths() {
-  DCHECK(PreferredLogicalWidthsDirty());
-
-  min_preferred_logical_width_ = LayoutUnit();
-  max_preferred_logical_width_ = LayoutUnit();
-  const ComputedStyle& style_to_use = StyleRef();
-
-  if (style_to_use.LogicalWidth().IsFixed() &&
-      style_to_use.LogicalWidth().Value() >= 0)
-    min_preferred_logical_width_ = max_preferred_logical_width_ =
-        AdjustContentBoxLogicalWidthForBoxSizing(
-            style_to_use.LogicalWidth().Value());
-  else
-    ComputeIntrinsicLogicalWidths(min_preferred_logical_width_,
-                                  max_preferred_logical_width_);
-
-  if (style_to_use.LogicalMinWidth().IsFixed() &&
-      style_to_use.LogicalMinWidth().Value() > 0) {
-    max_preferred_logical_width_ =
-        std::max(max_preferred_logical_width_,
-                 AdjustContentBoxLogicalWidthForBoxSizing(
-                     style_to_use.LogicalMinWidth().Value()));
-    min_preferred_logical_width_ =
-        std::max(min_preferred_logical_width_,
-                 AdjustContentBoxLogicalWidthForBoxSizing(
-                     style_to_use.LogicalMinWidth().Value()));
-  }
-
-  if (style_to_use.LogicalMaxWidth().IsFixed()) {
-    max_preferred_logical_width_ =
-        std::min(max_preferred_logical_width_,
-                 AdjustContentBoxLogicalWidthForBoxSizing(
-                     style_to_use.LogicalMaxWidth().Value()));
-    min_preferred_logical_width_ =
-        std::min(min_preferred_logical_width_,
-                 AdjustContentBoxLogicalWidthForBoxSizing(
-                     style_to_use.LogicalMaxWidth().Value()));
-  }
-
-  LayoutUnit to_add = BorderAndPaddingLogicalWidth();
-
-  min_preferred_logical_width_ += to_add;
-  max_preferred_logical_width_ += to_add;
-
-  ClearPreferredLogicalWidthsDirty();
+    sizes.min_size = sizes.max_size;
+  return sizes;
 }
 
 void LayoutTextControl::AddOutlineRects(Vector<PhysicalRect>& rects,
