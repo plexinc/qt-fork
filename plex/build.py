@@ -51,7 +51,6 @@ class Build:
     "-pch",
     "-no-qml-debug",
     "-no-openssl",
-    "-c++std c++14",
   ]
 
   prefix = "qt-install"
@@ -278,8 +277,7 @@ class Build:
   def _get_vs_dir(self):
     import json
     self._download_vswhere()
-    vswhere = sp.run([str(Path.cwd() / "vswhere.exe"), "-format", "json",
-                      "-version", "15.0"], stdout=sp.PIPE)
+    vswhere = sp.run([str(Path.cwd() / "vswhere.exe"), "-format", "json", "-products", "Microsoft.VisualStudio.Product.BuildTools"], stdout=sp.PIPE)
     vswhere.check_returncode()
     vs_data = json.loads(vswhere.stdout.decode())
     return vs_data[0]["installationPath"]
