@@ -5,6 +5,7 @@
 #ifndef COMPONENTS_BOOKMARKS_BROWSER_BOOKMARK_EXPANDED_STATE_TRACKER_H_
 #define COMPONENTS_BOOKMARKS_BROWSER_BOOKMARK_EXPANDED_STATE_TRACKER_H_
 
+#include <cstddef>
 #include <set>
 
 #include "base/macros.h"

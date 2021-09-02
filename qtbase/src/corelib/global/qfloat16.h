@@ -41,6 +41,7 @@
 #ifndef QFLOAT16_H
 #define QFLOAT16_H
 
+#include <limits>
 #include <QtCore/qglobal.h>
 #include <QtCore/qmetatype.h>
 #include <string.h>

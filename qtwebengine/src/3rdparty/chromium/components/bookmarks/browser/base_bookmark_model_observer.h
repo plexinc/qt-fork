@@ -5,6 +5,7 @@
 #ifndef COMPONENTS_BOOKMARKS_BROWSER_BASE_BOOKMARK_MODEL_OBSERVER_H_
 #define COMPONENTS_BOOKMARKS_BROWSER_BASE_BOOKMARK_MODEL_OBSERVER_H_
 
+#include <cstddef>
 #include "base/macros.h"
 #include "components/bookmarks/browser/bookmark_model_observer.h"
 
