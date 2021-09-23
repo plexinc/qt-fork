@@ -15,6 +15,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <memory>
 
 #include "base/bind.h"
 #include "base/compiler_specific.h"
@@ -98,8 +99,10 @@ bool ChrootToSafeEmptyDir() {
   // attempt this optimization.
   clone_flags |= CLONE_VM | CLONE_VFORK | CLONE_SETTLS;
 
-  char tls_buf[PTHREAD_STACK_MIN] = {0};
-  tls = tls_buf;
+  std::unique_ptr<char[]> tls_buf(new char[PTHREAD_STACK_MIN]);
+  memset(tls_buf.get(), 0, PTHREAD_STACK_MIN);
+
+  tls = tls_buf.get();
 #endif
 
   pid = clone(ChrootToSelfFdinfo, stack, clone_flags, nullptr, nullptr, tls,
